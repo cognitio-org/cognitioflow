@@ -16,6 +16,9 @@ load_dotenv(".env.local", override=True)
 load_dotenv()
 
 
+MIGRATION_LOCK = 5_381_320_547  # arbitrary, constant key for pg_advisory_xact_lock
+
+
 def run(database_url: str | None = None) -> None:
     import psycopg
 
@@ -26,6 +29,9 @@ def run(database_url: str | None = None) -> None:
     migrations_dir = Path(__file__).parent / "migrations"
 
     with psycopg.connect(url) as conn:
+        # Cloud Run can cold-start two instances at once and both run migrations. A transaction-scoped
+        # advisory lock serialises them and, unlike a session lock, also holds through Neon's pooler.
+        conn.execute("SELECT pg_advisory_xact_lock(%s)", (MIGRATION_LOCK,))
         conn.execute("""
             CREATE TABLE IF NOT EXISTS schema_migrations (
                 version    TEXT PRIMARY KEY,
@@ -45,6 +51,12 @@ def run(database_url: str | None = None) -> None:
             version = f.stem
             if version in applied:
                 print(f"  skip  {version} (already applied)")
+                continue
+
+            conn.execute("SELECT pg_advisory_xact_lock(%s)", (MIGRATION_LOCK,))
+            if conn.execute("SELECT 1 FROM schema_migrations WHERE version=%s", (version,)).fetchone():
+                conn.commit()  # another instance applied it while we waited for the lock
+                print(f"  skip  {version} (applied concurrently)")
                 continue
 
             print(f"  apply {version} …", end="", flush=True)
