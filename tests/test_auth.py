@@ -204,7 +204,8 @@ def test_logout_clears_cookie(web):
 
 def test_auth_off_signs_in_as_matej(client, pg, monkeypatch):
     monkeypatch.setenv("AUTH", "off")
-    monkeypatch.setenv("MATEJ_EMAIL", "matej@mgms.eu")
+    monkeypatch.setenv("ALLOWED_EMAILS", "matej@mgms.eu, second@example.com")
+    monkeypatch.setenv("MATEJ_EMAIL", "someone-else@example.com")  # ignored: the bypass uses the allow-list
     monkeypatch.delenv("ENV", raising=False)
     assert client.get("/", follow_redirects=False).status_code == 200
     cfg = client.get("/api/config").json()
@@ -238,7 +239,9 @@ def test_check_env_rules(tmp_path):
         enforce({**base, "ENV": "production", "AUTH": "off"})
     with pytest.raises(RuntimeError, match="GOOGLE_CLIENT_SECRET"):
         enforce({**base, "ENV": "production", "GOOGLE_CLIENT_SECRET": ""})
-    enforce({"DATABASE_URL": "x", "AUTH": "off", "MATEJ_EMAIL": "m@x"})              # dev bypass boots
+    enforce({"DATABASE_URL": "x", "AUTH": "off", "ALLOWED_EMAILS": "m@x"})           # dev bypass boots
+    with pytest.raises(RuntimeError, match="ALLOWED_EMAILS"):
+        enforce({"DATABASE_URL": "x", "AUTH": "off", "MATEJ_EMAIL": "m@x"})          # bypass needs an allow-list, not MATEJ_EMAIL
     enforce({"DATABASE_URL": "x", "SESSION_SECRET": "short"})                         # dev without OAuth client boots (warns)
     with pytest.raises(RuntimeError, match="SESSION_SECRET"):
         enforce({"DATABASE_URL": "x"})                                                # auth on needs a secret

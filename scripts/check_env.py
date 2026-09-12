@@ -5,7 +5,7 @@ List missing or unsafe environment configuration; exit non-zero if anything is w
     python3 scripts/check_env.py        # reads .env.local / .env the same way run.py does
 
 Secrets (Secret Manager in cloud, mounted as env vars): ANTHROPIC_API_KEY, DATABASE_URL,
-SESSION_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET. Plain env: ENV, AUTH, ALLOWED_EMAILS, MATEJ_EMAIL.
+SESSION_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET. Plain env: ENV, AUTH, ALLOWED_EMAILS.
 
 run.py calls enforce() at startup. With ENV=production every problem is fatal (including AUTH=off).
 In dev only problems that make the app unusable are fatal; the rest print as warnings, so a
@@ -28,7 +28,7 @@ def problems(env=None) -> list:
         if off: out.append(("AUTH=off is not allowed when ENV=production", True))
         need("ANTHROPIC_API_KEY")
     if off and not prod:
-        need("MATEJ_EMAIL")
+        need("ALLOWED_EMAILS")  # the bypass signs in as its first address
     else:
         need("SESSION_SECRET")
         if 0 < len(get("SESSION_SECRET")) < 32: out.append(("SESSION_SECRET is shorter than 32 characters", False))

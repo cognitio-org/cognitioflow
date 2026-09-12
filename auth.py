@@ -7,8 +7,9 @@ Google sign-in (Phase 4). The signed session cookie is the only credential: no B
 
 Middleware: every path except /auth/*, /static/* and /healthz needs a session;
 /api/* answers 401 JSON, anything else redirects to /auth/login.
-AUTH=off signs every request in as MATEJ_EMAIL (docker dev and tests); scripts/check_env.py
-refuses to boot with it when ENV=production.
+AUTH=off signs every request in as the first ALLOWED_EMAILS address (docker dev and tests), so the
+bypass user is always one real sign-in would admit; scripts/check_env.py refuses to boot with it
+when ENV=production or when ALLOWED_EMAILS is empty.
 Config is read from os.environ per request, so tests can flip it.
 """
 import html, json, os, time, uuid
@@ -56,8 +57,8 @@ def _public(path: str) -> bool:
 
 def _identity(session: dict):
     if auth_off():
-        email = os.environ.get("MATEJ_EMAIL", "").strip().lower()
-        return {"email": email, "name": ""} if email else None
+        first = next((e.strip().lower() for e in os.environ.get("ALLOWED_EMAILS", "").split(",") if e.strip()), "")
+        return {"email": first, "name": ""} if first else None
     u = session.get("user")
     if isinstance(u, dict) and str(u.get("email", "")).lower() in allowed_emails():  # re-checked every request
         return {"email": u["email"].lower(), "name": u.get("name", "")}
