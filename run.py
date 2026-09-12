@@ -150,7 +150,13 @@ def kind_of(name: str) -> str:
             "png": "image", "jpg": "image", "jpeg": "image", "webp": "image"}.get(ext, "text")
 
 # ---------------------------------------------------------------- app
+from fastapi import Depends
+import auth
+from auth import current_user
+from scripts.check_env import enforce as check_env
+check_env()  # refuses to boot on ENV=production + AUTH=off or missing secrets
 app = FastAPI(title="CognitioFlow")
+auth.install(app, db)  # session middleware + /auth/* routes; everything else needs a signed-in user
 init()
 
 class CourseIn(BaseModel): name: str; accent: str = "#24467a"; tutor_prompt: str = ""
@@ -168,8 +174,11 @@ def rows(q, *a):
 @app.get("/")
 def index(): return FileResponse(ROOT / "static" / "index.html")
 
+@app.get("/healthz")
+def healthz(): return {"ok": True}
+
 @app.get("/api/config")
-def config(): return {"model": MODEL, "cheap_model": CHEAP_MODEL, "strong_model": STRONG_MODEL, "models": MODELS,
+def config(user: dict = Depends(current_user)): return {"email": user["email"], "model": MODEL, "cheap_model": CHEAP_MODEL, "strong_model": STRONG_MODEL, "models": MODELS,
                       "has_key": bool(os.environ.get("ANTHROPIC_API_KEY"))}
 
 # courses
@@ -177,9 +186,9 @@ def config(): return {"model": MODEL, "cheap_model": CHEAP_MODEL, "strong_model"
 def courses(): return rows("SELECT * FROM courses ORDER BY created")
 
 @app.post("/api/courses")
-def add_course(c: CourseIn):
+def add_course(c: CourseIn, user: dict = Depends(current_user)):
     cid = uuid.uuid4().hex[:8]
-    with db() as d: d.execute("INSERT INTO courses(id,name,accent,tutor_prompt,created) VALUES(?,?,?,?,?)", (cid, c.name, c.accent, c.tutor_prompt, time.time()))
+    with db() as d: d.execute("INSERT INTO courses(id,name,accent,tutor_prompt,created,user_id) VALUES(?,?,?,?,?,?)", (cid, c.name, c.accent, c.tutor_prompt, time.time(), user["id"]))
     return {"id": cid}
 
 @app.put("/api/courses/{cid}")
