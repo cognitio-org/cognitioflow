@@ -133,7 +133,7 @@ def migrate(sqlite_path: str, dry_run: bool) -> None:
 
         # Migration 006 filled cards.week from each card's source file only for cards that existed when it ran;
         # production was empty then, so do the same lookup for the rows just copied.
-        if conn.execute("SELECT 1 FROM information_schema.columns WHERE table_name='cards' AND column_name='week'").fetchone():
+        if not dry_run and conn.execute("SELECT 1 FROM information_schema.columns WHERE table_name='cards' AND column_name='week'").fetchone():
             cur = conn.execute(
                 "UPDATE cards c SET week = (SELECT MIN(f.week) FROM files f WHERE f.course_id = c.course_id AND f.name = c.source AND f.week <> '') "
                 "WHERE COALESCE(c.week, '') = '' AND EXISTS "
