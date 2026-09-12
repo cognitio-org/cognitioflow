@@ -2,9 +2,11 @@
 
 Branch: `phase-7-cutover` (scripts and docs only). Depends on everything.
 
-## Decisions [Matej]
-- **Cutover date/time** — pick a moment with no lectures for ~2 hours.
-- **Keep the Mac worker?** Recommended yes (free, better transcription). Install via `worker/README.md`.
+## Decisions
+- **Cutover date/time [Matej, open]** — pick a ~2-hour slot with no lectures once Phase 5 is live.
+- **Mac worker:** dropped (2026-09-12). Hosted STT only; Files-screen upload is the only ingest.
+- **Neon plan:** Free (2026-09-12).
+- **Backup bucket:** `cognitioflow-backups`, Coldline, `europe-west4` (2026-09-12).
 
 ## Objective
 Move the real data once, cleanly, verify it, switch to the cloud URL, and make sure nothing in `data/` on iCloud is load-bearing any more. Set up backups that need no laptop.
@@ -15,13 +17,12 @@ Move the real data once, cleanly, verify it, switch to the cloud URL, and make s
 3. `python migrate_storage.py --data ~/Desktop/cognitioflow/data --dry-run` → counts → run → `--verify` (HEAD each object).
 4. In the cloud app: Files screen shows every file under the right week with text; Notes open with recordings that play and seek; Recall due count matches the last laptop count you noted; Planner agenda intact; Progress case index intact.
 5. Reconcile one note end-to-end and transcribe one short recording in the cloud to prove the model and STT paths.
-6. Install `cf-worker` (launchd) and point `cf-worker watch` at a fresh `~/CognitioFlow/inbox`.
-7. Bookmark the Cloud Run URL; install as PWA (Chrome → Install app). Remove `Start CognitioFlow.command` from the Dock.
-8. Leave the Desktop folder in place for two weeks, untouched. Then archive `data-final-*` to iCloud cold storage and delete the working copy.
+6. Bookmark the Cloud Run URL; install as PWA (Chrome → Install app). Remove `Start CognitioFlow.command` from the Dock.
+7. Leave the Desktop folder in place for two weeks, untouched. Then archive `data-final-*` to iCloud cold storage and delete the working copy.
 
 ## Backups (agent delivers)
-- Neon: enable point-in-time restore (7 days on free/Launch); document `neonctl branches create --parent main@<timestamp>` as the restore path.
-- Bucket: object versioning on; a Cloud Scheduler job monthly copying `neon pg_dump` (via a Cloud Run job) + bucket snapshot to a second, cold bucket. `infra/backup.sh` + restore instructions tested once end-to-end on a Neon branch.
+- Neon: use the Free plan's point-in-time restore window (much shorter than the 7 days this brief originally assumed — confirm the current limit in the Neon console and state it in the README); document `neonctl branches create --parent main@<timestamp>` as the restore path.
+- Bucket: object versioning on; a Cloud Scheduler job **weekly** (decided 2026-09-12 — the Free plan's short restore window makes this the real safety net) copying `neon pg_dump` (via a Cloud Run job) + bucket snapshot to a second, cold bucket (`cognitioflow-backups`). `infra/backup.sh` + restore instructions tested once end-to-end on a Neon branch.
 - `scripts/export_all.py`: dumps every course as a folder of Markdown notes + a cards CSV + audio, so there is always a plain-files exit from the app.
 
 ## Acceptance

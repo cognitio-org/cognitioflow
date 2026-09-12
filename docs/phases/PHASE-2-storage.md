@@ -35,7 +35,7 @@ Key layout: `courses/{cid}/files/{fid}/{original_name}` and `notes/{nid}/audio/{
 3. Tutor images (L199): `storage.get(key)` instead of `p.read_bytes()`. Respect `MAX_IMAGES`.
 4. Audio finish (L523) / serve (L535) / delete (L541): same pattern. Serve must support HTTP range requests for `<audio>` seeking — use a redirect to a signed URL on gcs; for local, add range handling.
 5. Delete file (L170): `storage.delete(key)` then DB row.
-6. **Remove the watched folder** (L831–870, `WATCH`, `/api/courses/{cid}/watch`, `/scan`, the `watch_root` field in `/api/config`). In `index.html`, remove the "Drop files in Finder" hint and the Scan button by deleting their elements — keep every other `id`/`data-` attribute. The Files-screen upload is the only ingest until the Phase 3 worker restores folder-watching.
+6. **Remove the watched folder** (L831–870, `WATCH`, `/api/courses/{cid}/watch`, `/scan`, the `watch_root` field in `/api/config`). In `index.html`, remove the "Drop files in Finder" hint and the Scan button by deleting their elements — keep every other `id`/`data-` attribute. The Files-screen upload becomes the only ingest; folder-watching is not coming back (local worker dropped 2026-09-12).
 7. `migrate_storage.py`: walks `data/uploads` and `data/audio` from the old build, uploads each to the bucket under the new key layout, updates `files.key` / `recordings.key`. Idempotent, `--dry-run`, count check, non-zero exit on mismatch. Not run against prod until Phase 7.
 
 ## Acceptance
