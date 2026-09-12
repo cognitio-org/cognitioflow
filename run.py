@@ -4,7 +4,8 @@ Run:  python run.py   then open http://localhost:8000
 Everything lives in ./data (SQLite + uploaded files). Nothing leaves your Mac except tutor calls to the Claude API.
 """
 import re
-import base64, io, json, os, sqlite3, time, uuid
+import base64, io, json, os, time, uuid
+from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
@@ -15,10 +16,11 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+load_dotenv(".env.local", override=True)
 load_dotenv()
+
 ROOT = Path(__file__).parent
 DATA = ROOT / "data"; UPLOADS = DATA / "uploads"; UPLOADS.mkdir(parents=True, exist_ok=True); AUDIO = DATA / "audio"; AUDIO.mkdir(exist_ok=True)
-DB = DATA / "cognitioflow.db"
 WATCH = DATA / "watch"; WATCH.mkdir(exist_ok=True)
 
 MODEL = os.environ.get("CF_MODEL", "claude-sonnet-4-6")            # drilling / explaining / notes
@@ -29,30 +31,49 @@ CONTEXT_CHAR_BUDGET = int(os.environ.get("CF_CONTEXT_CHARS", "180000"))  # ~45k 
 MAX_IMAGES = 6
 
 # ---------------------------------------------------------------- DB
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
+
+_DATABASE_URL = os.environ.get("DATABASE_URL")
+if not _DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL is required — copy env.local.example to .env.local and set it."
+    )
+
+_pool = ConnectionPool(_DATABASE_URL, min_size=1, max_size=10, open=True, kwargs={"row_factory": dict_row})
+
+
+class _Conn:
+    """Wraps a psycopg connection; converts ? placeholders to %s at execute time."""
+    def __init__(self, conn):
+        self._c = conn
+
+    def execute(self, q, params=()):
+        # Escape literal % (e.g. LIKE patterns) before converting ? → %s placeholders
+        q = q.replace("%", "%%").replace("?", "%s")
+        return self._c.execute(q, params)
+
+
+@contextmanager
 def db():
-    c = sqlite3.connect(DB); c.row_factory = sqlite3.Row; return c
+    """Pooled connection context manager; commits on success, rolls back on exception."""
+    with _pool.connection() as conn:
+        yield _Conn(conn)
+
 
 def init():
-    with db() as c:
-        c.executescript("""
-        CREATE TABLE IF NOT EXISTS courses(id TEXT PRIMARY KEY, name TEXT, accent TEXT, tutor_prompt TEXT DEFAULT '', created REAL);
-        CREATE TABLE IF NOT EXISTS files(id TEXT PRIMARY KEY, course_id TEXT, name TEXT, kind TEXT, path TEXT, text TEXT, chars INTEGER,
-            selected INTEGER DEFAULT 1, status TEXT, week TEXT DEFAULT '', created REAL);
-        CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY, course_id TEXT, role TEXT, content TEXT, created REAL);
-        CREATE TABLE IF NOT EXISTS notes(id TEXT PRIMARY KEY, course_id TEXT, title TEXT, body TEXT, updated REAL);
-        CREATE TABLE IF NOT EXISTS cards(id TEXT PRIMARY KEY, course_id TEXT, front TEXT, back TEXT, source TEXT DEFAULT '',
-            ease REAL DEFAULT 2.5, interval INTEGER DEFAULT 0, reps INTEGER DEFAULT 0, due TEXT, created REAL);
-        CREATE TABLE IF NOT EXISTS reviews(id TEXT PRIMARY KEY, card_id TEXT, rating INTEGER, created REAL);
-        CREATE TABLE IF NOT EXISTS note_versions(id TEXT PRIMARY KEY, note_id TEXT, title TEXT, body TEXT, created REAL);
-        CREATE TABLE IF NOT EXISTS recordings(id TEXT PRIMARY KEY, note_id TEXT, path TEXT, started REAL, seconds REAL DEFAULT 0);
-        CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, course_id TEXT, day TEXT, topic TEXT, minutes INTEGER, done INTEGER DEFAULT 0);
-        """)
-        if not c.execute("SELECT 1 FROM courses").fetchone():
-            c.execute("INSERT INTO courses VALUES(?,?,?,?,?)", ("eu", "European Law", "#24467a", EU_PROMPT, time.time()))
-            c.execute("INSERT INTO courses VALUES(?,?,?,?,?)", ("prop", "Property Law", "#2e6b4a", PROP_PROMPT, time.time()))
+    import migrate as _migrate
+    _migrate.run(_DATABASE_URL)
+    with db() as d:
+        if not d.execute("SELECT 1 FROM courses LIMIT 1").fetchone():
+            d.execute("INSERT INTO courses(id,name,accent,tutor_prompt,created) VALUES(?,?,?,?,?)",
+                      ("eu", "European Law", "#24467a", EU_PROMPT, time.time()))
+            d.execute("INSERT INTO courses(id,name,accent,tutor_prompt,created) VALUES(?,?,?,?,?)",
+                      ("prop", "Property Law", "#2e6b4a", PROP_PROMPT, time.time()))
         # existing installs: fill an empty Property Law prompt from prompts/property_law.md once
         if PROP_PROMPT:
-            c.execute("UPDATE courses SET tutor_prompt=? WHERE id='prop' AND (tutor_prompt IS NULL OR tutor_prompt='')", (PROP_PROMPT,))
+            d.execute("UPDATE courses SET tutor_prompt=? WHERE id='prop' AND (tutor_prompt IS NULL OR tutor_prompt='')",
+                      (PROP_PROMPT,))
 
 BASE_PROMPT = """You are the study tutor inside CognitioFlow, a private local workspace for Matej, a law student at the University of Groningen.
 Working method (standing instructions):
@@ -114,7 +135,8 @@ class ChatIn(BaseModel): message: str; mode: str = "drill"; model: Optional[str]
 class GenIn(BaseModel): file_id: Optional[str] = None; count: int = 8; model: Optional[str] = None
 
 def rows(q, *a):
-    with db() as c: return [dict(r) for r in c.execute(q, a).fetchall()]
+    with db() as c:
+        return list(c.execute(q, a).fetchall())
 
 @app.get("/")
 def index(): return FileResponse(ROOT / "static" / "index.html")
@@ -504,7 +526,7 @@ def _transcribe(rid: str, nid: str, lang: str):
                 block = f"\n\n## Live capture — transcript {stamp} (cleaned)\n" + text
             except Exception as e: print("clean skipped:", e)
         with db() as d:
-            body = d.execute("SELECT body FROM notes WHERE id=?", (nid,)).fetchone()[0]
+            body = d.execute("SELECT body FROM notes WHERE id=?", (nid,)).fetchone()["body"]
             d.execute("UPDATE notes SET body=?, updated=? WHERE id=?", (body.rstrip() + block, time.time(), nid))
         _jobs[rid] = {"status": "done", "chars": len(text), "language": info.language, "cleaned": cleaned}
     except Exception as e:
@@ -651,10 +673,9 @@ def auto_plan(cid: str, p: PlanIn):
     if not course: raise HTTPException(404)
     start = p.start or dt.date.today().isoformat()
     planning = rows("SELECT name,text FROM files WHERE course_id=? AND (lower(name) LIKE '%plan%' OR lower(name) LIKE '%overview%' OR lower(name) LIKE '%exam%' OR lower(name) LIKE '%content%')", cid)
-    by_week = rows("SELECT week, COUNT(*) AS n, GROUP_CONCAT(name, ' | ') AS names FROM files WHERE course_id=? GROUP BY week ORDER BY week", cid)
+    by_week = rows("SELECT week, COUNT(*) AS n, string_agg(name, ' | ' ORDER BY name) AS names FROM files WHERE course_id=? GROUP BY week ORDER BY week", cid)
     notes_ = rows("SELECT title FROM notes WHERE course_id=?", cid)
-    now = time.time()
-    due = rows("SELECT COUNT(*) AS n FROM cards WHERE course_id=? AND due<=?", cid, now)[0]["n"]
+    due = rows("SELECT COUNT(*) AS n FROM cards WHERE course_id=? AND due<=?", cid, date.today().isoformat())[0]["n"]
     existing = rows("SELECT day,topic,minutes,done FROM sessions WHERE course_id=? AND day>=? ORDER BY day", cid, start)
     ctx = "\n\n".join(f"=== {f['name']} ===\n{f['text'][:6000]}" for f in planning)
     state = {"today": start, "days_to_plan": p.days, "minutes_per_day": p.minutes_per_day,
@@ -735,13 +756,13 @@ def del_session(sid: str):
 def stats(cid: str):
     today = date.today().isoformat()
     with db() as d:
-        total = d.execute("SELECT COUNT(*) FROM cards WHERE course_id=?", (cid,)).fetchone()[0]
-        due = d.execute("SELECT COUNT(*) FROM cards WHERE course_id=? AND due<=?", (cid, today)).fetchone()[0]
-        retained = d.execute("SELECT COUNT(*) FROM cards WHERE course_id=? AND interval>=6", (cid,)).fetchone()[0]
-        reviews = d.execute("SELECT r.rating,r.created FROM reviews r JOIN cards c ON c.id=r.card_id WHERE c.course_id=?", (cid,)).fetchall()
-        files_n = d.execute("SELECT COUNT(*),COALESCE(SUM(chars),0) FROM files WHERE course_id=?", (cid,)).fetchone()
-        minutes = d.execute("SELECT COALESCE(SUM(minutes),0) FROM sessions WHERE course_id=? AND done=1", (cid,)).fetchone()[0]
-        msgs = d.execute("SELECT COUNT(*) FROM messages WHERE course_id=? AND role='user'", (cid,)).fetchone()[0]
+        total    = d.execute("SELECT COUNT(*) AS n FROM cards WHERE course_id=?", (cid,)).fetchone()["n"]
+        due      = d.execute("SELECT COUNT(*) AS n FROM cards WHERE course_id=? AND due<=?", (cid, today)).fetchone()["n"]
+        retained = d.execute("SELECT COUNT(*) AS n FROM cards WHERE course_id=? AND interval>=6", (cid,)).fetchone()["n"]
+        reviews  = d.execute("SELECT r.rating,r.created FROM reviews r JOIN cards c ON c.id=r.card_id WHERE c.course_id=?", (cid,)).fetchall()
+        files_n  = d.execute("SELECT COUNT(*) AS n, COALESCE(SUM(chars),0) AS total_chars FROM files WHERE course_id=?", (cid,)).fetchone()
+        minutes  = d.execute("SELECT COALESCE(SUM(minutes),0) AS n FROM sessions WHERE course_id=? AND done=1", (cid,)).fetchone()["n"]
+        msgs     = d.execute("SELECT COUNT(*) AS n FROM messages WHERE course_id=? AND role='user'", (cid,)).fetchone()["n"]
     days = sorted({date.fromtimestamp(r["created"]).isoformat() for r in reviews}, reverse=True)
     streak, d0 = 0, date.today()
     for dd in days:
@@ -749,7 +770,7 @@ def stats(cid: str):
         else: break
     acc = round(100 * sum(1 for r in reviews if r["rating"] >= 2) / len(reviews)) if reviews else None
     return {"cards": total, "due": due, "retained": retained, "reviews": len(reviews), "recall_accuracy": acc,
-            "streak": streak, "files": files_n[0], "file_chars": files_n[1], "study_minutes": minutes, "questions_asked": msgs}
+            "streak": streak, "files": files_n["n"], "file_chars": files_n["total_chars"], "study_minutes": minutes, "questions_asked": msgs}
 
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
