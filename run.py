@@ -4,24 +4,24 @@ Run:  python run.py   then open http://localhost:8000
 Everything lives in ./data (SQLite + uploaded files). Nothing leaves your Mac except tutor calls to the Claude API.
 """
 import re
-import base64, io, json, os, time, uuid
+import base64, io, json, mimetypes, os, tempfile, time, uuid
 from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+import storage
 
 load_dotenv(".env.local", override=True)
 load_dotenv()
 
 ROOT = Path(__file__).parent
-DATA = ROOT / "data"; UPLOADS = DATA / "uploads"; UPLOADS.mkdir(parents=True, exist_ok=True); AUDIO = DATA / "audio"; AUDIO.mkdir(exist_ok=True)
-WATCH = DATA / "watch"; WATCH.mkdir(exist_ok=True)
 
 MODEL = os.environ.get("CF_MODEL", "claude-sonnet-4-6")            # drilling / explaining / notes
 CHEAP_MODEL = os.environ.get("CF_CHEAP_MODEL", "claude-haiku-4-5")  # card generation, bulk work
@@ -37,7 +37,7 @@ from psycopg_pool import ConnectionPool
 _DATABASE_URL = os.environ.get("DATABASE_URL")
 if not _DATABASE_URL:
     raise RuntimeError(
-        "DATABASE_URL is required — copy env.local.example to .env.local and set it."
+        "DATABASE_URL is required — copy .env.local.example to .env.local and set it."
     )
 
 _pool = ConnectionPool(_DATABASE_URL, min_size=1, max_size=10, open=True, kwargs={"row_factory": dict_row})
@@ -117,6 +117,33 @@ def extract(path: Path, kind: str) -> str:
         return f"[extraction failed: {e}]"
     return ""
 
+def extract_bytes(data: bytes, name: str, kind: str) -> str:
+    """extract() for uploaded bytes. pypdf/python-pptx/python-docx want a path, so they get a temp file that is gone straight after."""
+    if kind == "text": return data.decode(errors="ignore")
+    with tempfile.NamedTemporaryFile(suffix=Path(name).suffix) as tmp:
+        tmp.write(data); tmp.flush()
+        return extract(Path(tmp.name), kind)
+
+def serve_object(key: str, request: Request, media_type: str, filename: Optional[str] = None, expires_s: int = 3600):
+    """Send a stored object to the browser: redirect to a signed URL where storage can sign one,
+    otherwise stream it with byte-range support so <audio> can seek."""
+    if not key: raise HTTPException(404)
+    signed = storage.url(key, expires_s, filename=filename, content_type=media_type)
+    if signed: return RedirectResponse(signed, status_code=302)
+    try: size = storage.size(key)
+    except storage.NotFound: raise HTTPException(404)
+    headers = {"Accept-Ranges": "bytes"}
+    if filename: headers["Content-Disposition"] = storage.content_disposition(filename)
+    m = re.fullmatch(r"bytes=(\d*)-(\d*)", request.headers.get("range", "").strip())
+    if m and (m.group(1) or m.group(2)):
+        if m.group(1): start, end = int(m.group(1)), min(int(m.group(2)) if m.group(2) else size - 1, size - 1)
+        else: start, end = max(size - int(m.group(2)), 0), size - 1
+        if start > end: return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
+        headers.update({"Content-Range": f"bytes {start}-{end}/{size}", "Content-Length": str(end - start + 1)})
+        return StreamingResponse(storage.stream(key, start, end), status_code=206, media_type=media_type, headers=headers)
+    headers["Content-Length"] = str(size)
+    return StreamingResponse(storage.stream(key), media_type=media_type, headers=headers)
+
 def kind_of(name: str) -> str:
     ext = name.lower().rsplit(".", 1)[-1] if "." in name else ""
     return {"pdf": "pdf", "pptx": "pptx", "docx": "docx", "txt": "text", "md": "text", "vtt": "text", "srt": "text",
@@ -143,7 +170,7 @@ def index(): return FileResponse(ROOT / "static" / "index.html")
 
 @app.get("/api/config")
 def config(): return {"model": MODEL, "cheap_model": CHEAP_MODEL, "strong_model": STRONG_MODEL, "models": MODELS,
-                      "has_key": bool(os.environ.get("ANTHROPIC_API_KEY")), "watch_root": str(WATCH)}
+                      "has_key": bool(os.environ.get("ANTHROPIC_API_KEY"))}
 
 # courses
 @app.get("/api/courses")
@@ -168,13 +195,14 @@ def files(cid: str):
 @app.post("/api/courses/{cid}/files")
 async def upload(cid: str, file: UploadFile = File(...), week: str = Form("")):
     fid = uuid.uuid4().hex; kind = kind_of(file.filename)
-    dest = UPLOADS / f"{fid}_{file.filename}"
-    dest.write_bytes(await file.read())
-    text = "" if kind == "image" else extract(dest, kind)
+    data = await file.read()
+    text = "" if kind == "image" else extract_bytes(data, file.filename, kind)
+    key = f"courses/{cid}/files/{fid}/{storage.safe_name(file.filename)}"
+    storage.put(key, data, file.content_type or mimetypes.guess_type(file.filename)[0] or "application/octet-stream")
     status = "image" if kind == "image" else ("indexed" if text.strip() and not text.startswith("[extraction failed") else "no text")
     with db() as d:
         d.execute("INSERT INTO files VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                  (fid, cid, file.filename, kind, str(dest), text, len(text), 1, status, week, time.time()))
+                  (fid, cid, file.filename, kind, key, text, len(text), 1, status, week, time.time()))
     return {"id": fid, "status": status, "chars": len(text)}
 
 @app.post("/api/files/{fid}/toggle")
@@ -185,8 +213,8 @@ def toggle(fid: str):
 @app.delete("/api/files/{fid}")
 def delete_file(fid: str):
     with db() as d:
-        r = d.execute("SELECT path FROM files WHERE id=?", (fid,)).fetchone()
-        if r: Path(r["path"]).unlink(missing_ok=True)
+        r = d.execute("SELECT key FROM files WHERE id=?", (fid,)).fetchone()
+        if r and r["key"]: storage.delete(r["key"])
         d.execute("DELETE FROM files WHERE id=?", (fid,))
     return {"ok": True}
 
@@ -197,10 +225,10 @@ def file_text(fid: str):
     return r[0]
 
 @app.get("/api/files/{fid}/raw")
-def file_raw(fid: str):
-    r = rows("SELECT path,name FROM files WHERE id=?", fid)
+def file_raw(fid: str, request: Request):
+    r = rows("SELECT key,name FROM files WHERE id=?", fid)
     if not r: raise HTTPException(404)
-    return FileResponse(r[0]["path"], filename=r[0]["name"])
+    return serve_object(r[0]["key"], request, mimetypes.guess_type(r[0]["key"] or "")[0] or "application/octet-stream", filename=r[0]["name"])
 
 # ---------------------------------------------------------------- tutor
 def build_context(cid: str):
@@ -210,8 +238,10 @@ def build_context(cid: str):
     for f in fs:
         if f["kind"] == "image":
             if len(images) < MAX_IMAGES:
-                p = Path(f["path"]); mt = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
-                images.append({"type": "image", "source": {"type": "base64", "media_type": mt, "data": base64.b64encode(p.read_bytes()).decode()}})
+                try: raw = storage.get(f["key"])
+                except storage.NotFound: continue
+                mt = "image/png" if f["key"].lower().endswith(".png") else "image/jpeg"
+                images.append({"type": "image", "source": {"type": "base64", "media_type": mt, "data": base64.b64encode(raw).decode()}})
             continue
         t = f["text"] or ""
         if not t.strip(): continue
@@ -352,10 +382,11 @@ def del_note(nid: str):
 def note_to_file(nid: str):
     """Snapshot a note into the course files so the tutor can read it."""
     n = note(nid)
-    fid = uuid.uuid4().hex; dest = UPLOADS / f"{fid}_{n['title']}.md"; dest.write_text(n["body"])
+    fid = uuid.uuid4().hex; key = f"courses/{n['course_id']}/files/{fid}/{storage.safe_name(n['title'] + '.md')}"
+    storage.put(key, n["body"].encode(), "text/markdown; charset=utf-8")
     with db() as d:
         d.execute("INSERT INTO files VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                  (fid, n["course_id"], f"Note: {n['title']}", "text", str(dest), n["body"], len(n["body"]), 1, "indexed", "", time.time()))
+                  (fid, n["course_id"], f"Note: {n['title']}", "text", key, n["body"], len(n["body"]), 1, "indexed", "", time.time()))
     return {"id": fid}
 
 # ---------------------------------------------------------------- cards (SM-2)
@@ -446,26 +477,28 @@ def rec_start(nid: str):
 
 @app.post("/api/recordings/{rid}/finish")
 async def rec_finish(rid: str, audio: UploadFile = File(...), seconds: float = Form(0), auto: int = Form(1)):
-    dest = AUDIO / f"{rid}.webm"; dest.write_bytes(await audio.read())
-    with db() as d: d.execute("UPDATE recordings SET path=?, seconds=? WHERE id=?", (str(dest), seconds, rid))
+    r = rows("SELECT note_id FROM recordings WHERE id=?", rid)
+    if not r: raise HTTPException(404)
+    key = f"notes/{r[0]['note_id']}/audio/{rid}.webm"; storage.put(key, await audio.read(), "audio/webm")
+    with db() as d: d.execute("UPDATE recordings SET key=?, seconds=? WHERE id=?", (key, seconds, rid))
     if auto: transcribe(rid)   # hands off to the background transcriber straight away
     return {"id": rid, "seconds": seconds, "transcribing": bool(auto)}
 
 @app.get("/api/notes/{nid}/recordings")
 def recs(nid: str, all: int = 0):
     if all: return rows("SELECT id,started,seconds FROM recordings WHERE note_id=? ORDER BY started", nid)
-    return rows("SELECT id,started,seconds FROM recordings WHERE note_id=? AND path!='' ORDER BY started", nid)
+    return rows("SELECT id,started,seconds FROM recordings WHERE note_id=? AND key!='' ORDER BY started", nid)
 
 @app.get("/api/recordings/{rid}/audio")
-def rec_audio(rid: str):
-    p = rows("SELECT path FROM recordings WHERE id=?", rid)
-    if not p or not p[0]["path"]: raise HTTPException(404)
-    return FileResponse(p[0]["path"], media_type="audio/webm")
+def rec_audio(rid: str, request: Request):
+    p = rows("SELECT key FROM recordings WHERE id=?", rid)
+    if not p or not p[0]["key"]: raise HTTPException(404)
+    return serve_object(p[0]["key"], request, "audio/webm", expires_s=12 * 3600)  # long enough to scrub a lecture left open
 
 @app.delete("/api/recordings/{rid}")
 def rec_del(rid: str):
-    p = rows("SELECT path FROM recordings WHERE id=?", rid)
-    if p and p[0]["path"] and Path(p[0]["path"]).exists(): Path(p[0]["path"]).unlink()
+    p = rows("SELECT key FROM recordings WHERE id=?", rid)
+    if p and p[0]["key"]: storage.delete(p[0]["key"])
     with db() as d: d.execute("DELETE FROM recordings WHERE id=?", (rid,))
     return {"ok": True}
 
@@ -510,8 +543,8 @@ def _model():
 def _transcribe(rid: str, nid: str, lang: str):
     try:
         _jobs[rid] = {"status": "running"}
-        p = rows("SELECT path FROM recordings WHERE id=?", rid)[0]["path"]
-        segs, info = _model().transcribe(p, language=lang or None, vad_filter=True, beam_size=1)
+        audio = io.BytesIO(storage.get(rows("SELECT key FROM recordings WHERE id=?", rid)[0]["key"]))
+        segs, info = _model().transcribe(audio, language=lang or None, vad_filter=True, beam_size=1)
         lines = []
         for s in segs:
             t = int(s.start); lines.append(f"[{t//60:02d}:{t%60:02d}] {s.text.strip()} <!--r:{rid}:{t}-->")
@@ -535,8 +568,8 @@ def _transcribe(rid: str, nid: str, lang: str):
 @app.post("/api/recordings/{rid}/transcribe")
 def transcribe(rid: str, lang: str = "en"):
     """Runs Whisper locally in the background and appends a timestamped Live capture section to the recording's note."""
-    r = rows("SELECT note_id, path FROM recordings WHERE id=?", rid)
-    if not r or not r[0]["path"]: raise HTTPException(404)
+    r = rows("SELECT note_id, key FROM recordings WHERE id=?", rid)
+    if not r or not r[0]["key"]: raise HTTPException(404)
     if _jobs.get(rid, {}).get("status") in ("queued", "running"): return _jobs[rid]
     _jobs[rid] = {"status": "queued"}
     threading.Thread(target=_transcribe, args=(rid, r[0]["note_id"], lang), daemon=True).start()
@@ -699,38 +732,6 @@ def auto_plan(cid: str, p: PlanIn):
             if not isinstance(it, dict) or not it.get("day") or not it.get("topic"): continue
             c.execute("INSERT INTO sessions VALUES(?,?,?,?,?,0)", (uuid.uuid4().hex, cid, str(it["day"])[:10], str(it["topic"])[:160], int(it.get("minutes", 45)))); added += 1
     return {"added": added, "model": m.model}
-
-# ---------------------------------------------------------------- watched folder
-def course_dir(cid: str) -> Path:
-    c = rows("SELECT name FROM courses WHERE id=?", cid)
-    if not c: raise HTTPException(404)
-    safe = "".join(ch for ch in c[0]["name"] if ch.isalnum() or ch in " -_").strip() or cid
-    p = WATCH / safe; p.mkdir(parents=True, exist_ok=True); return p
-
-@app.get("/api/courses/{cid}/watch")
-def watch_info(cid: str): return {"path": str(course_dir(cid))}
-
-@app.post("/api/courses/{cid}/scan")
-def scan(cid: str):
-    """Import anything in the course's watched folder that is not already in the library."""
-    d = course_dir(cid)
-    have = {r["name"] for r in rows("SELECT name FROM files WHERE course_id=?", cid)}
-    added, skipped = [], 0
-    for p in sorted(d.iterdir()):
-        if p.name.startswith(".") or p.is_dir(): continue
-        if p.name in have: skipped += 1; continue
-        fid = uuid.uuid4().hex; kind = kind_of(p.name)
-        dest = UPLOADS / f"{fid}_{p.name}"; dest.write_bytes(p.read_bytes())
-        text = "" if kind == "image" else extract(dest, kind)
-        status = "image" if kind == "image" else ("indexed" if text.strip() and not text.startswith("[extraction failed") else "no text")
-        # Week from a leading "W2" in the filename; big references (reader, textbook) start unticked so they don't swamp the context.
-        wk = re.match(r"[Ww](\d+)\b", p.name); week = wk.group(1) if wk else ""
-        checked = 0 if len(text) > 150_000 else 1
-        with db() as c:
-            c.execute("INSERT INTO files VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                      (fid, cid, p.name, kind, str(dest), text, len(text), checked, status, week, time.time()))
-        added.append({"name": p.name, "status": status, "chars": len(text)})
-    return {"added": added, "skipped": skipped, "path": str(d)}
 
 # ---------------------------------------------------------------- planner + stats
 @app.get("/api/sessions")

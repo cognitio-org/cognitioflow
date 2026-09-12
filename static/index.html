@@ -225,10 +225,7 @@
   <div class="head"><div><h1>Files</h1><div class="small muted">Slides, transcripts, photographed notes, readings. Ticked files are what the tutor reads.</div></div>
     <label class="small muted">Week <input type="text" id="week" size="4" placeholder="2"></label></div>
   <div class="panel small" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
-    <span class="muted">Watched folder for this course:</span><code id="watchPath" style="font-size:.82rem"></code>
-    <button class="btn small" id="scanBtn">Import new files</button> <button class="btn small ghost" id="inferBtn" title="Recognise each untagged file week from its content">Detect weeks</button>
-    <button class="btn small ghost" id="openWatch">Copy path</button>
-    <span class="muted">Drop a file there once and it lands here — same file can also go into your Claude project.</span>
+    <button class="btn small ghost" id="inferBtn" title="Recognise each untagged file week from its content">Detect weeks</button>
   </div>
   <div class="drop" id="drop">Drop files here or <label style="text-decoration:underline;cursor:pointer">choose<input type="file" id="fileInput" multiple hidden></label> — pdf, pptx, docx, txt/md/vtt, png/jpg</div>
   <table><thead><tr><th></th><th>Name</th><th>Type</th><th>Week</th><th>Text</th><th>Status</th><th></th></tr></thead><tbody id="fileRows"></tbody></table>
@@ -419,7 +416,7 @@ async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle'
 }
 
 /* files */
-async function loadFiles(){ const w=await api(`/courses/${cid}/watch`); $('#watchPath').textContent=w.path;
+async function loadFiles(){
   const fs=await api(`/courses/${cid}/files`);
   if(!fs.length){ $('#fileRows').innerHTML='<tr><td colspan="7" class="muted">No files yet. Drop the Week 2 slides and a transcript in to start.</td></tr>'; }
   else {
@@ -437,8 +434,6 @@ async function loadFiles(){ const w=await api(`/courses/${cid}/watch`); $('#watc
 }
 async function upload(files){ for(const f of files){ const fd=new FormData(); fd.append('file',f); fd.append('week',$('#week').value); toast('Indexing '+f.name+'…'); try{ const r=await api(`/courses/${cid}/files`,{method:'POST',body:fd}); toast(`${f.name}: ${r.status}${r.chars?' · '+Math.round(r.chars/1000)+'k chars':''}`);}catch(e){toast('Failed: '+e.message)} } loadFiles(); }
 $('#inferBtn').onclick=async()=>{const b=$('#inferBtn');b.disabled=true;b.textContent='Detecting…';try{const r=await post(`/courses/${cid}/infer-weeks`);toast(r.tagged?`Sorted ${r.tagged} file(s) into weeks`:'Nothing to sort — all files already have a week');loadFiles()}catch(e){toast('Failed: '+e.message)}b.disabled=false;b.textContent='Detect weeks'};
-$('#scanBtn').onclick=async()=>{$('#scanBtn').disabled=true;try{const r=await post(`/courses/${cid}/scan`);toast(r.added.length?`Imported ${r.added.length} file(s)`:'Nothing new in the folder');loadFiles()}catch(e){toast('Scan failed: '+e.message)}$('#scanBtn').disabled=false};
-$('#openWatch').onclick=async()=>{const w=await api(`/courses/${cid}/watch`);try{await navigator.clipboard.writeText(w.path);toast('Path copied — paste into Finder with Cmd-Shift-G')}catch{toast(w.path)}};
 $('#fileInput').addEventListener('change',e=>upload([...e.target.files]));
 const drop=$('#drop'); ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')})); ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')})); drop.addEventListener('drop',e=>upload([...e.dataTransfer.files]));
 

@@ -1,7 +1,9 @@
 .PHONY: dev test migrate db-reset db-branch
 
+PORT ?= 8000
+
 dev:
-	uvicorn run:app --reload --env-file .env.local
+	uvicorn run:app --reload --env-file .env.local --port $(PORT)
 
 test:
 	pytest tests/ -v --tb=short

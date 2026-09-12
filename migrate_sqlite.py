@@ -92,6 +92,9 @@ def migrate(sqlite_path: str, dry_run: bool) -> None:
 
             for row in src_rows:
                 d = dict(row)
+                # Phase 2 renamed path → key; legacy paths are moved into storage by migrate_storage.py
+                if table in ("files", "recordings") and "path" in d:
+                    d["key"] = d.pop("path")
                 # Attach user_id to courses
                 if table == "courses":
                     d["user_id"] = user_id
