@@ -52,7 +52,7 @@ environment (`ENV=production` refuses to start with `AUTH=off` or a missing secr
    repo, the five secrets (values from env vars or hidden prompts; `--rotate` adds new versions), Workload Identity
    Federation for `cognitio-org/cognitioflow` (main branch only) and the `cognitioflow-deploy` service account.
 2. Add the GitHub repo variables and secret it prints: `GCP_WIF_PROVIDER`, `GCP_DEPLOY_SA`, `NEON_PROJECT_ID`
-   (variables) and `NEON_API_KEY` (secret). Optional variables: `NEON_DATABASE` (default `congnitioflow`), `NEON_ROLE`.
+   (variables) and `NEON_API_KEY` (secret). Optional variables: `NEON_DATABASE` (default `cognitioflow`), `NEON_ROLE`.
 3. Merge to `main` (or run the workflow), then add `<URL>/auth/callback` to the OAuth client's authorised redirect URIs.
 
 ## First run

@@ -2,7 +2,7 @@
 # then (main only) builds the image, pushes it to Artifact Registry and deploys Cloud Run.
 #
 # Repo variables: GCP_WIF_PROVIDER, GCP_DEPLOY_SA (printed by infra/setup.sh), NEON_PROJECT_ID,
-#                 optional NEON_DATABASE (default congnitioflow), NEON_ROLE (default neondb_owner).
+#                 optional NEON_DATABASE (default cognitioflow), NEON_ROLE (default neondb_owner).
 # Repo secrets:   NEON_API_KEY. No GCP key: GitHub's OIDC token is exchanged via Workload Identity Federation.
 name: test and deploy
 
@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      NEON_DATABASE: ${{ vars.NEON_DATABASE || 'congnitioflow' }}
+      NEON_DATABASE: ${{ vars.NEON_DATABASE || 'cognitioflow' }}
       NEON_ROLE: ${{ vars.NEON_ROLE || 'neondb_owner' }}
     steps:
       - uses: actions/checkout@v5
