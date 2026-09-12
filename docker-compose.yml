@@ -1,0 +1,35 @@
+# CognitioFlow — local development services
+# Usage:  docker compose up -d            (Postgres only)
+#         docker compose --profile gcs up -d   (adds a fake Cloud Storage for storage=gcs testing)
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: cf-db
+    environment:
+      POSTGRES_USER: cf
+      POSTGRES_PASSWORD: cf
+      POSTGRES_DB: cognitioflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - cf-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cf -d cognitioflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Optional: emulates a GCS bucket so STORAGE=gcs can be exercised offline.
+  gcs:
+    profiles: ["gcs"]
+    image: fsouza/fake-gcs-server:latest
+    container_name: cf-gcs
+    command: ["-scheme", "http", "-port", "4443", "-public-host", "localhost:4443"]
+    ports:
+      - "4443:4443"
+    volumes:
+      - cf-gcsdata:/data
+
+volumes:
+  cf-pgdata:
+  cf-gcsdata:
