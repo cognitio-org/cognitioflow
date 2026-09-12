@@ -127,12 +127,12 @@ jobs:
             --labels "commit=${GITHUB_SHA:0:12}" \
             --quiet
 
-      - name: Smoke test /healthz
+      - name: Smoke test /health
         run: |
           url=$(gcloud run services describe "$SERVICE" --project "$GCP_PROJECT" --region "$REGION" --format='value(status.url)')
           echo "Service URL: $url"
           for _ in 1 2 3 4 5; do
-            curl -fsS -o /dev/null -w "healthz %{http_code} in %{time_total}s\n" "$url/healthz" && exit 0
+            curl -fsS -o /dev/null -w "health %{http_code} in %{time_total}s\n" "$url/health" && exit 0  # not /healthz: reserved by Cloud Run
             sleep 5
           done
-          echo "healthz did not return 200" >&2; exit 1
+          echo "/health did not return 200" >&2; exit 1

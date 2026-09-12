@@ -178,7 +178,8 @@ def rows(q, *a):
 @app.get("/")
 def index(): return FileResponse(ROOT / "static" / "index.html")
 
-@app.get("/healthz")
+@app.get("/health")
+@app.get("/healthz")  # local only: Cloud Run reserves paths ending in z and answers /healthz with its own 404
 def healthz(): return {"ok": True}
 
 @app.get("/api/config")

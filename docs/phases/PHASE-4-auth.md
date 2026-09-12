@@ -11,11 +11,11 @@ Nobody but allow-listed accounts can reach any `/api/*` route or the UI. The Ant
 
 ## Design (keep it small — this is ~150 lines)
 - Routes: `GET /auth/login` → Google OAuth (authlib), `GET /auth/callback` → verify id_token, check email against allow-list, upsert `users`, set a signed HTTP-only session cookie (`itsdangerous`, `SESSION_SECRET` env, 30-day expiry, `Secure` when not localhost, `SameSite=Lax`). `POST /auth/logout`.
-- Middleware: every path except `/auth/*`, `/static/*`, `/healthz` requires a valid session; API routes return 401 JSON, `/` redirects to `/auth/login`.
+- Middleware: every path except `/auth/*`, `/static/*`, `/health`, `/healthz` requires a valid session; API routes return 401 JSON, `/` redirects to `/auth/login`.
 - `request.state.user` is set; add a `current_user(request)` dependency. **Do not** filter data by user yet — single tenant — but every new row that has a `user_id` column (only `courses` for now) gets it from `current_user`.
 - No API/Bearer tokens: they existed only for the local worker, which was dropped (2026-09-12). The session cookie is the only credential. `migrations/004_auth.sql` only if the phase needs schema changes.
 - Dev bypass: `AUTH=off` in `.env.local` logs in as the first address in `ALLOWED_EMAILS` without Google, for docker-only development and tests — so the bypass user is always one that real sign-in would also admit (`MATEJ_EMAIL` stays only as `migrate_sqlite.py`'s owner email). Refuse to start with `AUTH=off` when `ENV=production` or when `ALLOWED_EMAILS` is empty.
-- `/healthz` returns 200 with no auth (Cloud Run probe).
+- `/health` (and `/healthz` locally) returns 200 with no auth. Cloud Run reserves paths ending in `z`, so probes and smoke tests use `/health`.
 
 ## Secrets
 - Code reads only `os.environ`. Phase 5 mounts Secret Manager secrets as env vars; nothing to do here beyond documenting the names: `ANTHROPIC_API_KEY`, `DATABASE_URL`, `SESSION_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.

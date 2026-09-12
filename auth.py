@@ -5,7 +5,7 @@ Google sign-in (Phase 4). The signed session cookie is the only credential: no B
   GET  /auth/callback  -> verify id_token, check ALLOWED_EMAILS, upsert users, set session
   POST /auth/logout    -> clear the session cookie
 
-Middleware: every path except /auth/*, /static/* and /healthz needs a session;
+Middleware: every path except /auth/*, /static/*, /health and /healthz needs a session;
 /api/* answers 401 JSON, anything else redirects to /auth/login.
 AUTH=off signs every request in as the first ALLOWED_EMAILS address (docker dev and tests), so the
 bypass user is always one real sign-in would admit; scripts/check_env.py refuses to boot with it
@@ -56,7 +56,7 @@ def _cookie_header(session: dict, secure: bool) -> str:
     return r.headers["set-cookie"]
 
 def _public(path: str) -> bool:
-    if path == "/healthz" or path.startswith("/auth/"): return True
+    if path in ("/health", "/healthz") or path.startswith("/auth/"): return True
     return path.startswith("/static/") and path != "/static/index.html"  # the UI shell is only served behind auth
 
 def _identity(session: dict):
