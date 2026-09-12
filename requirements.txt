@@ -8,5 +8,6 @@ python-multipart
 python-dotenv
 faster-whisper
 psycopg[binary,pool]
+google-cloud-storage
 pytest
 httpx

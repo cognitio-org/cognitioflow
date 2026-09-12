@@ -88,3 +88,19 @@ def test_migrate_sqlite_dry_run_reports_counts():
         assert str(count) in output, f"Count {count} for '{table}' not in output"
 
     os.unlink(db_path)
+
+
+def test_migrate_sqlite_maps_path_to_key(pg):
+    """Phase 2 renamed path → key; the laptop path is carried over for migrate_storage.py to move."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    _make_fixture_db(db_path)
+    env = {**os.environ, "MATEJ_EMAIL": "test@example.com"}
+    result = subprocess.run(
+        [sys.executable, "migrate_sqlite.py", "--sqlite", db_path],
+        capture_output=True, text=True, env=env,
+        cwd=os.path.dirname(os.path.dirname(__file__)),
+    )
+    os.unlink(db_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert pg.execute("SELECT key FROM files").fetchall() == [("/tmp/x.txt",)]

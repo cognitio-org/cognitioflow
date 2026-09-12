@@ -6,14 +6,13 @@ Turn a claude.ai account export into files CognitioFlow can read.
 
   python import_claude_export.py ~/Downloads/data-2026-09-07.zip "European Law" --match "EU law,Dassonville,Article 34,Schütze,Cassis,Keck,direct effect"
 
-Writes one Markdown file per matching conversation into  data/watch/<Course>/claude-chats/
+Writes one Markdown file per matching conversation into  ~/Downloads/cognitioflow-import/<Course>/claude-chats/  (change with --out)
 and, if the export carries project documents, one file per document into  .../claude-project-docs/.
-Then press "Import new files" in the app. Re-running skips files that already exist.
+Then drag them onto the app's Files screen. Re-running skips files that already exist.
 """
 import argparse, json, re, sys, zipfile
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
 
 def load(zpath: Path) -> dict:
     out = {}
@@ -46,12 +45,13 @@ def main():
     ap.add_argument("zip"); ap.add_argument("course")
     ap.add_argument("--match", default="", help="comma-separated keywords; a chat is kept if any appears in its title or text (case-insensitive). Empty = keep all.")
     ap.add_argument("--project", default="", help="only project docs from projects whose name contains this")
+    ap.add_argument("--out", default="~/Downloads/cognitioflow-import", help="folder to write into; one subfolder per course")
     a = ap.parse_args()
 
     data = load(Path(a.zip).expanduser())
     if not data: sys.exit("No conversations.json / projects.json found in that zip.")
     kws = [k.strip().lower() for k in a.match.split(",") if k.strip()]
-    root = HERE / "data" / "watch" / a.course
+    root = Path(a.out).expanduser() / a.course
     chats = root / "claude-chats"; docs = root / "claude-project-docs"
     chats.mkdir(parents=True, exist_ok=True)
 
@@ -76,7 +76,7 @@ def main():
             fn = docs / f"{safe(p.get('name'),30)} - project instructions.md"
             if not fn.exists(): fn.write_text(p["prompt_template"], encoding="utf-8"); n += 1
     if n: print(f"project docs: {n} written → {docs}")
-    print("Now open the app → Files → Import new files.")
+    print(f"Now open the app → Files and drop in the files from {root}")
 
 if __name__ == "__main__":
     main()
