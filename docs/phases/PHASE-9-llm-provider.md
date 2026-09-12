@@ -2,13 +2,13 @@
 
 Branch: `phase-9-llm-provider`. Depends on Phase 1 (everything lives in `run.py`); the cloud secret needs Phase 5's Secret Manager wiring but the phase runs locally without it.
 
-## Decisions — for Matej to settle before the phase starts
-- **The switch is environment-wide, not per call:** `LLM_PROVIDER=anthropic|openrouter`, default `anthropic`. One key, one bill, one cache namespace at a time. *Recommended.* (A per-message provider picker would split the file cache across two accounts and double the keys for no gain.)
-- **Which cheap model when on OpenRouter?** `CF_CHEAP_MODEL` stays Haiku by default (byte-identical behaviour, just routed). The savings candidates, verified in the catalogue on 2026-09-12: `google/gemini-3.8-flash` ($0.75 / $3.75 per M, images, 1M context — 25% under Haiku), `google/gemini-3.1-flash-lite` ($0.25 / $1.50 — 4× cheaper), `deepseek/deepseek-v4.1-flash` ($0.15 / $0.60 — 7× cheaper). *Recommended:* build with Haiku, then A/B one week's notes draft and one card batch on Flash Lite before changing the default. **[Matej]** judges house style (provenance tags, mermaid, the "In one glance" box) — not the agent.
-- **Privacy floor on OpenRouter:** every request carries `provider: {"data_collection": "deny"}` so it never routes to a provider that may train on prompts. *Recommended yes.* US-hosted providers are fine (decided 2026-09-12); `eu.openrouter.ai` is enterprise-only and not needed.
-- **Record usage in the database** (`llm_usage` table, migration `007`) and show this month's spend in the existing `#costState` slot. *Recommended yes* — it is the only way to know whether a cheaper model actually saved anything, and the UI already has the readout code that nothing feeds today.
-- **Credits, not BYOK.** Pay OpenRouter with credits (card top-up carries a 5.5% fee, $0.80 minimum). BYOK (OpenRouter forwarding to the Anthropic key) is fee-free under $25k/month on the docs' current terms but adds a second console to manage. *Recommended:* credits; revisit only if the top-up fee ever matters.
-- **Not in this phase, but available today:** `CF_MODEL=claude-sonnet-5` ($2 / $10) instead of Sonnet 4.6 ($3 / $15) is a one-line `.env` change and the largest single saving on the main tier. **[Matej]** decides after a drill session on each; no code needed.
+## Decisions — settled (2026-09-13)
+- **The switch is environment-wide:** `LLM_PROVIDER=anthropic|openrouter`, default `anthropic`. One key, one bill, one cache namespace at a time. No per-message provider picker.
+- **Cheap tier on OpenRouter is DeepSeek V4.1 Flash** (`deepseek/deepseek-v4.1-flash`: $0.15 / $0.60 per M, images, 1M context — about 7× under Haiku) from day one. `CF_CHEAP_MODEL` defaults to it when `LLM_PROVIDER=openrouter`; Haiku stays the default on `anthropic`. House style (provenance tags, mermaid, the "In one glance" box) is checked in acceptance, not assumed. Note: Anthropic `cache_control` markers are dropped for non-Anthropic providers; DeepSeek has its own automatic caching (reads at ~0.1× input), so the notes-mode chat still benefits, just without the explicit breakpoint.
+- **No privacy restriction on routing:** requests do not set `provider.data_collection`; OpenRouter's default (widest routing, lowest price) applies. **[Matej]** may still tighten the account-level "providers that may train" setting in the OpenRouter console at any time without a code change.
+- **Usage is recorded in the database** (`llm_usage`, migration `007`) and this month's spend shows in the existing `#costState` slot.
+- **Credits, not BYOK.** Pay OpenRouter by card top-up (5.5% fee, $0.80 minimum). One console.
+- **Main tier moves to Sonnet 5 now:** `CF_MODEL=claude-sonnet-5` ($2 / $10 instead of $3 / $15). Applied to `.env.local` on 2026-09-13; this phase updates `.env.local.example`, the guide's model block and the cloud env to match. `CF_STRONG_MODEL` follows `CF_MODEL` as before.
 
 ## Objective
 Every model call in `run.py` goes through one seam, `llm.py`, and the environment picks the backend: the Anthropic API exactly as today, or OpenRouter — which speaks the same Anthropic Messages protocol, exposes 445 models under one key, and returns the cost of each call. Auto-routing rules, prompts, caching order and the Fable rule do not change. The app reports what each call cost, whichever backend served it.
@@ -57,15 +57,15 @@ Config surface: `CF_MODEL`, `CF_CHEAP_MODEL`, `CF_STRONG_MODEL`, the hard-coded 
 Reading: the cheap tier is where the bulk tokens are (drafts, garble, cards); a Flash-class model cuts those calls ~4×. The main tier's cost is mostly Sonnet output tokens on drills and reconciles, which OpenRouter does not touch — Sonnet 5 does.
 
 ## Part A — `llm.py`, the fourth seam
-- `llm.py` exposes `client()`, `resolve(model_id) -> str`, `extra(model_id) -> dict`, `usage(m, task) -> dict`, `PROVIDER`, `catalogue()`. `run.py` imports only these; it never imports `anthropic` and never reads `OPENROUTER_API_KEY` or `ANTHROPIC_API_KEY` itself (`config`, `check_env` and the startup banner ask `llm`).
-- `LLM_PROVIDER=anthropic` (default): `client()` returns `anthropic.Anthropic()` — today's behaviour, byte for byte. `resolve` is the identity; `extra` is `{}`.
-- `LLM_PROVIDER=openrouter`: `client()` returns `anthropic.Anthropic(base_url="https://openrouter.ai/api", auth_token=os.environ["OPENROUTER_API_KEY"], default_headers={"HTTP-Referer": "https://github.com/cognitio-org/cognitioflow", "X-OpenRouter-Title": "CognitioFlow"})`. `resolve` maps a Claude id without a slash to OpenRouter's spelling (`claude-sonnet-4-6 → anthropic/claude-sonnet-4.6`, `claude-sonnet-5 → anthropic/claude-sonnet-5`) so the same `.env` works for both backends; ids with a slash pass through. `extra` returns `{"provider": {"data_collection": "deny"}}`.
-- Every `client().messages.create/stream(model=X, ...)` in `run.py` becomes `model=llm.resolve(X), **llm.extra(X)` — `extra` is spread as `extra_body` by a tiny wrapper so the call sites stay one-liners. No other change to prompts, `max_tokens`, system arrays, `cache_control` placement or history.
-- `MODELS` becomes `llm.catalogue()`: the five Claude ids on `anthropic`; on `openrouter` the same five (resolved) plus `CF_EXTRA_MODELS` (comma-separated ids, default `google/gemini-3.8-flash,google/gemini-3.1-flash-lite,deepseek/deepseek-v4.1-flash`). `pick_model` keeps its allow-list check against the catalogue, so a client cannot request an arbitrary id. `openrouter/*` router ids are refused everywhere (catalogue, tiers, requested) — `check_env` fails the boot if a tier is set to one.
+- `llm.py` exposes `client()`, `resolve(model_id) -> str`, `usage(m, task) -> dict`, `PROVIDER`, `catalogue()`. `run.py` imports only these; it never imports `anthropic` and never reads `OPENROUTER_API_KEY` or `ANTHROPIC_API_KEY` itself (`config`, `check_env` and the startup banner ask `llm`).
+- `LLM_PROVIDER=anthropic` (default): `client()` returns `anthropic.Anthropic()` — today's behaviour, byte for byte. `resolve` is the identity.
+- `LLM_PROVIDER=openrouter`: `client()` returns `anthropic.Anthropic(base_url="https://openrouter.ai/api", auth_token=os.environ["OPENROUTER_API_KEY"], default_headers={"HTTP-Referer": "https://github.com/cognitio-org/cognitioflow", "X-OpenRouter-Title": "CognitioFlow"})`. `resolve` maps a Claude id without a slash to OpenRouter's spelling (`claude-sonnet-4-6 → anthropic/claude-sonnet-4.6`, `claude-sonnet-5 → anthropic/claude-sonnet-5`) so the same `.env` works for both backends; ids with a slash pass through. No OpenRouter-specific body fields are sent in v1 (no `provider` preferences, no `models` fallback list).
+- Every `client().messages.create/stream(model=X, ...)` in `run.py` becomes `model=llm.resolve(X)`; a tiny wrapper around `create`/`stream` records usage (Part B) so the call sites stay one-liners. No other change to prompts, `max_tokens`, system arrays, `cache_control` placement or history.
+- Tier defaults: on `openrouter`, `CF_CHEAP_MODEL` defaults to `deepseek/deepseek-v4.1-flash` and `CF_MODEL` to `claude-sonnet-5` (resolved); on `anthropic` the defaults are `claude-haiku-4-5` and `claude-sonnet-5`. `MODELS` becomes `llm.catalogue()`: the five Claude ids on `anthropic`; on `openrouter` the same five (resolved) plus `CF_EXTRA_MODELS` (comma-separated ids, default `deepseek/deepseek-v4.1-flash,google/gemini-3.8-flash,google/gemini-3.1-flash-lite`). `pick_model` keeps its allow-list check against the catalogue, so a client cannot request an arbitrary id. `openrouter/*` router ids are refused everywhere (catalogue, tiers, requested) — `check_env` fails the boot if a tier is set to one.
 - `/api/config` adds `provider` and returns `models` as `[{id, label}]` (label = id without the vendor prefix and `claude-`); `has_key` reflects the active provider's key.
 - `check_env.py`: in production require `OPENROUTER_API_KEY` when `LLM_PROVIDER=openrouter`, else `ANTHROPIC_API_KEY`; refuse an unknown provider value.
 - `.env.local.example`: `LLM_PROVIDER`, `OPENROUTER_API_KEY`, `CF_EXTRA_MODELS` documented next to the model block. Phase 5's `infra/setup.sh` and deploy workflow gain an optional sixth secret `OPENROUTER_API_KEY` and the `LLM_PROVIDER` env var; the cloud default stays `anthropic` until Matej flips it.
-- `CLAUDE.md`: the "Three seams" section gains a fourth entry for `llm.py` (`client() / resolve() / extra() / usage()`; `run.py` never imports `anthropic`), and the model-and-cost rules note that tier ids may be OpenRouter ids but never `openrouter/*` routers.
+- `CLAUDE.md`: the "Three seams" section gains a fourth entry for `llm.py` (`client() / resolve() / usage()`; `run.py` never imports `anthropic`), and the model-and-cost rules note that tier ids may be OpenRouter ids but never `openrouter/*` routers.
 - Fallback chains (`models: [...]`) are deliberately not wired in v1: the SDK's own retries stay, and a silent fallback to a different model would break the cost readout's honesty. Listed under Later.
 
 ## Part B — usage and cost, one shape for both backends
@@ -81,7 +81,7 @@ Reading: the cheap tier is where the bulk tokens are (drafts, garble, cards); a 
 - No new colours, no new tokens, sentence case. Light + dark screenshots at 1440 and 1190 px in the PR.
 
 ## Tests (`tests/test_llm.py` + additions)
-- Provider selection from env; `resolve` for all five Claude ids and pass-through for slashed ids; `extra` is empty on `anthropic` and carries `data_collection: deny` on `openrouter`; `openrouter/auto` rejected in tiers, catalogue and per-request `model`.
+- Provider selection from env; `resolve` for all five Claude ids and pass-through for slashed ids; the request body carries no `provider` or `models` field on either backend; `openrouter/auto` rejected in tiers, catalogue and per-request `model`.
 - `usage()` from an Anthropic-shaped response (cost computed) and an OpenRouter-shaped one (`cost` taken from the response); unknown model → `cost: null`.
 - `check_env`: production with `LLM_PROVIDER=openrouter` and no `OPENROUTER_API_KEY` is fatal; the Anthropic path is unchanged.
 - `FakeClient` gains `.messages.stream()` (context manager with `text_stream` and `get_final_message()`); a chat test asserts the SSE order `model → t… → usage → [DONE]` and one `llm_usage` row.
@@ -90,10 +90,11 @@ Reading: the cheap tier is where the bulk tokens are (drafts, garble, cards); a 
 
 ## Acceptance
 - [ ] `LLM_PROVIDER` unset or `anthropic`: every existing test passes unchanged; a drill turn's request body (SDK debug log) is identical to `main` apart from nothing.
-- [ ] `LLM_PROVIDER=openrouter` with a real key: drill, explain, draft, reconcile, continue, cards, quiz, clean garble, tag weeks and plan all complete on Haiku/Sonnet via OpenRouter with the same output format; `#costState` shows spend; each reply's tooltip shows cost and cached tokens.
+- [ ] `LLM_PROVIDER=openrouter` with a real key: drill, explain, reconcile and continue complete on Sonnet 5 via OpenRouter; draft, cards, quiz, clean garble, tag weeks and plan complete on DeepSeek V4.1 Flash with the same output format; `#costState` shows spend; each reply's tooltip shows cost and cached tokens.
 - [ ] Second drill turn on OpenRouter reports `cache_read > 0` in its usage (the files block is cached across the hop).
-- [ ] A draft on `google/gemini-3.1-flash-lite` with `DRAFT_TOKENS` temporarily set to 300 produces a `<!--cf:continue …-->` marker and Continue finishes it (`stop_reason` is mapped).
-- [ ] Cards and quiz on the chosen cheap model yield at least as many usable items as Haiku on the same file.
+- [ ] A draft on `deepseek/deepseek-v4.1-flash` with `DRAFT_TOKENS` temporarily set to 300 produces a `<!--cf:continue …-->` marker and Continue finishes it (`stop_reason` is mapped).
+- [ ] Cards and quiz on DeepSeek V4.1 Flash yield at least as many usable items as Haiku on the same file; a week's draft on it keeps the house style (In one glance box, provenance tag on every substantive line, a mermaid decision tree, `## Gaps / verify`) — **[Matej]** signs this off from the rendered note.
+- [ ] Clean garble on DeepSeek V4.1 Flash keeps every line, `[mm:ss]` timestamp and `<!--…-->` marker on the 90-minute fixture (the existing line-count guard must not reject chunks).
 - [ ] Cost readout on `anthropic` matches Anthropic's console for a day within 5%; on `openrouter` matches the OpenRouter activity page.
 - [ ] `openrouter/auto` as `CF_CHEAP_MODEL` refuses to boot with a clear message; Fable is still reachable only from the dropdown and `CF_STRONG_MODEL`.
 - [ ] `docker build` + `make test` green; migration `007` applies on a fresh database and on one that already has `006`.
@@ -102,7 +103,7 @@ Reading: the cheap tier is where the bulk tokens are (drafts, garble, cards); a 
 ```
 LLM_PROVIDER=openrouter OPENROUTER_API_KEY=sk-or-… make dev      # then open http://localhost:8000
 ```
-Tutor → ask one drill question → hover the reply: `answered by haiku-4.5 · $0.0041 · 44.9k cached, 0.2k new, 312 out`. Pick `gemini-3.1-flash-lite` in the dropdown, ask again, compare the two tooltips. Notes → Draft from files on each → compare `$` in the toast. `#costState` totals the session. Switch `LLM_PROVIDER` back and restart: nothing else changes.
+Tutor → ask one drill question → hover the reply: `answered by haiku-4.5 · $0.0041 · 44.9k cached, 0.2k new, 312 out`. Pick `deepseek-v4.1-flash` in the dropdown, ask again, compare the two tooltips. Notes → Draft from files on each → compare `$` in the toast. `#costState` totals the session. Switch `LLM_PROVIDER` back and restart: nothing else changes.
 
 ## Later (not this phase)
 - Fallback chains via `models: [...]` for the cheap tier when a non-Anthropic model is down.
