@@ -8,6 +8,8 @@ import time
 import unittest.mock as mock
 from pathlib import Path
 
+import storage
+
 import psycopg
 import pytest
 
@@ -288,8 +290,8 @@ def test_delete_guard_then_force_cascades_without_orphans(client, pg):
     before = _counts(pg, cid)
     assert all(v >= 1 for v in before.values()), before
     eu_before = _counts(pg, "eu")
-    stored = pg.execute("SELECT path FROM files WHERE course_id=%s", (cid,)).fetchone()[0]
-    assert Path(stored).exists()
+    stored = pg.execute("SELECT key FROM files WHERE course_id=%s", (cid,)).fetchone()[0]
+    assert storage.exists(stored)
 
     assert client.get(f"/api/courses/{cid}/usage").json() == {"files": 1, "notes": 1, "cards": 1, "messages": 1, "sessions": 1}
     r = client.delete(f"/api/courses/{cid}")
@@ -301,7 +303,7 @@ def test_delete_guard_then_force_cascades_without_orphans(client, pg):
     assert _counts(pg, cid) == {k: 0 for k in before}
     assert _orphans(pg) == {k: 0 for k in _orphans(pg)}
     assert _counts(pg, "eu") == eu_before
-    assert not Path(stored).exists()
+    assert not storage.exists(stored)  # force delete also removes the stored upload
     assert client.delete(f"/api/courses/{cid}").status_code == 404
 
 
