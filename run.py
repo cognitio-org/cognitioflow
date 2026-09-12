@@ -44,7 +44,10 @@ if not _DATABASE_URL:
         "DATABASE_URL is required — copy .env.local.example to .env.local and set it."
     )
 
-_pool = ConnectionPool(_DATABASE_URL, min_size=1, max_size=10, open=True, kwargs={"row_factory": dict_row})
+# Neon suspends an idle compute after ~5 minutes and kills its connections. Check each connection as it is
+# handed out (a dead one is replaced, not given to the request) and close idle ones before Neon does.
+_pool = ConnectionPool(_DATABASE_URL, min_size=1, max_size=10, open=True, kwargs={"row_factory": dict_row},
+                      check=ConnectionPool.check_connection, max_idle=240)
 
 
 class _Conn:
