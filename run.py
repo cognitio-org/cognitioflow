@@ -4,11 +4,12 @@ Run:  python run.py   then open http://localhost:8000
 Everything lives in ./data (SQLite + uploaded files). Nothing leaves your Mac except tutor calls to the Claude API.
 """
 import re
-import base64, io, json, mimetypes, os, tempfile, time, uuid
+import base64, io, json, mimetypes, os, random, tempfile, time, uuid
 from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote, unquote
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -29,6 +30,8 @@ STRONG_MODEL = os.environ.get("CF_STRONG_MODEL", MODEL)              # reconcile
 MODELS = ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5", "claude-opus-5", "claude-fable-5-1"]
 CONTEXT_CHAR_BUDGET = int(os.environ.get("CF_CONTEXT_CHARS", "180000"))  # ~45k tokens of file text per call
 MAX_IMAGES = 6
+RECONCILE_TOKENS = 8000   # the cap stays here; the Continue button finishes anything cut off
+DRAFT_TOKENS = 4000
 
 # ---------------------------------------------------------------- DB
 from psycopg.rows import dict_row
@@ -161,7 +164,7 @@ init()
 
 class CourseIn(BaseModel): name: str; accent: str = "#24467a"; tutor_prompt: str = ""
 class NoteIn(BaseModel): title: str = "Untitled"; body: str = ""
-class CardIn(BaseModel): front: str; back: str; source: str = ""
+class CardIn(BaseModel): front: str; back: str; source: str = ""; week: str = ""
 class ReviewIn(BaseModel): rating: int  # 0 again, 1 hard, 2 good, 3 easy
 class SessionIn(BaseModel): day: str; topic: str; minutes: int = 60
 class ChatIn(BaseModel): message: str; mode: str = "drill"; model: Optional[str] = None  # model="auto" or explicit
@@ -219,6 +222,56 @@ def toggle(fid: str):
     with db() as d: d.execute("UPDATE files SET selected=1-selected WHERE id=?", (fid,))
     return {"ok": True}
 
+class ToggleToIn(BaseModel): on: bool
+
+@app.post("/api/files/{fid}/toggle-to")
+def toggle_to(fid: str, t: ToggleToIn):
+    """Set a file's tick explicitly — the week header's tick-all sends the same state to every file in the group."""
+    if not rows("SELECT 1 FROM files WHERE id=?", fid): raise HTTPException(404)
+    with db() as d: d.execute("UPDATE files SET selected=? WHERE id=?", (1 if t.on else 0, fid))
+    return {"ok": True, "selected": 1 if t.on else 0}
+
+_WEEK_IN_NAME = re.compile(r"(?i)(?:^|[^a-z0-9])(?:w|wk|week|lecture|lec)[\s._-]*0?(\d{1,2})(?!\d)")
+
+@app.post("/api/courses/{cid}/infer-weeks")
+def infer_weeks(cid: str):
+    """Tag untagged files with a week: from the filename when it says so (free), otherwise one cheap-model call over the rest."""
+    untagged = rows("SELECT id,name,kind,text FROM files WHERE course_id=? AND COALESCE(week,'')=''", cid)
+    found, rest = {}, []
+    for f in untagged:
+        m = _WEEK_IN_NAME.search(f["name"])
+        if m and 1 <= int(m.group(1)) <= 20: found[f["id"]] = str(int(m.group(1)))
+        elif f["kind"] != "image" and (f["text"] or "").strip(): rest.append(f)
+    names = {f["id"]: f["name"] for f in untagged}
+    def save(tags):
+        with db() as d:
+            for fid, wk in tags.items():
+                d.execute("UPDATE files SET week=? WHERE id=? AND COALESCE(week,'')=''", (wk, fid))
+                d.execute("UPDATE cards SET week=? WHERE course_id=? AND source=? AND COALESCE(week,'')=''", (wk, cid, names[fid]))  # cards made from it follow
+    save(found)  # filename matches are free and certain: keep them even if the model step fails
+    by_name, by_model, warning = len(found), {}, ""
+    if rest:
+        batch = rest[:25]; ids = {f["id"] for f in batch}
+        known = rows("SELECT name,week FROM files WHERE course_id=? AND COALESCE(week,'')<>'' ORDER BY week LIMIT 80", cid)
+        hint = "\n".join(f"- week {k['week']}: {k['name']}" for k in known) or "(no files tagged yet)"
+        docs = "\n\n".join(f'<file id="{f["id"]}" name="{f["name"]}">\n{(f["text"] or "")[:3000]}\n</file>' for f in batch)
+        prompt = ("Assign each untagged course file to a teaching week, using what it covers, dates, lecture numbers or headings, and the files already tagged. "
+                  "Only give a week when the file itself gives real evidence; otherwise use an empty string. Weeks are whole numbers from 1 to 20.\n"
+                  'Return ONLY a JSON object mapping file id to week, e.g. {"abc": "3", "def": ""}.\n\n'
+                  f"FILES ALREADY TAGGED:\n{hint}\n\nUNTAGGED FILES:\n{docs}")
+        try:
+            got = _model_json(client().messages.create(model=CHEAP_MODEL, max_tokens=1000, messages=[{"role": "user", "content": prompt}]))
+        except Exception as e:  # no API key, API error, or a reply that isn't JSON
+            got = {}
+            warning = (e.detail if isinstance(e, HTTPException) else "The model step failed") + " — files named with a week were still sorted."
+        for fid, wk in (got.items() if isinstance(got, dict) else []):
+            wk = str(wk).strip()
+            if fid in ids and wk.isdigit() and 1 <= int(wk) <= 20: by_model[fid] = str(int(wk))
+        save(by_model)
+    out = {"tagged": by_name + len(by_model), "by_name": by_name, "by_model": len(by_model)}
+    if warning: out["warning"] = warning
+    return out
+
 @app.delete("/api/files/{fid}")
 def delete_file(fid: str):
     with db() as d:
@@ -265,6 +318,34 @@ def client():
     import anthropic
     if not os.environ.get("ANTHROPIC_API_KEY"): raise HTTPException(400, "ANTHROPIC_API_KEY not set — add it to .env and restart.")
     return anthropic.Anthropic()
+
+def _text(m) -> str:
+    return "".join(b.text for b in m.content if getattr(b, "type", "") == "text")
+
+_CUT = re.compile(r"<!--cf:continue ([^>]*)-->")
+
+def _reply_text(m) -> str:
+    """Model text, trimmed — except that a reply cut off at the cap keeps its trailing characters, so Continue can join exactly."""
+    t = _text(m)
+    return t.lstrip() if getattr(m, "stop_reason", "") == "max_tokens" else t.strip()
+
+def _mark_if_cut(text: str, m, **meta) -> str:
+    """Hidden marker when the model stopped at the token cap, so Continue knows how to finish this note.
+    Values are URL-quoted: a free-text week like "Week 3" must survive the space-separated marker."""
+    if getattr(m, "stop_reason", "") != "max_tokens": return text
+    return text + "\n\n<!--cf:continue " + " ".join(f"{k}={quote(str(v), safe='')}" for k, v in meta.items() if v not in ("", None)) + "-->"
+
+def _model_json(m):
+    """Parse a JSON reply, tolerating code fences or a sentence around the JSON."""
+    text = "".join(b.text for b in m.content if getattr(b, "type", "") == "text").strip().strip("`")
+    if text.startswith("json"): text = text[4:]
+    try: return json.loads(text)
+    except Exception: pass
+    starts = [i for i in (text.find("["), text.find("{")) if i >= 0]; end = max(text.rfind("]"), text.rfind("}"))
+    if starts and end > min(starts):
+        try: return json.loads(text[min(starts):end + 1])
+        except Exception: pass
+    raise HTTPException(502, "Model returned non-JSON; try again.")
 
 # Which model each task deserves. Cheap for bulk/recall work, strong where correction quality matters.
 ROUTE = {"drill": MODEL, "explain": MODEL, "notes": CHEAP_MODEL, "cards": CHEAP_MODEL, "summarise": CHEAP_MODEL}
@@ -399,16 +480,25 @@ def note_to_file(nid: str):
     return {"id": fid}
 
 # ---------------------------------------------------------------- cards (SM-2)
+WEAK_EASE = 2.3  # SM-2 ease falls below this after one "Again" or two "Hard" ratings
+
+def _card_scope(cid: str, due: int = 0, week: str = "", weak: int = 0):
+    q, a = "SELECT * FROM cards WHERE course_id=?", [cid]
+    if due: q += " AND (due IS NULL OR due<=?)"; a.append(date.today().isoformat())
+    if week: q += " AND week=?"; a.append(week)
+    if weak: q += " AND ease<?"; a.append(WEAK_EASE)
+    return q, a
+
 @app.get("/api/courses/{cid}/cards")
-def cards(cid: str, due: int = 0):
-    q = "SELECT * FROM cards WHERE course_id=?" + (" AND (due IS NULL OR due<=?)" if due else "") + " ORDER BY due, created"
-    return rows(q, cid, date.today().isoformat()) if due else rows(q, cid)
+def cards(cid: str, due: int = 0, week: str = "", weak: int = 0):
+    q, a = _card_scope(cid, due, week, weak)
+    return rows(q + " ORDER BY due, created", *a)
 
 @app.post("/api/courses/{cid}/cards")
 def add_card(cid: str, c: CardIn):
     kid = uuid.uuid4().hex[:10]
-    with db() as d: d.execute("INSERT INTO cards(id,course_id,front,back,source,due,created) VALUES(?,?,?,?,?,?,?)",
-                              (kid, cid, c.front, c.back, c.source, date.today().isoformat(), time.time()))
+    with db() as d: d.execute("INSERT INTO cards(id,course_id,front,back,source,week,due,created) VALUES(?,?,?,?,?,?,?,?)",
+                              (kid, cid, c.front, c.back, c.source, c.week.strip(), date.today().isoformat(), time.time()))
     return {"id": kid}
 
 @app.delete("/api/cards/{kid}")
@@ -436,11 +526,11 @@ def review(kid: str, r: ReviewIn):
 @app.post("/api/courses/{cid}/cards/generate")
 def generate_cards(cid: str, g: GenIn):
     if g.file_id:
-        f = rows("SELECT name,text FROM files WHERE id=?", g.file_id)
+        f = rows("SELECT name,text,week FROM files WHERE id=?", g.file_id)
         if not f: raise HTTPException(404)
-        src, txt = f[0]["name"], (f[0]["text"] or "")[:60000]
+        src, week, txt = f[0]["name"], f[0]["week"] or "", (f[0]["text"] or "")[:60000]
     else:
-        parts, _ = build_context(cid); src, txt = "selected files", "\n\n".join(parts)[:60000]
+        parts, _ = build_context(cid); src, week, txt = "selected files", "", "\n\n".join(parts)[:60000]
     prompt = (f"From the material below, write {g.count} flashcards for a law exam: precise, one testable point each, "
               "case names and article numbers where present. Return ONLY a JSON array of objects with keys 'front' and 'back'.\n\n" + txt)
     m = client().messages.create(model=pick_model('cards', g.model), max_tokens=3000, messages=[{"role": "user", "content": prompt}])
@@ -452,10 +542,57 @@ def generate_cards(cid: str, g: GenIn):
     with db() as d:
         for it in items:
             if it.get("front") and it.get("back"):
-                d.execute("INSERT INTO cards(id,course_id,front,back,source,due,created) VALUES(?,?,?,?,?,?,?)",
-                          (uuid.uuid4().hex[:10], cid, it["front"], it["back"], src, date.today().isoformat(), time.time())); made += 1
+                d.execute("INSERT INTO cards(id,course_id,front,back,source,week,due,created) VALUES(?,?,?,?,?,?,?,?)",
+                          (uuid.uuid4().hex[:10], cid, it["front"], it["back"], src, week, date.today().isoformat(), time.time())); made += 1
     return {"made": made}
 
+
+@app.get("/api/courses/{cid}/recall-map")
+def recall_map(cid: str):
+    """Week chips on Recall: due cards per week, whether the week has indexed files and cards, and the weak-card count."""
+    weeks = {}
+    def w(k):
+        k = k or ""; return weeks.setdefault(k, {"week": k, "due": 0, "cards": 0, "indexed": 0, "ready": False})
+    for f in rows("SELECT COALESCE(week,'') AS week, COUNT(*) AS n FROM files WHERE course_id=? AND status='indexed' GROUP BY COALESCE(week,'')", cid):
+        w(f["week"])["indexed"] = f["n"]
+    for c in rows("SELECT COALESCE(week,'') AS week, COUNT(*) AS n, SUM(CASE WHEN due IS NULL OR due<=? THEN 1 ELSE 0 END) AS due "
+                  "FROM cards WHERE course_id=? GROUP BY COALESCE(week,'')", date.today().isoformat(), cid):
+        x = w(c["week"]); x["cards"] = c["n"]; x["due"] = int(c["due"] or 0); x["ready"] = c["n"] > 0
+    weak = rows("SELECT COUNT(*) AS n FROM cards WHERE course_id=? AND ease<?", cid, WEAK_EASE)[0]["n"]
+    order = lambda x: (x["week"] == "", int(x["week"]) if x["week"].isdigit() else 999, x["week"])
+    return {"weeks": sorted(weeks.values(), key=order), "weak": weak}
+
+class QuizIn(BaseModel): count: int = 8; week: str = ""; weak: int = 0
+
+@app.post("/api/courses/{cid}/quiz")
+def quiz(cid: str, qz: QuizIn):
+    """Multiple choice built from the course's own cards: the card's back is the right answer, the cheap model writes three wrong ones."""
+    q, a = _card_scope(cid, 0, qz.week, qz.weak)
+    picked = rows(q + " ORDER BY (CASE WHEN due IS NULL OR due<=? THEN 0 ELSE 1 END), ease, RANDOM() LIMIT ?",
+                  *a, date.today().isoformat(), max(1, min(20, qz.count)))
+    if not picked: return []
+    ids = [c["id"] for c in picked]
+    others = [c["back"][:200] for c in rows("SELECT id,back FROM cards WHERE course_id=? ORDER BY RANDOM() LIMIT 60", cid) if c["id"] not in ids]
+    items = "\n".join(f"{i}. Q: {c['front']}\n   A: {c['back']}" for i, c in enumerate(picked))
+    prompt = ("Write multiple-choice distractors for a law exam quiz. For each numbered question, give exactly three wrong answers: plausible to a student "
+              "who half-knows the material, the same form and length as the right answer, clearly wrong on a careful reading, never a paraphrase of the "
+              "right answer. Borrow names, articles and rules from the course's other cards where they fit.\n"
+              'Return ONLY a JSON array of objects {"i": <question number>, "wrong": [three strings]}.\n\nQUESTIONS:\n' + items +
+              "\n\nOTHER CARDS IN THIS COURSE (answers only):\n" + ("\n".join("- " + o for o in others) or "(none)"))
+    got = _model_json(client().messages.create(model=CHEAP_MODEL, max_tokens=3000, messages=[{"role": "user", "content": prompt}]))
+    wrong_by_i = {}
+    for x in got if isinstance(got, list) else []:
+        if not (isinstance(x, dict) and isinstance(x.get("wrong"), list)): continue  # a string here would be iterated letter by letter
+        try: wrong_by_i[int(x["i"])] = x["wrong"]
+        except Exception: continue
+    out = []
+    for i, c in enumerate(picked):
+        right = c["back"].strip()
+        wrong = list(dict.fromkeys(str(v).strip() for v in (wrong_by_i.get(i) or []) if str(v).strip() and str(v).strip() != right))[:3]
+        if len(wrong) < 3: continue  # never show a question with fewer than four options
+        opts = wrong + [c["back"]]; random.shuffle(opts)
+        out.append({"id": c["id"], "question": c["front"], "options": opts, "correct": c["back"]})
+    return out
 
 # ---------------------------------------------------------------- search
 @app.get("/api/courses/{cid}/search")
@@ -476,6 +613,37 @@ def search(cid: str, q: str, limit: int = 20):
     for c in rows("SELECT id,front,back FROM cards WHERE course_id=? AND (front LIKE ? OR back LIKE ?) LIMIT ?", cid, like, like, limit):
         out.append({"kind": "card", "id": c["id"], "title": c["front"], "snippet": snip(c["back"])})
     return out[:limit * 2]
+
+# ---------------------------------------------------------------- case index (Progress screen)
+_CITE = re.compile(r"\b(?:Case\s+)?(?:[CT]-\d{1,4}/\d{2}|\d{1,3}/\d{2})\b|\bECLI:[A-Z]{2}:[A-Z]+:\d{4}:\d+")
+
+@app.get("/api/courses/{cid}/cases")
+def case_index(cid: str):
+    """Cases named in the course's notes: *italic* names (house style) and the Case column of case-map tables,
+    with the first citation seen and every note that mentions them. No model."""
+    found = {}
+    def add(name, cite, n):
+        name = re.sub(r"\s+", " ", name).strip(" *_.,;:")
+        if not name or not name[0].isupper() or len(name) > 80 or len(name.split()) > 8: return
+        c = found.setdefault(name.casefold(), {"name": name, "cite": "", "notes": []})
+        if cite and not c["cite"]: c["cite"] = cite.strip()
+        if all(x["id"] != n["id"] for x in c["notes"]): c["notes"].append({"id": n["id"], "title": n["title"]})
+    for n in rows("SELECT id,title,body FROM notes WHERE course_id=? ORDER BY updated DESC", cid):
+        body = n["body"] or ""; lines = body.splitlines()
+        for i in range(len(lines) - 1):  # case-map tables first: they carry a proper citation column
+            if not (lines[i].lstrip().startswith("|") and re.match(r"^\s*\|?\s*:?-+", lines[i + 1])): continue
+            head = [h.strip().lower() for h in lines[i].strip().strip("|").split("|")]
+            ci = next((k for k, h in enumerate(head) if "case" in h), None)
+            if ci is None: continue
+            cc = next((k for k, h in enumerate(head) if "citation" in h or h.startswith("cite")), None)
+            j = i + 2
+            while j < len(lines) and lines[j].lstrip().startswith("|"):
+                row = [c.strip() for c in lines[j].strip().strip("|").split("|")]; j += 1
+                if len(row) == len(head) and row[ci]: add(row[ci], row[cc] if cc is not None else "", n)
+        for m in re.finditer(r"(?<![*\w])\*(?![*\s])([^*\n]{1,80}?)(?<!\s)\*(?![*\w])", body):
+            cm = _CITE.search(body[m.end():m.end() + 60])
+            add(m.group(1), cm.group(0) if cm else "", n)
+    return sorted(found.values(), key=lambda c: c["name"].casefold())
 
 # ---------------------------------------------------------------- offline: recordings, cards from case map
 @app.post("/api/notes/{nid}/recordings/start")
@@ -636,10 +804,9 @@ def clean_capture(nid: str):
     return {"sections": (len(parts) - 1) // 2, "changed": changed}
 
 # ---------------------------------------------------------------- reconcile a note against its lecture capture
-@app.post("/api/notes/{nid}/reconcile")
-def reconcile_note(nid: str):
-    """Split the note into base notes + 'Live capture' sections; rewrite the base so the capture outranks it. Saves a new note, keeps the original."""
-    n = note(nid); body = n["body"]
+def _reconcile_inputs(n):
+    """(system, prompt) for a reconcile — also used to continue one that stopped at the cap."""
+    body = n["body"]
     course = rows("SELECT * FROM courses WHERE id=?", n["course_id"])[0]
     parts = re.split(r"(?m)^##\s+Live capture[^\n]*\n", body)
     base = parts[0].strip(); capture = "\n\n".join(p.strip() for p in parts[1:]).strip()
@@ -656,11 +823,21 @@ End with:
 ## Reconciliation log
 - one bullet per change: what the base said → what the lecturer said, and why it changed
 ## Still to verify
-- remaining ?? items and any base/lecture conflict you could not settle"""
+- remaining ?? items and any base/lecture conflict you could not settle
+## Bottom line
+- two to four lines, last: the corrections that matter most for the exam and what to fix first"""
     prompt = f"BASE NOTES:\n{base}\n\nLIVE CAPTURE:\n{capture}\n\nFILES (for pinpoints and filling gaps):\n" + "\n\n".join(ctx)
-    m = client().messages.create(model=STRONG_MODEL, max_tokens=6000, system=system, messages=[{"role": "user", "content": prompt}])
-    out = "".join(b.text for b in m.content if getattr(b, "type", "") == "text").strip()
-    if not out: raise HTTPException(502, "Empty reply from the model.")
+    return system, prompt
+
+@app.post("/api/notes/{nid}/reconcile")
+def reconcile_note(nid: str):
+    """Split the note into base notes + 'Live capture' sections; rewrite the base so the capture outranks it. Saves a new note, keeps the original."""
+    n = note(nid)
+    system, prompt = _reconcile_inputs(n)
+    m = client().messages.create(model=STRONG_MODEL, max_tokens=RECONCILE_TOKENS, system=system, messages=[{"role": "user", "content": prompt}])
+    out = _reply_text(m)
+    if not out.strip(): raise HTTPException(502, "Empty reply from the model.")
+    out = _mark_if_cut(out, m, kind="reconcile", src=nid)
     new_id = uuid.uuid4().hex; title = re.sub(r"\s*\(reconciled.*\)$", "", n["title"]) + f" (reconciled {time.strftime('%d %b')})"
     with db() as d: d.execute("INSERT INTO notes VALUES(?,?,?,?,?)", (new_id, n["course_id"], title, out, time.time()))
     return {"id": new_id, "title": title, "chars": len(out), "model": m.model}
@@ -674,9 +851,8 @@ def _files_for(cid: str, file_ids: list, week: str):
     if week: return rows("SELECT * FROM files WHERE course_id=? AND week=? AND selected=1", cid, week)
     return rows("SELECT * FROM files WHERE course_id=? AND selected=1", cid)
 
-@app.post("/api/courses/{cid}/notes/draft")
-def draft_notes(cid: str, d: DraftIn):
-    """Build a master-notes draft from selected files (or the ticked files of a week). Cheap model; escalates on size."""
+def _draft_inputs(cid: str, d: DraftIn):
+    """(system, prompt, files) for a draft — also used to continue one that stopped at the cap."""
     course = rows("SELECT * FROM courses WHERE id=?", cid)
     if not course: raise HTTPException(404)
     fs = [f for f in _files_for(cid, d.file_ids, d.week) if f["text"]]
@@ -697,13 +873,54 @@ Mode: build master notes. """ + NOTE_STYLE + """Output Markdown only, no preambl
 Never import material that is not in the files. Where sources disagree, keep both and tag which outranks (WG > slides > textbook)."""
     scope = f"week {d.week}" if d.week else "all ticked files"
     prompt = (f"Draft {'week-' + d.week if d.week else 'master'} notes titled '{d.title or ('Week ' + d.week + ' notes' if d.week else 'Master notes')}' covering {scope}, from these files only:\n\n" + "\n\n".join(parts))
-    m = client().messages.create(model=pick_model("notes", None, ""), max_tokens=4000, system=system,
+    return system, prompt, fs
+
+@app.post("/api/courses/{cid}/notes/draft")
+def draft_notes(cid: str, d: DraftIn):
+    """Build a master-notes draft from selected files (or the ticked files of a week). Cheap model; escalates on size."""
+    system, prompt, fs = _draft_inputs(cid, d)
+    m = client().messages.create(model=pick_model("notes", None, ""), max_tokens=DRAFT_TOKENS, system=system,
                                  messages=[{"role": "user", "content": prompt}])
-    body = "".join(b.text for b in m.content if getattr(b, "type", "") == "text").strip()
+    body = _mark_if_cut(_reply_text(m), m, kind="draft", week=d.week, diagrams="1" if d.diagrams else "0",
+                        files=",".join(f["id"] for f in fs))  # the files actually used, so Continue reads the same material if ticks change
     title = d.title or (body.splitlines()[0].lstrip("# ").strip() if body.startswith("#") else (f"Week {d.week} notes" if d.week else "Master notes"))
     nid = uuid.uuid4().hex
     with db() as c: c.execute("INSERT INTO notes VALUES(?,?,?,?,?)", (nid, cid, title, body, time.time()))
     return {"id": nid, "title": title, "chars": len(body), "files": [f["name"] for f in fs], "model": m.model}
+
+@app.post("/api/notes/{nid}/continue")
+def continue_note(nid: str):
+    """Finish a note the model left unfinished at the token cap. Current models reject an assistant prefill,
+    so the partial text goes back in the user turn and the reply is appended."""
+    n = note(nid); body = n["body"] or ""
+    mk = _CUT.search(body)
+    if not mk: raise HTTPException(400, "This note wasn't cut off — nothing to continue.")
+    meta = {k: unquote(v) for k, v in (kv.split("=", 1) for kv in mk.group(1).split() if "=" in kv)}
+    before = body[:mk.start()]
+    partial = (before[:-2] if before.endswith("\n\n") else before) + body[mk.end():]  # drop only the separator the marker added
+    if meta.get("kind") == "reconcile":
+        src = rows("SELECT * FROM notes WHERE id=?", meta.get("src", ""))
+        if not src: raise HTTPException(400, "The note this was reconciled from is gone — reconcile again from the original.")
+        system, prompt = _reconcile_inputs(src[0]); model, cap = STRONG_MODEL, RECONCILE_TOKENS
+    elif meta.get("kind") == "draft":
+        d = DraftIn(week=meta.get("week", ""), diagrams=meta.get("diagrams", "1") == "1",
+                    file_ids=[x for x in meta.get("files", "").split(",") if x])
+        system, prompt, _ = _draft_inputs(n["course_id"], d); model, cap = pick_model("notes", None, ""), DRAFT_TOKENS
+    else: raise HTTPException(400, "This note has no continuation marker the app understands.")
+    ask = (prompt + "\n\nYou already wrote the answer below, but it was cut off at the token limit. Continue from exactly where it stops: "
+           "no preamble, no repetition, no restating earlier sections — pick up mid-sentence if that is where it ends — and finish the sections still missing. "
+           "Your reply is appended to the answer with nothing added in between, so begin with the exact next characters: the rest of the word if it stops "
+           "mid-word, a space if a new word follows, a line break if a new line follows.\n\n"
+           "ANSWER SO FAR:\n" + partial[-12000:])
+    m = client().messages.create(model=model, max_tokens=cap, system=system, messages=[{"role": "user", "content": ask}])
+    raw = _text(m)
+    if not raw.strip(): raise HTTPException(502, "Empty reply from the model.")
+    rest = raw if getattr(m, "stop_reason", "") == "max_tokens" else raw.rstrip()  # leading space or line break is the join itself
+    joined = _mark_if_cut(partial + rest, m, **meta)
+    with db() as c:
+        c.execute("INSERT INTO note_versions VALUES(?,?,?,?,?)", (uuid.uuid4().hex, nid, n["title"], body, time.time()))
+        c.execute("UPDATE notes SET body=?, updated=? WHERE id=?", (joined, time.time(), nid))
+    return {"chars": len(joined), "added": len(rest), "cut": bool(_CUT.search(joined)), "model": m.model}
 
 class PlanIn(BaseModel): start: str = ""; days: int = 7; minutes_per_day: int = 90; replace: bool = False
 
@@ -751,6 +968,15 @@ def add_session(cid: str, s: SessionIn):
     sid = uuid.uuid4().hex[:8]
     with db() as d: d.execute("INSERT INTO sessions VALUES(?,?,?,?,?,0)", (sid, cid, s.day, s.topic, s.minutes))
     return {"id": sid}
+
+class LogIn(BaseModel): minutes: int; topic: str = "Study session"
+
+@app.post("/api/courses/{cid}/sessions/log")
+def log_session(cid: str, s: LogIn):
+    """The study timer: record time already spent as a done session today, so it counts in Progress."""
+    sid = uuid.uuid4().hex; minutes = max(1, min(720, s.minutes))
+    with db() as c: c.execute("INSERT INTO sessions VALUES(?,?,?,?,?,1)", (sid, cid, date.today().isoformat(), (s.topic.strip() or "Study session")[:160], minutes))
+    return {"id": sid, "minutes": minutes}
 
 @app.post("/api/sessions/{sid}/toggle")
 def toggle_session(sid: str):
