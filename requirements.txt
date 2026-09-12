@@ -6,7 +6,7 @@ python-pptx
 python-docx
 python-multipart
 python-dotenv
-faster-whisper
+google-cloud-speech
 psycopg[binary,pool]
 google-cloud-storage
 pytest
