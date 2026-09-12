@@ -7,3 +7,6 @@ python-docx
 python-multipart
 python-dotenv
 faster-whisper
+psycopg[binary,pool]
+pytest
+httpx
