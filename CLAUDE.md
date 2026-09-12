@@ -13,7 +13,7 @@ The app is moving from a laptop-only build (SQLite in `data/`, local Whisper, wa
 - **Cloud Run** (GCP project `vigilant-axis-483119-r8`) — the app, always on, scale-to-zero.
 - **Neon Postgres** — all structured data. Local dev uses docker Postgres; tests/PRs use Neon branches.
 - **Cloud Storage bucket** — uploaded files, lecture audio, printed PDFs. Never the filesystem.
-- **Hosted STT** by default for lecture transcription, with an optional **local worker** (`worker/`) that runs faster-whisper on the Mac when it is awake.
+- **Hosted STT** (Google Speech-to-Text v2) for lecture transcription. No local worker — the Mac is not part of the cloud build (decided 2026-09-12).
 - **Google sign-in** restricted to allow-listed emails. Multi-user later; `user_id` on `courses` now.
 
 Work proceeds in numbered phases. The current phase brief lives in `docs/phases/`. Do not pull work from later phases into the current one.
@@ -22,7 +22,7 @@ Work proceeds in numbered phases. The current phase brief lives in `docs/phases/
 
 1. `db()` / `rows()` — the only way to touch the database. Placeholders are `%s`. No SQLite-isms.
 2. `storage.py` — `put(key, bytes|stream) / get(key) / url(key) / delete(key)`. Backends: `local` (dev), `gcs`. `run.py` never imports `google.cloud.storage` and never builds a filesystem path to user content.
-3. `transcribe.py` — `transcribe(audio_key, language) -> Job`. Backends: `hosted` (default), `whisper-local` (worker). Job state lives in the `jobs` table, never in process memory.
+3. `transcribe.py` — `transcribe(audio_key, language) -> Job`. Backend: `hosted` (`STT_PROVIDER=google`). Job state lives in the `jobs` table, never in process memory.
 
 Environment selects the backend. There is no other configuration surface.
 

@@ -9,7 +9,7 @@ Branch: `phase-3-transcription`. Depends on Phases 1 and 2.
 - A second provider is not built now; `transcribe/providers/` keeps the folder shape so one could be.
 
 ## Objective
-Transcription is a durable job whose state lives in a `jobs` table and whose heavy lifting runs at the provider. No thread, no in-process model, no scheduler. The UI's existing status polling drives the job to completion. The `transcribe()` seam and `jobs` table are designed so a local Mac worker could be added later without touching the web app — but **no worker is built in this phase**.
+Transcription is a durable job whose state lives in a `jobs` table and whose heavy lifting runs at the provider. No thread, no in-process model, no scheduler. The UI's existing status polling drives the job to completion. **No local worker** — dropped 2026-09-12; hosted STT is the only transcription path.
 
 ## What exists today (verified, `run.py` L570–621)
 - `_jobs` dict in memory; `threading.Thread` runs `_transcribe()`; lazy `WhisperModel("small", cpu, int8)`.

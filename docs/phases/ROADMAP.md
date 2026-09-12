@@ -12,11 +12,16 @@ Seven phases, one PR each, in order. Each phase leaves the app fully working. Ea
 | 6 | Course scaffolding (add courses in-app) | `courses` | 1 |
 | 7 | Cutover, backups, retire the laptop build | ops | all |
 
-Phases 4 and 6 don't depend on 2–3 and can run in parallel branches if convenient, but merge in numeric order to keep the diff history readable.
+Phases 4 and 6 don't depend on 2–3 and run in parallel branches — separate git worktrees, each with its own local database (a separate database in `cf-db`, `DATABASE_URL` exported in that worktree).
+
+**Merge when ready** (decided 2026-09-12): a phase merges as soon as its acceptance checklist passes, rebased onto `main`. Phase 5 still waits for 1–4 because it genuinely depends on them.
+
+**Migration numbers** are reserved per phase brief (`002` storage, `003` jobs, `004` auth if needed, `005` course brief), so `main` may have gaps. `migrate.py` applies every file not yet recorded in `schema_migrations`, in filename order, so a gap or a late-arriving lower number is applied, never skipped. Because an existing database can then apply a lower number after a higher one, a migration must not depend on any migration with a higher number.
 
 ## Working rules for every phase
 
 - Read `CLAUDE.md` first. Its golden rules and "must not do" list apply to every phase.
 - `static/index.html` changes only where the brief says so, and only via the safe-restyle rules.
 - Every phase ends with its acceptance checklist run and pasted into the PR.
+- **Every phase is demoable.** Matej must be able to see the progress running, not just read tests. Before Phase 5 is live: the phase branch runs locally against docker Postgres (`make dev`; parallel worktrees each on their own port and database) with seeded demo data where needed, and the PR has a "How to see it" section (exact commands, URL, what to click) plus light/dark screenshots of anything visible. Once Phase 5 is live: the same, plus the change running on the Cloud Run URL after merge.
 - Anything marked **[Matej]** is done by him, not the agent.
