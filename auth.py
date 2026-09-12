@@ -17,6 +17,10 @@ from functools import lru_cache
 
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from authlib.jose.errors import JoseError
+try:  # Authlib >= 1.7 verifies id_tokens with joserfc, whose errors don't subclass Authlib's JoseError
+    from joserfc.errors import JoseError as JoserfcError
+except ImportError:  # older Authlib
+    JoserfcError = JoseError
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from itsdangerous import BadSignature, URLSafeTimedSerializer
@@ -142,7 +146,7 @@ async def callback(request: Request):
     if auth_off() or not g: return RedirectResponse("/", status_code=302)
     try:
         token = await g.authorize_access_token(request)  # checks state + nonce, verifies id_token against Google's JWKS
-    except (OAuthError, JoseError) as e:
+    except (OAuthError, JoseError, JoserfcError) as e:
         return _page("Sign-in failed", f"<p>{html.escape(str(e) or 'OAuth error')}</p><p><a href='/auth/login'>Try again</a></p>", 400)
     info = token.get("userinfo") or {}
     email = str(info.get("email", "")).strip().lower()

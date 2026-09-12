@@ -1,0 +1,138 @@
+# Tests every PR and every push to main against a throwaway Neon branch of production,
+# then (main only) builds the image, pushes it to Artifact Registry and deploys Cloud Run.
+#
+# Repo variables: GCP_WIF_PROVIDER, GCP_DEPLOY_SA (printed by infra/setup.sh), NEON_PROJECT_ID,
+#                 optional NEON_DATABASE (default cognitioflow), NEON_ROLE (default neondb_owner).
+# Repo secrets:   NEON_API_KEY. No GCP key: GitHub's OIDC token is exchanged via Workload Identity Federation.
+name: test and deploy
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GCP_PROJECT: vigilant-axis-483119-r8
+  REGION: europe-west4
+  SERVICE: cognitioflow
+  IMAGE: europe-west4-docker.pkg.dev/vigilant-axis-483119-r8/cognitioflow/cognitioflow
+  RUN_SA: cognitioflow-run@vigilant-axis-483119-r8.iam.gserviceaccount.com
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEON_DATABASE: ${{ vars.NEON_DATABASE || 'cognitioflow' }}
+      NEON_ROLE: ${{ vars.NEON_ROLE || 'neondb_owner' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Branch expiry (safety net if the delete step never runs)
+        id: expiry
+        run: echo "at=$(date -u -d '+2 hours' +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Create Neon branch of production
+        id: neon
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          branch_name: ci-${{ github.run_id }}-${{ github.run_attempt }}
+          database: ${{ env.NEON_DATABASE }}
+          role: ${{ env.NEON_ROLE }}
+          expires_at: ${{ steps.expiry.outputs.at }}
+
+      # The action does not mask its db_url/password outputs, so fetch the URI here and mask it
+      # before anything can print it.
+      - name: Connection string (masked)
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          BRANCH_ID: ${{ steps.neon.outputs.branch_id }}
+        run: |
+          uri=$(curl -fsS -H "Authorization: Bearer $NEON_API_KEY" -H "Accept: application/json" \
+            "https://console.neon.tech/api/v2/projects/$PROJECT_ID/connection_uri?branch_id=$BRANCH_ID&database_name=$NEON_DATABASE&role_name=$NEON_ROLE&pooled=false" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["uri"])')
+          echo "::add-mask::$uri"
+          echo "DATABASE_URL=$uri" >> "$GITHUB_ENV"
+
+      - name: make test
+        env:
+          AUTH: "off"
+          ALLOWED_EMAILS: matej@mgms.eu
+          ANTHROPIC_API_KEY: sk-ant-test-key
+          STORAGE: local
+        run: make test
+
+      - name: Delete Neon branch
+        if: always() && steps.neon.outputs.branch_id != ''
+        uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch: ${{ steps.neon.outputs.branch_id }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Build and push image
+        run: |
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          docker build --platform linux/amd64 -t "$IMAGE:$GITHUB_SHA" .
+          docker push "$IMAGE:$GITHUB_SHA"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --project "$GCP_PROJECT" --region "$REGION" \
+            --image "$IMAGE:$GITHUB_SHA" \
+            --service-account "$RUN_SA" \
+            --allow-unauthenticated \
+            --port 8080 --cpu 1 --memory 1Gi --concurrency 20 \
+            --min-instances 0 --max-instances 2 --cpu-boost \
+            --set-secrets ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,DATABASE_URL=DATABASE_URL:latest,SESSION_SECRET=SESSION_SECRET:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest \
+            --set-env-vars ENV=production,STORAGE=gcs,GCS_BUCKET=cognitioflow-user-content,GCP_PROJECT=vigilant-axis-483119-r8,STT=hosted,STT_PROVIDER=google,STT_REGION=europe-west4,ALLOWED_EMAILS=matej@mgms.eu \
+            --labels "commit=${GITHUB_SHA:0:12}" \
+            --quiet
+
+      - name: Smoke test /healthz
+        run: |
+          url=$(gcloud run services describe "$SERVICE" --project "$GCP_PROJECT" --region "$REGION" --format='value(status.url)')
+          echo "Service URL: $url"
+          for _ in 1 2 3 4 5; do
+            curl -fsS -o /dev/null -w "healthz %{http_code} in %{time_total}s\n" "$url/healthz" && exit 0
+            sleep 5
+          done
+          echo "healthz did not return 200" >&2; exit 1
