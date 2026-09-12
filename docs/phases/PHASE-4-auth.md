@@ -14,7 +14,7 @@ Nobody but allow-listed accounts can reach any `/api/*` route or the UI. The Ant
 - Middleware: every path except `/auth/*`, `/static/*`, `/healthz` requires a valid session; API routes return 401 JSON, `/` redirects to `/auth/login`.
 - `request.state.user` is set; add a `current_user(request)` dependency. **Do not** filter data by user yet — single tenant — but every new row that has a `user_id` column (only `courses` for now) gets it from `current_user`.
 - No API/Bearer tokens: they existed only for the local worker, which was dropped (2026-09-12). The session cookie is the only credential. `migrations/004_auth.sql` only if the phase needs schema changes.
-- Dev bypass: `AUTH=off` in `.env.local` logs in as `MATEJ_EMAIL` without Google, for docker-only development and tests. Refuse to start with `AUTH=off` when `ENV=production`.
+- Dev bypass: `AUTH=off` in `.env.local` logs in as the first address in `ALLOWED_EMAILS` without Google, for docker-only development and tests — so the bypass user is always one that real sign-in would also admit (`MATEJ_EMAIL` stays only as `migrate_sqlite.py`'s owner email). Refuse to start with `AUTH=off` when `ENV=production` or when `ALLOWED_EMAILS` is empty.
 - `/healthz` returns 200 with no auth (Cloud Run probe).
 
 ## Secrets

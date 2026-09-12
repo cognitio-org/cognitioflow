@@ -22,7 +22,7 @@ Move the real data once, cleanly, verify it, switch to the cloud URL, and make s
 
 ## Backups (agent delivers)
 - Neon: use the Free plan's point-in-time restore window (much shorter than the 7 days this brief originally assumed — confirm the current limit in the Neon console and state it in the README); document `neonctl branches create --parent main@<timestamp>` as the restore path.
-- Bucket: object versioning on; a Cloud Scheduler job **weekly** (decided 2026-09-12 — the Free plan's short restore window makes this the real safety net) copying `neon pg_dump` (via a Cloud Run job) + bucket snapshot to a second, cold bucket (`cognitioflow-backups`). `infra/backup.sh` + restore instructions tested once end-to-end on a Neon branch.
+- Bucket: object versioning on; a Cloud Scheduler job **weekly** (decided 2026-09-12 — the Free plan's short restore window makes this the real safety net) copying `neon pg_dump` (via a Cloud Run job) + bucket snapshot to a second, cold bucket (`cognitioflow-backups`). `infra/backup.sh` + restore instructions tested once end-to-end on a Neon branch. The backup job runs as its own service account, `cognitioflow-backup@…`, created by `infra/backup.sh` with `roles/storage.objectCreator` on `cognitioflow-backups`, `roles/storage.objectViewer` on `cognitioflow-user-content` and `secretmanager.secretAccessor` on `DATABASE_URL`; Phase 5's `cognitioflow-run` stays scoped to the user-content bucket.
 - `scripts/export_all.py`: dumps every course as a folder of Markdown notes + a cards CSV + audio, so there is always a plain-files exit from the app.
 
 ## Acceptance
