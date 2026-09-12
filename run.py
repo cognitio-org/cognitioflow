@@ -790,8 +790,10 @@ def transcribe_status(rid: str):
     """Poll the provider for an unfinished job; when it is done, finish it in this request. A closed tab
     simply completes the next time the note is opened."""
     job, collected = _latest_job(rid), False
-    if job and job["status"] == "finishing" and time.time() - (job["updated"] or 0) > 600:
-        _set_job(job["id"], status="running"); job = _latest_job(rid)  # a finish that died mid-way: collect it again
+    # a finish that died mid-way is collected again; the window must outlast a long cleaning pass
+    # (a 90-minute lecture is ~17 cheap-model chunks), or a live finish could be claimed twice
+    if job and job["status"] == "finishing" and time.time() - (job["updated"] or 0) > 30 * 60:
+        _set_job(job["id"], status="running"); job = _latest_job(rid)
     if job and job["status"] in ("submitted", "running"):
         try:
             state, segments, detail = stt.poll(job["payload"]["op"])
