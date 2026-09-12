@@ -9,6 +9,52 @@ Unzipping over an existing install is safe: your `.env` and `data/` folder are n
 
 Runs on your Mac. Files, notes, cards and conversations live in `./data/`. The only thing that leaves the machine is each tutor message (plus the ticked files' text) sent to the Claude API.
 
+## Cloud (Cloud Run)
+The cloud build runs on Cloud Run in project `vigilant-axis-483119-r8`, region `europe-west4`, service `cognitioflow`.
+Data lives in Neon Postgres, files in the `cognitioflow-user-content` bucket, secrets in Secret Manager.
+
+**URL:** `https://cognitioflow-<hash>-ez.a.run.app` (placeholder until the first deploy; get it with
+`gcloud run services describe cognitioflow --region europe-west4 --format='value(status.url)'`).
+
+### Deploy
+- Merging to `main` deploys. `.github/workflows/deploy.yml` runs the tests against a throwaway Neon branch of
+  production, builds the image, pushes it to Artifact Registry
+  (`europe-west4-docker.pkg.dev/vigilant-axis-483119-r8/cognitioflow/cognitioflow:<commit>`) and runs `gcloud run deploy`.
+- Manual: GitHub → Actions → **test and deploy** → **Run workflow** on `main` (or `gh workflow run deploy.yml --ref main`).
+- Every pull request runs the same tests; only `main` deploys.
+
+### Roll back
+```
+gcloud run revisions list --service cognitioflow --region europe-west4
+gcloud run services update-traffic cognitioflow --to-revisions=REVISION=100 --region europe-west4
+```
+Replace `REVISION` with a name from the list (e.g. `cognitioflow-00012-abc`). The next merge to `main` sends traffic
+to the new revision again.
+
+### Logs
+- Console: Cloud Run → `cognitioflow` → **Logs** (or Logs Explorer, resource "Cloud Run Revision").
+- Terminal: `gcloud run services logs read cognitioflow --region europe-west4 --limit 100`
+  (`gcloud beta run services logs tail cognitioflow --region europe-west4` to follow).
+- Deploy runs: GitHub → Actions.
+
+### Run the container locally
+```
+docker build -t cognitioflow .
+docker run --rm -p 8080:8080 --env-file data/docker.env cognitioflow   # → http://localhost:8080
+```
+`data/docker.env` (gitignored) needs at least `DATABASE_URL=postgresql://cf:cf@host.docker.internal:5432/cognitioflow`,
+`AUTH=off`, `ALLOWED_EMAILS=…`, `STORAGE=local`, `STORAGE_LOCAL_ROOT=/tmp/cf-data`. The container checks the
+environment (`ENV=production` refuses to start with `AUTH=off` or a missing secret), applies migrations, then serves.
+
+### One-time setup [Matej]
+1. `bash infra/setup.sh --dry-run` to see what it will do, then `bash infra/setup.sh`. It is idempotent and keeps
+   what already exists (bucket, `cognitioflow-run` and its roles). It enables the APIs, creates the Artifact Registry
+   repo, the five secrets (values from env vars or hidden prompts; `--rotate` adds new versions), Workload Identity
+   Federation for `cognitio-org/cognitioflow` (main branch only) and the `cognitioflow-deploy` service account.
+2. Add the GitHub repo variables and secret it prints: `GCP_WIF_PROVIDER`, `GCP_DEPLOY_SA`, `NEON_PROJECT_ID`
+   (variables) and `NEON_API_KEY` (secret). Optional variables: `NEON_DATABASE` (default `congnitioflow`), `NEON_ROLE`.
+3. Merge to `main` (or run the workflow), then add `<URL>/auth/callback` to the OAuth client's authorised redirect URIs.
+
 ## First run
 ```
 cd cognitioflow
