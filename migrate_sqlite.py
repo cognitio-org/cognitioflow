@@ -4,8 +4,10 @@ Migrate CognitioFlow SQLite data into Postgres.
 Usage:
     python migrate_sqlite.py --sqlite ~/Desktop/cognitioflow/data/cognitioflow.db --dry-run
     python migrate_sqlite.py --sqlite ~/Desktop/cognitioflow/data/cognitioflow.db
+    python migrate_sqlite.py --sqlite ~/Desktop/cognitioflow/data/cognitioflow.db --verify
 
-Reads MATEJ_EMAIL and DATABASE_URL from the environment (or .env.local).
+Reads MATEJ_EMAIL and DATABASE_URL from the environment; .env.local only fills in what the shell
+doesn't set, so `DATABASE_URL=<Neon prod> python migrate_sqlite.py …` really targets Neon.
 Never modifies the SQLite source. Never copies files or audio (Phase 2).
 Idempotent: uses ON CONFLICT (id) DO NOTHING.
 Exits non-zero if any table row count differs between source and destination.
@@ -20,7 +22,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv(".env.local", override=True)
+load_dotenv(".env.local")  # shell variables win: the cutover points DATABASE_URL at Neon prod
 load_dotenv()
 
 # Tables in FK-safe insertion order
@@ -142,9 +144,70 @@ def migrate(sqlite_path: str, dry_run: bool) -> None:
     print("Migration complete — all counts match.")
 
 
+SPOT_TABLES = ("notes", "cards", "recordings")
+
+
+def _same(column: str, src, dst) -> bool:
+    if column == "key" and isinstance(dst, str) and dst.startswith(("courses/", "notes/")):
+        return True  # migrate_storage.py has since rewritten the laptop path to a storage key
+    if isinstance(src, (int, float)) and isinstance(dst, (int, float)):
+        return abs(float(src) - float(dst)) < 1e-6
+    return src == dst
+
+
+def verify(sqlite_path: str, sample: int = 20, seed=None) -> int:
+    """Re-count every table and compare `sample` random rows across notes/cards/recordings column by column.
+    Returns the number of problems (0 = verified). Writes nothing."""
+    import random
+    import psycopg
+    from psycopg.rows import dict_row
+
+    pg_url = os.environ.get("DATABASE_URL")
+    if not pg_url:
+        raise SystemExit("DATABASE_URL is not set.")
+    src_path = Path(sqlite_path).expanduser()
+    if not src_path.exists():
+        raise SystemExit(f"SQLite file not found: {src_path}")
+    src = sqlite3.connect(str(src_path))
+    src.row_factory = sqlite3.Row
+    print(f"[VERIFY] {src_path} ↔ Postgres")
+    print()
+    problems = 0
+    with psycopg.connect(pg_url, row_factory=dict_row) as conn:
+        for table in TABLES:
+            s_n = src.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            d_n = conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"]
+            ok = s_n == d_n
+            problems += 0 if ok else 1
+            print(f"  {table:20s}: src={s_n:6d}  dst={d_n:6d}  {'✓' if ok else '✗ MISMATCH'}")
+        pool = [(t, r[0]) for t in SPOT_TABLES for r in src.execute(f"SELECT id FROM {t}").fetchall()]
+        picked = random.Random(seed).sample(pool, min(sample, len(pool)))
+        differing = 0
+        for table, row_id in picked:
+            s_row = dict(src.execute(f"SELECT * FROM {table} WHERE id=?", (row_id,)).fetchone())
+            if "path" in s_row:
+                s_row["key"] = s_row.pop("path")
+            d_row = conn.execute(f"SELECT * FROM {table} WHERE id=%s", (row_id,)).fetchone()
+            diffs = ["(missing in Postgres)"] if d_row is None else [c for c, v in s_row.items() if not _same(c, v, d_row.get(c))]
+            if diffs:
+                differing += 1
+                print(f"  ✗ {table} {row_id}: {', '.join(diffs)}")
+        problems += differing
+        print(f"  spot check: {len(picked)} random rows across {', '.join(SPOT_TABLES)} — {len(picked) - differing} identical")
+    print()
+    print("Verified — counts match and sampled rows are identical." if not problems else f"FAILED — {problems} problem(s).")
+    return problems
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Migrate SQLite → Postgres")
     parser.add_argument("--sqlite", required=True, help="Path to cognitioflow.db")
-    parser.add_argument("--dry-run", action="store_true", help="Print counts only, write nothing")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true", help="Print counts only, write nothing")
+    mode.add_argument("--verify", action="store_true", help="After migrating: re-count and spot-check rows, write nothing")
+    parser.add_argument("--sample", type=int, default=20, help="rows to spot-check with --verify (default 20)")
+    parser.add_argument("--seed", type=int, default=None, help="random seed for a repeatable spot check")
     args = parser.parse_args()
+    if args.verify:
+        sys.exit(1 if verify(args.sqlite, args.sample, args.seed) else 0)
     migrate(args.sqlite, args.dry_run)
