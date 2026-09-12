@@ -11,6 +11,7 @@ Seven phases, one PR each, in order. Each phase leaves the app fully working. Ea
 | 5 | Dockerfile + Cloud Run + auto-deploy | infra | 1–4 |
 | 6 | Course scaffolding (add courses in-app) | `courses` | 1 |
 | 7 | Cutover, backups, retire the laptop build | ops | all |
+| 8 | Voice: Gemini dictation option for the tutor, Gemini batch option for lectures | tutor mic, `transcribe/` | 3, 5 |
 
 Phases 4 and 6 don't depend on 2–3 and run in parallel branches — separate git worktrees, each with its own local database (a separate database in `cf-db`, `DATABASE_URL` exported in that worktree).
 
