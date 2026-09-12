@@ -41,6 +41,7 @@
   nav ul{list-style:none;margin:0;padding:0} nav a{display:block;text-decoration:none;color:var(--graphite);padding:.4rem .6rem;border-radius:var(--r);border-left:3px solid transparent}
   nav a:hover{background:var(--faint);color:var(--ink)} nav a.active{color:var(--ink);border-left-color:var(--accent);background:var(--faint)}
   .keystate{font-size:.78rem;color:var(--graphite);margin-top:auto}
+  .acct{margin:auto 0 0;display:flex;flex-direction:column;align-items:flex-start;gap:.3rem;padding-top:.75rem;border-top:1px solid var(--rule)} .acct .who{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} #signOut{min-height:32px}
   main{overflow:auto;min-width:0;padding:1.4rem 1.6rem 3rem}
   .screen{display:none} .screen.active{display:block}
   .head{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap;border-bottom:1px solid var(--rule);padding-bottom:.7rem;margin-bottom:1.1rem}
@@ -157,7 +158,7 @@
     aside.side{flex-direction:row;align-items:center;flex-wrap:nowrap;gap:.8rem;padding:0 1rem;border-right:none;border-bottom:1px solid var(--rule);overflow:visible;background:var(--paper)}
     .brand{align-items:center;font-size:1rem} .brand i{height:1rem} aside.side label{font-size:0} aside.side label select{font-size:.85rem;padding:.25rem}
     nav{flex:1;min-width:0;align-self:stretch;display:flex} nav ul{display:flex;gap:0;overflow-x:auto;overflow-y:visible;align-items:stretch} nav a{padding:.55rem .6rem .5rem;font-size:.88rem;border-left:none;border-top:3px solid transparent;border-radius:0;white-space:nowrap} nav a:hover{background:transparent;color:var(--ink)} nav a.active{background:none;border-top-color:var(--accent);color:var(--ink)}
-    #addCourse{display:none} #searchBtn{padding:.15rem .5rem;font-size:.78rem;border-color:transparent} .keystate{margin:0 3.2rem 0 0;font-size:0;width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none} .keystate.off{background:var(--warn)}
+    #addCourse{display:none} #searchBtn{padding:.15rem .5rem;font-size:.78rem;border-color:transparent} .acct{margin:0 3.2rem 0 0;padding:0;border:none;flex:none} .acct .who{display:none} #signOut{padding:.15rem .5rem;font-size:.78rem} .keystate{margin:0 3.2rem 0 0;font-size:0;width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none} .keystate.off{background:var(--warn)}
     main{padding:.9rem 1rem 2rem} .head{margin-bottom:.7rem;padding-bottom:.45rem} h1{font-size:1.3rem} .head>div>div.small{display:none}
     .g4{grid-template-columns:repeat(4,1fr);gap:.5rem} .stat{padding:.5rem .7rem;display:flex;align-items:baseline;gap:.4rem} .stat .n{font-size:1.25rem} .stat .l{margin:0;font-size:.78rem}
     .hero{padding:var(--s4) var(--s5);gap:var(--s4)} .hero h2{font-size:1.35rem} .hero .k{font-size:2.1rem}
@@ -190,6 +191,7 @@
   </ul></nav>
   <button class="btn small ghost" id="searchBtn" title="Search and jump (⌘K)">Search ⌘K</button>
   <button class="btn small ghost" id="addCourse">+ Add course</button>
+  <form class="acct" id="acct" method="post" action="/auth/logout"><span class="small muted who" id="who"></span><button class="btn small ghost" id="signOut" type="submit">Sign out</button></form>
 </aside>
 <main>
 
@@ -497,7 +499,7 @@ function routeGuess(){ const sel=$('#modelSel').value; if(sel!=='auto'){ $('#rou
   if(m===window.CFCHEAP&&UP.some(k=>t.includes(k))) m=window.CFMODEL;
   $('#routeHint').textContent = t? '→ '+(m||'').replace('claude-','') : ''; }
 $('#q').addEventListener('input',routeGuess); document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setTimeout(routeGuess,0))); $('#modelSel').addEventListener('change',routeGuess);
-async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_key){toast('Add ANTHROPIC_API_KEY to .env and restart');return}
+async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_key){toast('No Claude API key on the server — add it to .env.local and restart');return}
   addMsg('user',q); $('#q').value=''; $('#send').disabled=true; const d=addMsg('assistant','');
   try{ const r=await fetch(`/api/courses/${cid}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:q,mode,model:$('#modelSel').value,speech:speakOn})});
     const rd=r.body.getReader(); const td=new TextDecoder(); let buf='';
@@ -703,7 +705,7 @@ function showQ(){ const it=quiz[qi]; rprog(qi,qTotal);
     const nx=document.createElement('div'); nx.className='qnext'; nx.innerHTML='<button class="btn small" id="qn">Next</button>';
     $('#qcard').appendChild(nx); $('#qn').onclick=()=>{ qi++; showQ(); }; $('#qn').focus();
   }); }
-$('#genCards').onclick=async()=>{if(!cfg.has_key){toast('Add ANTHROPIC_API_KEY to .env and restart');return} $('#genCards').disabled=true; toast('Writing cards…'); try{const r=await post(`/courses/${cid}/cards/generate`,{file_id:$('#genFrom').value||null,count:8});toast(`${r.made} cards added`);loadRecall()}catch(e){toast('Failed: '+e.message)} $('#genCards').disabled=false;};
+$('#genCards').onclick=async()=>{if(!cfg.has_key){toast('No Claude API key on the server — add it to .env.local and restart');return} $('#genCards').disabled=true; toast('Writing cards…'); try{const r=await post(`/courses/${cid}/cards/generate`,{file_id:$('#genFrom').value||null,count:8});toast(`${r.made} cards added`);loadRecall()}catch(e){toast('Failed: '+e.message)} $('#genCards').disabled=false;};
 $('#addCard').onclick=async()=>{const f=prompt('Front'); if(!f) return; const b=prompt('Back'); if(!b) return; await post(`/courses/${cid}/cards`,{front:f,back:b,source:'manual'}); loadRecall();};
 $('#showAll').onclick=()=>{$('#allCards').hidden=!$('#allCards').hidden};
 function renderAll(all){ $('#cardRows').innerHTML=all.map(c=>`<tr><td>${esc(c.front)}</td><td class="small">${esc(c.back)}</td><td class="small muted">${c.week?'W'+c.week:''}</td><td class="small muted">${c.due}</td><td><button class="btn small ghost" data-delcard="${c.id}">Remove</button></td></tr>`).join(''); document.querySelectorAll('[data-delcard]').forEach(b=>b.onclick=async()=>{await del(`/cards/${b.dataset.delcard}`);loadRecall()}); }
@@ -749,7 +751,8 @@ async function loadProgress(){ loadCaseIndex(); const s=await api(`/courses/${ci
   $('#p-next').textContent=s.due?`Clear ${s.due} due cards`:(s.cards<10?'Build the deck to at least 10 cards':(s.recall_accuracy!=null&&s.recall_accuracy<70?'Accuracy under 70% — drill the weak cards with the tutor':'Ask the tutor for an IRAC case question'));}
 
 /* init */
-(async()=>{ cfg=await api('/config'); $('#dot').classList.toggle('off',!cfg.has_key); $('#dot').title=cfg.has_key?`Claude connected · auto ${cfg.cheap_model.replace('claude-','')} / ${cfg.model.replace('claude-','')}`:'No API key — add ANTHROPIC_API_KEY to .env';
+(async()=>{ cfg=await api('/config'); $('#dot').classList.toggle('off',!cfg.has_key); $('#dot').title=cfg.has_key?`Claude connected · auto ${cfg.cheap_model.replace('claude-','')} / ${cfg.model.replace('claude-','')}`:'No Claude API key on the server — add it to .env.local';
+  $('#who').textContent=cfg.email||''; $('#who').title=$('#signOut').title=cfg.email?`Signed in as ${cfg.email}`:'';
   $('#modelSel').innerHTML='<option value="auto">Auto model</option>'+cfg.models.map(m=>`<option value="${m}">${m.replace('claude-','')}</option>`).join('');
   window.CFCHEAP=cfg.cheap_model; window.CFMODEL=cfg.model;
   initVoice(); if('speechSynthesis' in window) speechSynthesis.onvoiceschanged=()=>{}; await loadCourses(); show(location.hash.slice(1)||localStorage.getItem('cf.screen')||'home'); })();
