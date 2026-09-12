@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote, unquote
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -241,7 +242,14 @@ def infer_weeks(cid: str):
         m = _WEEK_IN_NAME.search(f["name"])
         if m and 1 <= int(m.group(1)) <= 20: found[f["id"]] = str(int(m.group(1)))
         elif f["kind"] != "image" and (f["text"] or "").strip(): rest.append(f)
-    by_name = len(found)
+    names = {f["id"]: f["name"] for f in untagged}
+    def save(tags):
+        with db() as d:
+            for fid, wk in tags.items():
+                d.execute("UPDATE files SET week=? WHERE id=? AND COALESCE(week,'')=''", (wk, fid))
+                d.execute("UPDATE cards SET week=? WHERE course_id=? AND source=? AND COALESCE(week,'')=''", (wk, cid, names[fid]))  # cards made from it follow
+    save(found)  # filename matches are free and certain: keep them even if the model step fails
+    by_name, by_model, warning = len(found), {}, ""
     if rest:
         batch = rest[:25]; ids = {f["id"] for f in batch}
         known = rows("SELECT name,week FROM files WHERE course_id=? AND COALESCE(week,'')<>'' ORDER BY week LIMIT 80", cid)
@@ -251,16 +259,18 @@ def infer_weeks(cid: str):
                   "Only give a week when the file itself gives real evidence; otherwise use an empty string. Weeks are whole numbers from 1 to 20.\n"
                   'Return ONLY a JSON object mapping file id to week, e.g. {"abc": "3", "def": ""}.\n\n'
                   f"FILES ALREADY TAGGED:\n{hint}\n\nUNTAGGED FILES:\n{docs}")
-        got = _model_json(client().messages.create(model=CHEAP_MODEL, max_tokens=1000, messages=[{"role": "user", "content": prompt}]))
+        try:
+            got = _model_json(client().messages.create(model=CHEAP_MODEL, max_tokens=1000, messages=[{"role": "user", "content": prompt}]))
+        except Exception as e:  # no API key, API error, or a reply that isn't JSON
+            got = {}
+            warning = (e.detail if isinstance(e, HTTPException) else "The model step failed") + " — files named with a week were still sorted."
         for fid, wk in (got.items() if isinstance(got, dict) else []):
             wk = str(wk).strip()
-            if fid in ids and wk.isdigit() and 1 <= int(wk) <= 20: found[fid] = str(int(wk))
-    names = {f["id"]: f["name"] for f in untagged}
-    with db() as d:
-        for fid, wk in found.items():
-            d.execute("UPDATE files SET week=? WHERE id=? AND COALESCE(week,'')=''", (wk, fid))
-            d.execute("UPDATE cards SET week=? WHERE course_id=? AND source=? AND COALESCE(week,'')=''", (wk, cid, names[fid]))  # cards made from it follow
-    return {"tagged": len(found), "by_name": by_name, "by_model": len(found) - by_name}
+            if fid in ids and wk.isdigit() and 1 <= int(wk) <= 20: by_model[fid] = str(int(wk))
+        save(by_model)
+    out = {"tagged": by_name + len(by_model), "by_name": by_name, "by_model": len(by_model)}
+    if warning: out["warning"] = warning
+    return out
 
 @app.delete("/api/files/{fid}")
 def delete_file(fid: str):
@@ -314,10 +324,16 @@ def _text(m) -> str:
 
 _CUT = re.compile(r"<!--cf:continue ([^>]*)-->")
 
+def _reply_text(m) -> str:
+    """Model text, trimmed — except that a reply cut off at the cap keeps its trailing characters, so Continue can join exactly."""
+    t = _text(m)
+    return t.lstrip() if getattr(m, "stop_reason", "") == "max_tokens" else t.strip()
+
 def _mark_if_cut(text: str, m, **meta) -> str:
-    """Hidden marker when the model stopped at the token cap, so Continue knows how to finish this note."""
+    """Hidden marker when the model stopped at the token cap, so Continue knows how to finish this note.
+    Values are URL-quoted: a free-text week like "Week 3" must survive the space-separated marker."""
     if getattr(m, "stop_reason", "") != "max_tokens": return text
-    return text + "\n\n<!--cf:continue " + " ".join(f"{k}={v}" for k, v in meta.items() if v not in ("", None)) + "-->"
+    return text + "\n\n<!--cf:continue " + " ".join(f"{k}={quote(str(v), safe='')}" for k, v in meta.items() if v not in ("", None)) + "-->"
 
 def _model_json(m):
     """Parse a JSON reply, tolerating code fences or a sentence around the JSON."""
@@ -566,6 +582,7 @@ def quiz(cid: str, qz: QuizIn):
     got = _model_json(client().messages.create(model=CHEAP_MODEL, max_tokens=3000, messages=[{"role": "user", "content": prompt}]))
     wrong_by_i = {}
     for x in got if isinstance(got, list) else []:
+        if not (isinstance(x, dict) and isinstance(x.get("wrong"), list)): continue  # a string here would be iterated letter by letter
         try: wrong_by_i[int(x["i"])] = x["wrong"]
         except Exception: continue
     out = []
@@ -818,8 +835,8 @@ def reconcile_note(nid: str):
     n = note(nid)
     system, prompt = _reconcile_inputs(n)
     m = client().messages.create(model=STRONG_MODEL, max_tokens=RECONCILE_TOKENS, system=system, messages=[{"role": "user", "content": prompt}])
-    out = _text(m).strip()
-    if not out: raise HTTPException(502, "Empty reply from the model.")
+    out = _reply_text(m)
+    if not out.strip(): raise HTTPException(502, "Empty reply from the model.")
     out = _mark_if_cut(out, m, kind="reconcile", src=nid)
     new_id = uuid.uuid4().hex; title = re.sub(r"\s*\(reconciled.*\)$", "", n["title"]) + f" (reconciled {time.strftime('%d %b')})"
     with db() as d: d.execute("INSERT INTO notes VALUES(?,?,?,?,?)", (new_id, n["course_id"], title, out, time.time()))
@@ -864,8 +881,8 @@ def draft_notes(cid: str, d: DraftIn):
     system, prompt, fs = _draft_inputs(cid, d)
     m = client().messages.create(model=pick_model("notes", None, ""), max_tokens=DRAFT_TOKENS, system=system,
                                  messages=[{"role": "user", "content": prompt}])
-    body = _mark_if_cut(_text(m).strip(), m, kind="draft", week=d.week,
-                        diagrams="1" if d.diagrams else "0", files=",".join(d.file_ids))
+    body = _mark_if_cut(_reply_text(m), m, kind="draft", week=d.week, diagrams="1" if d.diagrams else "0",
+                        files=",".join(f["id"] for f in fs))  # the files actually used, so Continue reads the same material if ticks change
     title = d.title or (body.splitlines()[0].lstrip("# ").strip() if body.startswith("#") else (f"Week {d.week} notes" if d.week else "Master notes"))
     nid = uuid.uuid4().hex
     with db() as c: c.execute("INSERT INTO notes VALUES(?,?,?,?,?)", (nid, cid, title, body, time.time()))
@@ -878,8 +895,9 @@ def continue_note(nid: str):
     n = note(nid); body = n["body"] or ""
     mk = _CUT.search(body)
     if not mk: raise HTTPException(400, "This note wasn't cut off — nothing to continue.")
-    meta = dict(kv.split("=", 1) for kv in mk.group(1).split() if "=" in kv)
-    partial = (body[:mk.start()] + body[mk.end():]).rstrip()
+    meta = {k: unquote(v) for k, v in (kv.split("=", 1) for kv in mk.group(1).split() if "=" in kv)}
+    before = body[:mk.start()]
+    partial = (before[:-2] if before.endswith("\n\n") else before) + body[mk.end():]  # drop only the separator the marker added
     if meta.get("kind") == "reconcile":
         src = rows("SELECT * FROM notes WHERE id=?", meta.get("src", ""))
         if not src: raise HTTPException(400, "The note this was reconciled from is gone — reconcile again from the original.")
@@ -890,12 +908,15 @@ def continue_note(nid: str):
         system, prompt, _ = _draft_inputs(n["course_id"], d); model, cap = pick_model("notes", None, ""), DRAFT_TOKENS
     else: raise HTTPException(400, "This note has no continuation marker the app understands.")
     ask = (prompt + "\n\nYou already wrote the answer below, but it was cut off at the token limit. Continue from exactly where it stops: "
-           "no preamble, no repetition, no restating earlier sections — pick up mid-sentence if that is where it ends — and finish the sections still missing.\n\n"
+           "no preamble, no repetition, no restating earlier sections — pick up mid-sentence if that is where it ends — and finish the sections still missing. "
+           "Your reply is appended to the answer with nothing added in between, so begin with the exact next characters: the rest of the word if it stops "
+           "mid-word, a space if a new word follows, a line break if a new line follows.\n\n"
            "ANSWER SO FAR:\n" + partial[-12000:])
     m = client().messages.create(model=model, max_tokens=cap, system=system, messages=[{"role": "user", "content": ask}])
-    rest = _text(m).strip()
-    if not rest: raise HTTPException(502, "Empty reply from the model.")
-    joined = _mark_if_cut(partial + ("" if partial.endswith(("\n", " ")) else " ") + rest, m, **meta)
+    raw = _text(m)
+    if not raw.strip(): raise HTTPException(502, "Empty reply from the model.")
+    rest = raw if getattr(m, "stop_reason", "") == "max_tokens" else raw.rstrip()  # leading space or line break is the join itself
+    joined = _mark_if_cut(partial + rest, m, **meta)
     with db() as c:
         c.execute("INSERT INTO note_versions VALUES(?,?,?,?,?)", (uuid.uuid4().hex, nid, n["title"], body, time.time()))
         c.execute("UPDATE notes SET body=?, updated=? WHERE id=?", (joined, time.time(), nid))

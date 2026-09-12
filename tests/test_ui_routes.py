@@ -220,7 +220,7 @@ def test_continue_finishes_a_cut_off_reconcile(client, fake, pg):
     cut = client.get(f"/api/notes/{new}").json()["body"]
     assert cut.endswith(f"<!--cf:continue kind=reconcile src={src}-->")
 
-    fc = fake(("is wide.\n## Bottom line\n- fix the Keck line first", None))
+    fc = fake((" is wide.\n## Bottom line\n- fix the Keck line first", None))
     r = client.post(f"/api/notes/{new}/continue")
     assert r.status_code == 200 and r.json()["cut"] is False
     body = client.get(f"/api/notes/{new}").json()["body"]
@@ -249,7 +249,7 @@ def test_continue_a_cut_off_draft_rebuilds_the_same_prompt(client, fake):
     _upload(client, cid, "w5.txt", "Week five: proportionality", week="5")
     fake(("# Week 5 notes\n## Scope", "max_tokens"))
     nid = client.post(f"/api/courses/{cid}/notes/draft", json={"week": "5", "diagrams": False}).json()["id"]
-    assert "<!--cf:continue kind=draft week=5 diagrams=0-->" in client.get(f"/api/notes/{nid}").json()["body"]
+    assert "<!--cf:continue kind=draft week=5 diagrams=0 files=" in client.get(f"/api/notes/{nid}").json()["body"]
     fc = fake(("\n## Core rules\n1. Proportionality", None))
     assert client.post(f"/api/notes/{nid}/continue").status_code == 200
     call = fc.calls[0]
@@ -262,3 +262,73 @@ def test_continue_without_a_marker_is_400(client):
     nid = client.post(f"/api/courses/{cid}/notes", json={"title": "Fine", "body": "All done."}).json()["id"]
     r = client.post(f"/api/notes/{nid}/continue")
     assert r.status_code == 400 and "nothing to continue" in r.json()["detail"]
+
+
+# ---------------------------------------------------------------- review fixes (PR #7)
+def test_continue_joins_exactly_at_line_breaks_and_mid_word(client, fake):
+    cid = _cid(client)
+    src = _note_with_capture(client, cid)
+    fake(("# Week 2 (reconciled)\n1. Keck narrows the scope\n", "max_tokens"))
+    a = client.post(f"/api/notes/{src}/reconcile").json()["id"]
+    fake(("## Bottom line\n- fix Keck", None))
+    assert client.post(f"/api/notes/{a}/continue").status_code == 200
+    assert client.get(f"/api/notes/{a}").json()["body"] == "# Week 2 (reconciled)\n1. Keck narrows the scope\n## Bottom line\n- fix Keck"
+    fake(("# Week 2 (reconciled)\n1. *Dassonvi", "max_tokens"))
+    b = client.post(f"/api/notes/{src}/reconcile").json()["id"]
+    fc = fake(("lle* (8/74)\n", None))
+    assert client.post(f"/api/notes/{b}/continue").status_code == 200
+    assert client.get(f"/api/notes/{b}").json()["body"] == "# Week 2 (reconciled)\n1. *Dassonville* (8/74)"
+    assert "begin with the exact next characters" in fc.calls[0]["messages"][0]["content"]
+
+
+def test_continue_master_draft_uses_the_files_it_was_written_from(client, fake):
+    cid = _cid(client)
+    _upload(client, cid, "a.txt", "ALPHA material")
+    b = _upload(client, cid, "b.txt", "BETA material")
+    fake(("# Master notes\n## Scope\n", "max_tokens"))
+    nid = client.post(f"/api/courses/{cid}/notes/draft", json={"diagrams": True}).json()["id"]
+    client.post(f"/api/files/{b}/toggle-to", json={"on": False})  # ticks change before Continue
+    fc = fake(("## Core rules\n1. x", None))
+    assert client.post(f"/api/notes/{nid}/continue").status_code == 200
+    sent = fc.calls[0]["messages"][0]["content"]
+    assert "ALPHA material" in sent and "BETA material" in sent
+
+
+def test_continue_marker_survives_a_week_with_spaces(client, fake):
+    cid = _cid(client)
+    _upload(client, cid, "w3.txt", "WEEK THREE material", week="Week 3")
+    fake(("# Week 3 notes\n", "max_tokens"))
+    nid = client.post(f"/api/courses/{cid}/notes/draft", json={"week": "Week 3", "diagrams": False}).json()["id"]
+    assert "week=Week%203" in client.get(f"/api/notes/{nid}").json()["body"]
+    fc = fake(("## Core rules", None))
+    assert client.post(f"/api/notes/{nid}/continue").status_code == 200
+    sent = fc.calls[0]["messages"][0]["content"]
+    assert "WEEK THREE material" in sent and "week-Week 3" in sent
+
+
+def test_infer_weeks_keeps_filename_tags_when_the_model_step_fails(client, fake, monkeypatch):
+    import run
+    from fastapi import HTTPException
+    cid = _cid(client)
+    w3 = _upload(client, cid, "W3 slides.txt", "Keck")
+    other = _upload(client, cid, "notes.txt", "no week in here")
+    fake(("not json at all", None))
+    r = client.post(f"/api/courses/{cid}/infer-weeks")
+    assert r.status_code == 200
+    body = r.json()
+    assert (body["tagged"], body["by_name"], body["by_model"]) == (1, 1, 0) and "warning" in body
+    weeks = {f["id"]: f["week"] for f in client.get(f"/api/courses/{cid}/files").json()}
+    assert (weeks[w3], weeks[other]) == ("3", "")
+    def no_key():
+        raise HTTPException(400, "ANTHROPIC_API_KEY not set — add it to .env and restart.")
+    monkeypatch.setattr(run, "client", no_key)
+    _upload(client, cid, "Week 4 reader.txt", "Cassis")
+    r = client.post(f"/api/courses/{cid}/infer-weeks").json()
+    assert r["by_name"] == 1 and "ANTHROPIC_API_KEY" in r["warning"]
+
+
+def test_quiz_ignores_distractors_that_are_not_a_list(client, fake):
+    cid = _cid(client)
+    _card(client, cid, "Which article?", "Article 34 TFEU")
+    fake((json.dumps([{"i": 0, "wrong": "Art 30; Art 36; Art 45"}]), None))
+    assert client.post(f"/api/courses/{cid}/quiz", json={}).json() == []
