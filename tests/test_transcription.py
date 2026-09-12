@@ -83,12 +83,12 @@ def test_poll_state_machine_appends_exactly_one_block(client, provider, pg, monk
     assert (s1["status"], s1["stage"]) == ("running", "transcribing")
     assert pg.execute("SELECT status FROM jobs WHERE ref_id=%s", (rid,)).fetchone()[0] == "running"
     s2 = client.get(f"/api/recordings/{rid}/transcribe").json()
-    assert s2["status"] == "done" and s2["cleaned"] is True and s2["language"] == "en-gb"
+    assert s2["status"] == "done" and s2["cleaned"] is True and s2["language"] == "en-gb" and s2.get("collected") is True
     body = client.get(f"/api/notes/{nid}").json()["body"]
     assert re.fullmatch(r"# Lecture 4\nBase notes\n\n## Live capture — transcript \d{2} \w{3} \d{2}:\d{2} \(cleaned\)\n"
                         rf"\[00:01\] \*Keck\* narrows Dassonville\. <!--r:{rid}:1-->\n\[01:05\] Selling arrangements\. <!--r:{rid}:65-->", body), body
     s3 = client.get(f"/api/recordings/{rid}/transcribe").json()
-    assert s3["status"] == "done" and provider.polls == 2
+    assert s3["status"] == "done" and provider.polls == 2 and "collected" not in s3  # only the collecting request says so
     assert client.get(f"/api/notes/{nid}").json()["body"].count("## Live capture") == 1
 
 

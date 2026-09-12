@@ -729,11 +729,12 @@ def _job_view(j):
             "executor": j["executor"], "attempts": j["attempts"]}
 
 def _finish_transcription(job, segments, language):
-    """Append the Live capture block (optionally cleaned) exactly as the laptop build did, then mark the job done."""
+    """Append the Live capture block (optionally cleaned) exactly as the laptop build did, then mark the job done.
+    Returns True only for the call that did the work."""
     with db() as d:  # claim first, so two overlapping polls can never append the block twice
         claimed = d.execute("UPDATE jobs SET status='finishing', stage='cleaning', updated=? WHERE id=? AND status IN ('submitted','running') RETURNING id",
                             (time.time(), job["id"])).fetchone()
-    if not claimed: return
+    if not claimed: return False
     try:
         rid, nid = job["ref_id"], job["payload"]["note_id"]
         text = stt.format_capture(segments or [], rid)
@@ -749,8 +750,10 @@ def _finish_transcription(job, segments, language):
             body = d.execute("SELECT body FROM notes WHERE id=?", (nid,)).fetchone()["body"]
             d.execute("UPDATE notes SET body=?, updated=? WHERE id=?", (body.rstrip() + block, time.time(), nid))
         _set_job(job["id"], status="done", stage="", result={"chars": len(text), "language": language, "cleaned": cleaned})
+        return True
     except Exception as e:
         _set_job(job["id"], status="failed", stage="", error=f"Could not add the transcript to the note: {e}")
+        return False
 
 @app.post("/api/recordings/{rid}/transcribe")
 def transcribe_start(rid: str, lang: str = "en", retry: int = 0):
@@ -786,7 +789,7 @@ def transcribe_start(rid: str, lang: str = "en", retry: int = 0):
 def transcribe_status(rid: str):
     """Poll the provider for an unfinished job; when it is done, finish it in this request. A closed tab
     simply completes the next time the note is opened."""
-    job = _latest_job(rid)
+    job, collected = _latest_job(rid), False
     if job and job["status"] == "finishing" and time.time() - (job["updated"] or 0) > 600:
         _set_job(job["id"], status="running"); job = _latest_job(rid)  # a finish that died mid-way: collect it again
     if job and job["status"] in ("submitted", "running"):
@@ -799,9 +802,11 @@ def transcribe_status(rid: str):
         else:
             if state == "running" and job["status"] != "running": _set_job(job["id"], status="running", stage="transcribing")
             elif state == "failed": _set_job(job["id"], status="failed", stage="", error=detail or "Speech-to-Text failed.")
-            elif state == "done": _finish_transcription(job, segments, detail)
+            elif state == "done": collected = _finish_transcription(job, segments, detail)
         job = _latest_job(rid)
-    return _job_view(job)
+    view = _job_view(job)
+    if collected: view["collected"] = True  # this request added the block: the UI reloads the open note
+    return view
 
 # ---------------------------------------------------------------- de-garble a transcript (cheap model, glossary-constrained)
 def _glossary(cid: str, limit: int = 220) -> list:

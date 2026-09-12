@@ -574,7 +574,7 @@ async function loadRecIds(){ if(!nid){recIds=[];return} const all=await api(`/no
 async function loadRecs(){ const box=$('#recList'); box.innerHTML=''; if(!nid) return; await loadRecIds(); const rs=await api(`/notes/${nid}/recordings`);
   rs.forEach((r,i)=>{ const a=document.createElement('audio'); a.controls=true; a.preload='none'; a.src=`/api/recordings/${r.id}/audio`; a.dataset.r=r.id; a.title=`Recording ${i+1} · ${fmt(r.seconds)}`; box.appendChild(a);
     const tr=document.createElement('button'); tr.className='btn small'; tr.textContent='Transcribe'; tr.title='Google Speech-to-Text (about €0.016 per minute of audio)'; tr.onclick=()=>transcribe(r.id,tr); box.appendChild(tr);
-    api(`/recordings/${r.id}/transcribe`).then(s=>{ if(s.status==='running'||s.status==='queued') transcribe(r.id,tr,true); else if(s.status==='done') tr.textContent='Transcribed' }).catch(()=>{});
+    api(`/recordings/${r.id}/transcribe`).then(s=>{ if(s.status==='running'||s.status==='queued') transcribe(r.id,tr,true); else if(s.status==='done'){ tr.textContent='Transcribed'; if(s.collected){ toast('Transcript collected from Google Cloud'); loadNotes() } } }).catch(()=>{});
     const x=document.createElement('button'); x.className='btn small ghost'; x.textContent='×'; x.title='Delete recording'; x.onclick=async()=>{ if(confirm('Delete this recording?')){ await del(`/recordings/${r.id}`); loadRecs() } }; box.appendChild(x) }) }
 async function transcribe(rid,btn,resume){ btn.disabled=true; btn.textContent='Transcribing…';
   if(!resume){ toast('Transcribing in Google Cloud — reopen this note any time to collect the transcript');
