@@ -23,6 +23,16 @@ def _course_id(client: TestClient) -> str:
     return next(c["id"] for c in r.json() if c["id"] == "eu")
 
 
+# ---------------------------------------------------------------- courses
+
+def test_create_course(client: TestClient):
+    r = client.post("/api/courses", json={"name": "Test", "accent": "#f00", "tutor_prompt": ""})
+    assert r.status_code == 200
+    cid = r.json()["id"]
+    r2 = client.get("/api/courses")
+    assert any(c["id"] == cid for c in r2.json())
+
+
 # ---------------------------------------------------------------- files
 
 def test_create_file_record(client: TestClient):

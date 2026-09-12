@@ -102,11 +102,19 @@ def migrate(sqlite_path: str, dry_run: bool) -> None:
                 col_sql = ", ".join(cols)
 
                 try:
-                    conn.execute(
-                        f"INSERT INTO {table}({col_sql}) VALUES({placeholders}) "
-                        f"ON CONFLICT (id) DO NOTHING",
-                        vals,
-                    )
+                    if table == "courses":
+                        set_clause = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols if c != "id")
+                        conn.execute(
+                            f"INSERT INTO {table}({col_sql}) VALUES({placeholders}) "
+                            f"ON CONFLICT (id) DO UPDATE SET {set_clause}",
+                            vals,
+                        )
+                    else:
+                        conn.execute(
+                            f"INSERT INTO {table}({col_sql}) VALUES({placeholders}) "
+                            f"ON CONFLICT (id) DO NOTHING",
+                            vals,
+                        )
                 except Exception as exc:
                     row_id = d.get("id", "?")
                     print(f"  WARNING: {table} id={row_id}: {exc}", file=sys.stderr)

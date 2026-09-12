@@ -152,7 +152,7 @@ def courses(): return rows("SELECT * FROM courses ORDER BY created")
 @app.post("/api/courses")
 def add_course(c: CourseIn):
     cid = uuid.uuid4().hex[:8]
-    with db() as d: d.execute("INSERT INTO courses VALUES(?,?,?,?,?)", (cid, c.name, c.accent, c.tutor_prompt, time.time()))
+    with db() as d: d.execute("INSERT INTO courses(id,name,accent,tutor_prompt,created) VALUES(?,?,?,?,?)", (cid, c.name, c.accent, c.tutor_prompt, time.time()))
     return {"id": cid}
 
 @app.put("/api/courses/{cid}")
