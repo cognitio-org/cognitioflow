@@ -1,0 +1,17 @@
+# Secrets and data — NEVER commit these
+.env
+.env.local
+data
+data/
+*.db
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Local scratch
+*copy.txt

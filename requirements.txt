@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+anthropic>=1.0
+pypdf
+python-pptx
+python-docx
+python-multipart
+python-dotenv
+faster-whisper
