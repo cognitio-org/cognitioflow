@@ -255,3 +255,9 @@ def test_production_with_auth_off_refuses_to_boot():
     r = subprocess.run([sys.executable, "-c", "import run"], cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
     assert r.returncode != 0
     assert "AUTH=off is not allowed when ENV=production" in r.stderr
+
+
+def test_health_needs_no_auth_for_cloud_run(web):
+    """Cloud Run's front end answers /healthz itself with a 404 (paths ending in z are reserved), so probes use /health."""
+    r = web.get("/health")
+    assert r.status_code == 200 and r.json() == {"ok": True}
