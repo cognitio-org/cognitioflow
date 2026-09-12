@@ -112,6 +112,26 @@
   #palList{max-height:52vh;overflow:auto} #palList li{padding:.55rem 1rem;border-bottom:1px solid var(--rule);cursor:pointer;display:grid;grid-template-columns:4.2rem 1fr;gap:.6rem;align-items:baseline}
   #palList li.sel{background:var(--faint)} #palList .k{font-size:.72rem;color:var(--graphite)} #palList .t{font-size:.95rem} #palList .s{font-size:.8rem;color:var(--graphite);grid-column:2}
   .palhint{padding:.4rem 1rem;border-top:1px solid var(--rule)}
+  /* course dialog: new course + course settings (sans form, tokens only) */
+  .cdlg{width:min(1180px,calc(100vw - 2rem));max-width:none;max-height:calc(100vh - 2rem);padding:0;border:1px solid var(--rule);border-radius:6px;background:var(--paper);color:var(--ink);font-family:var(--sans)}
+  .cdlg::backdrop{background:rgba(0,0,0,.35)}
+  .cdlg form{display:flex;flex-direction:column;max-height:calc(100vh - 2rem)}
+  .cdlghd,.cdlgft{display:flex;align-items:center;gap:var(--s3);padding:var(--s3) var(--s5)} .cdlghd{border-bottom:1px solid var(--rule)} .cdlghd h2{margin:0} .cdlghd .btn{margin-left:auto}
+  .cdlgft{border-top:1px solid var(--rule);flex-wrap:wrap} .cdlgft .sp{margin-left:auto}
+  .cdlgbody{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);min-height:0;flex:1;overflow:hidden}
+  .cfields{overflow:auto;padding:var(--s4) var(--s5);display:flex;flex-direction:column;gap:var(--s4)}
+  .cfields fieldset{border:none;border-top:1px solid var(--rule);margin:0;padding:var(--s3) 0 0;display:grid;grid-template-columns:1fr 1fr;gap:var(--s3) var(--s4)} .cfields fieldset:first-child{border-top:none;padding-top:0}
+  .cfields legend{font-size:.78rem;color:var(--graphite);padding:0 var(--s2) 0 0;letter-spacing:.02em;float:left;grid-column:1/-1}
+  .cfield{display:flex;flex-direction:column;gap:var(--s1);font-size:.85rem;color:var(--graphite);min-width:0} .cfield.wide{grid-column:1/-1}
+  .cfield input,.cfield textarea{width:100%;min-height:2.25rem;padding:.45rem;border:1px solid var(--rule);border-radius:var(--r);background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:.92rem;line-height:1.4}
+  .cfield textarea{resize:vertical;min-height:4.5rem} .cfield textarea.tall{min-height:9rem} .cfhint{font-size:.78rem;color:var(--warn);grid-column:1/-1}
+  .swatches{display:flex;gap:var(--s2);flex-wrap:wrap}
+  .swatch{position:relative;width:32px;height:32px;cursor:pointer} .swatch input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer}
+  .swatch span{display:block;width:100%;height:100%;border-radius:50%;border:3px solid var(--paper);box-shadow:0 0 0 1px var(--rule)}
+  .swatch input:checked+span{box-shadow:0 0 0 2px var(--ink)} .swatch input:focus-visible+span{outline:2px solid var(--ink);outline-offset:3px}
+  .cpreview{border-left:1px solid var(--rule);background:var(--faint);display:flex;flex-direction:column;min-height:0;padding:var(--s4) var(--s5)}
+  .cpreview pre{flex:1;overflow:auto;margin:var(--s2) 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--sans);font-size:.82rem;line-height:1.5;color:var(--ink)}
+  @media(max-width:900px){.cdlgbody{grid-template-columns:1fr;overflow:auto} .cfields,.cpreview pre{overflow:visible} .cpreview{border-left:none;border-top:1px solid var(--rule)} .cfields fieldset{grid-template-columns:1fr}}
   tr.grouphead td{background:var(--faint);border-top:1px solid var(--rule);padding-top:.5rem} tr.grouphead b{font-family:var(--serif)}
   /* notes editing */
   .tagbar{display:flex;gap:.3rem;align-items:center;flex-wrap:wrap} .editwrap{flex:1;min-height:0;display:flex;gap:.8rem} .editwrap>*{flex:1;min-height:0}
@@ -194,7 +214,7 @@
 <main>
 
 <section id="home" class="screen">
-  <div class="head"><div><h1 id="homeTitle"></h1><div class="small muted">Local workspace · files, tutor and notes stay on this Mac</div></div></div>
+  <div class="head"><div><h1 id="homeTitle"></h1><div class="small muted">Local workspace · files, tutor and notes stay on this Mac</div></div><button class="btn ghost" id="courseSettings" title="Name, accent and tutor brief for this course">Course settings</button></div>
   <div class="hero herobook"><div><div class="small muted">Next</div><h2 id="h-next"></h2><p id="h-nextBody"></p><button class="btn primary" id="h-go">Open</button></div>
     <div class="bookwrap"><div class="book" id="book" aria-hidden="true">
       <div class="bookstage"><div class="booktilt"><svg viewBox="0 0 220 260" width="220" height="260" role="img">
@@ -341,6 +361,40 @@
   <input type="text" id="palQ" placeholder="Search notes, files, chats, cards — or type a screen name" autocomplete="off">
   <ul class="clean" id="palList"></ul>
   <div class="small muted palhint">↑↓ move · Enter open · Esc close · ⌘K anytime</div></div></div>
+<dialog id="courseDlg" class="cdlg" aria-labelledby="cdlgTitle"><form id="courseForm" novalidate>
+  <div class="cdlghd"><h2 id="cdlgTitle">New course</h2><button type="button" class="btn ghost" id="cdlgClose">Close</button></div>
+  <div class="cdlgbody">
+    <div class="cfields">
+      <fieldset><legend>Course</legend>
+        <label class="cfield">Name<input type="text" id="cfName" required autocomplete="off" placeholder="Constitutional Law"></label>
+        <label class="cfield">Slug<input type="text" id="cfSlug" autocomplete="off" spellcheck="false" placeholder="constitutional-law"></label>
+        <label class="cfield">Course code<input type="text" data-brief="course_code" autocomplete="off" placeholder="RGBUBEU003"></label>
+        <label class="cfield">Period<input type="text" data-brief="period" autocomplete="off" placeholder="Block 2a"></label>
+        <div class="cfield wide"><span id="cfAccentLbl">Accent</span><div class="swatches" id="cfAccents" role="radiogroup" aria-labelledby="cfAccentLbl"></div></div>
+      </fieldset>
+      <fieldset><legend>Teaching</legend>
+        <label class="cfield">Lecturer<input type="text" data-brief="lecturer" autocomplete="off"></label>
+        <label class="cfield">WG tutor<input type="text" data-brief="wg_tutor" autocomplete="off"></label>
+        <label class="cfield wide">Textbook<input type="text" data-brief="textbook" autocomplete="off"></label>
+      </fieldset>
+      <fieldset><legend>Exam</legend>
+        <label class="cfield wide">Exam format<textarea data-brief="exam_format" rows="2" placeholder="Two cases plus compare-and-contrast, IRAC"></textarea></label>
+        <label class="cfield">Exam date<input type="date" data-brief="exam_date"></label>
+        <label class="cfield">Assessment weighting<input type="text" data-brief="assessment_weighting" autocomplete="off" placeholder="Written exam 80%, assignment 20%"></label>
+        <label class="cfield wide">Permitted materials<textarea data-brief="permitted_materials" rows="2"></textarea></label>
+        <div class="cfhint" id="cfHint" hidden>Notes below still call some of these UNKNOWN — update them too, or the tutor gets both.</div>
+      </fieldset>
+      <fieldset><legend>Method and sources</legend>
+        <label class="cfield wide">Authority order <span class="small">one per line, highest first</span><textarea data-brief="authority_order" rows="4"></textarea></label>
+        <label class="cfield wide">Provenance tags<input type="text" data-brief="provenance_tags" autocomplete="off" spellcheck="false" placeholder="[LECTURE] [WG] [SLIDES]"></label>
+        <label class="cfield wide">Method<textarea data-brief="method" rows="3" placeholder="Applicability → restriction/scope → justification + proportionality"></textarea></label>
+        <label class="cfield wide">Notes<textarea data-brief="notes" class="tall" rows="6" placeholder="Traps to police, conventions, things to flag"></textarea></label>
+      </fieldset>
+    </div>
+    <aside class="cpreview" aria-labelledby="cfPrevLbl"><div class="small muted" id="cfPrevLbl">Compiled tutor prompt · read-only</div><div class="small muted" id="cfPrevNote"></div><pre id="cfPreview" tabindex="0"></pre></aside>
+  </div>
+  <div class="cdlgft"><button type="button" class="btn ghost" id="cfDelete">Delete course</button><span class="small muted sp" id="cfStatus" role="status"></span><button type="button" class="btn ghost" id="cfCancel">Cancel</button><button type="submit" class="btn primary" id="cfSave">Create course</button></div>
+</form></dialog>
 <button class="btn small ghost" id="focusBtn" title="Focus mode — this screen only (⌘.)">Focus</button>
 <div id="timer" class="timer" title="Study timer — logs into your planner when you stop"><button id="timerBtn" class="btn small">▶ Start studying</button><span id="timerClock" class="small" hidden>00:00</span><button id="timerStop" class="btn small ghost" hidden>Log & stop</button></div>
 
@@ -382,9 +436,45 @@ function show(id){ if(!SCREENS.includes(id)) id='home'; document.querySelectorAl
 document.addEventListener('click',e=>{const a=e.target.closest('a[data-nav]'); if(a){e.preventDefault(); show(a.dataset.nav)}});
 
 /* courses */
-async function loadCourses(){ courses=await api('/courses'); if(!courses.find(c=>c.id===cid)) cid=courses[0].id; const s=$('#course'); s.innerHTML=courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join(''); s.value=cid; document.documentElement.style.setProperty('--accent',C().accent); }
-$('#course').addEventListener('change',e=>{cid=e.target.value;localStorage.setItem('cf.course',cid);document.documentElement.style.setProperty('--accent',C().accent);show(localStorage.getItem('cf.screen')||'home')});
-$('#addCourse').addEventListener('click',async()=>{const n=prompt('Course name'); if(!n) return; const r=await post('/courses',{name:n,accent:'#5a5952'}); cid=r.id; localStorage.setItem('cf.course',cid); await loadCourses(); show('library');});
+async function loadCourses(){ courses=await api('/courses'); if(!courses.find(c=>c.id===cid)) cid=courses[0].id; const s=$('#course'); s.innerHTML=courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')+'<option value="__new">New course…</option>'; s.value=cid; document.documentElement.style.setProperty('--accent',C().accent); }
+$('#course').addEventListener('change',e=>{if(e.target.value==='__new'){e.target.value=cid;openCourseDlg(null);return} cid=e.target.value;localStorage.setItem('cf.course',cid);document.documentElement.style.setProperty('--accent',C().accent);show(localStorage.getItem('cf.screen')||'home')});
+$('#addCourse').addEventListener('click',()=>openCourseDlg(null));
+
+/* course dialog: "New course" in the switcher, "Course settings" on Overview */
+let cdMeta=null, cdId=null, cdSlugTouched=false, cdPrevT=null;
+const slugify=s=>(s||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,48).replace(/-+$/,'');
+function briefFromForm(){ const b={}; document.querySelectorAll('#courseForm [data-brief]').forEach(el=>{ const k=el.dataset.brief, v=el.value;
+  b[k]=k==='authority_order'?v.split('\n').map(x=>x.trim()).filter(Boolean):k==='provenance_tags'?(v.match(/\[[^\]]+\]|[^\s,\[\]]+/g)||[]):v.trim() }); return b }
+function fillCourseForm(c){ const b=(c&&c.brief)||{}; $('#cfName').value=c?c.name:''; $('#cfSlug').value=c?(c.slug||''):'';
+  document.querySelectorAll('#courseForm [data-brief]').forEach(el=>{ const v=b[el.dataset.brief]; el.value=Array.isArray(v)?v.join(el.dataset.brief==='authority_order'?'\n':' '):(v||'') }) }
+function paintAccents(sel){ const pal=[...cdMeta.palette]; if(sel&&!pal.includes(sel)) pal.unshift(sel);
+  $('#cfAccents').innerHTML=pal.map(c=>`<label class="swatch" title="${esc(c)}"><input type="radio" name="cfAccent" value="${esc(c)}" ${c===sel?'checked':''} aria-label="Accent ${esc(c)}"><span style="background:${esc(c)}"></span></label>`).join('') }
+async function openCourseDlg(id){ try{ if(!cdMeta) cdMeta=await api('/course-meta') }catch(e){ toast('Could not open: '+e.message); return }
+  cdId=id; const c=id?courses.find(x=>x.id===id):null; cdSlugTouched=!!c; fillCourseForm(c);
+  const used=courses.map(x=>(x.accent||'').toLowerCase()); paintAccents(c?c.accent:(cdMeta.palette.find(p=>!used.includes(p))||cdMeta.palette[0]));
+  $('#cdlgTitle').textContent=c?'Course settings':'New course'; $('#cfSave').textContent=c?'Save changes':'Create course'; $('#cfDelete').hidden=!c; $('#cfStatus').textContent='';
+  $('#courseDlg').showModal(); $('#cfName').focus(); previewBrief(0) }
+function previewBrief(wait=250){ clearTimeout(cdPrevT); cdPrevT=setTimeout(async()=>{ const b=briefFromForm();
+  try{ const r=await post('/course-brief/preview',{name:$('#cfName').value.trim(),brief:b,cid:cdId});
+    $('#cfPreview').textContent=r.prompt||'Fill in the brief and the tutor prompt appears here.';
+    $('#cfPrevNote').textContent=r.fallback?'The brief is empty, so this course keeps its hand-written prompt. Filling the brief replaces it.':'';
+    $('#cfHint').hidden=!((b.exam_format||b.wg_tutor||b.permitted_materials)&&/UNKNOWN/.test(b.notes)); }
+  catch(e){ $('#cfPrevNote').textContent=e.message } },wait) }
+$('#courseForm').addEventListener('input',e=>{ if(e.target.id==='cfSlug') cdSlugTouched=true; if(e.target.id==='cfName'&&!cdSlugTouched) $('#cfSlug').value=slugify(e.target.value); if(e.target.name!=='cfAccent') previewBrief() });
+$('#courseForm').addEventListener('submit',async e=>{ e.preventDefault(); const name=$('#cfName').value.trim(); if(!name){ $('#cfStatus').textContent='Give the course a name.'; $('#cfName').focus(); return }
+  const body={name,slug:$('#cfSlug').value.trim()||null,accent:(document.querySelector('#cfAccents input:checked')||{}).value||null,brief:briefFromForm()};
+  $('#cfSave').disabled=true;
+  try{ if(cdId){ await put(`/courses/${cdId}`,body); toast('Course settings saved') } else { const r=await post('/courses',body); cid=r.id; localStorage.setItem('cf.course',cid); toast(`${name} created`) }
+    $('#courseDlg').close(); await loadCourses(); show(cdId?(localStorage.getItem('cf.screen')||'home'):'home') }
+  catch(err){ $('#cfStatus').textContent=err.message }
+  $('#cfSave').disabled=false });
+$('#cdlgClose').onclick=$('#cfCancel').onclick=()=>$('#courseDlg').close();
+$('#courseSettings').onclick=()=>openCourseDlg(cid);
+$('#cfDelete').onclick=async()=>{ const c=courses.find(x=>x.id===cdId); if(!c) return; let u; try{ u=await api(`/courses/${c.id}/usage`) }catch(e){ $('#cfStatus').textContent=e.message; return }
+  const has=u.files+u.notes+u.cards;
+  if(!confirm(has?`Delete ${c.name} and everything in it: ${u.files} file(s), ${u.notes} note(s), ${u.cards} card(s), its conversation and planned sessions? This can't be undone.`:`Delete ${c.name}? It has no files, notes or cards.`)) return;
+  try{ await del(`/courses/${c.id}${has?'?force=1':''}`) }catch(e){ $('#cfStatus').textContent=e.message; return }
+  $('#courseDlg').close(); if(cid===c.id){ localStorage.removeItem('cf.course') } toast(`${c.name} deleted`); await loadCourses(); show('home') };
 
 /* home */
 const TABS=[["#2f5fae","Prohibitions","34 · 45 · 101"],["#d98a2b","Derogations","36 · 52 · 65"],["#1f7a4d","Competences","5 · 114 · 352"],["#8fbf6a","Secondary law","2004/38 · 1/2003"],["#8e2f6e","Enforcement","258 · 263 · 267"],["#d46a9a","Rights","18 · 21 · 157"],["#c9b23a","Definitions","28 · 54 · 57"]];
