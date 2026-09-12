@@ -71,7 +71,7 @@ def clean_tables(apply_migrations):
     with psycopg.connect(_pg_url()) as conn:
         conn.execute(
             "TRUNCATE courses, files, messages, notes, cards, reviews, "
-            "note_versions, recordings, sessions, users CASCADE"
+            "note_versions, recordings, sessions, users, jobs CASCADE"
         )
         conn.commit()
 

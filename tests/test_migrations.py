@@ -10,7 +10,7 @@ def _pg_url() -> str:
 
 EXPECTED_TABLES = {
     "users", "courses", "files", "messages", "notes",
-    "cards", "reviews", "note_versions", "recordings", "sessions",
+    "cards", "reviews", "note_versions", "recordings", "sessions", "jobs",
     "schema_migrations",
 }
 

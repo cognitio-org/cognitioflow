@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import storage
+import transcribe as stt
 
 load_dotenv(".env.local", override=True)
 load_dotenv()
@@ -658,8 +659,11 @@ async def rec_finish(rid: str, audio: UploadFile = File(...), seconds: float = F
     if not r: raise HTTPException(404)
     key = f"notes/{r[0]['note_id']}/audio/{rid}.webm"; storage.put(key, await audio.read(), "audio/webm")
     with db() as d: d.execute("UPDATE recordings SET key=?, seconds=? WHERE id=?", (key, seconds, rid))
-    if auto: transcribe(rid)   # hands off to the background transcriber straight away
-    return {"id": rid, "seconds": seconds, "transcribing": bool(auto)}
+    started = False
+    if auto:
+        try: started = transcribe_start(rid)["status"] != "failed"
+        except HTTPException: started = False  # e.g. STORAGE=local: the recording is still saved
+    return {"id": rid, "seconds": seconds, "transcribing": started}
 
 @app.get("/api/notes/{nid}/recordings")
 def recs(nid: str, all: int = 0):
@@ -701,36 +705,43 @@ def cards_from_tables(nid: str):
         else: i += 1
     return {"made": made}
 
-# ---------------------------------------------------------------- offline transcription (Whisper on the Mac)
-import threading
-_jobs = {}   # rid -> {"status": queued|running|done|failed, "text": ..., "error": ...}
-_whisper = None
+# ---------------------------------------------------------------- transcription jobs (Google Speech-to-Text; state in the jobs table)
+STT_LANGS = {"en": "en-GB", "nl": "nl-NL", "de": "de-DE", "fr": "fr-FR"}
+MAX_STT_ATTEMPTS = 3
 
-def _warm():
-    try: _model(); print("Whisper ready")
-    except Exception as e: print("Whisper not ready:", e)
+def _latest_job(rid: str):
+    j = rows("SELECT * FROM jobs WHERE ref_id=? AND kind='transcribe' ORDER BY created DESC LIMIT 1", rid)
+    return j[0] if j else None
 
-def _model():
-    global _whisper
-    if _whisper is None:
-        from faster_whisper import WhisperModel
-        _whisper = WhisperModel(os.environ.get("CF_WHISPER", "small"), device="cpu", compute_type="int8")
-    return _whisper
+def _set_job(jid: str, **fields):
+    fields["updated"] = time.time()
+    sets = ", ".join(f"{k}=CAST(? AS jsonb)" if k in ("payload", "result") else f"{k}=?" for k in fields)
+    vals = [json.dumps(v) if k in ("payload", "result") else v for k, v in fields.items()]
+    with db() as d: d.execute(f"UPDATE jobs SET {sets} WHERE id=?", (*vals, jid))
 
-def _transcribe(rid: str, nid: str, lang: str):
+def _job_view(j):
+    """The fields the UI already polls for, plus executor/attempts. 'submitted' and 'finishing' read as running."""
+    if not j: return {"status": "none"}
+    res = j["result"] or {}
+    return {"id": j["id"], "status": {"submitted": "running", "finishing": "running"}.get(j["status"], j["status"]),
+            "stage": "cleaning" if j["status"] == "finishing" else (j["stage"] or ""), "chars": res.get("chars"),
+            "language": res.get("language"), "cleaned": res.get("cleaned"), "error": j["error"] or "",
+            "executor": j["executor"], "attempts": j["attempts"]}
+
+def _finish_transcription(job, segments, language):
+    """Append the Live capture block (optionally cleaned) exactly as the laptop build did, then mark the job done.
+    Returns True only for the call that did the work."""
+    with db() as d:  # claim first, so two overlapping polls can never append the block twice
+        claimed = d.execute("UPDATE jobs SET status='finishing', stage='cleaning', updated=? WHERE id=? AND status IN ('submitted','running') RETURNING id",
+                            (time.time(), job["id"])).fetchone()
+    if not claimed: return False
     try:
-        _jobs[rid] = {"status": "running"}
-        audio = io.BytesIO(storage.get(rows("SELECT key FROM recordings WHERE id=?", rid)[0]["key"]))
-        segs, info = _model().transcribe(audio, language=lang or None, vad_filter=True, beam_size=1)
-        lines = []
-        for s in segs:
-            t = int(s.start); lines.append(f"[{t//60:02d}:{t%60:02d}] {s.text.strip()} <!--r:{rid}:{t}-->")
-        text = "\n".join(lines)
+        rid, nid = job["ref_id"], job["payload"]["note_id"]
+        text = stt.format_capture(segments or [], rid)
         stamp = time.strftime("%d %b %H:%M"); block = f"\n\n## Live capture — transcript {stamp}\n" + text
         cleaned = False
-        if os.environ.get("ANTHROPIC_API_KEY") and os.environ.get("CF_AUTO_CLEAN", "1") == "1":
+        if text and os.environ.get("ANTHROPIC_API_KEY") and os.environ.get("CF_AUTO_CLEAN", "1") == "1":
             try:
-                _jobs[rid] = {"status": "running", "stage": "cleaning"}
                 cid = rows("SELECT course_id FROM notes WHERE id=?", nid)[0]["course_id"]
                 text = clean_text(cid, text); cleaned = True
                 block = f"\n\n## Live capture — transcript {stamp} (cleaned)\n" + text
@@ -738,22 +749,66 @@ def _transcribe(rid: str, nid: str, lang: str):
         with db() as d:
             body = d.execute("SELECT body FROM notes WHERE id=?", (nid,)).fetchone()["body"]
             d.execute("UPDATE notes SET body=?, updated=? WHERE id=?", (body.rstrip() + block, time.time(), nid))
-        _jobs[rid] = {"status": "done", "chars": len(text), "language": info.language, "cleaned": cleaned}
+        _set_job(job["id"], status="done", stage="", result={"chars": len(text), "language": language, "cleaned": cleaned})
+        return True
     except Exception as e:
-        _jobs[rid] = {"status": "failed", "error": str(e)}
+        _set_job(job["id"], status="failed", stage="", error=f"Could not add the transcript to the note: {e}")
+        return False
 
 @app.post("/api/recordings/{rid}/transcribe")
-def transcribe(rid: str, lang: str = "en"):
-    """Runs Whisper locally in the background and appends a timestamped Live capture section to the recording's note."""
+def transcribe_start(rid: str, lang: str = "en", retry: int = 0):
+    """Send a recording to Google Speech-to-Text as a durable job and return at once; GET polls it to completion.
+    A live job is returned as-is; a failed one is re-submitted (the Transcribe button or ?retry=1), at most 3 attempts."""
     r = rows("SELECT note_id, key FROM recordings WHERE id=?", rid)
     if not r or not r[0]["key"]: raise HTTPException(404)
-    if _jobs.get(rid, {}).get("status") in ("queued", "running"): return _jobs[rid]
-    _jobs[rid] = {"status": "queued"}
-    threading.Thread(target=_transcribe, args=(rid, r[0]["note_id"], lang), daemon=True).start()
-    return _jobs[rid]
+    job = _latest_job(rid)
+    if job and job["status"] != "failed": return _job_view(job)
+    if job and job["attempts"] >= MAX_STT_ATTEMPTS:
+        raise HTTPException(409, f"Transcription failed {job['attempts']} times — last error: {job['error']}")
+    try: stt.check_ready()
+    except stt.ProviderError as e: raise HTTPException(400, str(e))
+    language = lang if "-" in lang else STT_LANGS.get(lang, "en-GB")
+    if job:
+        jid = job["id"]; _set_job(jid, status="queued", stage="", error="", attempts=job["attempts"] + 1)
+    else:
+        from psycopg import errors as pg_errors
+        jid, now = uuid.uuid4().hex, time.time()
+        try:
+            with db() as d: d.execute("INSERT INTO jobs(id,kind,ref_id,status,executor,attempts,payload,created,updated) VALUES(?,?,?,?,?,?,CAST(? AS jsonb),?,?)",
+                                      (jid, "transcribe", rid, "queued", "hosted", 1, json.dumps({"language": language}), now, now))
+        except pg_errors.UniqueViolation:
+            return _job_view(_latest_job(rid))  # a second click raced this one: return its job
+    try:
+        op = stt.submit(r[0]["key"], language)
+        _set_job(jid, status="submitted", stage="submitted", payload={"op": op, "language": language, "note_id": r[0]["note_id"]})
+    except Exception as e:
+        _set_job(jid, status="failed", error=str(e) if isinstance(e, stt.ProviderError) else f"Could not submit: {type(e).__name__}: {e}")
+    return _job_view(_latest_job(rid))
 
 @app.get("/api/recordings/{rid}/transcribe")
-def transcribe_status(rid: str): return _jobs.get(rid, {"status": "none"})
+def transcribe_status(rid: str):
+    """Poll the provider for an unfinished job; when it is done, finish it in this request. A closed tab
+    simply completes the next time the note is opened."""
+    job, collected = _latest_job(rid), False
+    # a finish that died mid-way is collected again; the window must outlast a long cleaning pass
+    # (a 90-minute lecture is ~17 cheap-model chunks), or a live finish could be claimed twice
+    if job and job["status"] == "finishing" and time.time() - (job["updated"] or 0) > 30 * 60:
+        _set_job(job["id"], status="running"); job = _latest_job(rid)
+    if job and job["status"] in ("submitted", "running"):
+        try:
+            state, segments, detail = stt.poll(job["payload"]["op"])
+        except stt.ProviderError as e:
+            _set_job(job["id"], status="failed", stage="", error=str(e))
+        except Exception as e:  # transient (network, 5xx): leave the job alone; the next poll tries again
+            print("transcription poll:", type(e).__name__, e)
+        else:
+            if state == "running" and job["status"] != "running": _set_job(job["id"], status="running", stage="transcribing")
+            elif state == "failed": _set_job(job["id"], status="failed", stage="", error=detail or "Speech-to-Text failed.")
+            elif state == "done": collected = _finish_transcription(job, segments, detail)
+        job = _latest_job(rid)
+    view = _job_view(job)
+    if collected: view["collected"] = True  # this request added the block: the UI reloads the open note
+    return view
 
 # ---------------------------------------------------------------- de-garble a transcript (cheap model, glossary-constrained)
 def _glossary(cid: str, limit: int = 220) -> list:
@@ -1010,8 +1065,6 @@ def stats(cid: str):
 
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
-if os.environ.get("CF_WHISPER_PRELOAD", "1") == "1":
-    threading.Thread(target=_warm, daemon=True).start()
 
 if __name__ == "__main__":
     import uvicorn

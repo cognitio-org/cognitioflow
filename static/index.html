@@ -279,7 +279,7 @@
       <div id="noteView" class="noteview md"></div>
       <div class="tagbar small" id="tagbar" hidden>
         <button class="btn small ghost" data-ins="[LEC] " title="⌘1">[LEC]</button><button class="btn small ghost" data-ins="[!] " title="⌘2">[!] correction</button><button class="btn small ghost" data-ins="[P] " title="⌘3">[P] pinpoint</button><button class="btn small ghost" data-ins="?? " title="⌘4">?? verify</button> <button class="btn small ghost" id="bulletBtn" title="Toggle bullet on this line">• Bullet</button> <button class="btn small ghost" id="recBtn" title="Record the lecture locally; every line you type is linked to the audio">● Record</button><span class="small muted" id="recState"></span>
-        <label class="small muted" style="display:flex;gap:.25rem;align-items:center" title="When a recording stops, transcribe it on this Mac straight away"><input type="checkbox" id="autoTx" checked> auto-transcribe</label>
+        <label class="small muted" style="display:flex;gap:.25rem;align-items:center" title="When a recording stops, send it to Google Speech-to-Text straight away"><input type="checkbox" id="autoTx" checked> auto-transcribe</label>
         <span class="muted" style="margin-left:auto">Start a line with <b>l</b>, <b>!</b>, <b>p</b> or <b>?</b> and a space — bullet and tag appear · Enter continues a list · Tab indents</span>
       </div>
       <div class="editwrap" id="editwrap">
@@ -573,16 +573,18 @@ let rec=null, recId=null, recStart=0, recChunks=[], recTimer=null;
 async function loadRecIds(){ if(!nid){recIds=[];return} const all=await api(`/notes/${nid}/recordings?all=1`); recIds=all.map(r=>r.id) }
 async function loadRecs(){ const box=$('#recList'); box.innerHTML=''; if(!nid) return; await loadRecIds(); const rs=await api(`/notes/${nid}/recordings`);
   rs.forEach((r,i)=>{ const a=document.createElement('audio'); a.controls=true; a.preload='none'; a.src=`/api/recordings/${r.id}/audio`; a.dataset.r=r.id; a.title=`Recording ${i+1} · ${fmt(r.seconds)}`; box.appendChild(a);
-    const tr=document.createElement('button'); tr.className='btn small'; tr.textContent='Transcribe'; tr.title='Whisper on this Mac — offline after the first model download'; tr.onclick=()=>transcribe(r.id,tr); box.appendChild(tr);
+    const tr=document.createElement('button'); tr.className='btn small'; tr.textContent='Transcribe'; tr.title='Google Speech-to-Text (about €0.016 per minute of audio)'; tr.onclick=()=>transcribe(r.id,tr); box.appendChild(tr);
+    api(`/recordings/${r.id}/transcribe`).then(s=>{ if(s.status==='running'||s.status==='queued') transcribe(r.id,tr,true); else if(s.status==='done'){ tr.textContent='Transcribed'; if(s.collected){ toast('Transcript collected from Google Cloud'); loadNotes() } } }).catch(()=>{});
     const x=document.createElement('button'); x.className='btn small ghost'; x.textContent='×'; x.title='Delete recording'; x.onclick=async()=>{ if(confirm('Delete this recording?')){ await del(`/recordings/${r.id}`); loadRecs() } }; box.appendChild(x) }) }
-async function transcribe(rid,btn){ btn.disabled=true; btn.textContent='Transcribing…'; toast('Transcribing on this Mac — a 45-minute recording takes a few minutes. First time also downloads the model.');
-  try{ await post(`/recordings/${rid}/transcribe`); }catch(e){ btn.disabled=false; btn.textContent='Transcribe'; toast('Could not start: '+e.message); return }
+async function transcribe(rid,btn,resume){ btn.disabled=true; btn.textContent='Transcribing…';
+  if(!resume){ toast('Transcribing in Google Cloud — reopen this note any time to collect the transcript');
+    try{ await post(`/recordings/${rid}/transcribe`); }catch(e){ btn.disabled=false; btn.textContent='Transcribe'; toast('Could not start: '+e.message); return } }
   const tick=setInterval(async()=>{ const s=await api(`/recordings/${rid}/transcribe`);
     if(s.status==='done'){ clearInterval(tick); btn.textContent='Transcribed'; toast('Transcript added as a Live capture — press Reconcile with lecture'); loadNotes() }
     else if(s.status==='failed'){ clearInterval(tick); btn.disabled=false; btn.textContent='Transcribe'; toast('Transcription failed: '+s.error) } },3000) }
 function playAt(r,s){ const a=document.querySelector(`audio[data-r="${r}"]`); if(!a){toast('Recording not found');return} a.currentTime=Math.max(0,s-20); a.play() }
 function watchTranscript(rid){ const t0=Date.now(); const tick=setInterval(async()=>{ let s; try{ s=await api(`/recordings/${rid}/transcribe`) }catch{ return }
-    if(s.status==='running'||s.status==='queued'){ $('#recState').textContent=(s.stage==='cleaning'?'Cleaning names ':'Transcribing ')+fmt((Date.now()-t0)/1000); return }
+    if(s.status==='running'||s.status==='queued'){ $('#recState').textContent=(s.stage==='cleaning'?'Cleaning names ':'Transcribing in Google Cloud — reopen this note any time to collect · ')+fmt((Date.now()-t0)/1000); return }
     clearInterval(tick); $('#recState').textContent='';
     if(s.status==='done'){ await loadNotes(); offerReconcile() } else if(s.status==='failed'){ toast('Transcription failed: '+s.error) } },3000) }
 function offerReconcile(){ const bar=$('#txBar'); bar.hidden=false; }
@@ -592,7 +594,7 @@ $('#recBtn').onclick=async()=>{ if(rec){ rec.stop(); return } if(!nid){$('#newNo
   rec=new MediaRecorder(stream,{mimeType:'audio/webm'}); rec.ondataavailable=e=>{ if(e.data.size) recChunks.push(e.data) };
   rec.onstop=async()=>{ clearInterval(recTimer); stream.getTracks().forEach(t=>t.stop()); const blob=new Blob(recChunks,{type:'audio/webm'}); const fd=new FormData(); fd.append('audio',blob,'rec.webm'); fd.append('seconds',String((Date.now()-recStart)/1000));
     fd.append('auto',$('#autoTx').checked?'1':'0'); const rid=recId;
-    $('#recState').textContent='Saving…'; let ok=false; try{ await api(`/recordings/${rid}/finish`,{method:'POST',body:fd}); ok=true; toast($('#autoTx').checked?'Saved — transcribing on this Mac in the background':'Recording saved to this note'); }catch(e){ toast('Could not save recording: '+e.message) }
+    $('#recState').textContent='Saving…'; let ok=false; try{ await api(`/recordings/${rid}/finish`,{method:'POST',body:fd}); ok=true; toast($('#autoTx').checked?'Saved — transcribing in Google Cloud':'Recording saved to this note'); }catch(e){ toast('Could not save recording: '+e.message) }
     rec=null; recId=null; $('#recBtn').classList.remove('on'); $('#recBtn').textContent='● Record'; $('#recState').textContent=''; loadRecs();
     if(ok&&$('#autoTx').checked) watchTranscript(rid) };
 
