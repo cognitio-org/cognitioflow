@@ -261,3 +261,11 @@ def test_health_needs_no_auth_for_cloud_run(web):
     """Cloud Run's front end answers /healthz itself with a 404 (paths ending in z are reserved), so probes use /health."""
     r = web.get("/health")
     assert r.status_code == 200 and r.json() == {"ok": True}
+
+
+def test_design_pages_need_no_auth(web):
+    # the handoff designs are standalone pages with no user data; they sit beside the vendored libs under /static
+    for page, marker in (("showcase.html", 'id="book"'), ("reader.html", 'id="doc"')):
+        r = web.get(f"/static/{page}", follow_redirects=False)
+        assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+        assert marker in r.text

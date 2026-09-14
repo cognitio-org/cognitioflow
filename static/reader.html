@@ -1,0 +1,267 @@
+<!doctype html>
+<!-- Design handoff "Blackstone Reader" (design_handoff_cognitioflow/README.md). Standalone page: the app never loads it.
+     Values are the handoff's, verbatim; additions are real buttons for the rail and folio links, focus rings,
+     32px hit areas, reduced motion, and a folio number that no longer wraps beside long chapter titles. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Commentaries on the Laws of England — Reader</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300;1,400&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+<style>
+:root{
+  --parchment:#FDFBF7;
+  --ink:#1C1A17;
+  --crimson:#8B0000;
+  --oxford:#1A365D;
+  --sepia:#5C564F;
+  --rule:rgba(28,26,23,.16);
+  --measure:660px;
+  --note-col:150px;
+  --serif-display:"Playfair Display",Garamond,"IM Fell English",Georgia,serif;
+  --serif-body:Merriweather,Georgia,"Times New Roman",serif;
+  --serif-antique:"IM Fell English",Georgia,serif;
+}
+*{box-sizing:border-box}
+html{color-scheme:light}
+html,body{margin:0;background:var(--parchment);color:var(--ink);font-family:var(--serif-body)}
+a{color:var(--crimson);text-decoration:none;border-bottom:1px solid rgba(139,0,0,.35)}
+a:hover{color:var(--oxford);border-bottom-color:rgba(26,54,93,.45)}
+sup{font-size:.62em;line-height:0;vertical-align:super;font-family:var(--serif-antique);color:var(--crimson)}
+::selection{background:rgba(139,0,0,.14)}
+:focus-visible{outline:2px solid var(--oxford);outline-offset:2px}
+
+/* ---------- running head ---------- */
+.masthead{display:flex;align-items:baseline;justify-content:space-between;gap:24px;flex-wrap:wrap;
+  padding:22px 36px 16px;border-bottom:1px solid var(--rule)}
+.masthead__title{font-family:var(--serif-display);font-size:19px;font-weight:700;letter-spacing:.01em}
+.masthead__author{font-family:var(--serif-antique);font-style:italic;font-size:13px;color:var(--sepia)}
+.masthead__meta{display:flex;align-items:baseline;gap:22px}
+.masthead__folio,.masthead__book{font-family:var(--serif-antique);font-size:12px;letter-spacing:.14em;text-transform:uppercase}
+.masthead__folio{color:var(--sepia)}
+.masthead__book{color:var(--crimson)}
+
+/* ---------- shell ---------- */
+.shell{display:flex;flex-wrap:wrap;gap:40px;max-width:1240px;margin:0 auto;padding:44px 36px 72px;align-items:flex-start}
+
+/* ---------- contents rail ---------- */
+.rail{flex:0 0 168px;min-width:0;position:sticky;top:28px}
+.rail__head{font-family:var(--serif-antique);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--sepia);
+  padding-bottom:10px;border-bottom:1px solid var(--rule)}
+.rail__item{width:100%;border:0;font:inherit;color:inherit;text-align:left;display:grid;grid-template-columns:26px minmax(0,1fr);gap:8px;padding:11px 0 11px 8px;cursor:pointer;
+  border-bottom:1px solid rgba(28,26,23,.08);border-left:2px solid transparent;background:none}
+.rail__item:hover{background:rgba(139,0,0,.03)}
+.rail__item.is-current{border-left-color:var(--crimson);background:rgba(139,0,0,.04)}
+.rail__num{font-family:var(--serif-antique);font-size:12px;color:var(--sepia);text-align:right}
+.rail__item.is-current .rail__num{color:var(--crimson)}
+.rail__title{font-family:var(--serif-display);font-size:14px;line-height:1.35;color:var(--sepia)}
+.rail__item.is-current .rail__title{color:var(--ink);font-weight:600}
+.rail__foot{margin-top:26px;padding-top:14px;border-top:1px solid var(--rule);
+  font-family:var(--serif-antique);font-size:11.5px;font-style:italic;color:var(--sepia);line-height:1.6}
+
+/* ---------- the page ---------- */
+.doc{flex:1 1 520px;min-width:0;display:grid;grid-template-columns:minmax(0,var(--measure)) var(--note-col);
+  column-gap:30px;row-gap:26px;align-items:start}
+.doc > *{grid-column:1}
+
+.chapter{text-align:center;margin:0 0 44px}
+.chapter__head{font-family:var(--serif-display);font-size:15px;font-weight:600;letter-spacing:.26em;text-transform:uppercase}
+.chapter__divider{width:64px;height:1px;background:var(--crimson);margin:16px auto 14px}
+.chapter__title{font-family:var(--serif-display);font-size:29px;font-weight:400;font-style:italic;line-height:1.25}
+.chapter__section{font-family:var(--serif-antique);font-size:12.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--sepia);margin-top:16px}
+
+.para{margin:0;font-size:16.5px;line-height:1.62;color:var(--ink);text-align:justify;hyphens:auto;
+  text-wrap:pretty;text-indent:2.2em}
+.para--opening{text-indent:0}
+.dropcap{float:left;font-family:var(--serif-display);font-size:76px;line-height:.78;font-weight:700;
+  color:var(--crimson);margin:6px 12px 0 0}
+.note{grid-column:2;margin:0;font-family:var(--serif-antique);font-size:12.5px;font-style:italic;line-height:1.55;
+  color:var(--sepia);border-top:1px solid rgba(139,0,0,.3);padding-top:8px}
+
+.footnotes{margin-top:26px;border-top:1px solid var(--crimson)}
+.footnotes__head{font-family:var(--serif-antique);font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--sepia);margin:14px 0 12px}
+.footnote{display:grid;grid-template-columns:22px minmax(0,1fr);gap:10px;margin-bottom:9px}
+.footnote__mark{font-family:var(--serif-antique);font-size:12px;color:var(--crimson);text-align:right}
+.footnote__text{font-size:12.5px;line-height:1.65;color:var(--sepia)}
+
+.folio{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-top:28px;padding-top:18px;
+  border-top:1px solid var(--rule)}
+.folio__num{flex:none;white-space:nowrap;font-family:var(--serif-antique);font-size:13px;color:var(--sepia)}
+.folio__link{position:relative;background:none;border:0;padding:0;font-family:var(--serif-antique);font-size:12.5px;letter-spacing:.12em;text-transform:uppercase;
+  cursor:pointer;padding-bottom:2px;border-bottom:1px solid rgba(139,0,0,.4);color:var(--crimson)}
+.folio__link::after{content:"";position:absolute;inset:-6px -4px}  /* 32px hit area; the underline stays on the text */
+.folio__link--prev{color:var(--sepia);border-bottom-color:rgba(92,86,79,.35)}
+.folio__link:hover{color:var(--oxford);border-bottom-color:rgba(26,54,93,.45)}
+
+/* marginalia falls under the text on narrow measures, and the type sets ragged-right */
+@media (max-width:900px){
+  .doc{grid-template-columns:minmax(0,1fr);row-gap:18px}
+  .note{grid-column:1;margin-top:-6px}
+  .para{text-align:left;hyphens:manual}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media print{
+  .rail,.folio__link{display:none}
+  .shell{padding:0;max-width:none}
+  .doc{grid-template-columns:minmax(0,var(--measure)) var(--note-col)}
+}
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div style="display:flex;align-items:baseline;gap:14px">
+    <span class="masthead__title">Commentaries on the Laws of England</span>
+    <span class="masthead__author">Sir William Blackstone, 1765</span>
+  </div>
+  <div class="masthead__meta">
+    <span class="masthead__folio" id="runningFolio">Chapter I</span>
+    <span class="masthead__book">Book the First</span>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <div class="rail__head">Contents</div>
+    <div id="rail"></div>
+    <div class="rail__foot">Marginal notes stand in the outer column, as in the octavo editions.</div>
+  </nav>
+
+  <main class="doc" id="doc"></main>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  var CHAPTERS = [
+    {
+      head:'Chapter the First.', numeral:'I.', title:'Of the Study of the Law',
+      section:'Section the First · Introduction', running:'Chapter I', folio:'— 3 —',
+      paras:[
+        {t:'The science of law, considered in its just extent, is not the narrow craft of the practiser, but a liberal and comprehensive study, fit to be received among the pursuits of a gentleman and a scholar. It is the pride of a free people that the rules by which they are governed should be intelligible to those who obey them; and it were an absurdity to suppose that a man may safely be ignorant of the very institutions which measure his liberty, his property, and his life.', n:'The law a liberal science, and not a trade.', m:'1'},
+        {t:'Yet it has been the misfortune of our municipal jurisprudence to be treated as a mystery, delivered by rote in the offices of attornies, and gathered rather by imitation than by reason. Hence the student acquires a multitude of forms without their principle, and grows learned in the letter while remaining a stranger to the spirit. To trace an institution to its cause is the shortest road to understanding it, and the surest guard against defending it wrongly.', n:'Forms learned by rote, without their reason.', m:'2'},
+        {t:'For this cause the universities may justly claim the law as their province. Where else shall the young man learn that the constitution of his country is a subject of philosophy as well as of practice? He who is to sit in parliament, to serve upon a jury, to act as a magistrate in his county, will find that no part of his education returns him a larger interest than a competent knowledge of the laws of the land.', n:'The universities the proper school of the laws.', m:'3'},
+        {t:'Nor is this knowledge of use only to those who govern. The gentleman who understands the tenure by which he holds his estate, the merchant who knows upon what security his contract rests, the freeholder who can measure the extent of his own right, are each of them better subjects and safer men; for ignorance in the governed is the readiest instrument of oppression in the governor.', n:'Its use to the private citizen.', m:'4'}
+      ],
+      notes:[
+        {m:'1.', t:'Delivered as the first Vinerian lecture, Oxford, 25 October 1758.'},
+        {m:'2.', t:'See Fortescue, De Laudibus Legum Angliae, c. 3; and 1 Inst. 11 b.'},
+        {m:'3.', t:'Stat. 25 Geo. II, on the foundation of the Vinerian chair.'},
+        {m:'4.', t:'Compare Magna Carta, 9 Hen. III, c. 29.'}
+      ]
+    },
+    {
+      head:'Chapter the Second.', numeral:'II.', title:'Of the Nature of Laws in General',
+      section:'Section the Second · Of Municipal Law', running:'Chapter II', folio:'— 38 —',
+      paras:[
+        {t:'Law, in its most general and comprehensive sense, signifies a rule of action, and is applied indifferently to all kinds of action, whether animate or inanimate, rational or irrational. Thus we say the laws of motion, of gravitation, of optics; and in this large acceptation law is that rule of action which is prescribed by a superior, and which the inferior is bound to obey.', n:'Law a rule of action prescribed by a superior.', m:'1'},
+        {t:'Municipal or civil law is therefore properly defined to be a rule of civil conduct, prescribed by the supreme power in a state, commanding what is right and prohibiting what is wrong. It is a rule, not a transient sudden order; it is prescribed, for a bare resolution is confined to the breast of the legislator; and it is the act of the supreme power, without which no rule can bind the whole community.', n:'Definition of municipal law.', m:'2'},
+        {t:'Every law consists of two parts: the declaratory, whereby the rights to be observed and the wrongs to be eschewed are set forth; and the directory, whereby the subject is enjoined to observe those rights and abstain from those wrongs. To these is added the sanction, or vindicatory part, without which the declaration were but counsel, and the direction but persuasion.', n:'Its declaratory, directory, and vindicatory parts.', m:'3'},
+        {t:'It follows that the sanction is the life of the law. Human legislators can only work upon the will by the prospect of some evil to be suffered; and hence the penalty annexed to a prohibition is not a distinct rule, but the very quality by which the prohibition becomes law at all.', n:'The sanction the life of the law.', m:'4'}
+      ],
+      notes:[
+        {m:'1.', t:'Puffendorf, De Jure Naturae et Gentium, l. 1, c. 6, § 4.'},
+        {m:'2.', t:'1 Inst. 11 b; Bracton, l. 1, c. 3.'},
+        {m:'3.', t:'See also Grotius, De Jure Belli ac Pacis, l. 1, c. 1.'},
+        {m:'4.', t:'Cf. 2 Inst. 46, upon the necessity of the penalty.'}
+      ]
+    },
+    {
+      head:'Chapter the Third.', numeral:'III.', title:'Of the Absolute Rights of Individuals',
+      section:'Section the Third · Of the Rights of Persons', running:'Chapter III', folio:'— 121 —',
+      paras:[
+        {t:'The absolute rights of every Englishman, which, taken in a political and extensive sense, are usually called their liberties, are founded in nature and reason, and are coeval with our form of government. They may be reduced to three principal articles: the right of personal security, the right of personal liberty, and the right of private property.', n:'Three absolute rights: security, liberty, property.', m:'1'},
+        {t:'The right of personal security consists in a person’s legal and uninterrupted enjoyment of his life, his limbs, his body, his health, and his reputation. Whatever tends to the destruction of any of these, whether by open violence or by the slower injury of defamation, is a wrong for which the law affords its remedy.', n:'Personal security: life, limb, body, health, reputation.', m:'2'},
+        {t:'Next follows the right of personal liberty, which consists in the power of locomotion, of changing situation, or removing one’s person to whatsoever place one’s own inclination may direct, without imprisonment or restraint, unless by due course of law. This is a right so precious that no restraint of it can be lawful which is not authorised by the known and settled rule.', n:'Personal liberty, and the due course of law.', m:'3'},
+        {t:'The third absolute right is that of property, which consists in the free use, enjoyment, and disposal of all a man’s acquisitions, without any control or diminution, save only by the laws of the land. So great is the regard of the law for private property that it will not authorise the least violation of it, no, not even for the general good of the whole community.', n:'Private property inviolable but by law.', m:'4'}
+      ],
+      notes:[
+        {m:'1.', t:'Magna Carta, 9 Hen. III, c. 29; Petition of Right, 3 Car. I.'},
+        {m:'2.', t:'2 Inst. 46; Bill of Rights, 1 W. &amp; M., sess. 2, c. 2.'},
+        {m:'3.', t:'Habeas Corpus Act, 31 Car. II, c. 2.'},
+        {m:'4.', t:'See the statutes of enclosure, and the compensation thereby provided.'}
+      ]
+    }
+  ];
+
+  var doc = document.getElementById('doc');
+  var rail = document.getElementById('rail');
+  var running = document.getElementById('runningFolio');
+  var current = 0;
+
+  function renderRail(){
+    rail.innerHTML = '';
+    CHAPTERS.forEach(function(c, i){
+      var row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'rail__item' + (i === current ? ' is-current' : '');
+      row.setAttribute('data-ch', i);
+      if (i === current) row.setAttribute('aria-current', 'page');
+      row.innerHTML = '<span class="rail__num">' + c.numeral + '</span><span class="rail__title">' + c.title + '</span>';
+      row.addEventListener('click', function(){ go(i); });
+      rail.appendChild(row);
+    });
+  }
+
+  function renderChapter(){
+    var c = CHAPTERS[current];
+    var prev = CHAPTERS[(current - 1 + CHAPTERS.length) % CHAPTERS.length];
+    var next = CHAPTERS[(current + 1) % CHAPTERS.length];
+    running.textContent = c.running;
+
+    var html = '<div class="chapter">' +
+      '<div class="chapter__head">' + c.head + '</div>' +
+      '<div class="chapter__divider"></div>' +
+      '<div class="chapter__title">' + c.title + '</div>' +
+      '<div class="chapter__section">' + c.section + '</div>' +
+      '</div>';
+
+    c.paras.forEach(function(p, i){
+      var body = i === 0
+        ? '<span class="dropcap">' + p.t.charAt(0) + '</span>' + p.t.slice(1)
+        : p.t;
+      html += '<p class="para' + (i === 0 ? ' para--opening' : '') + '">' + body + '<sup>' + p.m + '</sup></p>' +
+              '<aside class="note">' + p.n + '</aside>';
+    });
+
+    html += '<section class="footnotes"><div class="footnotes__head">Notes and Authorities</div>';
+    c.notes.forEach(function(n){
+      html += '<div class="footnote"><span class="footnote__mark">' + n.m + '</span>' +
+              '<span class="footnote__text">' + n.t + '</span></div>';
+    });
+    html += '</section>';
+
+    html += '<nav class="folio">' +
+      '<button type="button" class="folio__link folio__link--prev" data-go="prev">← ' + prev.numeral + ' ' + prev.title + '</button>' +
+      '<span class="folio__num">' + c.folio + '</span>' +
+      '<button type="button" class="folio__link" data-go="next">' + next.numeral + ' ' + next.title + ' →</button>' +
+      '</nav>';
+
+    doc.innerHTML = html;
+    doc.querySelector('[data-go="prev"]').addEventListener('click', function(){ go(current - 1); });
+    doc.querySelector('[data-go="next"]').addEventListener('click', function(){ go(current + 1); });
+  }
+
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function go(i){
+    // re-rendering replaces the control that had focus; hand focus to its counterpart so keyboard reading continues
+    var from = document.activeElement, dir = from && from.getAttribute('data-go');
+    var fromRail = from && from.hasAttribute('data-ch');
+    current = (i + CHAPTERS.length) % CHAPTERS.length;
+    renderRail();
+    renderChapter();
+    window.scrollTo({top:0, behavior: reduced ? 'auto' : 'smooth'});
+    var to = fromRail ? rail.querySelector('[data-ch="' + current + '"]') : dir ? doc.querySelector('[data-go="' + dir + '"]') : null;
+    if (to) to.focus({preventScroll:true});
+  }
+
+  renderRail();
+  renderChapter();
+})();
+</script>
+</body>
+</html>
