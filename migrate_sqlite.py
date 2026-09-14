@@ -131,6 +131,16 @@ def migrate(sqlite_path: str, dry_run: bool) -> None:
             print(f"  {table:20s}: src={src_count:6d}  dst={dst_count:6d}  {match}")
             results[table] = (src_count, dst_count)
 
+        # Migration 006 filled cards.week from each card's source file only for cards that existed when it ran;
+        # production was empty then, so do the same lookup for the rows just copied.
+        if not dry_run and conn.execute("SELECT 1 FROM information_schema.columns WHERE table_name='cards' AND column_name='week'").fetchone():
+            cur = conn.execute(
+                "UPDATE cards c SET week = (SELECT MIN(f.week) FROM files f WHERE f.course_id = c.course_id AND f.name = c.source AND f.week <> '') "
+                "WHERE COALESCE(c.week, '') = '' AND EXISTS "
+                "(SELECT 1 FROM files f WHERE f.course_id = c.course_id AND f.name = c.source AND f.week <> '')")
+            conn.commit()
+            print(f"  cards.week          : {cur.rowcount} card(s) took the week of their source file")
+
     print()
     if dry_run:
         print("Dry run complete — no rows written.")

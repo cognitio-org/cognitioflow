@@ -151,3 +151,39 @@ def test_shell_database_url_wins_over_env_local():
     """The cutover runs `DATABASE_URL=<Neon prod> python migrate_sqlite.py …` from the repo folder."""
     src = open(os.path.join(os.path.dirname(os.path.dirname(__file__)), "migrate_sqlite.py")).read()
     assert 'load_dotenv(".env.local", override=True)' not in src
+
+
+def test_migrated_cards_take_the_week_of_their_source_file(pg):
+    """Migration 006 backfilled weeks only for cards that already existed; migrate_sqlite does it for copied cards."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    _make_fixture_db(db_path)  # file.txt is in week 1
+    conn = sqlite3.connect(db_path)
+    conn.execute("UPDATE cards SET source='file.txt'")
+    conn.commit(); conn.close()
+    try:
+        r = _cli("--sqlite", db_path)
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "1 card(s) took the week of their source file" in r.stdout
+        assert pg.execute("SELECT week FROM cards").fetchall() == [("1",)]
+    finally:
+        os.unlink(db_path)
+
+
+def test_dry_run_never_backfills_card_weeks(pg):
+    """A dry run must not write anything to the target — including the card-week backfill."""
+    import time as _t
+    pg.execute("INSERT INTO courses(id,name,accent,tutor_prompt,created) VALUES('c1','C','#000','',%s)", (_t.time(),))
+    pg.execute("INSERT INTO files(id,course_id,name,kind,key,text,chars,selected,status,week,created) VALUES('f1','c1','w.txt','text','k','t',1,1,'indexed','4',%s)", (_t.time(),))
+    pg.execute("INSERT INTO cards(id,course_id,front,back,source,week,due,created) VALUES('k1','c1','Q','A','w.txt','','2026-09-13',%s)", (_t.time(),))
+    pg.commit()
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    _make_fixture_db(db_path)
+    try:
+        r = _cli("--sqlite", db_path, "--dry-run")
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "took the week" not in r.stdout
+        assert pg.execute("SELECT week FROM cards WHERE id='k1'").fetchone()[0] == ""
+    finally:
+        os.unlink(db_path)
