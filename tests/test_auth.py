@@ -269,3 +269,56 @@ def test_design_pages_need_no_auth(web):
         r = web.get(f"/static/{page}", follow_redirects=False)
         assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
         assert marker in r.text
+
+
+# ---------------------------------------------------------------- websockets (Phase 8 relay prerequisite)
+from starlette.websockets import WebSocket, WebSocketDisconnect
+
+
+@pytest.fixture
+def ws_app(web):
+    from run import app
+    async def echo(websocket: WebSocket):
+        await websocket.accept()
+        await websocket.send_json({"user": (websocket.state.user or {}).get("email")})
+        await websocket.close()
+    if not any(getattr(r, "path", "") == "/api/_test_ws" for r in app.routes):
+        app.add_api_websocket_route("/api/_test_ws", echo)
+    return web
+
+
+def test_websocket_refused_when_signed_out(ws_app):
+    with pytest.raises(WebSocketDisconnect) as e:
+        with ws_app.websocket_connect("/api/_test_ws"):
+            pass
+    assert e.value.code == 4401
+
+
+def test_websocket_accepted_when_signed_in(ws_app, auth_on):
+    ws_app.cookies.set(auth_on.COOKIE, _cookie_for(auth_on, "matej@mgms.eu"))
+    with ws_app.websocket_connect("/api/_test_ws", headers={"origin": "http://testserver"}) as ws:  # the test client's host
+        assert ws.receive_json() == {"user": "matej@mgms.eu"}
+
+
+def test_websocket_refused_from_another_origin_even_when_signed_in(ws_app, auth_on):
+    ws_app.cookies.set(auth_on.COOKIE, _cookie_for(auth_on, "matej@mgms.eu"))
+    with pytest.raises(WebSocketDisconnect) as e:
+        with ws_app.websocket_connect("/api/_test_ws", headers={"origin": "https://evil.example"}):
+            pass
+    assert e.value.code == 4403
+
+
+def test_websocket_refused_for_an_email_no_longer_allowed(ws_app, auth_on):
+    ws_app.cookies.set(auth_on.COOKIE, _cookie_for(auth_on, "removed@example.com"))
+    with pytest.raises(WebSocketDisconnect) as e:
+        with ws_app.websocket_connect("/api/_test_ws"):
+            pass
+    assert e.value.code == 4401
+
+
+def test_voice_relay_refuses_signed_out_sockets(web, monkeypatch):
+    monkeypatch.setenv("GCP_PROJECT", "vigilant-axis-483119-r8")
+    with pytest.raises(WebSocketDisconnect) as e:
+        with web.websocket_connect("/api/voice/live?course=eu"):
+            pass
+    assert e.value.code == 4401
