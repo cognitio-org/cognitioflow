@@ -23,6 +23,19 @@ Data lives in Neon Postgres, files in the `cognitioflow-user-content` bucket, se
 - Manual: GitHub → Actions → **test and deploy** → **Run workflow** on `main` (or `gh workflow run deploy.yml --ref main`).
 - Every pull request runs the same tests; only `main` deploys.
 
+### PR worthiness check
+Every pull request gets one short comment after its tests: **Approve for deployment** or **Hold**, a one-line reason and a
+security percentage. Rules always run on the diff (leaked credentials and committed `.env`/`data/` block; sign-in, workflow,
+infrastructure, schema and dependency changes and risky lines such as public access or `shell=True` lower the score). With an
+`ANTHROPIC_API_KEY` repo secret, Claude reviews the diff too and the lower score counts. Approve needs passing tests and ≥ 75%.
+It runs from `main`, so a PR can't change its own check.
+
+**Auto-approve:** when the verdict is Approve, the GitHub Actions bot approves the PR (once per commit); a later Hold
+withdraws that approval. It never merges — merging deploys, and stays with you. A PR that changes the checker or its
+workflows is always held for a person. `.github/workflows/pr-sweep.yml` re-checks open PRs every 30 minutes, skipping
+drafts, PRs whose tests are still running and commits it has already judged. Needs the repo setting *Allow GitHub Actions
+to create and approve pull requests*. Locally: `python3 scripts/pr_worthiness.py --pr <n>` or `--all` (prints only).
+
 ### Roll back
 ```
 gcloud run revisions list --service cognitioflow --region europe-west4
