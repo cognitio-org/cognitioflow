@@ -89,6 +89,41 @@ jobs:
           branch: ${{ steps.neon.outputs.branch_id }}
           api_key: ${{ secrets.NEON_API_KEY }}
 
+  # PR worthiness: one short comment on every PR — Approve/Hold, one-line explanation, security %.
+  # The checker is taken from main (base sha), so a PR cannot rewrite its own reviewer; it never runs PR code.
+  # Optional repo secret ANTHROPIC_API_KEY adds a Claude review on top of the rules.
+  worthiness:
+    needs: test
+    if: always() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: scripts/pr_worthiness.py
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Assess and comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TESTS: ${{ needs.test.result }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ ! -f scripts/pr_worthiness.py ]; then
+            echo "::notice::scripts/pr_worthiness.py is not on main yet; the check starts on PRs opened after it merges"; exit 0
+          fi
+          if [ -n "$ANTHROPIC_API_KEY" ]; then pip install -q anthropic; fi
+          python scripts/pr_worthiness.py --repo "$GITHUB_REPOSITORY" --pr "$PR" --tests "$TESTS" --post --approve
+
   deploy:
     needs: test
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
