@@ -26,6 +26,9 @@ env:
   SERVICE: cognitioflow
   IMAGE: europe-west4-docker.pkg.dev/vigilant-axis-483119-r8/cognitioflow/cognitioflow
   RUN_SA: cognitioflow-run@vigilant-axis-483119-r8.iam.gserviceaccount.com
+  BACKUP_JOB: cognitioflow-backup
+  BACKUP_IMAGE: europe-west4-docker.pkg.dev/vigilant-axis-483119-r8/cognitioflow/backup
+  BACKUP_SA: cognitioflow-backup@vigilant-axis-483119-r8.iam.gserviceaccount.com
 
 jobs:
   test:
@@ -136,3 +139,22 @@ jobs:
             sleep 5
           done
           echo "/health did not return 200" >&2; exit 1
+
+      # The weekly backup (scripts/backup.py) as a Cloud Run job, kept on the same commit as the app.
+      # Skipped until infra/backup.sh --apply has created its service account; the schedule lives in that script.
+      - name: Deploy backup job
+        run: |
+          if ! gcloud iam service-accounts describe "$BACKUP_SA" --project "$GCP_PROJECT" >/dev/null 2>&1; then
+            echo "::notice::$BACKUP_SA not found - run infra/backup.sh --apply; backup job not deployed"; exit 0
+          fi
+          docker build --platform linux/amd64 -f infra/backup/Dockerfile -t "$BACKUP_IMAGE:$GITHUB_SHA" .
+          docker push "$BACKUP_IMAGE:$GITHUB_SHA"
+          gcloud run jobs deploy "$BACKUP_JOB" \
+            --project "$GCP_PROJECT" --region "$REGION" \
+            --image "$BACKUP_IMAGE:$GITHUB_SHA" \
+            --service-account "$BACKUP_SA" \
+            --tasks 1 --max-retries 1 --task-timeout 3600s --cpu 1 --memory 1Gi \
+            --set-secrets DATABASE_URL=DATABASE_URL:latest \
+            --set-env-vars SOURCE_BUCKET=cognitioflow-user-content,BACKUP_BUCKET=cognitioflow-backups,GCP_PROJECT=vigilant-axis-483119-r8 \
+            --labels "commit=${GITHUB_SHA:0:12}" \
+            --quiet
