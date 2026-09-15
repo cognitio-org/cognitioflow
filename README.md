@@ -68,6 +68,40 @@ environment (`ENV=production` refuses to start with `AUTH=off` or a missing secr
    (variables) and `NEON_API_KEY` (secret). Optional variables: `NEON_DATABASE` (default `cognitioflow`), `NEON_ROLE`.
 3. Merge to `main` (or run the workflow), then add `<URL>/auth/callback` to the OAuth client's authorised redirect URIs.
 
+### Backups and restore
+Three layers, from newest to broadest:
+
+| Layer | Covers | How far back | Restore |
+|---|---|---|---|
+| Neon point-in-time restore | the database | **6 hours** (Free plan history window) | Neon console → Branches → create a branch from a point in time |
+| Object versioning on `cognitioflow-user-content` | uploads and recordings deleted or replaced in the app | 30 days | `gcloud storage ls --all-versions gs://cognitioflow-user-content/<key>`, then copy the old generation back |
+| Weekly backup (`scripts/backup.py`) | database dump + a copy of every stored file | 365 days | `scripts/restore.py`, below |
+
+The weekly backup runs as the Cloud Run job `cognitioflow-backup` every Sunday at 03:00 Europe/Amsterdam, under its own
+service account `cognitioflow-backup@…` (it can add to the backup bucket but not delete from it). Each run writes
+`gs://cognitioflow-backups/<UTC stamp>/` with `db.dump`, `objects/…` and, last, `manifest.json` (row counts, dump
+sha256, object count and bytes). A folder without a manifest is an incomplete run and is ignored.
+
+```
+bash infra/backup.sh                     # dry run: shows the job, schedule, permissions and bucket rules it would set
+gcloud run jobs execute cognitioflow-backup --region europe-west4 --wait     # take a backup now
+python3 scripts/backup.py --list         # completed backups (needs your gcloud application-default login)
+```
+
+**Restore** into a fresh Neon branch or any empty Postgres 18 database. `restore.py` never uses `DATABASE_URL` as its
+target, checks the dump's sha256 first, refuses a database that already holds rows unless `--replace`, and compares every
+table's row count with the manifest afterwards. `pg_restore` 18 runs locally if installed, otherwise from the
+`postgres:18` image through Docker.
+
+```
+python3 scripts/restore.py --list
+python3 scripts/restore.py --latest --database-url "$TARGET_URL" --objects-to ~/cf-restore/files   # or gs://<bucket>
+```
+
+To put a restore into service: add the restored branch's connection string as a new `DATABASE_URL` secret version,
+copy the objects back with `--objects-to gs://cognitioflow-user-content --replace` if files were lost, and redeploy.
+For a plain-files copy you can open without the app, use `scripts/export_all.py`.
+
 ## First run
 ```
 cd cognitioflow
