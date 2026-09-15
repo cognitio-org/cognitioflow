@@ -4,7 +4,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CognitioFlow</title>
 <style>
-  :root{--ink:#1c1c1a;--graphite:#5c5b55;--rule:#dcdad3;--faint:#f3f2ee;--paper:#fbfbf9;--accent:var(--course,#24467a);--ok:#2e6b4a;--warn:#a4541f;
+  :root{--ink:#1c1c1a;--graphite:#5c5b55;--rule:#dcdad3;--faint:#f3f2ee;--paper:#fbfbf9;--raised:#ffffff;--accent:var(--course,#24467a);--ok:#2e6b4a;--warn:#a4541f;
     --s1:.25rem;--s2:.5rem;--s3:.75rem;--s4:1rem;--s5:1.5rem;--s6:2.25rem;
     --serif:Charter,"Iowan Old Style","Palatino Linotype",Georgia,serif;--sans:"Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;--r:4px}
   *{box-sizing:border-box} [hidden]{display:none!important} html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;height:100%}
@@ -12,7 +12,8 @@
   p{margin:0 0 .7rem} button{font:inherit;cursor:pointer} input,select,textarea{font:inherit}
   .btn{border:1px solid var(--ink);background:var(--paper);color:var(--ink);padding:.45rem .9rem;border-radius:var(--r);line-height:1.2} .btn:hover{background:var(--faint)}
   .btn.primary{background:var(--ink);color:#fff} .btn.primary:hover{background:#333} .btn.small{padding:.3rem .6rem;font-size:.82rem} .btn.ghost{border-color:var(--rule);color:var(--graphite);background:transparent} .btn.ghost:hover{color:var(--ink);border-color:var(--graphite);background:var(--faint)}
-  .btn[disabled]{opacity:.45;cursor:not-allowed} :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .btn[disabled]{opacity:.45;cursor:not-allowed} .btn:active:not([disabled]){transform:translateY(1px)} :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  kbd{font-family:var(--sans);font-size:.72em;line-height:1.25;padding:.02rem .34rem;border:1px solid var(--rule);border-bottom-width:2px;border-radius:4px;background:var(--faint);color:var(--graphite);white-space:nowrap;vertical-align:.08em}
   .muted{color:var(--graphite)} .small{font-size:.85rem} ul.clean{list-style:none;margin:0;padding:0}
   .tag{display:inline-block;font-size:.74rem;padding:.05rem .45rem;border:1px solid var(--rule);border-radius:999px;color:var(--graphite)} .tag.ok{border-color:var(--ok);color:var(--ok)} .tag.warn{border-color:var(--warn);color:var(--warn)}
   .panel{border:1px solid var(--rule);border-radius:var(--r);padding:var(--s4) 1.1rem;background:var(--paper)} .panel.bar{border-left:4px solid var(--accent)}
@@ -32,7 +33,7 @@
   .stat .n{font-family:var(--serif);font-size:2rem;line-height:1} .stat .l{color:var(--graphite);font-size:.85rem;margin-top:.3rem}
   table{width:100%;border-collapse:collapse;font-size:.92rem} th,td{text-align:left;padding:.5rem .4rem;border-bottom:1px solid var(--rule);vertical-align:top} th{font-weight:500;color:var(--graphite);font-size:.85rem}
   .meter{height:6px;background:var(--faint);border-radius:3px;overflow:hidden} .meter span{display:block;height:100%;background:var(--accent)}
-  .toast{position:fixed;bottom:1.25rem;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:.6rem 1rem;border-radius:var(--r);font-size:.9rem;opacity:0;pointer-events:none;transition:opacity .2s;z-index:50} .toast.show{opacity:1}
+  .toast{position:fixed;bottom:1.25rem;left:50%;transform:translate(-50%,6px);display:flex;align-items:center;gap:.55rem;max-width:min(560px,92vw);background:var(--raised);color:var(--ink);border:1px solid var(--rule);box-shadow:0 10px 30px rgba(0,0,0,.14);padding:.55rem .95rem .55rem .8rem;border-radius:8px;font-size:.9rem;opacity:0;pointer-events:none;transition:opacity .18s ease-out,transform .18s ease-out;z-index:50} .toast::before{content:"";flex:none;width:8px;height:8px;border-radius:50%;background:var(--ok)} .toast[data-tone=warn]::before{background:var(--warn)} .toast[data-tone=busy]::before{background:var(--graphite)} .toast.show{opacity:1;transform:translate(-50%,0)} @media(prefers-reduced-motion:reduce){.toast{transition:none}}
   input[type=text],input[type=url],select,textarea{padding:.45rem;border:1px solid var(--rule);border-radius:var(--r);background:var(--paper)}
 
   .app{display:grid;grid-template-columns:220px minmax(0,1fr);height:100vh}
@@ -47,7 +48,7 @@
   .head{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap;border-bottom:1px solid var(--rule);padding-bottom:.7rem;margin-bottom:1.1rem}
 
   /* library */
-  .drop{border:1.5px dashed var(--rule);border-radius:var(--r);padding:1.2rem;text-align:center;color:var(--graphite);margin-bottom:1rem} .drop.over{border-color:var(--accent);background:var(--faint)}
+  .drop{border:1.5px dashed var(--rule);border-radius:var(--r);padding:1.1rem 1.2rem;text-align:center;color:var(--graphite);margin-bottom:1rem;transition:border-color .15s,background .15s} .drop::before{content:"";display:block;width:18px;height:18px;margin:0 auto .45rem;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 16V4M6 10l6-6 6 6M4 20h16'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 16V4M6 10l6-6 6 6M4 20h16'/%3E%3C/svg%3E") center/contain no-repeat} .drop.over{border-color:var(--accent);border-style:solid;background:var(--faint);color:var(--ink)} .drop.over::after{content:"Release to add these files";display:block;margin-top:.3rem;font-weight:500} .drop label:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
   /* tutor */
   .tutor{display:grid;grid-template-columns:230px minmax(0,1fr);gap:1rem;height:calc(100vh - 8rem)}
   .col{border:1px solid var(--rule);border-radius:var(--r);padding:.8rem;display:flex;flex-direction:column;min-height:0}
@@ -78,7 +79,7 @@
   .sess .body{flex:1;min-width:0} .sess .top{display:flex;gap:.5rem;align-items:baseline} .sess .tp{font-size:.96rem} .sess.done .tp{color:var(--graphite);text-decoration:line-through}
   .sess .meta{font-size:.78rem;color:var(--graphite)} .sess .act{display:flex;gap:.35rem;opacity:0;transition:opacity .12s} .sess:hover .act{opacity:1}
   .sess .chk{width:18px;height:18px;flex:none;border:1.5px solid var(--graphite);border-radius:5px;cursor:pointer;display:grid;place-items:center;color:transparent} .sess.done .chk{background:var(--accent);border-color:var(--accent);color:var(--paper)}
-  .agenda .empty{color:var(--graphite);padding:2rem;text-align:center;border:1px dashed var(--rule);border-radius:var(--r)}
+  .emptystate,.agenda .empty{display:grid;justify-items:center;gap:.3rem;text-align:center;padding:2rem 1rem;color:var(--graphite);font-size:.92rem} .emptystate b{font-family:var(--serif);font-weight:500;font-size:1.1rem;color:var(--ink)} .emptystate .btn{margin-top:.55rem} .agenda .empty{border:1px dashed var(--rule);border-radius:var(--r)} .notes .list li.emptystate{cursor:default;border-bottom:none;padding:1.4rem .5rem}
   @media(max-width:1300px){.agenda{max-width:none}}
   .rtools{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-bottom:1.2rem}
   .rstage{max-width:620px;margin:0 auto}
@@ -94,7 +95,7 @@
   .ratings{display:grid;grid-template-columns:repeat(4,1fr);gap:.6rem;margin-top:1.2rem}
   .rate{padding:.7rem;font-size:.9rem} .rate.again{border-color:#b3524e;color:#b3524e} .rate.hard{border-color:#a4771f;color:#a4771f} .rate.good{border-color:#2e6b4a;color:#2e6b4a} .rate.easy{border-color:var(--accent);color:var(--accent)}
   .rate:hover{background:var(--faint)}
-  .rdone{text-align:center;padding:3rem 1rem;font-family:var(--serif);font-size:1.3rem;color:var(--graphite)}
+  .rdone{text-align:center;padding:3rem 1rem;font-family:var(--serif);font-size:1.3rem;color:var(--graphite)} .rdone:has(b){display:grid;justify-items:center;gap:.3rem;font-family:var(--sans);font-size:.92rem} .rdone b{font-family:var(--serif);font-weight:500;font-size:1.25rem;color:var(--ink)}
   .quizcard .q{font-family:var(--serif);font-size:1.3rem;line-height:1.4;margin-bottom:1.4rem;min-height:2.4em}
   .qopt{display:block;width:100%;text-align:left;border:1px solid var(--rule);background:var(--paper);border-radius:10px;padding:.85rem 1.1rem;margin-bottom:.7rem;font-size:1rem;cursor:pointer;transition:border-color .15s,background .15s}
   .qopt:hover{border-color:var(--graphite)} .qopt .lt{display:inline-block;width:1.6rem;color:var(--graphite);font-family:var(--serif)}
@@ -112,7 +113,8 @@
   .palbox input{width:100%;border:none;border-bottom:1px solid var(--rule);border-radius:0;padding:.85rem 1rem;font-size:1.05rem;background:var(--paper)} .palbox input:focus{outline:none}
   #palList{max-height:52vh;overflow:auto} #palList li{padding:.55rem 1rem;border-bottom:1px solid var(--rule);cursor:pointer;display:grid;grid-template-columns:4.2rem 1fr;gap:.6rem;align-items:baseline}
   #palList li.sel{background:var(--faint)} #palList .k{font-size:.72rem;color:var(--graphite)} #palList .t{font-size:.95rem} #palList .s{font-size:.8rem;color:var(--graphite);grid-column:2}
-  .palhint{padding:.4rem 1rem;border-top:1px solid var(--rule)}
+  .palhint{padding:.45rem 1rem;border-top:1px solid var(--rule)}
+  .pal{backdrop-filter:blur(2px)} .palbox{border-radius:10px;background:var(--raised);box-shadow:0 18px 50px rgba(0,0,0,.2)} .palbox input{background:var(--raised)} #palList li.sel{box-shadow:inset 2px 0 0 var(--ink)} #palList .k{text-transform:uppercase;letter-spacing:.07em;font-size:.64rem}
   tr.grouphead td{background:var(--faint);border-top:1px solid var(--rule);padding-top:.5rem} tr.grouphead b{font-family:var(--serif)}
   /* notes editing */
   .tagbar{display:flex;gap:.3rem;align-items:center;flex-wrap:wrap} .editwrap{flex:1;min-height:0;display:flex;gap:.8rem} .editwrap>*{flex:1;min-height:0}
@@ -125,7 +127,7 @@
   #recBtn.on{background:#b3261e;color:#fff;border-color:#b3261e}
   @media print{.tplay,.readbar{display:none!important}}
   /* notes reading view */
-  .seg .btn{border-radius:0} .seg .btn:first-child{border-radius:var(--r) 0 0 var(--r)} .seg .btn:last-child{border-radius:0 var(--r) var(--r) 0;margin-left:-1px} .seg .btn[aria-pressed=true]{background:var(--ink);color:var(--paper)}
+  .seg{display:inline-flex;gap:2px;padding:2px;background:var(--faint);border:1px solid var(--rule);border-radius:calc(var(--r) + 2px)} .seg .btn{border-color:transparent;background:transparent;color:var(--graphite);border-radius:var(--r)} .seg .btn:hover{color:var(--ink);background:transparent} .seg .btn[aria-pressed=true]{background:var(--raised);color:var(--ink);border-color:var(--rule);box-shadow:0 1px 2px rgba(0,0,0,.08);font-weight:500}
   .noteview{flex:1;overflow:auto;border:1px solid var(--rule);border-radius:var(--r);padding:1.4rem 2rem;font-family:var(--serif);font-size:1.04rem;line-height:1.6;max-width:none}
   .noteview h1{font-size:1.7rem;margin:0 0 .3rem;padding-bottom:.4rem;border-bottom:1px solid var(--ink)} .noteview h2{font-size:1.2rem;margin:1.4rem 0 .5rem;letter-spacing:.01em} .noteview h3{font-size:1.05rem;margin:1rem 0 .3rem}
   .noteview p,.noteview li{margin:0 0 .45rem} .noteview ol,.noteview ul{padding-left:1.4rem} .noteview li{padding-left:.2rem}
@@ -148,8 +150,8 @@
   .stage{max-width:640px;margin:0 auto} .flip{width:100%;text-align:left;border:1px solid var(--ink);border-radius:var(--r);min-height:220px;padding:1.4rem;font-family:var(--serif);font-size:1.2rem;line-height:1.4;background:var(--paper);display:flex;flex-direction:column;justify-content:center;white-space:pre-wrap}
   .flip .side{font-family:var(--sans);font-size:.74rem;color:var(--graphite);margin-bottom:.5rem} .ratings{display:flex;gap:.5rem;justify-content:center;margin-top:1rem;flex-wrap:wrap} .ratings .btn{min-width:88px}
   /* dark scheme — neutral panels, accent only on bars (standing rule) */
-  @media(prefers-color-scheme:dark){:root{--ink:#e9e7e2;--graphite:#a3a19a;--rule:#383733;--faint:#242320;--paper:#191918;--accent:color-mix(in oklab,var(--course,#24467a),#fff 55%);--ok:#7cc59d;--warn:#e5a06f}
-    .btn.primary{background:#e8e6e1;color:#1a1a19} .btn.primary:hover{background:#fff} .msg.user{background:#e8e6e1;color:#1a1a19} .toast{background:#e8e6e1;color:#1a1a19} .modes .btn.active{background:#e8e6e1;color:#1a1a19}}
+  @media(prefers-color-scheme:dark){:root{--ink:#e9e7e2;--graphite:#a3a19a;--rule:#383733;--faint:#242320;--paper:#191918;--raised:#2c2b28;--accent:color-mix(in oklab,var(--course,#24467a),#fff 55%);--ok:#7cc59d;--warn:#e5a06f}
+    .btn.primary{background:#e8e6e1;color:#1a1a19} .btn.primary:hover{background:#fff} .msg.user{background:#e8e6e1;color:#1a1a19} .modes .btn.active{background:#e8e6e1;color:#1a1a19}}
   html{color-scheme:light dark}
 
   /* half-screen: slim top bar, dense content */
@@ -189,7 +191,7 @@
     <li><a href="#planner" data-nav="planner">Planner</a></li>
     <li><a href="#progress" data-nav="progress">Progress</a></li>
   </ul></nav>
-  <button class="btn small ghost" id="searchBtn" title="Search and jump (⌘K)">Search ⌘K</button>
+  <button class="btn small ghost" id="searchBtn" title="Search and jump (⌘K)">Search <kbd>⌘K</kbd></button>
   <button class="btn small ghost" id="addCourse">+ Add course</button>
   <form class="acct" id="acct" method="post" action="/auth/logout"><span class="small muted who" id="who"></span><button class="btn small ghost" id="signOut" type="submit">Sign out</button></form>
 </aside>
@@ -229,7 +231,7 @@
   <div class="panel small" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
     <button class="btn small ghost" id="inferBtn" title="Recognise each untagged file week from its content">Detect weeks</button>
   </div>
-  <div class="drop" id="drop">Drop files here or <label style="text-decoration:underline;cursor:pointer">choose<input type="file" id="fileInput" multiple hidden></label> — pdf, pptx, docx, txt/md/vtt, png/jpg</div>
+  <div class="drop" id="drop">Drop files here or <label style="text-decoration:underline;cursor:pointer" tabindex="0" role="button">choose<input type="file" id="fileInput" multiple hidden></label> — pdf, pptx, docx, txt/md/vtt, png/jpg</div>
   <table><thead><tr><th></th><th>Name</th><th>Type</th><th>Week</th><th>Text</th><th>Status</th><th></th></tr></thead><tbody id="fileRows"></tbody></table>
 </section>
 
@@ -301,11 +303,11 @@
     <div class="progress" id="rprog"><span></span></div>
     <div class="flashcard" id="fc" tabindex="0" aria-label="Flashcard — click to flip">
       <div class="fcinner" id="fcinner">
-        <div class="face front"><div class="tagline">Question</div><div class="ftext" id="fcFront"></div><div class="hintline">Click, or press Space, to reveal</div></div>
+        <div class="face front"><div class="tagline">Question</div><div class="ftext" id="fcFront"></div><div class="hintline">Click, or press <kbd>Space</kbd>, to reveal</div></div>
         <div class="face back"><div class="tagline">Answer</div><div class="ftext" id="fcBack"></div></div>
       </div>
     </div>
-    <div class="ratings" id="ratings" hidden><button class="btn rate again" data-r="0">Again</button><button class="btn rate hard" data-r="1">Hard</button><button class="btn rate good" data-r="2">Good</button><button class="btn rate easy" data-r="3">Easy</button></div>
+    <div class="ratings" id="ratings" hidden><button class="btn rate again" data-r="0">Again <kbd>1</kbd></button><button class="btn rate hard" data-r="1">Hard <kbd>2</kbd></button><button class="btn rate good" data-r="2">Good <kbd>3</kbd></button><button class="btn rate easy" data-r="3">Easy <kbd>4</kbd></button></div>
     <div class="rdone" id="rdone" hidden></div>
   </div>
 
@@ -342,7 +344,7 @@
 <div id="pal" class="pal" hidden role="dialog" aria-label="Search and jump"><div class="palbox">
   <input type="text" id="palQ" placeholder="Search notes, files, chats, cards — or type a screen name" autocomplete="off">
   <ul class="clean" id="palList"></ul>
-  <div class="small muted palhint">↑↓ move · Enter open · Esc close · ⌘K anytime</div></div></div>
+  <div class="small muted palhint"><kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close · <kbd>⌘K</kbd> anytime</div></div></div>
 <button class="btn small ghost" id="focusBtn" title="Focus mode — this screen only (⌘.)">Focus</button>
 <div id="timer" class="timer" title="Study timer — logs into your planner when you stop"><button id="timerBtn" class="btn small">▶ Start studying</button><span id="timerClock" class="small" hidden>00:00</span><button id="timerStop" class="btn small ghost" hidden>Log & stop</button></div>
 
@@ -373,7 +375,7 @@ const setFocus=v=>{document.body.classList.toggle('focus',v);localStorage.setIte
 $('#focusBtn').onclick=()=>setFocus(!document.body.classList.contains('focus'));
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='.'){e.preventDefault();$('#focusBtn').click()}});
 if(localStorage.getItem('cf.focus')==='1') setFocus(true);
-function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2800)}
+function toast(m){const t=$('#toast');t.textContent=m;t.dataset.tone=/^(failed|could not|error)|failed|not allowed/i.test(m)?'warn':/…$/.test(m)?'busy':'ok';t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2800)}
 let courses=[], cid=localStorage.getItem('cf.course')||'', mode='drill', cfg={};
 const C=()=>courses.find(c=>c.id===cid)||courses[0];
 
@@ -420,7 +422,7 @@ async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle'
 /* files */
 async function loadFiles(){
   const fs=await api(`/courses/${cid}/files`);
-  if(!fs.length){ $('#fileRows').innerHTML='<tr><td colspan="7" class="muted">No files yet. Drop the Week 2 slides and a transcript in to start.</td></tr>'; }
+  if(!fs.length){ $('#fileRows').innerHTML='<tr><td colspan="7"><div class="emptystate"><b>No files yet</b><span>Drop the Week 2 slides and a transcript in to start.</span><button class="btn small" type="button" onclick="document.getElementById(\'fileInput\').click()">Choose files</button></div></td></tr>'; }
   else {
     const groups={}; fs.forEach(f=>{ const k=f.week?('Week '+f.week):'Unsorted'; (groups[k]=groups[k]||[]).push(f) });
     const order=Object.keys(groups).sort((a,b)=>{ if(a==='Unsorted')return 1; if(b==='Unsorted')return -1; return (+a.slice(5))-(+b.slice(5)) });
@@ -437,7 +439,7 @@ async function loadFiles(){
 async function upload(files){ for(const f of files){ const fd=new FormData(); fd.append('file',f); fd.append('week',$('#week').value); toast('Indexing '+f.name+'…'); try{ const r=await api(`/courses/${cid}/files`,{method:'POST',body:fd}); toast(`${f.name}: ${r.status}${r.chars?' · '+Math.round(r.chars/1000)+'k chars':''}`);}catch(e){toast('Failed: '+e.message)} } loadFiles(); }
 $('#inferBtn').onclick=async()=>{const b=$('#inferBtn');b.disabled=true;b.textContent='Detecting…';try{const r=await post(`/courses/${cid}/infer-weeks`);toast(r.tagged?`Sorted ${r.tagged} file(s) into weeks`:'Nothing to sort — all files already have a week');loadFiles()}catch(e){toast('Failed: '+e.message)}b.disabled=false;b.textContent='Detect weeks'};
 $('#fileInput').addEventListener('change',e=>upload([...e.target.files]));
-const drop=$('#drop'); ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')})); ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')})); drop.addEventListener('drop',e=>upload([...e.dataTransfer.files]));
+const drop=$('#drop'); ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')})); ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')})); drop.addEventListener('drop',e=>upload([...e.dataTransfer.files])); drop.querySelector('label').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#fileInput').click()}});
 
 /* tutor */
 async function loadTutor(){ const fs=await api(`/courses/${cid}/files`); const sel=fs.filter(f=>f.selected); $('#tutorSub').textContent=`${C().name} · auto-routing: notes and cards on ${(cfg.cheap_model||'').replace('claude-','')}, drilling on ${(cfg.model||'').replace('claude-','')}`;
@@ -523,7 +525,7 @@ $('#clearChat').onclick=async()=>{if(confirm('Clear this course\'s conversation?
 /* notes */
 let nid=null, saveT=null;
 async function loadNotes(){ const ns=await api(`/courses/${cid}/notes`); if(!ns.find(n=>n.id===nid)) nid=ns[0]?.id||null;
-  $('#noteList').innerHTML=ns.length?ns.map(n=>`<li class="${n.id===nid?'active':''}" data-note="${n.id}">${esc(n.title)}<div class="small muted">${new Date(n.updated*1000).toLocaleDateString()} · ${Math.round(n.chars/1000)||0}k</div></li>`).join(''):'<li class="muted small" style="padding:.5rem">No notes yet.</li>';
+  $('#noteList').innerHTML=ns.length?ns.map(n=>`<li class="${n.id===nid?'active':''}" data-note="${n.id}">${esc(n.title)}<div class="small muted">${new Date(n.updated*1000).toLocaleDateString()} · ${Math.round(n.chars/1000)||0}k</div></li>`).join(''):'<li class="emptystate small"><b>No notes yet</b><span>Start one, or draft it from your files.</span><button class="btn small" type="button" onclick="document.getElementById(\'newNote\').click()">New note</button></li>';
   document.querySelectorAll('[data-note]').forEach(l=>l.onclick=()=>{nid=l.dataset.note;loadNotes()});
   if(nid){const n=await api(`/notes/${nid}`);$('#noteTitle').value=n.title;await loadRecIds();$('#noteBody').value=toDisplay(n.body);$('#noteStatus').textContent='Saved'} else {$('#noteTitle').value='';$('#noteBody').value='';$('#noteStatus').textContent=''}
   histVid=null; $('#histBar').hidden=true; $('#txBar').hidden=true; showNote(); loadRecs();
@@ -679,7 +681,7 @@ $('#mCards').onclick=()=>setRMode('cards'); $('#mQuiz').onclick=()=>setRMode('qu
 function rprog(done,total){ $('#rprog').firstElementChild.style.width=total?(done/total*100)+'%':'0'; }
 function nextCard(){ cur=queue.shift()||null; flipped=false; $('#ratings').hidden=true; $('#fc').classList.remove('flipped');
   rprog(qStart-queue.length-(cur?1:0), qStart||1);
-  if(!cur){ $('#fc').hidden=true; $('#rdone').hidden=false; $('#rdone').textContent='Queue clear. Generate cards from a file, or come back tomorrow.'; rprog(1,1); return; }
+  if(!cur){ $('#fc').hidden=true; $('#rdone').hidden=false; $('#rdone').innerHTML='<b>Queue clear</b><span>Generate cards from a file, or come back tomorrow.</span>'; rprog(1,1); return; }
   $('#fc').hidden=false; $('#rdone').hidden=true; $('#fcFront').textContent=cur.front; $('#fcBack').textContent=cur.back; }
 function flipCard(){ if(!cur) return; flipped=!flipped; $('#fc').classList.toggle('flipped',flipped); $('#ratings').hidden=!flipped; }
 $('#fc').onclick=flipCard; $('#fc').onkeydown=e=>{ if(e.key===' '||e.key==='Enter'){e.preventDefault();flipCard()} };
