@@ -138,6 +138,18 @@ withdraws that approval. It never merges — merging deploys, and stays with you
 workflows is always held for a person. `.github/workflows/pr-sweep.yml` re-checks open PRs every 30 minutes, skipping
 drafts, PRs whose tests are still running and commits it has already judged. Needs the repo setting *Allow GitHub Actions
 to create and approve pull requests*. Locally: `python3 scripts/pr_worthiness.py --pr <n>` or `--all` (prints only).
+
+### PR watcher (Chrome extension)
+`extension/pr-watcher/` shows open pull requests in Chrome's toolbar: tests, the checker's verdict and security %, whether
+the bot approved, and a **Merge** button that always asks first (merging deploys) and merges exactly the commit shown.
+**Re-review** asks a cheap model for a second opinion — GLM 5.3 Flash through OpenRouter (about a tenth of a cent) or
+Claude Haiku 4.5 (about 2 cents). It checks every minute and notifies you when tests finish or a verdict arrives.
+
+Install: `chrome://extensions` → Developer mode → **Load unpacked** → `extension/pr-watcher`. Then **Options**: paste a
+fine-grained GitHub token limited to this repository (Pull requests and Contents read/write, Checks and Metadata read) and,
+for Re-review, an OpenRouter or Claude key. Keys stay in that Chrome profile's extension storage. Logic tests:
+`cd extension/pr-watcher && node --test`.
+
 ### Roll back
 ```
 gcloud run revisions list --service cognitioflow --region europe-west4

@@ -1,0 +1,101 @@
+{
+ "23": {
+  "pull": {
+   "number": 23,
+   "title": "Phase 8: Gemini dictation for the tutor (Vertex AI relay) + WebSocket sign-in",
+   "html_url": "https://github.com/cognitio-org/cognitioflow/pull/23",
+   "mergeable": true,
+   "mergeable_state": "clean",
+   "draft": false,
+   "head": {
+    "sha": "1bedb942f1654000529a7f80622d1efc7c03f454",
+    "ref": "phase-8-voice"
+   }
+  },
+  "checkRuns": [
+   {
+    "name": "deploy",
+    "status": "completed",
+    "conclusion": "skipped"
+   },
+   {
+    "name": "worthiness",
+    "status": "completed",
+    "conclusion": "success"
+   },
+   {
+    "name": "test",
+    "status": "completed",
+    "conclusion": "success"
+   }
+  ],
+  "comments": [
+   {
+    "body": "<!-- pr-worthiness -->\n⛔ **Hold — not ready to deploy** · security **68%**\nHold: security 68% is below 75% (sign-in and sessions, cloud infrastructure, dependencies, a change to which routes skip sign-in (auth.py)).\n<sub>1bedb94 · tests: success · 9 files, +454 −12 · sign-in and sessions −12, cloud infrastructure −8, dependencies −4, a change to which routes skip sign-in (auth.py) −8 · review: rules (model review unavailable: ValueError)</sub>"
+   }
+  ],
+  "reviews": []
+ },
+ "22": {
+  "pull": {
+   "number": 22,
+   "title": "Phase 7 docs: README for the cloud app",
+   "html_url": "https://github.com/cognitio-org/cognitioflow/pull/22",
+   "mergeable": true,
+   "mergeable_state": "clean",
+   "draft": false,
+   "head": {
+    "sha": "3f05730aa17f200e8093e54adb3d53dd625267d6",
+    "ref": "phase-7-docs"
+   }
+  },
+  "checkRuns": [
+   {
+    "name": "deploy",
+    "status": "completed",
+    "conclusion": "skipped"
+   },
+   {
+    "name": "worthiness",
+    "status": "completed",
+    "conclusion": "success"
+   },
+   {
+    "name": "test",
+    "status": "completed",
+    "conclusion": "success"
+   }
+  ],
+  "comments": [
+   {
+    "body": "<!-- pr-worthiness -->\n✅ **Approve for deployment** · security **92%**\nDocs-only README rewrite; no code, auth, or config changes despite auth-related wording triggering the rule check.\n<sub>3f05730 · tests: success · 1 file, +127 −99 · sign-in switched off (README.md) −6 · review: rules + claude-sonnet-5</sub>"
+   }
+  ],
+  "reviews": [
+   {
+    "user": {
+     "login": "github-actions[bot]"
+    },
+    "state": "APPROVED",
+    "commit_id": "3f05730aa17f200e8093e54adb3d53dd625267d6"
+   }
+  ]
+ },
+ "5": {
+  "pull": {
+   "number": 5,
+   "title": "Phase 6 — Course scaffolding (add courses in-app)",
+   "html_url": "https://github.com/cognitio-org/cognitioflow/pull/5",
+   "mergeable": null,
+   "mergeable_state": "unknown",
+   "draft": false,
+   "head": {
+    "sha": "d328cffe6bf6be38ab79cb39425b619930a92acb",
+    "ref": "phase-6-courses"
+   }
+  },
+  "checkRuns": [],
+  "comments": [],
+  "reviews": []
+ }
+}

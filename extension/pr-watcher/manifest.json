@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "CognitioFlow PR watcher",
+  "version": "0.1.0",
+  "description": "Open CognitioFlow pull requests: tests, the checker's verdict, a cheap-model re-review, and merge with a confirm.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "CognitioFlow PRs",
+    "default_icon": { "16": "icons/16.png", "32": "icons/32.png" }
+  },
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "options_page": "options.html",
+  "permissions": ["alarms", "storage", "notifications"],
+  "host_permissions": ["https://api.github.com/*", "https://api.anthropic.com/*", "https://openrouter.ai/*"]
+}
