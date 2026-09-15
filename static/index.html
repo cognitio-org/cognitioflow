@@ -4,7 +4,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CognitioFlow</title>
 <style>
-  :root{--ink:#1c1c1a;--graphite:#5c5b55;--rule:#dcdad3;--faint:#f3f2ee;--paper:#fbfbf9;--accent:#24467a;--ok:#2e6b4a;--warn:#a4541f;
+  :root{--ink:#1c1c1a;--graphite:#5c5b55;--rule:#dcdad3;--faint:#f3f2ee;--paper:#fbfbf9;--accent:var(--course,#24467a);--ok:#2e6b4a;--warn:#a4541f;
     --s1:.25rem;--s2:.5rem;--s3:.75rem;--s4:1rem;--s5:1.5rem;--s6:2.25rem;
     --serif:Charter,"Iowan Old Style","Palatino Linotype",Georgia,serif;--sans:"Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;--r:4px}
   *{box-sizing:border-box} [hidden]{display:none!important} html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;height:100%}
@@ -148,7 +148,7 @@
   .stage{max-width:640px;margin:0 auto} .flip{width:100%;text-align:left;border:1px solid var(--ink);border-radius:var(--r);min-height:220px;padding:1.4rem;font-family:var(--serif);font-size:1.2rem;line-height:1.4;background:var(--paper);display:flex;flex-direction:column;justify-content:center;white-space:pre-wrap}
   .flip .side{font-family:var(--sans);font-size:.74rem;color:var(--graphite);margin-bottom:.5rem} .ratings{display:flex;gap:.5rem;justify-content:center;margin-top:1rem;flex-wrap:wrap} .ratings .btn{min-width:88px}
   /* dark scheme — neutral panels, accent only on bars (standing rule) */
-  @media(prefers-color-scheme:dark){:root{--ink:#e9e7e2;--graphite:#a3a19a;--rule:#383733;--faint:#242320;--paper:#191918;--accent:#8aa6dc}
+  @media(prefers-color-scheme:dark){:root{--ink:#e9e7e2;--graphite:#a3a19a;--rule:#383733;--faint:#242320;--paper:#191918;--accent:color-mix(in oklab,var(--course,#24467a),#fff 55%);--ok:#7cc59d;--warn:#e5a06f}
     .btn.primary{background:#e8e6e1;color:#1a1a19} .btn.primary:hover{background:#fff} .msg.user{background:#e8e6e1;color:#1a1a19} .toast{background:#e8e6e1;color:#1a1a19} .modes .btn.active{background:#e8e6e1;color:#1a1a19}}
   html{color-scheme:light dark}
 
@@ -159,17 +159,17 @@
     .brand{align-items:center;font-size:1rem} .brand i{height:1rem} aside.side label{font-size:0} aside.side label select{font-size:.85rem;padding:.25rem}
     nav{flex:1;min-width:0;align-self:stretch;display:flex} nav ul{display:flex;gap:0;overflow-x:auto;overflow-y:visible;align-items:stretch} nav a{padding:.55rem .6rem .5rem;font-size:.88rem;border-left:none;border-top:3px solid transparent;border-radius:0;white-space:nowrap} nav a:hover{background:transparent;color:var(--ink)} nav a.active{background:none;border-top-color:var(--accent);color:var(--ink)}
     #addCourse{display:none} #searchBtn{padding:.15rem .5rem;font-size:.78rem;border-color:transparent} .acct{margin:0 3.2rem 0 0;padding:0;border:none;flex:none} .acct .who{display:none} #signOut{padding:.15rem .5rem;font-size:.78rem} .keystate{margin:0 3.2rem 0 0;font-size:0;width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none} .keystate.off{background:var(--warn)}
-    main{padding:.9rem 1rem 2rem} .head{margin-bottom:.7rem;padding-bottom:.45rem} h1{font-size:1.3rem} .head>div>div.small{display:none}
+    main{padding:.9rem 1rem 3.5rem} .head{margin-bottom:.7rem;padding-bottom:.45rem} h1{font-size:1.3rem} .head>div>div.small{display:none}
     .g4{grid-template-columns:repeat(4,1fr);gap:.5rem} .stat{padding:.5rem .7rem;display:flex;align-items:baseline;gap:.4rem} .stat .n{font-size:1.25rem} .stat .l{margin:0;font-size:.78rem}
     .hero{padding:var(--s4) var(--s5);gap:var(--s4)} .hero h2{font-size:1.35rem} .hero .k{font-size:2.1rem}
     .g2{grid-template-columns:1fr} .panel{padding:.75rem .9rem}
-    .tutor,.notes{grid-template-columns:1fr;height:calc(100vh - 6.5rem)} .tutor{grid-template-rows:auto 1fr} .tutor aside.col{max-height:7.5rem;overflow:auto;padding:.45rem .7rem;flex-direction:row;align-items:baseline;gap:.5rem;flex-wrap:wrap;flex:0 0 auto} .tutor aside.col h3{font-size:.8rem;margin:0;color:var(--graphite);white-space:nowrap}
+    .tutor,.notes{grid-template-columns:1fr;height:calc(100vh - 9.25rem)} .tutor{grid-template-rows:auto 1fr} .tutor aside.col{max-height:7.5rem;overflow:auto;padding:.45rem .7rem;flex-direction:row;align-items:baseline;gap:.5rem;flex-wrap:wrap;flex:0 0 auto} .tutor aside.col h3{font-size:.8rem;margin:0;color:var(--graphite);white-space:nowrap}
     .tutor .ctx{display:flex;flex-wrap:wrap;gap:.3rem;flex:1} .tutor .ctx li{border:1px solid var(--rule);border-radius:999px;padding:.05rem .55rem;font-size:.78rem;color:var(--graphite)} .tutor .ctx li:last-child{border:1px solid var(--rule)} .tutor #ctxSize{margin:0!important;white-space:nowrap}
     .modes{flex-wrap:wrap;row-gap:.3rem} .msg{max-width:94%}
   }
   /* focus mode: current screen only, nothing else */
   body.focus aside.side, body.focus .head, body.focus .tutor aside.col, body.focus .notes>aside.col{display:none}
-  body.focus .tutor,body.focus .notes{grid-template-columns:1fr;height:calc(100vh - 1.6rem)} body.focus main{padding:.8rem 1rem}
+  body.focus .app{grid-template-columns:1fr} body.focus .tutor,body.focus .notes{grid-template-columns:1fr;height:calc(100vh - 4.4rem)} body.focus main{padding:.8rem 1rem}
   #focusBtn{position:fixed;right:.7rem;top:.5rem;z-index:40;opacity:.55;font-size:.74rem;padding:.12rem .45rem;border-color:transparent} #focusBtn:hover{opacity:1}
 </style>
 <script src="/static/marked.min.js"></script>
@@ -196,7 +196,7 @@
 <main>
 
 <section id="home" class="screen">
-  <div class="head"><div><h1 id="homeTitle"></h1><div class="small muted">Local workspace · files, tutor and notes stay on this Mac</div></div></div>
+  <div class="head"><div><h1 id="homeTitle"></h1><div class="small muted">Private workspace · files, tutor and notes saved to your account</div></div></div>
   <div class="hero herobook"><div><div class="small muted">Next</div><h2 id="h-next"></h2><p id="h-nextBody"></p><button class="btn primary" id="h-go">Open</button></div>
     <div class="bookwrap"><div class="book" id="book" aria-hidden="true">
       <div class="bookstage"><div class="booktilt"><svg viewBox="0 0 220 260" width="220" height="260" role="img">
@@ -384,8 +384,8 @@ function show(id){ if(!SCREENS.includes(id)) id='home'; document.querySelectorAl
 document.addEventListener('click',e=>{const a=e.target.closest('a[data-nav]'); if(a){e.preventDefault(); show(a.dataset.nav)}});
 
 /* courses */
-async function loadCourses(){ courses=await api('/courses'); if(!courses.find(c=>c.id===cid)) cid=courses[0].id; const s=$('#course'); s.innerHTML=courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join(''); s.value=cid; document.documentElement.style.setProperty('--accent',C().accent); }
-$('#course').addEventListener('change',e=>{cid=e.target.value;localStorage.setItem('cf.course',cid);document.documentElement.style.setProperty('--accent',C().accent);show(localStorage.getItem('cf.screen')||'home')});
+async function loadCourses(){ courses=await api('/courses'); if(!courses.find(c=>c.id===cid)) cid=courses[0].id; const s=$('#course'); s.innerHTML=courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join(''); s.value=cid; document.documentElement.style.setProperty('--course',C().accent); }
+$('#course').addEventListener('change',e=>{cid=e.target.value;localStorage.setItem('cf.course',cid);document.documentElement.style.setProperty('--course',C().accent);show(localStorage.getItem('cf.screen')||'home')});
 $('#addCourse').addEventListener('click',async()=>{const n=prompt('Course name'); if(!n) return; const r=await post('/courses',{name:n,accent:'#5a5952'}); cid=r.id; localStorage.setItem('cf.course',cid); await loadCourses(); show('library');});
 
 /* home */
