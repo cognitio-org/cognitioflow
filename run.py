@@ -17,6 +17,8 @@ from fastapi.responses import FileResponse, RedirectResponse, Response, Streamin
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import embed
+import retrieval
 import storage
 import transcribe as stt
 
@@ -29,7 +31,9 @@ MODEL = os.environ.get("CF_MODEL", "claude-sonnet-4-6")            # drilling / 
 CHEAP_MODEL = os.environ.get("CF_CHEAP_MODEL", "claude-haiku-4-5")  # card generation, bulk work
 STRONG_MODEL = os.environ.get("CF_STRONG_MODEL", MODEL)              # reconcile only; e.g. claude-fable-5-1 or claude-opus-5
 MODELS = ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5", "claude-opus-5", "claude-fable-5-1"]
-CONTEXT_CHAR_BUDGET = int(os.environ.get("CF_CONTEXT_CHARS", "180000"))  # ~45k tokens of file text per call
+CONTEXT_CHAR_BUDGET = int(os.environ.get("CF_CONTEXT_CHARS", "180000"))
+RETRIEVAL = os.environ.get("RETRIEVAL", "off").strip().lower() == "on"   # Phase 10: passages instead of whole files
+RETRIEVAL_CHARS = int(os.environ.get("RETRIEVAL_CHARS", "40000"))        # ~10k tokens of the most relevant passages  # ~45k tokens of file text per call
 MAX_IMAGES = 6
 RECONCILE_TOKENS = 8000   # the cap stays here; the Continue button finishes anything cut off
 DRAFT_TOKENS = 4000
@@ -298,10 +302,39 @@ def file_raw(fid: str, request: Request):
     return serve_object(r[0]["key"], request, mimetypes.guess_type(r[0]["key"] or "")[0] or "application/octet-stream", filename=r[0]["name"])
 
 # ---------------------------------------------------------------- tutor
-def build_context(cid: str):
-    """Selected files → text blocks (within budget) + image blocks."""
+def retrieved_context(cid: str, question: str):
+    """The user's own ticked materials, narrowed to the passages that answer this question.
+
+    Never widens the selection and never drops a ticked file silently: every ticked source gets at least one passage,
+    and whatever did not fit is named back to the caller for the Reading strip."""
+    sources = rows("SELECT id, name, kind, week FROM files WHERE course_id=? AND selected=1 AND kind!='image' AND text IS NOT NULL AND text<>''", cid)
+    sources += [dict(n, kind="note") for n in rows("SELECT id, title AS name FROM notes WHERE course_id=?", cid)]
+    ids = [s["id"] for s in sources]
+    if not ids:
+        return None
+    hits = retrieval.search(rows, embed.embed, course_id=cid, query=question, source_ids=ids, limit=60)
+    if not hits:
+        return None
+    picked = retrieval.rank(hits, RETRIEVAL_CHARS, sources)
+    blocks = [f"<passage file=\"{h['name']}\" week=\"{h.get('week', '')}\" heading=\"{h.get('heading', '')}\">\n{h['text']}\n</passage>"
+              for h in picked["passages"]]
+    return {"parts": blocks, "used": picked["files_used"], "trimmed": picked["files_trimmed"], "chars": picked["chars"]}
+
+
+def build_context(cid: str, question: str = ""):
+    """Selected files → text blocks (within budget) + image blocks.
+
+    With RETRIEVAL=on and a question, the text blocks are the passages that answer it (the same ticked files, narrowed);
+    otherwise every ticked file is sent whole, exactly as before. Reconcile, drafting and cleaning always pass no
+    question, so they keep reading whole files."""
     fs = rows("SELECT * FROM files WHERE course_id=? AND selected=1 ORDER BY created", cid)
     text_parts, images, used = [], [], 0
+    narrowed = None
+    if RETRIEVAL and question.strip() and embed.ready():
+        try:
+            narrowed = retrieved_context(cid, question)
+        except Exception as e:      # a broken index must never cost the user their materials
+            print("retrieval:", type(e).__name__, e)
     for f in fs:
         if f["kind"] == "image":
             if len(images) < MAX_IMAGES:
@@ -317,7 +350,9 @@ def build_context(cid: str):
         if len(t) > room: t = t[:room] + "\n[… truncated]"
         used += len(t)
         text_parts.append(f"<file name=\"{f['name']}\" week=\"{f['week']}\">\n{t}\n</file>")
-    return text_parts, images
+    if narrowed:
+        return narrowed["parts"], images, narrowed
+    return text_parts, images, None
 
 def client():
     import anthropic
@@ -397,10 +432,12 @@ def chat(cid: str, body: ChatIn):
     course = rows("SELECT * FROM courses WHERE id=?", cid)
     if not course: raise HTTPException(404)
     course = course[0]
-    text_parts, images = build_context(cid)
+    text_parts, images, narrowed = build_context(cid, body.message)
     system = [{"type": "text", "text": BASE_PROMPT + "\n" + (course["tutor_prompt"] or "") + "\n" + MODES.get(body.mode, MODES["drill"])}]
     if text_parts:
-        system.append({"type": "text", "text": "COURSE FILES:\n" + "\n\n".join(text_parts), "cache_control": {"type": "ephemeral"}})
+        heading = "COURSE PASSAGES (from the files you ticked; quote them):" if narrowed else "COURSE FILES:"
+        trimmed = f"\n\n[Not included for this question: {', '.join(narrowed['trimmed'])}. Ask to read everything if you need them.]" if (narrowed and narrowed["trimmed"]) else ""
+        system.append({"type": "text", "text": heading + "\n" + "\n\n".join(text_parts) + trimmed, "cache_control": {"type": "ephemeral"}})
     else:
         system.append({"type": "text", "text": "COURSE FILES: none selected. Say so if the question needs them."})
     history = [{"role": m["role"], "content": m["content"]} for m in messages(cid)][-30:]
@@ -411,6 +448,8 @@ def chat(cid: str, body: ChatIn):
         out = []
         chosen = pick_model(body.mode, body.model, body.message)
         yield f"data: {json.dumps({'model': chosen})}\n\n"
+        if narrowed:
+            yield f"data: {json.dumps({'reading': {'used': narrowed['used'], 'trimmed': narrowed['trimmed'], 'chars': narrowed['chars']}})}\n\n"
         try:
             with client().messages.stream(model=chosen, max_tokens=2000, system=system,
                                           messages=history + [{"role": "user", "content": user_content}]) as s:
@@ -535,7 +574,7 @@ def generate_cards(cid: str, g: GenIn):
         if not f: raise HTTPException(404)
         src, week, txt = f[0]["name"], f[0]["week"] or "", (f[0]["text"] or "")[:60000]
     else:
-        parts, _ = build_context(cid); src, week, txt = "selected files", "", "\n\n".join(parts)[:60000]
+        parts, _, _ = build_context(cid); src, week, txt = "selected files", "", "\n\n".join(parts)[:60000]
     prompt = (f"From the material below, write {g.count} flashcards for a law exam: precise, one testable point each, "
               "case names and article numbers where present. Return ONLY a JSON array of objects with keys 'front' and 'back'.\n\n" + txt)
     m = client().messages.create(model=pick_model('cards', g.model), max_tokens=3000, messages=[{"role": "user", "content": prompt}])
