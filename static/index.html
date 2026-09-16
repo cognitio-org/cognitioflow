@@ -61,7 +61,7 @@
   .book.is-loaded .tab:hover,.book.is-loaded .tab:focus-visible{transform:translateX(8px) translateZ(-8px)}
   .book .tab::before{content:"";position:absolute;top:-3px;bottom:-3px;left:0;right:-8px}   /* 32px hit area */
   .tab__top{position:absolute;left:0;right:0;top:0;height:26px;transform-origin:center top;transform:rotateX(90deg);border-radius:0 3px 0 0}
-  .tabname{position:absolute;bottom:-6px;left:0;right:0;text-align:center;color:var(--graphite);min-height:1.1em;transition:opacity .15s}
+  .tabname{position:absolute;top:100%;margin-top:8px;left:-20px;right:-20px;text-align:center;color:var(--graphite);min-height:1.1em;transition:opacity .15s}
   @media(prefers-reduced-motion:reduce){.booktilt,.bk__cover,.bk__sheet,.book .tab{transition:none} .book .tab{opacity:1;transform:translateX(0) translateZ(-15px)}}
   @media(max-width:1300px){.herobook{grid-template-columns:1fr} .book{display:none}} .hero .k{font-family:var(--serif);font-size:2.6rem;line-height:1;text-align:right} .hero .k small{display:block;font-family:var(--sans);font-size:.8rem;color:var(--graphite);margin-top:.3rem}
   .statrow{display:flex;gap:var(--s5);flex-wrap:wrap;padding:var(--s3) 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin:var(--s4) 0}
