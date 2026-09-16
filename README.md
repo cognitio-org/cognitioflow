@@ -26,8 +26,10 @@ Data lives in Neon Postgres, files in the `cognitioflow-user-content` bucket, se
 ### PR worthiness check
 Every pull request gets one short comment after its tests: **Approve for deployment** or **Hold**, a one-line reason and a
 security percentage. Rules always run on the diff (leaked credentials and committed `.env`/`data/` block; sign-in, workflow,
-infrastructure, schema and dependency changes and risky lines such as public access or `shell=True` lower the score). With an
-`ANTHROPIC_API_KEY` repo secret, Claude reviews the diff too and the lower score counts. Approve needs passing tests and ≥ 75%.
+infrastructure, schema and dependency changes and risky lines such as public access or `shell=True` lower the score; docs and
+tests are exempt from the risky-line rules). A model reviews the diff too and the lower score counts: **Claude Haiku 4.5** with
+the `ANTHROPIC_API_KEY` repo secret (about 2 cents per PR), or **GLM 5.3 Flash** — about a tenth of a cent — by adding an
+`OPENROUTER_API_KEY` secret and the repo variable `PR_CHECK_MODEL=z-ai/glm-5.3-flash`. Approve needs passing tests and ≥ 75%.
 It runs from `main`, so a PR can't change its own check.
 
 **Auto-approve:** when the verdict is Approve, the GitHub Actions bot approves the PR (once per commit); a later Hold

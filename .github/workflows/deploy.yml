@@ -118,13 +118,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PR_CHECK_MODEL: ${{ vars.PR_CHECK_MODEL }}
           TESTS: ${{ needs.test.result }}
           PR: ${{ github.event.pull_request.number }}
         run: |
           if [ ! -f scripts/pr_worthiness.py ]; then
             echo "::notice::scripts/pr_worthiness.py is not on main yet; the check starts on PRs opened after it merges"; exit 0
           fi
-          if [ -n "$ANTHROPIC_API_KEY" ]; then pip install -q anthropic; fi
+          if [ -n "$ANTHROPIC_API_KEY$OPENROUTER_API_KEY" ]; then pip install -q anthropic; fi
           python scripts/pr_worthiness.py --repo "$GITHUB_REPOSITORY" --pr "$PR" --tests "$TESTS" --post --approve
 
   deploy:
