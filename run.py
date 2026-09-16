@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 import embed
 import retrieval
+import schedule
 import storage
 import transcribe as stt
 
@@ -582,20 +583,16 @@ def del_card(kid: str):
 
 @app.post("/api/cards/{kid}/review")
 def review(kid: str, r: ReviewIn):
+    """One rating. FSRS schedules from this card's own history (SCHEDULER=sm2 keeps the original arithmetic)."""
     c = rows("SELECT * FROM cards WHERE id=?", kid)
     if not c: raise HTTPException(404)
-    c = c[0]; q = {0: 1, 1: 3, 2: 4, 3: 5}[max(0, min(3, r.rating))]
-    ease, interval, reps = c["ease"], c["interval"], c["reps"]
-    if q < 3: reps, interval = 0, 0
-    else:
-        interval = 1 if reps == 0 else (6 if reps == 1 else round(interval * ease))
-        reps += 1
-    ease = max(1.3, ease + 0.1 - (5 - q) * (0.08 + (5 - q) * 0.02))
-    due = (date.today() + timedelta(days=interval)).isoformat()
+    out = schedule.next_review(dict(c[0]), r.rating)
     with db() as d:
-        d.execute("UPDATE cards SET ease=?,interval=?,reps=?,due=? WHERE id=?", (ease, interval, reps, due, kid))
+        d.execute("UPDATE cards SET ease=?,interval=?,reps=?,due=?,stability=?,difficulty=?,state=?,step=?,last_review=? WHERE id=?",
+                  (out["ease"], out["interval"], out["reps"], out["due"], out.get("stability"), out.get("difficulty"),
+                   out.get("state"), out.get("step"), out.get("last_review"), kid))
         d.execute("INSERT INTO reviews VALUES(?,?,?,?)", (uuid.uuid4().hex, kid, r.rating, time.time()))
-    return {"due": due, "interval": interval}
+    return {"due": out["due"], "interval": out["interval"]}
 
 @app.post("/api/courses/{cid}/cards/generate")
 def generate_cards(cid: str, g: GenIn):

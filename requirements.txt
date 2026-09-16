@@ -13,3 +13,5 @@ pytest
 httpx
 authlib>=1.8,<2
 itsdangerous
+fsrs>=6,<7
+fastembed>=0.8,<1
