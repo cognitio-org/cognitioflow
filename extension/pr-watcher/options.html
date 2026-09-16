@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CognitioFlow PR watcher — options</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body { max-width: 620px; margin: 0 auto; padding: 1.6rem 1.2rem 3rem; font-size: 14px; }
+    h1 { font-family: var(--serif); font-weight: 500; font-size: 22px; margin: .6rem 0 .2rem; }
+    fieldset { border: 1px solid var(--rule); border-radius: var(--r); margin: 1.1rem 0 0; padding: .9rem 1rem 1rem; display: grid; gap: .7rem; }
+    legend { padding: 0 .3rem; font-weight: 600; }
+    label { display: grid; gap: .25rem; }
+    input, select { font: inherit; padding: .45rem .55rem; border: 1px solid var(--rule); border-radius: var(--r); background: var(--raised); color: var(--ink); }
+    .hint { font-size: 12.5px; color: var(--graphite); margin: 0; }
+    .row { display: flex; gap: .5rem; align-items: center; margin-top: 1.1rem; }
+    #status { font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="brand"><i></i>CognitioFlow PR watcher</div>
+  <h1>Options</h1>
+  <p class="hint">Everything here stays in this Chrome profile's extension storage. It is not synced and never sent anywhere except the service it belongs to.</p>
+
+  <fieldset>
+    <legend>GitHub</legend>
+    <label>Repository <input id="repo" autocomplete="off" spellcheck="false"></label>
+    <label>Fine-grained token <input id="token" type="password" autocomplete="off" spellcheck="false"></label>
+    <p class="hint">GitHub → Settings → Developer settings → Fine-grained tokens → <b>Only select repositories</b>: this repository.
+      Permissions: <b>Pull requests</b> read and write, <b>Contents</b> read and write (to merge and delete the branch),
+      <b>Checks</b> read, <b>Metadata</b> read. Nothing else.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Re-review model</legend>
+    <label>Model <select id="provider">
+      <option value="openrouter">GLM 5.3 Flash through OpenRouter — about a tenth of a cent per PR</option>
+      <option value="anthropic">Claude Haiku 4.5 — about 2 cents per PR</option>
+    </select></label>
+    <label>OpenRouter key <input id="openrouterKey" type="password" autocomplete="off" spellcheck="false"></label>
+    <label>Claude API key <input id="anthropicKey" type="password" autocomplete="off" spellcheck="false"></label>
+    <label>Model id override (optional) <input id="model" placeholder="leave empty for the default" autocomplete="off" spellcheck="false"></label>
+    <p class="hint">Only the key for the chosen model is used. Re-review sends the PR's diff to that provider.</p>
+  </fieldset>
+
+  <div class="row">
+    <button id="save" class="btn primary" type="button">Save and check</button>
+    <span id="status" class="muted" role="status"></span>
+  </div>
+  <script type="module" src="options.js"></script>
+</body>
+</html>
