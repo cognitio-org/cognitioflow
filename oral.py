@@ -7,8 +7,8 @@ solid / shaky / missed. Two things then happen, and keeping them separate matter
   * WITHIN a session, `choose()` decides what to ask next — misses jump the queue, and a question just
     asked goes on a short cooldown so it is not repeated back to back.
   * ACROSS sessions, nothing here decides anything. A grade maps to one of the app's four ratings and
-    goes through schedule.next_review(), so FSRS owns when a card truly comes back. A second scheduler
-    competing with that one would quietly undo it.
+    goes through the app's own review path, which owns when a card truly comes back. A second
+    scheduler competing with that one would quietly undo it.
 """
 
 MASTERY = ("solid", "shaky", "missed")

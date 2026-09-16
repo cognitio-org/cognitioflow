@@ -642,14 +642,8 @@ def oral_grade(cid: str, g: OralGradeIn):
         raise HTTPException(502, "Could not reach the grader — say that answer again.")
     out = oral.normalise(graded)
 
-    # The one place recurrence is decided: the app's own scheduler, not this endpoint.
-    sched = schedule.next_review(card, out["rating"])
-    with db() as d:
-        d.execute("UPDATE cards SET ease=?,interval=?,reps=?,due=?,stability=?,difficulty=?,state=?,step=?,last_review=? WHERE id=?",
-                  (sched["ease"], sched["interval"], sched["reps"], sched["due"], sched.get("stability"), sched.get("difficulty"),
-                   sched.get("state"), sched.get("step"), sched.get("last_review"), g.card_id))
-        d.execute("INSERT INTO reviews VALUES(?,?,?,?)", (uuid.uuid4().hex, g.card_id, out["rating"], time.time()))
-    out["due"] = sched["due"]
+    # Recurrence is decided in exactly one place: the app's existing review path, which also logs it.
+    out["due"] = review(g.card_id, ReviewIn(rating=out["rating"]))["due"]
     out["concept"] = (card.get("concept") or card["front"])[:80]
     return out
 
@@ -669,7 +663,7 @@ def oral_bank(cid: str, g: OralBankIn):
         if not f: raise HTTPException(404)
         src, week, txt = f[0]["name"], f[0]["week"] or "", (f[0]["text"] or "")[:60000]
     else:
-        parts, _, _ = build_context(cid); src, week, txt = "selected files", g.week, "\n\n".join(parts)[:60000]
+        parts, _ = build_context(cid); src, week, txt = "selected files", g.week, "\n\n".join(parts)[:60000]
     if not txt.strip(): raise HTTPException(400, "No ticked files to build questions from.")
     prompt = (f"From the material below, write {max(1, min(30, g.count))} questions an examiner would ask OUT LOUD in a viva "
               "for this course. Each must be answerable in under a minute of speech and must turn on a rule, a case or an "
