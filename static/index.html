@@ -64,6 +64,35 @@
   .tabname{position:absolute;top:100%;margin-top:8px;left:-20px;right:-20px;text-align:center;color:var(--graphite);min-height:1.1em;transition:opacity .15s}
   @media(prefers-reduced-motion:reduce){.booktilt,.bk__cover,.bk__sheet,.book .tab{transition:none} .book .tab{opacity:1;transform:translateX(0) translateZ(-15px)}}
   @media(max-width:1300px){.herobook{grid-template-columns:1fr} .book{display:none}} .hero .k{font-family:var(--serif);font-size:2.6rem;line-height:1;text-align:right} .hero .k small{display:block;font-family:var(--sans);font-size:.8rem;color:var(--graphite);margin-top:.3rem}
+  /* Advocate — oral revision */
+  .advgrid{display:grid;grid-template-columns:1.4fr .9fr;gap:var(--s5)}
+  @media(max-width:1000px){.advgrid{grid-template-columns:1fr}}
+  .advstage{display:flex;flex-direction:column;min-height:460px}
+  .advq{font-family:var(--serif);font-size:1.35rem;line-height:1.35;margin:.2rem 0 .4rem}
+  .tagrow{display:flex;gap:.3rem;flex-wrap:wrap}
+  .tag{font-size:.72rem;color:var(--graphite);border:1px solid var(--rule);border-radius:999px;padding:.05rem .5rem}
+  .advconvo{flex:1;overflow:auto;display:flex;flex-direction:column;gap:.5rem;margin:.8rem 0;padding-right:.3rem}
+  .advb{padding:.55rem .8rem;border-radius:var(--r);max-width:88%;font-size:.94rem;line-height:1.5;overflow-wrap:anywhere}
+  .advb.me{align-self:flex-end;background:var(--ink);color:var(--paper)}
+  .advb.tutor{align-self:flex-start;background:var(--faint);border-left:3px solid var(--accent)}
+  .advb .verdict{font-family:var(--sans);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;margin-bottom:.2rem}
+  .v-solid{color:var(--ok)} .v-shaky{color:var(--warn)} .v-missed{color:#c0563c}
+  .advctrl{display:flex;gap:.5rem;align-items:center;border-top:1px solid var(--rule);padding-top:.7rem}
+  .advctrl input{flex:1}
+  #advMic{min-height:36px;white-space:nowrap}
+  #advMic[aria-pressed=true]{background:#b3261e;color:#fff;border-color:#b3261e}
+  .advside{display:flex;flex-direction:column;gap:var(--s4)}
+  .statrow2{display:flex;gap:1.4rem;margin-top:.3rem}
+  .statrow2 b{display:block;font-family:var(--serif);font-size:1.5rem}
+  .statrow2 span{font-size:.78rem;color:var(--graphite)}
+  .mrow{display:flex;justify-content:space-between;gap:.5rem;align-items:center;padding:.35rem 0;border-bottom:1px dashed var(--rule);font-size:.86rem}
+  .mrow:last-child{border-bottom:0}
+  .mdot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:.45rem;flex:0 0 auto}
+  .m-untested{background:var(--rule)} .m-solid{background:var(--ok)} .m-shaky{background:var(--warn)} .m-missed{background:#c0563c}
+  .mstate{font-size:.72rem;color:var(--graphite);text-transform:uppercase;letter-spacing:.06em}
+  .advnotes{max-height:240px;overflow:auto;margin:.4rem 0}
+  .advnotes .emptystate{padding:.5rem 0}
+  .advnote{border-left:2px solid var(--accent);padding:.35rem 0 .35rem .6rem;margin-bottom:.5rem;font-size:.86rem;line-height:1.5}
   .statrow{display:flex;gap:var(--s5);flex-wrap:wrap;padding:var(--s3) 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin:var(--s4) 0}
   .statrow .stat{display:flex;align-items:baseline;gap:.45rem;padding:0} .statrow .stat .n{font-size:1.35rem} .statrow .stat .l{margin:0;font-size:.82rem}
   .grid{display:grid;gap:1rem} .g4{grid-template-columns:repeat(4,1fr)} .g2{grid-template-columns:1fr 1fr}
@@ -232,6 +261,7 @@
     <li><a href="#tutor" data-nav="tutor">Tutor</a></li>
     <li><a href="#notes" data-nav="notes">Notes</a></li>
     <li><a href="#recall" data-nav="recall">Recall</a></li>
+    <li><a href="#advocate" data-nav="advocate">Advocate</a></li>
     <li><a href="#planner" data-nav="planner">Planner</a></li>
     <li><a href="#progress" data-nav="progress">Progress</a></li>
   </ul></nav>
@@ -363,6 +393,33 @@
   <div id="allCards" hidden style="margin-top:1.5rem"><table><thead><tr><th>Front</th><th>Back</th><th>Wk</th><th>Due</th><th></th></tr></thead><tbody id="cardRows"></tbody></table></div>
 </section>
 
+<section id="advocate" class="screen">
+  <div class="head"><div><h1>Advocate</h1><div class="small muted" id="advSub">Oral revision — it asks, you answer out loud.</div></div>
+    <span><button class="btn small" id="advStart">Start</button> <button class="btn small ghost" id="advBank" title="Write viva questions from the files you have ticked">Build questions from my files</button></span></div>
+  <div class="advgrid">
+    <div class="panel advstage">
+      <div class="small muted" id="advCourse">Question</div>
+      <p class="advq" id="advQ">Press Start and it will ask you the first question.</p>
+      <div class="tagrow" id="advTags"></div>
+      <div class="advconvo" id="advConvo"></div>
+      <div class="advctrl">
+        <button class="btn" id="advMic" aria-pressed="false" title="Speak your answer">🎙 Answer</button>
+        <input type="text" id="advType" placeholder="…or type your answer and press Enter" aria-label="Your answer">
+        <button class="btn primary" id="advSend">Send</button>
+      </div>
+      <div class="small muted" id="advHint">Answer in full sentences — it grades what you actually say, not what you meant.</div>
+    </div>
+    <aside class="advside">
+      <div class="panel"><h3>This session</h3>
+        <div class="statrow2"><div><b id="advAsked">0</b><span>answered</span></div><div><b id="advSolid">0</b><span>solid</span></div><div><b id="advWeak">0</b><span>to revisit</span></div></div></div>
+      <div class="panel"><h3>Mastery</h3><div class="small muted">Missed ideas jump the queue and come back until they hold.</div><div id="advMap"></div></div>
+      <div class="panel"><h3>Weak-point notes</h3><div class="small muted">Written only from what you got wrong.</div>
+        <div class="advnotes" id="advNotes"><div class="emptystate">Nothing yet. Miss something and it lands here.</div></div>
+        <button class="btn small ghost" id="advCopy">Copy notes</button></div>
+    </aside>
+  </div>
+</section>
+
 <section id="planner" class="screen">
   <div class="head"><div><h1>Planner</h1><div class="small muted" id="planSub">All courses</div></div>
     <span><button class="btn small" id="autoPlan" title="Plan the next days from the course calendar, files by week and cards due">Auto-plan week</button> <button class="btn small ghost" id="rePlan" title="Discard unfinished sessions from today and plan afresh">Re-plan</button> <button class="btn small ghost" id="addToggle">+ Add session</button></span></div>
@@ -423,8 +480,8 @@ let courses=[], cid=localStorage.getItem('cf.course')||'', mode='drill', cfg={};
 const C=()=>courses.find(c=>c.id===cid)||courses[0];
 
 /* nav */
-const SCREENS=['home','library','tutor','notes','recall','planner','progress'];
-const loaders={home:loadHome,library:loadFiles,tutor:loadTutor,notes:loadNotes,recall:loadRecall,planner:loadPlanner,progress:loadProgress};
+const SCREENS=['home','library','tutor','notes','recall','advocate','planner','progress'];
+const loaders={home:loadHome,library:loadFiles,tutor:loadTutor,notes:loadNotes,recall:loadRecall,advocate:loadAdvocate,planner:loadPlanner,progress:loadProgress};
 function show(id){ if(!SCREENS.includes(id)) id='home'; document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.id===id)); document.querySelectorAll('[data-nav]').forEach(a=>a.classList.toggle('active',a.dataset.nav===id)); localStorage.setItem('cf.screen',id); loaders[id](); }
 document.addEventListener('click',e=>{const a=e.target.closest('a[data-nav]'); if(a){e.preventDefault(); show(a.dataset.nav)}});
 
@@ -677,6 +734,122 @@ $('#cleanBtn').onclick=async()=>{ if(!nid) return; const b=$('#cleanBtn'); b.dis
 $('#histBack').onclick=()=>{ histVid=null; $('#histBar').hidden=true; showNote() };
 $('#histRestore').onclick=async()=>{ if(!histVid) return; if(!confirm('Replace the current text with this version? The current text is kept in History.')) return; await post(`/notes/${nid}/restore/${histVid}`); histVid=null; $('#histBar').hidden=true; toast('Restored'); loadNotes() };
 $('#cardsFromMap').onclick=async()=>{ if(!nid) return; const r=await post(`/notes/${nid}/cards-from-tables`); toast(r.made?`${r.made} card(s) added to Recall`:'No case-map table found (needs a table with a Case column)') };
+/* ---- Advocate: oral revision. The engine lives on the server; this is the mouth and ears. ---- */
+const adv={mastery:{},cooldown:{},misses:{},notes:[],asked:0,q:null,busy:false};
+let advRecog=null, advListening=false, advAudio=null;
+
+async function advSpeak(text){
+  if(!text||!text.trim()) return;
+  const v=window.CFVOICE||{};
+  if(v.server){   // every sentence is requested at once, then played in order: the first words start while the rest arrive
+    const parts=(text.match(/[^.!?]+[.!?]*/g)||[text]).map(s=>s.trim()).filter(Boolean);
+    const pending=parts.map(s=>fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:s})})
+      .then(r=>r.status===204?null:r.blob()).catch(()=>null));
+    for(const job of pending){ const b=await job; if(!b) break;
+      await new Promise(done=>{ advAudio=new Audio(URL.createObjectURL(b)); advAudio.onended=done; advAudio.onerror=done; advAudio.play().catch(done) }); }
+    return;
+  }
+  if('speechSynthesis' in window){ const u=new SpeechSynthesisUtterance(text); u.lang='en-GB'; u.rate=1.05;
+    window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); }
+}
+function advQuiet(){ window.speechSynthesis?.cancel(); if(advAudio){ try{advAudio.pause()}catch(e){} } }
+
+function advBubble(who,text){ const d=document.createElement('div'); d.className='advb '+who; d.textContent=text;
+  const c=$('#advConvo'); c.appendChild(d); c.scrollTop=c.scrollHeight; return d; }
+
+function advRender(){
+  $('#advAsked').textContent=adv.asked;
+  const vals=Object.values(adv.mastery);
+  $('#advSolid').textContent=vals.filter(v=>v==='solid').length;
+  $('#advWeak').textContent=vals.filter(v=>v==='missed'||v==='shaky').length;
+  const map=$('#advMap');
+  const keys=Object.keys(adv.mastery);
+  map.innerHTML = keys.length ? keys.map(k=>`<div class="mrow"><span><span class="mdot m-${adv.mastery[k]}"></span>${esc(k)}</span><span class="mstate">${adv.mastery[k]}</span></div>`).join('')
+                              : '<div class="small muted" style="padding-top:.4rem">Nothing tested yet.</div>';
+  const n=$('#advNotes');
+  n.innerHTML = adv.notes.length ? adv.notes.map(x=>`<div class="advnote"><b>${esc(x.concept)}</b> · ${esc(x.text)}</div>`).join('')
+                                 : '<div class="emptystate">Nothing yet. Miss something and it lands here.</div>';
+}
+
+async function advNext(){
+  try{
+    const r=await post(`/courses/${cid}/oral/next`,{mastery:adv.mastery,cooldown:adv.cooldown});
+    if(!r.question){ adv.q=null; $('#advQ').textContent='No questions yet — press "Build questions from my files".'; $('#advTags').innerHTML=''; return; }
+    adv.q=r.question;
+    $('#advQ').textContent=r.question.question; $('#advCourse').textContent=C().name;
+    $('#advTags').innerHTML=`<span class="tag">${esc(r.question.concept)}</span>`;
+    if(!(r.question.concept in adv.mastery)) adv.mastery[r.question.concept]='untested';
+    advRender(); advSpeak(r.question.question);
+  }catch(e){ toast('Could not fetch a question: '+e.message); }
+}
+
+async function advSubmit(text){
+  text=(text||'').trim();
+  if(!text||adv.busy) return;
+  if(!adv.q){ toast('Press Start first'); return; }
+  adv.busy=true; advQuiet();
+  advBubble('me',text); $('#advType').value='';
+  const think=advBubble('tutor','…');
+  try{
+    const teach=(adv.misses[adv.q.concept]||0)>=2;
+    const g=await post(`/courses/${cid}/oral/grade`,{card_id:adv.q.id,answer:text,teach});
+    think.remove();
+    adv.asked++; adv.mastery[g.concept]=g.mastery;
+    adv.cooldown=Object.fromEntries(Object.entries(adv.cooldown).map(([k,v])=>[k,v-1]).filter(([,v])=>v>0));
+    adv.cooldown[adv.q.id]=g.mastery==='solid'?6:(g.mastery==='shaky'?2:1);
+    if(g.mastery==='missed') adv.misses[g.concept]=(adv.misses[g.concept]||0)+1;
+    else if(g.mastery==='solid') adv.misses[g.concept]=0;
+    if(g.note) adv.notes.unshift({concept:g.concept,text:g.note});
+    const b=advBubble('tutor','');
+    b.innerHTML=`<div class="verdict v-${g.mastery}">${esc(g.verdict)}</div>${esc(g.spoken)}`;
+    advRender();
+    await advSpeak(g.spoken);
+    setTimeout(advNext, g.mastery==='missed'?1400:700);
+  }catch(e){ think.remove(); toast('Could not grade that — say it again'); }
+  adv.busy=false;
+}
+
+const ASR=window.SpeechRecognition||window.webkitSpeechRecognition;
+if(ASR){
+  advRecog=new ASR(); advRecog.lang='en-GB'; advRecog.interimResults=true; advRecog.continuous=false;
+  let abuf='';
+  const stopped=()=>{ advListening=false; $('#advMic').setAttribute('aria-pressed','false'); $('#advMic').textContent='🎙 Answer'; };
+  advRecog.onresult=e=>{ abuf=''; for(let i=0;i<e.results.length;i++) abuf+=e.results[i][0].transcript; $('#advType').value=abuf; };
+  advRecog.onend=()=>{ stopped(); if(abuf.trim()) advSubmit(abuf); abuf=''; };
+  advRecog.onerror=()=>{ stopped(); $('#advHint').textContent='Mic problem — type your answer instead.'; };
+}
+$('#advMic').onclick=()=>{
+  if(!ASR){ toast('Speaking needs Chrome — type your answer instead'); return; }
+  if(advListening){ advRecog.stop(); return; }
+  advQuiet();
+  try{ advRecog.start(); advListening=true; $('#advMic').setAttribute('aria-pressed','true'); $('#advMic').textContent='● Listening';
+       $('#advHint').textContent='Listening — click again when you have finished.'; }catch(e){}
+};
+$('#advSend').onclick=()=>advSubmit($('#advType').value);
+$('#advType').addEventListener('keydown',e=>{ if(e.key==='Enter') advSubmit($('#advType').value); });
+$('#advStart').onclick=()=>{ $('#advConvo').innerHTML=''; advNext(); };
+$('#advBank').onclick=async()=>{
+  const b=$('#advBank'); b.disabled=true; b.textContent='Writing questions…';
+  try{ const r=await post(`/courses/${cid}/oral/bank`,{count:10});
+       toast(r.made?`${r.made} spoken question(s) added`:'Nothing made — tick some files first'); if(r.made) advNext(); }
+  catch(e){ toast('Could not build questions: '+e.message); }
+  b.disabled=false; b.textContent='Build questions from my files';
+};
+$('#advCopy').onclick=()=>{
+  const txt=adv.notes.map(n=>`• [${n.concept}] ${n.text}`).join('\n')||'No notes yet.';
+  navigator.clipboard?.writeText(txt); $('#advCopy').textContent='Copied ✓';
+  setTimeout(()=>$('#advCopy').textContent='Copy notes',1400);
+};
+
+async function loadAdvocate(){
+  if(!window.CFVOICE){ try{ const cfg=await api('/config'); window.CFVOICE=cfg.voice||{}; }catch(e){ window.CFVOICE={}; } }
+  $('#advSub').textContent = (window.CFVOICE||{}).server
+    ? 'Oral revision — it asks, you answer out loud.'
+    : 'Oral revision — using the browser voice for now.';
+  $('#advCourse').textContent=C().name;
+  advRender();
+}
+
 /* ---- recorder ---- */
 let rec=null, recId=null, recStart=0, recChunks=[], recTimer=null;
 async function loadRecIds(){ if(!nid){recIds=[];return} const all=await api(`/notes/${nid}/recordings?all=1`); recIds=all.map(r=>r.id) }

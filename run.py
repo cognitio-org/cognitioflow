@@ -17,9 +17,11 @@ from fastapi.responses import FileResponse, RedirectResponse, Response, Streamin
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import oral
 import storage
 import transcribe as stt
 from transcribe import live as voice
+import tts
 
 load_dotenv(".env.local", override=True)
 load_dotenv()
@@ -188,7 +190,7 @@ def healthz(): return {"ok": True}
 
 @app.get("/api/config")
 def config(user: dict = Depends(current_user)): return {"email": user["email"], "model": MODEL, "cheap_model": CHEAP_MODEL, "strong_model": STRONG_MODEL, "models": MODELS,
-                      "has_key": bool(os.environ.get("ANTHROPIC_API_KEY")), "voice": {"gemini": voice.available()}}
+                      "has_key": bool(os.environ.get("ANTHROPIC_API_KEY")), "voice": {"gemini": voice.available(), **tts.describe()}}
 
 @app.websocket("/api/voice/live")
 async def voice_live(websocket: WebSocket, course: str = ""):
@@ -565,6 +567,120 @@ def generate_cards(cid: str, g: GenIn):
             if it.get("front") and it.get("back"):
                 d.execute("INSERT INTO cards(id,course_id,front,back,source,week,due,created) VALUES(?,?,?,?,?,?,?,?)",
                           (uuid.uuid4().hex[:10], cid, it["front"], it["back"], src, week, date.today().isoformat(), time.time())); made += 1
+    return {"made": made}
+
+
+# ---------------------------------------------------------------- oral revision (Phase 11c)
+class SpeakIn(BaseModel): text: str
+
+@app.post("/api/speak")
+def speak(s: SpeakIn):
+    """One spoken line. 204 means 'no server voice configured' — the page then speaks for itself."""
+    out = tts.say(s.text)
+    if not out: return Response(status_code=204)
+    audio, media = out
+    return Response(content=audio, media_type=media, headers={"Cache-Control": "no-store"})
+
+
+class OralNextIn(BaseModel):
+    week: str = ""
+    mastery: dict = {}
+    cooldown: dict = {}
+
+
+def _oral_bank(cid: str, week: str = ""):
+    """The question bank is the course's own cards — nothing is invented for the student to be tested on."""
+    q, a = _card_scope(cid, 0, week, 0)
+    return [{"id": c["id"], "question": c["front"], "model": c["back"], "course": cid,
+             "concept": (c["concept"] or c["front"])[:80], "traps": [x for x in (c["traps"] or "").split("|") if x]}
+            for c in rows(q + " ORDER BY created", *a)]
+
+
+@app.post("/api/courses/{cid}/oral/next")
+def oral_next(cid: str, n: OralNextIn):
+    bank = [q for q in _oral_bank(cid, n.week) if oral.valid_question(q)]
+    if not bank: return {"question": None, "left": 0}
+    pick = oral.choose(bank, n.mastery, n.cooldown, roll=random.random())
+    return {"question": pick, "left": len(bank)}
+
+
+class OralGradeIn(BaseModel):
+    card_id: str
+    answer: str
+    teach: bool = False
+
+
+@app.post("/api/courses/{cid}/oral/grade")
+def oral_grade(cid: str, g: OralGradeIn):
+    """
+    Grade a spoken answer, then let the existing scheduler decide when the card comes back. The grade
+    is normalised before it is acted on: a grader that returns something unexpected must not be able
+    to mark a wrong answer as solid.
+    """
+    c = rows("SELECT * FROM cards WHERE id=? AND course_id=?", g.card_id, cid)
+    if not c: raise HTTPException(404)
+    card = dict(c[0])
+    traps = " ; ".join(x for x in (card.get("traps") or "").split("|") if x) or "(none recorded)"
+    sys = ("You are a sharp, warm Socratic law tutor for a Groningen LLB student. You are grading a SPOKEN answer, "
+           "so tolerate filler and loose phrasing but judge the legal substance strictly. Return ONLY valid JSON, no "
+           'markdown, in exactly this shape: {"mastery":"solid|shaky|missed","verdict":"<=6 words","spoken":"<=45 words, '
+           'conversational: say what was right, name what was missing, and if not solid ask ONE pointed follow-up",'
+           '"note":"<=25 words: the gap plus the authority they should have cited; empty string if solid"}. '
+           "Grade 'missed' if a core element or the key authority is absent, 'shaky' if partly right, 'solid' only if "
+           "substantially complete.")
+    usr = (f"QUESTION: {card['front']}\nMODEL ANSWER: {card['back']}\nCOMMON TRAPS: {traps}\n"
+           f"STUDENT'S SPOKEN ANSWER: \"{g.answer.strip()[:2000]}\"")
+    if g.teach:
+        usr += ("\n\nThey have now missed this twice. Instead of testing again, explain it in under 45 spoken words, "
+                "then set 'mastery' to 'missed' and ask nothing.")
+    try:
+        m = client().messages.create(model=pick_model("drill", None), max_tokens=700,
+                                     system=sys, messages=[{"role": "user", "content": usr}])
+        graded = _model_json(m)
+    except Exception as e:
+        print("oral grade:", type(e).__name__, e)
+        raise HTTPException(502, "Could not reach the grader — say that answer again.")
+    out = oral.normalise(graded)
+
+    # Recurrence is decided in exactly one place: the app's existing review path, which also logs it.
+    out["due"] = review(g.card_id, ReviewIn(rating=out["rating"]))["due"]
+    out["concept"] = (card.get("concept") or card["front"])[:80]
+    return out
+
+
+class OralBankIn(BaseModel):
+    count: int = 10
+    file_id: str = ""
+    week: str = ""
+    model: Optional[str] = None
+
+
+@app.post("/api/courses/{cid}/oral/bank")
+def oral_bank(cid: str, g: OralBankIn):
+    """Turn the student's own ticked material into spoken-exam questions: concept, question, model answer, traps."""
+    if g.file_id:
+        f = rows("SELECT name,text,week FROM files WHERE id=?", g.file_id)
+        if not f: raise HTTPException(404)
+        src, week, txt = f[0]["name"], f[0]["week"] or "", (f[0]["text"] or "")[:60000]
+    else:
+        parts, _ = build_context(cid); src, week, txt = "selected files", g.week, "\n\n".join(parts)[:60000]
+    if not txt.strip(): raise HTTPException(400, "No ticked files to build questions from.")
+    prompt = (f"From the material below, write {max(1, min(30, g.count))} questions an examiner would ask OUT LOUD in a viva "
+              "for this course. Each must be answerable in under a minute of speech and must turn on a rule, a case or an "
+              "article that appears in the material. Return ONLY a JSON array of objects with keys: 'concept' (3-6 words "
+              "naming the idea tested), 'question', 'model' (the answer, with the case name or article number), and 'traps' "
+              "(2-3 short strings: the wrong turns a student actually takes).\n\n" + txt)
+    m = client().messages.create(model=pick_model("cards", g.model), max_tokens=4000, messages=[{"role": "user", "content": prompt}])
+    items = _model_json(m)
+    made = 0
+    with db() as d:
+        for it in items if isinstance(items, list) else []:
+            if not (isinstance(it, dict) and it.get("question") and it.get("model")): continue
+            traps = it.get("traps") or []
+            d.execute("INSERT INTO cards(id,course_id,front,back,source,week,concept,traps,due,created) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                      (uuid.uuid4().hex[:10], cid, str(it["question"]), str(it["model"]), src, week,
+                       str(it.get("concept") or "")[:80], "|".join(str(x) for x in traps if str(x).strip())[:500],
+                       date.today().isoformat(), time.time())); made += 1
     return {"made": made}
 
 
