@@ -2,6 +2,23 @@
 
 Branch: `phase-8-voice`. Depends on Phase 3 (transcription seam, jobs table) and Phase 5 (Cloud Run, Secret Manager — the tutor option needs a server endpoint that mints short-lived tokens).
 
+## Decisions — revised (2026-09-15)
+- **Vertex AI catalogue check (2026-09-15, publisher-model API, read-only):** `gemini-3.5-transcribe` is **not** on Vertex
+  (404 for the publisher model and at `global`, `us-central1`, `europe-west4`); `gemini-3.5-transcribe-live` is not found
+  either; **`gemini-3.5-transcribe-live-preview` is** (`PUBLIC_PREVIEW`). The GA models are Gemini Developer API only (API key).
+- **Ephemeral tokens are a Gemini Developer API feature.** On Vertex the only credential a browser could hold is an OAuth
+  access token for the service account — it would carry every permission `cognitioflow-run` has (the whole bucket), so it
+  must never reach the browser.
+- **Matej's decision:** keep **service account only, no API key**. Build **Part A (tutor mic) only**, with
+  `gemini-3.5-transcribe-live-preview` on Vertex, through a **server-side WebSocket relay** (`/api/voice/live`): the browser
+  streams audio to our server, the server talks to Vertex with ADC. No token of any kind reaches the browser.
+- **Part B (Gemini lecture provider) is deferred** until `gemini-3.5-transcribe` is offered on Vertex. Lectures stay on
+  Speech-to-Text `chirp_2`; `ffmpeg` is not added to the image yet. When Part B returns: **word-level timestamps** win over
+  `custom_vocabulary` (the files API can't combine them); Clean garble keeps fixing terms from the glossary afterwards.
+- **Security prerequisite:** `AuthMiddleware` passes non-HTTP scopes straight through, so it must also gate WebSocket
+  connections (signed-out → closed before any audio is accepted) before the relay route exists.
+- `google-genai>=2.23` is required (1.66 has no transcription config fields and no interim transcription events).
+
 ## Decisions — settled (2026-09-12)
 - **Tutor mic has two modes.** **Browser** (today's Web Speech API: free, Chrome/Safari, no server) stays the **default**. **Gemini** uses `gemini-3.5-transcribe-live`. The choice is a per-browser view preference (`localStorage` `cf.micMode`), which CLAUDE.md allows for small view prefs.
 - **Lecture recordings get a second batch provider**, `gemini-3.5-transcribe`, next to the Phase 3 default (Google Speech-to-Text `chirp_2`).
@@ -19,9 +36,13 @@ Branch: `phase-8-voice`. Depends on Phase 3 (transcription seam, jobs table) and
 
 ## Part A — tutor dictation
 - **UI:** a small Browser | Gemini switch beside `#micBtn` (keep the hook and `🎙 Talk` behaviour); sentence case, existing tokens, no new colours. Browser mode is untouched.
-- **Gemini mode:** `POST /api/voice/token` (signed-in only) returns short-lived credentials for a single Live session, minted with the service account (confirm the Vertex AI equivalent of Live API ephemeral tokens before building); the browser opens the Live API WebSocket, streams 16 kHz PCM (downsampled from the mic), shows interim text in `#q`, and on stop calls the existing `send()` — same flow as today.
+- **Gemini mode (revised 2026-09-15):** the browser opens `wss://<app>/api/voice/live?course=<id>` (signed-in only), streams
+  16 kHz mono PCM16 downsampled from the mic, and receives `{"interim": …}` / `{"final": …}` messages to show in `#q`; on
+  stop it sends `{"stop": true}`, waits for the last final text and calls the existing `send()` — same flow as today. The
+  server holds one Vertex Live session per socket (ADC, `gemini-3.5-transcribe-live-preview`) and closes it before the
+  10-minute limit.
 - Custom vocabulary from the course glossary; `en-GB`.
-- The API key never reaches the browser; no audio is stored.
+- No credential of any kind reaches the browser; no audio is stored.
 - If the token or socket fails: toast, and fall back to Browser mode for that attempt.
 - Cost: add dictation minutes to the existing session cost readout (`#costState`).
 
@@ -34,7 +55,7 @@ Branch: `phase-8-voice`. Depends on Phase 3 (transcription seam, jobs table) and
 ## Acceptance
 - [ ] Browser mode is the default and behaves exactly as before.
 - [ ] Gemini mode: speak a question with case names (e.g. "Dassonville", "Keck") → interim text appears → the question is sent; works in Firefox; the Network tab shows no API key.
-- [ ] Token endpoint refuses signed-out requests; credentials expire; no key or service-account secret reaches the browser.
-- [ ] `docker build` includes `ffmpeg`; splitting the 90-minute fixture yields pieces ≤30 minutes whose offsets line up.
-- [ ] Lecture: the 90-minute fixture with the Gemini provider completes as one Live capture block in the same format; chunk boundaries don't duplicate or drop lines.
-- [ ] Unit tests: token endpoint, Gemini provider mapping (word annotations → segments, chunk offsets), poll-per-chunk state machine with a mocked client.
+- [ ] The WebSocket refuses signed-out connections before accepting audio; no key, token or service-account credential reaches the browser.
+- [ ] ~~`docker build` includes `ffmpeg`; splitting the 90-minute fixture…~~ deferred with Part B (2026-09-15).
+- [ ] ~~Lecture: the 90-minute fixture with the Gemini provider…~~ deferred with Part B (2026-09-15).
+- [ ] Unit tests: WebSocket auth gate, relay message flow with a mocked Live session (interim/final/stop, errors, time limit), glossary vocabulary capped at 100.

@@ -246,7 +246,8 @@
         <button class="btn small" data-mode="notes">Build notes</button>
         <span style="margin-left:auto;display:flex;gap:.4rem;align-items:center">
           <select id="modelSel" class="small" aria-label="Model"><option value="auto">Auto model</option></select><span class="small muted" id="routeHint" title="Which model Auto will use for this message"></span>
-          <button class="btn small ghost" id="micBtn" aria-pressed="false" title="Dictate (Chrome)">🎙 Talk</button>
+          <span class="seg" role="group" id="micMode" hidden title="Which speech engine Talk uses"><button class="btn small" type="button" data-mic="browser" aria-pressed="true">Browser</button><button class="btn small" type="button" data-mic="gemini" aria-pressed="false">Gemini</button></span>
+          <button class="btn small ghost" id="micBtn" aria-pressed="false" title="Dictate your answer">🎙 Talk</button>
           <button class="btn small ghost" id="speakBtn" aria-pressed="false" title="Read replies aloud — click again on a reply to hear its spoken version">🔊 Read aloud</button>
           <span class="small muted" id="costState" title="Estimated API spend since you last cleared it; click to reset" style="cursor:pointer"></span>
         </span>
@@ -479,10 +480,55 @@ function initVoice(){
       if($('#q').value.trim()) send();};
     recog.onerror=e=>{listening=false;$('#micBtn').textContent='🎙 Talk';toast('Mic: '+e.error)};
   }
+  if(cfg.voice?.gemini){ $('#micMode').hidden=false; document.querySelectorAll('#micMode [data-mic]').forEach(b=>b.onclick=()=>setMicMode(b.dataset.mic)); setMicMode(currentMicMode()); }
   $('#speakBtn').setAttribute('aria-pressed',speakOn?'true':'false'); $('#speakBtn').classList.toggle('primary',speakOn);
   if(!('speechSynthesis' in window)){$('#speakBtn').disabled=true}
 }
-$('#micBtn').onclick=()=>{ if(!recog) return; if(listening){recog.stop();return}
+/* ---- Gemini dictation (Phase 8): mic → 16 kHz PCM → this app's relay → Vertex AI; only text comes back ---- */
+let gem=null;
+const currentMicMode=()=>localStorage.getItem('cf.micMode')||((window.SpeechRecognition||window.webkitSpeechRecognition)?'browser':'gemini');
+function setMicMode(m){ localStorage.setItem('cf.micMode',m);
+  document.querySelectorAll('#micMode [data-mic]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.mic===m?'true':'false'));
+  $('#micBtn').disabled=(m==='browser'&&!recog); }
+const PCM_WORKLET=`class Pcm16k extends AudioWorkletProcessor{constructor(){super();this.r=sampleRate/16000;this.a=0;this.s=0;this.n=0;this.b=new Int16Array(1600);this.i=0}
+process(inputs){const ch=inputs[0]&&inputs[0][0];if(!ch)return true;for(let k=0;k<ch.length;k++){this.s+=ch[k];this.n++;this.a+=1;
+if(this.a>=this.r){this.a-=this.r;const v=Math.max(-1,Math.min(1,this.s/this.n));this.s=0;this.n=0;this.b[this.i++]=v<0?v*32768:v*32767;
+if(this.i===1600){this.port.postMessage(this.b.buffer.slice(0));this.i=0}}}return true}}
+registerProcessor('pcm16k',Pcm16k)`;
+async function startGemini(){
+  const btn=$('#micBtn'); let stream=null, ctx=null, node=null, ws=null, gotText=false, stopped=false, finished=false, guard=null;
+  const cleanup=()=>{ try{node&&node.disconnect()}catch(e){} try{stream&&stream.getTracks().forEach(t=>t.stop())}catch(e){} try{ctx&&ctx.close()}catch(e){}
+    clearTimeout(guard); gem=null; listening=false; btn.setAttribute('aria-pressed','false'); btn.textContent='🎙 Talk'; };
+  const fallback=message=>{ cleanup(); toast(message);
+    if(recog && !gotText){ listening=true; btn.setAttribute('aria-pressed','true'); btn.textContent='● Listening'; $('#q').value=''; recog.start(); } };
+  const finish=()=>{ if(finished) return; finished=true; cleanup(); if($('#q').value.trim()) send(); };
+  try{
+    window.speechSynthesis?.cancel();
+    stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
+    ctx=new AudioContext();
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([PCM_WORKLET],{type:'application/javascript'})));
+    node=new AudioWorkletNode(ctx,'pcm16k'); ctx.createMediaStreamSource(stream).connect(node);
+    ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/api/voice/live?course=${encodeURIComponent(cid||'')}`);
+    ws.binaryType='arraybuffer';
+    node.port.onmessage=e=>{ if(ws.readyState===1 && !stopped) ws.send(e.data) };
+    ws.onmessage=e=>{ let m; try{ m=JSON.parse(e.data) }catch(err){ return }
+      if('interim' in m || 'final' in m){ gotText=true; $('#q').value=('final' in m)?m.final:m.interim; }
+      if(m.limit){ toast('Gemini dictation stops at about ten minutes'); gem&&gem.stop(); }
+      if(m.error){ finished=true; fallback(m.error+' Using the browser mic.'); }
+      if('done' in m){ if(m.done) $('#q').value=m.done;
+        if(m.cost_usd){ sessionCost+=m.cost_usd; localStorage.setItem('cf.cost',sessionCost); showCost(); }
+        finish(); } };
+    ws.onclose=()=>{ if(finished) return; if(stopped) finish(); else { finished=true; fallback('Gemini dictation is unavailable. Using the browser mic.'); } };
+    gem={ stop(){ if(stopped) return; stopped=true; btn.textContent='… Finishing';
+      try{ if(ws.readyState===1) ws.send(JSON.stringify({stop:true})) }catch(e){}
+      try{ stream.getTracks().forEach(t=>t.stop()) }catch(e){}
+      guard=setTimeout(()=>{ try{ws.close()}catch(e){} finish(); },10000); } };
+    listening=true; btn.setAttribute('aria-pressed','true'); btn.textContent='● Listening'; $('#q').value='';
+  }catch(e){ finished=true; fallback('Gemini dictation needs microphone access. Using the browser mic.'); }
+}
+$('#micBtn').onclick=()=>{ if(listening && !gem){ recog?.stop(); return }  // the browser mic is on (chosen, or a Gemini fallback): stop it
+  if(cfg.voice?.gemini && currentMicMode()==='gemini'){ return gem ? gem.stop() : startGemini(); }
+  if(!recog) return; if(listening){recog.stop();return}
   window.speechSynthesis?.cancel(); listening=true; $('#micBtn').setAttribute('aria-pressed','true'); $('#micBtn').textContent='● Listening'; $('#q').value=''; recog.start(); };
 $('#costState').onclick=()=>{ sessionCost=0; localStorage.setItem('cf.cost',0); showCost() }; showCost();
 $('#speakBtn').onclick=()=>{ speakOn=!speakOn; localStorage.setItem('cf.speak',speakOn?'1':'0');

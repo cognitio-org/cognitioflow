@@ -4,7 +4,7 @@ Run:  python run.py   then open http://localhost:8000
 Everything lives in ./data (SQLite + uploaded files). Nothing leaves your Mac except tutor calls to the Claude API.
 """
 import re
-import base64, io, json, mimetypes, os, random, tempfile, time, uuid
+import asyncio, base64, io, json, mimetypes, os, random, tempfile, time, uuid
 from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
@@ -12,13 +12,14 @@ from typing import Optional
 from urllib.parse import quote, unquote
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket
 from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import storage
 import transcribe as stt
+from transcribe import live as voice
 
 load_dotenv(".env.local", override=True)
 load_dotenv()
@@ -187,7 +188,17 @@ def healthz(): return {"ok": True}
 
 @app.get("/api/config")
 def config(user: dict = Depends(current_user)): return {"email": user["email"], "model": MODEL, "cheap_model": CHEAP_MODEL, "strong_model": STRONG_MODEL, "models": MODELS,
-                      "has_key": bool(os.environ.get("ANTHROPIC_API_KEY"))}
+                      "has_key": bool(os.environ.get("ANTHROPIC_API_KEY")), "voice": {"gemini": voice.available()}}
+
+@app.websocket("/api/voice/live")
+async def voice_live(websocket: WebSocket, course: str = ""):
+    """Tutor dictation through Vertex AI (Phase 8). AuthMiddleware has already refused signed-out and cross-origin sockets;
+    only transcript text goes back to the browser."""
+    if not voice.available():
+        return await websocket.close(code=4404)
+    await websocket.accept()
+    terms = await asyncio.to_thread(_glossary, course) if course else []
+    await voice.relay(websocket, terms)
 
 # courses
 @app.get("/api/courses")
