@@ -84,7 +84,10 @@ def test_create_card(client: TestClient):
     assert card["due"] == date.today().isoformat()  # ISO string, not a float
 
 
-def test_review_updates_sm2_fields(client: TestClient):
+def test_review_updates_sm2_fields(client: TestClient, monkeypatch):
+    """SM-2's own arithmetic, asserted with SM-2 selected (FSRS is the default and schedules differently)."""
+    import schedule
+    monkeypatch.setattr(schedule, "BACKEND", "sm2")
     cid = _course_id(client)
     r = client.post(
         f"/api/courses/{cid}/cards",

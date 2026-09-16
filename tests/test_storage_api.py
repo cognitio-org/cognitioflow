@@ -113,7 +113,7 @@ def test_tutor_context_reads_images_from_storage_and_caps_them(client):
     cid = _cid(client)
     for i in range(MAX_IMAGES + 1):
         _upload(client, cid, f"board{i}.png", PNG, "image/png")
-    _, images = build_context(cid)
+    _, images, _ = build_context(cid)
     assert len(images) == MAX_IMAGES
     assert images[0]["source"] == {"type": "base64", "media_type": "image/png", "data": base64.b64encode(PNG).decode()}
 

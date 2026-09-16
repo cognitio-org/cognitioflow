@@ -3,7 +3,7 @@
 #         docker compose --profile gcs up -d   (adds a fake Cloud Storage for storage=gcs testing)
 services:
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16-trixie   # Postgres 16 with the vector extension (Phase 10 retrieval)
     container_name: cf-db
     environment:
       POSTGRES_USER: cf

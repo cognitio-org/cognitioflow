@@ -4,7 +4,7 @@ Run:  python run.py   then open http://localhost:8000
 Everything lives in ./data (SQLite + uploaded files). Nothing leaves your Mac except tutor calls to the Claude API.
 """
 import re
-import asyncio, base64, io, json, mimetypes, os, random, tempfile, time, uuid
+import base64, io, json, mimetypes, os, random, tempfile, time, uuid
 from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
@@ -12,16 +12,16 @@ from typing import Optional
 from urllib.parse import quote, unquote
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-import oral
+import embed
+import retrieval
+import schedule
 import storage
 import transcribe as stt
-from transcribe import live as voice
-import tts
 
 load_dotenv(".env.local", override=True)
 load_dotenv()
@@ -32,7 +32,9 @@ MODEL = os.environ.get("CF_MODEL", "claude-sonnet-4-6")            # drilling / 
 CHEAP_MODEL = os.environ.get("CF_CHEAP_MODEL", "claude-haiku-4-5")  # card generation, bulk work
 STRONG_MODEL = os.environ.get("CF_STRONG_MODEL", MODEL)              # reconcile only; e.g. claude-fable-5-1 or claude-opus-5
 MODELS = ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5", "claude-opus-5", "claude-fable-5-1"]
-CONTEXT_CHAR_BUDGET = int(os.environ.get("CF_CONTEXT_CHARS", "180000"))  # ~45k tokens of file text per call
+CONTEXT_CHAR_BUDGET = int(os.environ.get("CF_CONTEXT_CHARS", "180000"))
+RETRIEVAL = os.environ.get("RETRIEVAL", "off").strip().lower() == "on"   # Phase 10: passages instead of whole files
+RETRIEVAL_CHARS = int(os.environ.get("RETRIEVAL_CHARS", "40000"))        # ~10k tokens of the most relevant passages  # ~45k tokens of file text per call
 MAX_IMAGES = 6
 RECONCILE_TOKENS = 8000   # the cap stays here; the Continue button finishes anything cut off
 DRAFT_TOKENS = 4000
@@ -190,17 +192,7 @@ def healthz(): return {"ok": True}
 
 @app.get("/api/config")
 def config(user: dict = Depends(current_user)): return {"email": user["email"], "model": MODEL, "cheap_model": CHEAP_MODEL, "strong_model": STRONG_MODEL, "models": MODELS,
-                      "has_key": bool(os.environ.get("ANTHROPIC_API_KEY")), "voice": {"gemini": voice.available(), **tts.describe()}}
-
-@app.websocket("/api/voice/live")
-async def voice_live(websocket: WebSocket, course: str = ""):
-    """Tutor dictation through Vertex AI (Phase 8). AuthMiddleware has already refused signed-out and cross-origin sockets;
-    only transcript text goes back to the browser."""
-    if not voice.available():
-        return await websocket.close(code=4404)
-    await websocket.accept()
-    terms = await asyncio.to_thread(_glossary, course) if course else []
-    await voice.relay(websocket, terms)
+                      "has_key": bool(os.environ.get("ANTHROPIC_API_KEY"))}
 
 # courses
 @app.get("/api/courses")
@@ -233,6 +225,7 @@ async def upload(cid: str, file: UploadFile = File(...), week: str = Form("")):
     with db() as d:
         d.execute("INSERT INTO files VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                   (fid, cid, file.filename, kind, key, text, len(text), 1, status, week, time.time()))
+    reindex(cid, "file", fid, file.filename, kind, week, text)
     return {"id": fid, "status": status, "chars": len(text)}
 
 @app.post("/api/files/{fid}/toggle")
@@ -296,6 +289,7 @@ def delete_file(fid: str):
         r = d.execute("SELECT key FROM files WHERE id=?", (fid,)).fetchone()
         if r and r["key"]: storage.delete(r["key"])
         d.execute("DELETE FROM files WHERE id=?", (fid,))
+    retrieval.forget_source(db, "file", fid)
     return {"ok": True}
 
 @app.get("/api/files/{fid}/text")
@@ -311,10 +305,65 @@ def file_raw(fid: str, request: Request):
     return serve_object(r[0]["key"], request, mimetypes.guess_type(r[0]["key"] or "")[0] or "application/octet-stream", filename=r[0]["name"])
 
 # ---------------------------------------------------------------- tutor
-def build_context(cid: str):
-    """Selected files → text blocks (within budget) + image blocks."""
+def retrieved_context(cid: str, question: str):
+    """The user's own ticked materials, narrowed to the passages that answer this question.
+
+    Never widens the selection and never drops a ticked file silently: every ticked source gets at least one passage,
+    and whatever did not fit is named back to the caller for the Reading strip."""
+    sources = rows("SELECT id, name, kind, week FROM files WHERE course_id=? AND selected=1 AND kind!='image' AND text IS NOT NULL AND text<>''", cid)
+    sources += [dict(n, kind="note") for n in rows("SELECT id, title AS name FROM notes WHERE course_id=?", cid)]
+    ids = [s["id"] for s in sources]
+    if not ids:
+        return None
+    hits = retrieval.search(rows, embed.embed, course_id=cid, query=question, source_ids=ids, limit=60)
+    if not hits:
+        return None
+    picked = retrieval.rank(hits, RETRIEVAL_CHARS, sources)
+    blocks = [f"<passage file=\"{h['name']}\" week=\"{h.get('week', '')}\" heading=\"{h.get('heading', '')}\">\n{h['text']}\n</passage>"
+              for h in picked["passages"]]
+    return {"parts": blocks, "used": picked["files_used"], "trimmed": picked["files_trimmed"], "chars": picked["chars"]}
+
+
+def reindex(cid: str, source: str, source_id: str, name: str, kind: str, week: str, text: str) -> int:
+    """Re-cut one file or note into passages. Never fatal: if the embedder is missing the app just keeps whole files."""
+    if not RETRIEVAL or not embed.ready():
+        return 0
+    try:
+        return retrieval.index_source(db, embed.embed, course_id=cid, source=source, source_id=source_id,
+                                      name=name, kind=kind, week=week, text=text or "", updated=time.time())
+    except Exception as e:
+        print("indexing:", type(e).__name__, e)
+        return 0
+
+
+@app.post("/api/courses/{cid}/reindex")
+def reindex_course(cid: str):
+    """Index everything ticked in this course. Safe to re-run: each source's passages are replaced, never duplicated."""
+    if not RETRIEVAL or not embed.ready():
+        raise HTTPException(400, "Retrieval is off on this server (RETRIEVAL=on plus the embedding model enable it).")
+    done = 0
+    for f in rows("SELECT id,name,kind,week,text FROM files WHERE course_id=? AND kind!='image' AND text IS NOT NULL AND text<>''", cid):
+        done += bool(reindex(cid, "file", f["id"], f["name"], f["kind"], f["week"], f["text"]))
+    for n in rows("SELECT id,title,body FROM notes WHERE course_id=?", cid):
+        done += bool(reindex(cid, "note", n["id"], n["title"], "note", "", n["body"]))
+    passages = rows("SELECT COUNT(*) AS n FROM chunks WHERE course_id=?", cid)[0]["n"]
+    return {"sources": done, "passages": passages}
+
+
+def build_context(cid: str, question: str = ""):
+    """Selected files → text blocks (within budget) + image blocks.
+
+    With RETRIEVAL=on and a question, the text blocks are the passages that answer it (the same ticked files, narrowed);
+    otherwise every ticked file is sent whole, exactly as before. Reconcile, drafting and cleaning always pass no
+    question, so they keep reading whole files."""
     fs = rows("SELECT * FROM files WHERE course_id=? AND selected=1 ORDER BY created", cid)
     text_parts, images, used = [], [], 0
+    narrowed = None
+    if RETRIEVAL and question.strip() and embed.ready():
+        try:
+            narrowed = retrieved_context(cid, question)
+        except Exception as e:      # a broken index must never cost the user their materials
+            print("retrieval:", type(e).__name__, e)
     for f in fs:
         if f["kind"] == "image":
             if len(images) < MAX_IMAGES:
@@ -330,7 +379,9 @@ def build_context(cid: str):
         if len(t) > room: t = t[:room] + "\n[… truncated]"
         used += len(t)
         text_parts.append(f"<file name=\"{f['name']}\" week=\"{f['week']}\">\n{t}\n</file>")
-    return text_parts, images
+    if narrowed:
+        return narrowed["parts"], images, narrowed
+    return text_parts, images, None
 
 def client():
     import anthropic
@@ -366,7 +417,7 @@ def _model_json(m):
     raise HTTPException(502, "Model returned non-JSON; try again.")
 
 # Which model each task deserves. Cheap for bulk/recall work, strong where correction quality matters.
-ROUTE = {"drill": MODEL, "explain": MODEL, "apply": MODEL, "notes": CHEAP_MODEL, "cards": CHEAP_MODEL, "summarise": CHEAP_MODEL}
+ROUTE = {"drill": MODEL, "explain": MODEL, "notes": CHEAP_MODEL, "cards": CHEAP_MODEL, "summarise": CHEAP_MODEL}
 
 def pick_model(mode: str, requested: Optional[str], text: str = "") -> str:
     if requested and requested in MODELS: return requested
@@ -395,11 +446,6 @@ MODES = {
     "drill": "Mode: Socratic drill. Ask one question, wait, then correct firmly and specifically.",
     "explain": "Mode: explain. Give a tight, structured explanation with references to the files (file name, slide/page where visible).",
     "notes": "Mode: build notes. Reconcile the supplied files into master notes with provenance tags; flag conflicts and gaps.\n" + NOTE_STYLE,
-    "apply": ("Mode: application. The student gives you facts — a WG question, an exam problem, a scenario. Work the exam method in IRAC: "
-              "applicability, then restriction or scope, then justification and proportionality. At every step name the article and the case "
-              "from the ticked files that decides it, quote the few words that bite, and say in one line why those words catch these facts. "
-              "Where a step turns on one fact, say which fact would flip it. Never state a rule without the authority next to it, and label "
-              "anything outside the ticked files [OUTSIDE FILES]. Finish with a 'Bottom line' of two sentences."),
 }
 
 @app.get("/api/courses/{cid}/messages")
@@ -415,10 +461,12 @@ def chat(cid: str, body: ChatIn):
     course = rows("SELECT * FROM courses WHERE id=?", cid)
     if not course: raise HTTPException(404)
     course = course[0]
-    text_parts, images = build_context(cid)
+    text_parts, images, narrowed = build_context(cid, body.message)
     system = [{"type": "text", "text": BASE_PROMPT + "\n" + (course["tutor_prompt"] or "") + "\n" + MODES.get(body.mode, MODES["drill"])}]
     if text_parts:
-        system.append({"type": "text", "text": "COURSE FILES:\n" + "\n\n".join(text_parts), "cache_control": {"type": "ephemeral"}})
+        heading = "COURSE PASSAGES (from the files you ticked; quote them):" if narrowed else "COURSE FILES:"
+        trimmed = f"\n\n[Not included for this question: {', '.join(narrowed['trimmed'])}. Ask to read everything if you need them.]" if (narrowed and narrowed["trimmed"]) else ""
+        system.append({"type": "text", "text": heading + "\n" + "\n\n".join(text_parts) + trimmed, "cache_control": {"type": "ephemeral"}})
     else:
         system.append({"type": "text", "text": "COURSE FILES: none selected. Say so if the question needs them."})
     history = [{"role": m["role"], "content": m["content"]} for m in messages(cid)][-30:]
@@ -429,6 +477,8 @@ def chat(cid: str, body: ChatIn):
         out = []
         chosen = pick_model(body.mode, body.model, body.message)
         yield f"data: {json.dumps({'model': chosen})}\n\n"
+        if narrowed:
+            yield f"data: {json.dumps({'reading': {'used': narrowed['used'], 'trimmed': narrowed['trimmed'], 'chars': narrowed['chars']}})}\n\n"
         try:
             with client().messages.stream(model=chosen, max_tokens=2000, system=system,
                                           messages=history + [{"role": "user", "content": user_content}]) as s:
@@ -467,6 +517,8 @@ def save_note(nid: str, n: NoteIn):
         if cur and cur["body"] != n.body and cur["body"].strip() and (not last or time.time() - last["created"] > 180):
             d.execute("INSERT INTO note_versions VALUES(?,?,?,?,?)", (uuid.uuid4().hex, nid, cur["title"], cur["body"], time.time()))
         d.execute("UPDATE notes SET title=?,body=?,updated=? WHERE id=?", (n.title, n.body, time.time(), nid))
+    note = rows("SELECT course_id FROM notes WHERE id=?", nid)
+    if note: reindex(note[0]["course_id"], "note", nid, n.title, "note", "", n.body)
     return {"ok": True}
 
 @app.get("/api/notes/{nid}/versions")
@@ -531,20 +583,16 @@ def del_card(kid: str):
 
 @app.post("/api/cards/{kid}/review")
 def review(kid: str, r: ReviewIn):
+    """One rating. FSRS schedules from this card's own history (SCHEDULER=sm2 keeps the original arithmetic)."""
     c = rows("SELECT * FROM cards WHERE id=?", kid)
     if not c: raise HTTPException(404)
-    c = c[0]; q = {0: 1, 1: 3, 2: 4, 3: 5}[max(0, min(3, r.rating))]
-    ease, interval, reps = c["ease"], c["interval"], c["reps"]
-    if q < 3: reps, interval = 0, 0
-    else:
-        interval = 1 if reps == 0 else (6 if reps == 1 else round(interval * ease))
-        reps += 1
-    ease = max(1.3, ease + 0.1 - (5 - q) * (0.08 + (5 - q) * 0.02))
-    due = (date.today() + timedelta(days=interval)).isoformat()
+    out = schedule.next_review(dict(c[0]), r.rating)
     with db() as d:
-        d.execute("UPDATE cards SET ease=?,interval=?,reps=?,due=? WHERE id=?", (ease, interval, reps, due, kid))
+        d.execute("UPDATE cards SET ease=?,interval=?,reps=?,due=?,stability=?,difficulty=?,state=?,step=?,last_review=? WHERE id=?",
+                  (out["ease"], out["interval"], out["reps"], out["due"], out.get("stability"), out.get("difficulty"),
+                   out.get("state"), out.get("step"), out.get("last_review"), kid))
         d.execute("INSERT INTO reviews VALUES(?,?,?,?)", (uuid.uuid4().hex, kid, r.rating, time.time()))
-    return {"due": due, "interval": interval}
+    return {"due": out["due"], "interval": out["interval"]}
 
 @app.post("/api/courses/{cid}/cards/generate")
 def generate_cards(cid: str, g: GenIn):
@@ -553,7 +601,7 @@ def generate_cards(cid: str, g: GenIn):
         if not f: raise HTTPException(404)
         src, week, txt = f[0]["name"], f[0]["week"] or "", (f[0]["text"] or "")[:60000]
     else:
-        parts, _ = build_context(cid); src, week, txt = "selected files", "", "\n\n".join(parts)[:60000]
+        parts, _, _ = build_context(cid); src, week, txt = "selected files", "", "\n\n".join(parts)[:60000]
     prompt = (f"From the material below, write {g.count} flashcards for a law exam: precise, one testable point each, "
               "case names and article numbers where present. Return ONLY a JSON array of objects with keys 'front' and 'back'.\n\n" + txt)
     m = client().messages.create(model=pick_model('cards', g.model), max_tokens=3000, messages=[{"role": "user", "content": prompt}])
@@ -567,286 +615,6 @@ def generate_cards(cid: str, g: GenIn):
             if it.get("front") and it.get("back"):
                 d.execute("INSERT INTO cards(id,course_id,front,back,source,week,due,created) VALUES(?,?,?,?,?,?,?,?)",
                           (uuid.uuid4().hex[:10], cid, it["front"], it["back"], src, week, date.today().isoformat(), time.time())); made += 1
-    return {"made": made}
-
-
-# ---------------------------------------------------------------- oral grading (constant, cached)
-# This prompt is identical on every spoken answer, so it is sent as cached blocks: a cache read costs
-# a tenth of a normal input token, and the break-even is two calls. Caching only engages above roughly
-# 1024 tokens, so the calibration below is not padding — it is what makes the marking consistent AND
-# what makes it cacheable. Nothing that varies per question may appear here.
-GRADER_RULES = """You are a sharp, warm Socratic law tutor examining a Groningen LLB student out loud.
-
-You are grading a SPOKEN answer. Tolerate filler, false starts, self-correction and loose word order;
-a student thinking aloud is not the same as a student who does not know. Judge only the legal substance.
-
-How to weigh an answer:
-- The RULE and its AUTHORITY carry the most weight. An answer that states the correct test but cites the
-  wrong case is not "mostly right" — the citation is half the mark in a law exam.
-- Naming the right case with the wrong test is worse still: it looks like recall without understanding.
-- Conditions are cumulative. If a test has three limbs and two are given, that is incomplete, not close.
-- Reward an answer that volunteers the limits of a rule, the exception, or the case that qualifies it.
-- Do not reward fluency. A confident, well-phrased answer that is legally thin is thin.
-- Do not penalise an answer for using different words than the model answer if the law is the same.
-- If the student self-corrects mid-answer, mark the corrected version.
-
-What each grade means:
-- "solid"  — substantially complete: the rule, its authority, and any limb that matters are all present.
-             A tiny omission that would not cost a mark in an exam is still solid.
-- "shaky"  — partly right: the direction is correct but a limb, a qualification or the authority is missing
-             or wrong; or the right idea is attached to the wrong case.
-- "missed" — a core element or the key authority is absent, or the answer states the law incorrectly.
-
-How to speak back:
-- Say what was right first, in their own terms, so they know what to keep.
-- Then name precisely what was missing — the limb, the case, the article — never a vague "be more precise".
-- If the answer was not solid, end with ONE pointed follow-up question. One. Never a list.
-- Never read out a model answer. This is an examination, not a lecture.
-- Under 45 spoken words. You are talking, not writing."""
-
-GRADER_CONTRACT = """Return ONLY valid JSON. No markdown, no code fence, no prose before or after it.
-
-{"mastery":"solid|shaky|missed",
- "verdict":"<=6 words naming what happened",
- "spoken":"<=45 words, conversational, what you would say out loud",
- "note":"<=25 words: the gap plus the authority they should have cited; empty string when solid"}
-
-Calibration — grade these the same way every time:
-
-Q: Conditions for direct effect of a Treaty provision, and the case?
-A: "Clear and precise, unconditional, no further implementing measures. Van Gend en Loos."
--> solid. All three limbs and the correct authority.
-
-A: "Clear and precise, and unconditional I think. It's Van Gend en Loos."
--> shaky. Two of three limbs; authority correct. note: "Dropped the 'no further implementing
-   measures' limb; otherwise Van Gend en Loos is right."
-
-A: "It has to be clear and precise, and the case is Costa v ENEL."
--> missed. Costa is primacy, not direct effect, and two limbs are absent. The wrong authority on a
-   named doctrine is a miss even when part of the test is recited correctly.
-
-Q: Can a directive be relied on against another private party?
-A: "No, no horizontal direct effect — Marshall and Faccini Dori. You'd go for consistent
-   interpretation under Von Colson, or Francovich damages."
--> solid. Correct answer, authority, and both fallback routes volunteered.
-
-A: "No, directives only bind the state."
--> shaky. Right conclusion, no authority, no fallback. note: "Correct, but cite Marshall/Faccini Dori
-   and offer Von Colson or Francovich."
-
-A: "Yes, if the state never implemented it the directive applies anyway."
--> missed. States the law incorrectly.
-
-Q: What did Costa v ENEL establish?
-A: "EU law takes primacy over national law, including later national law, and Simmenthal says national
-   courts disapply it themselves."
--> solid.
-
-The word "solid" is earned, not given. When an answer sits between two grades, choose the lower one
-and say in 'spoken' exactly what would have lifted it."""
-
-
-# ---------------------------------------------------------------- the arena (Phase 11d/11e)
-class HintIn(BaseModel):
-    question: str
-    options: list = []
-
-@app.post("/api/courses/{cid}/hint")
-def hint(cid: str, h: HintIn):
-    """A lifeline: narrow the field without handing over the answer. Cheap model — this is a nudge, not teaching."""
-    opts = "\n".join(f"- {str(o)[:200]}" for o in h.options[:4])
-    prompt = ("A law student is stuck on this multiple-choice question and has asked for a hint. Give ONE sentence, under 30 "
-              "words, that points at the rule, case or article that decides it, or rules out one wrong option by name. "
-              "Do NOT say which option is correct and do NOT restate the correct answer.\n\n"
-              f"QUESTION: {h.question[:600]}\nOPTIONS:\n{opts}")
-    try:
-        m = client().messages.create(model=CHEAP_MODEL, max_tokens=120, messages=[{"role": "user", "content": prompt}])
-        return {"hint": "".join(b.text for b in m.content if b.type == "text").strip()[:300]}
-    except Exception as e:
-        print("hint:", type(e).__name__, e)
-        return {"hint": "No hint available just now — back yourself."}
-
-
-class CourtIn(BaseModel):
-    case: str
-
-def _case_context(cid: str, name: str, limit: int = 6000) -> str:
-    """Everything the student's own notes say about this case. The hearing is built from this and nothing else."""
-    out, needle = [], name.casefold()
-    for n in rows("SELECT title,body FROM notes WHERE course_id=? ORDER BY updated DESC", cid):
-        body = n["body"] or ""
-        low = body.casefold()
-        i = low.find(needle)
-        while i >= 0 and sum(len(x) for x in out) < limit:
-            out.append(f"[{n['title']}] …{body[max(0, i - 400):i + 900]}…")
-            i = low.find(needle, i + 900)
-    return "\n\n".join(out)[:limit]
-
-
-@app.post("/api/courses/{cid}/court")
-def court(cid: str, c: CourtIn):
-    """
-    Build a hearing from a case the student's own notes already discuss. Everything the bench says has to
-    come from those notes — an invented holding would teach the wrong law, which is worse than no hearing.
-    """
-    context = _case_context(cid, c.case)
-    if not context.strip():
-        raise HTTPException(400, f"Your notes do not discuss {c.case} yet.")
-    prompt = ("From the student's own notes below, set up a moot hearing on this case. Use ONLY what the notes contain; "
-              "if the notes do not say something, leave that field empty rather than inventing it.\n"
-              'Return ONLY JSON: {"case":"","court":"","year":"","parties":"","issue":"one sentence, the question the '
-              'court had to answer","for":"the argument for the applicant, one sentence","against":"the argument for the '
-              'other side, one sentence","bench":["three questions the bench would put to counsel, each answerable from '
-              'the notes"],"holding":"what the court actually held, in the notes\' own terms"}\n\n'
-              f"CASE: {c.case}\n\nNOTES:\n{context}")
-    try:
-        m = client().messages.create(model=CHEAP_MODEL, max_tokens=1400, messages=[{"role": "user", "content": prompt}])
-        got = _model_json(m)
-    except Exception as e:
-        print("court:", type(e).__name__, e)
-        raise HTTPException(502, "Could not build the hearing — try again.")
-    if not isinstance(got, dict): raise HTTPException(502, "Could not build the hearing — try again.")
-    bench = [str(q) for q in (got.get("bench") or []) if str(q).strip()][:3]
-    return {"case": str(got.get("case") or c.case), "court": str(got.get("court") or ""), "year": str(got.get("year") or ""),
-            "parties": str(got.get("parties") or ""), "issue": str(got.get("issue") or ""),
-            "for": str(got.get("for") or ""), "against": str(got.get("against") or ""),
-            "bench": bench, "holding": str(got.get("holding") or "")}
-
-
-class CourtReplyIn(BaseModel):
-    case: str
-    question: str
-    answer: str
-
-@app.post("/api/courses/{cid}/court/reply")
-def court_reply(cid: str, r: CourtReplyIn):
-    """The bench presses counsel. Graded on the same contract as the oral tutor, against the notes only."""
-    context = _case_context(cid, r.case, 4000)
-    sys = ("You are a judge pressing counsel in a moot, and also marking them. Judge the legal substance against the "
-           "supplied notes only. Return ONLY valid JSON: "
-           '{"mastery":"solid|shaky|missed","verdict":"<=6 words","spoken":"<=45 words, what the bench says back: '
-           'acknowledge what was sound, name what was missing, press once more if it was not solid",'
-           '"note":"<=25 words: the gap plus the authority; empty string if solid"}')
-    usr = f"CASE: {r.case}\nTHE BENCH ASKED: {r.question}\nCOUNSEL ANSWERED: \"{r.answer.strip()[:1500]}\"\n\nNOTES:\n{context}"
-    try:
-        m = client().messages.create(model=pick_model("drill", None), max_tokens=600, system=sys,
-                                     messages=[{"role": "user", "content": usr}])
-        return oral.normalise(_model_json(m))
-    except Exception as e:
-        print("court reply:", type(e).__name__, e)
-        raise HTTPException(502, "The bench did not respond — say that again.")
-
-
-# ---------------------------------------------------------------- oral revision (Phase 11c)
-class SpeakIn(BaseModel): text: str
-
-@app.post("/api/speak")
-def speak(s: SpeakIn):
-    """One spoken line. 204 means 'no server voice configured' — the page then speaks for itself."""
-    out = tts.say(s.text)
-    if not out: return Response(status_code=204)
-    audio, media = out
-    return Response(content=audio, media_type=media, headers={"Cache-Control": "no-store"})
-
-
-class OralNextIn(BaseModel):
-    week: str = ""
-    mastery: dict = {}
-    cooldown: dict = {}
-
-
-def _oral_bank(cid: str, week: str = ""):
-    """The question bank is the course's own cards — nothing is invented for the student to be tested on."""
-    q, a = _card_scope(cid, 0, week, 0)
-    return [{"id": c["id"], "question": c["front"], "model": c["back"], "course": cid,
-             "concept": (c["concept"] or c["front"])[:80], "traps": [x for x in (c["traps"] or "").split("|") if x]}
-            for c in rows(q + " ORDER BY created", *a)]
-
-
-@app.post("/api/courses/{cid}/oral/next")
-def oral_next(cid: str, n: OralNextIn):
-    bank = [q for q in _oral_bank(cid, n.week) if oral.valid_question(q)]
-    if not bank: return {"question": None, "left": 0}
-    pick = oral.choose(bank, n.mastery, n.cooldown, roll=random.random())
-    return {"question": pick, "left": len(bank)}
-
-
-class OralGradeIn(BaseModel):
-    card_id: str
-    answer: str
-    teach: bool = False
-
-
-@app.post("/api/courses/{cid}/oral/grade")
-def oral_grade(cid: str, g: OralGradeIn):
-    """
-    Grade a spoken answer, then let the existing scheduler decide when the card comes back. The grade
-    is normalised before it is acted on: a grader that returns something unexpected must not be able
-    to mark a wrong answer as solid.
-    """
-    c = rows("SELECT * FROM cards WHERE id=? AND course_id=?", g.card_id, cid)
-    if not c: raise HTTPException(404)
-    card = dict(c[0])
-    traps = " ; ".join(x for x in (card.get("traps") or "").split("|") if x) or "(none recorded)"
-    sys = [{"type": "text", "text": GRADER_RULES},
-           {"type": "text", "text": GRADER_CONTRACT, "cache_control": {"type": "ephemeral"}}]
-    usr = (f"QUESTION: {card['front']}\nMODEL ANSWER: {card['back']}\nCOMMON TRAPS: {traps}\n"
-           f"STUDENT'S SPOKEN ANSWER: \"{g.answer.strip()[:2000]}\"")
-    if g.teach:
-        usr += ("\n\nThey have now missed this twice. Instead of testing again, explain it in under 45 spoken words, "
-                "then set 'mastery' to 'missed' and ask nothing.")
-    try:
-        m = client().messages.create(model=pick_model("drill", None), max_tokens=700,
-                                     system=sys, messages=[{"role": "user", "content": usr}])
-        u = getattr(m, "usage", None)
-        if u is not None:  # first call writes the cache, later calls in the window read it
-            print(f"oral grade cache: write={getattr(u, 'cache_creation_input_tokens', 0)} "
-                  f"read={getattr(u, 'cache_read_input_tokens', 0)} in={getattr(u, 'input_tokens', 0)}")
-        graded = _model_json(m)
-    except Exception as e:
-        print("oral grade:", type(e).__name__, e)
-        raise HTTPException(502, "Could not reach the grader — say that answer again.")
-    out = oral.normalise(graded)
-
-    # Recurrence is decided in exactly one place: the app's existing review path, which also logs it.
-    out["due"] = review(g.card_id, ReviewIn(rating=out["rating"]))["due"]
-    out["concept"] = (card.get("concept") or card["front"])[:80]
-    return out
-
-
-class OralBankIn(BaseModel):
-    count: int = 10
-    file_id: str = ""
-    week: str = ""
-    model: Optional[str] = None
-
-
-@app.post("/api/courses/{cid}/oral/bank")
-def oral_bank(cid: str, g: OralBankIn):
-    """Turn the student's own ticked material into spoken-exam questions: concept, question, model answer, traps."""
-    if g.file_id:
-        f = rows("SELECT name,text,week FROM files WHERE id=?", g.file_id)
-        if not f: raise HTTPException(404)
-        src, week, txt = f[0]["name"], f[0]["week"] or "", (f[0]["text"] or "")[:60000]
-    else:
-        parts, _ = build_context(cid); src, week, txt = "selected files", g.week, "\n\n".join(parts)[:60000]
-    if not txt.strip(): raise HTTPException(400, "No ticked files to build questions from.")
-    prompt = (f"From the material below, write {max(1, min(30, g.count))} questions an examiner would ask OUT LOUD in a viva "
-              "for this course. Each must be answerable in under a minute of speech and must turn on a rule, a case or an "
-              "article that appears in the material. Return ONLY a JSON array of objects with keys: 'concept' (3-6 words "
-              "naming the idea tested), 'question', 'model' (the answer, with the case name or article number), and 'traps' "
-              "(2-3 short strings: the wrong turns a student actually takes).\n\n" + txt)
-    m = client().messages.create(model=pick_model("cards", g.model), max_tokens=4000, messages=[{"role": "user", "content": prompt}])
-    items = _model_json(m)
-    made = 0
-    with db() as d:
-        for it in items if isinstance(items, list) else []:
-            if not (isinstance(it, dict) and it.get("question") and it.get("model")): continue
-            traps = it.get("traps") or []
-            d.execute("INSERT INTO cards(id,course_id,front,back,source,week,concept,traps,due,created) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                      (uuid.uuid4().hex[:10], cid, str(it["question"]), str(it["model"]), src, week,
-                       str(it.get("concept") or "")[:80], "|".join(str(x) for x in traps if str(x).strip())[:500],
-                       date.today().isoformat(), time.time())); made += 1
     return {"made": made}
 
 
@@ -911,10 +679,25 @@ def search(cid: str, q: str, limit: int = 20):
         out.append({"kind": "note", "id": n["id"], "title": n["title"], "snippet": snip(n["body"])})
     for f in rows("SELECT id,name,text,week FROM files WHERE course_id=? AND (name LIKE ? OR text LIKE ?) ORDER BY created DESC LIMIT ?", cid, like, like, limit):
         out.append({"kind": "file", "id": f["id"], "title": f["name"], "snippet": snip(f["text"]), "week": f["week"]})
-    for m in rows("SELECT id,role,content,created FROM messages WHERE course_id=? AND content LIKE ? ORDER BY created DESC LIMIT ?", cid, like, limit):
+    for m in rows("SELECT id,role,content,created FROM messages WHERE course_id=? AND content LIKE ? ORDER BY created DESC LIMIT ?", cid, like, limit):  # noqa: E501
         out.append({"kind": "chat", "id": m["id"], "title": ("You: " if m["role"] == "user" else "Tutor: ") + m["content"][:60].replace("\n", " "), "snippet": snip(m["content"])})
     for c in rows("SELECT id,front,back FROM cards WHERE course_id=? AND (front LIKE ? OR back LIKE ?) LIMIT ?", cid, like, like, limit):
         out.append({"kind": "card", "id": c["id"], "title": c["front"], "snippet": snip(c["back"])})
+    exact = {(o["kind"], o["id"]) for o in out}
+    if RETRIEVAL and embed.ready() and len(q) >= 3:
+        try:   # meaning-matches from the user's own materials, after the exact ones and marked as such
+            sources = [f["id"] for f in rows("SELECT id FROM files WHERE course_id=? AND kind!='image'", cid)]
+            sources += [n["id"] for n in rows("SELECT id FROM notes WHERE course_id=?", cid)]
+            for h in retrieval.search(rows, embed.embed, course_id=cid, query=q, source_ids=sources, limit=limit):
+                key = ("note" if h["source"] == "note" else "file", h["source_id"])
+                if key in exact: continue
+                exact.add(key)
+                out.append({"kind": key[0], "id": h["source_id"], "title": h["name"], "week": h.get("week", ""),
+                            "snippet": (h["heading"] + " — " if h["heading"] else "") + h["text"][:140].replace("\n", " ") + "…",
+                            "match": "meaning"})
+        except Exception as e:
+            print("search (meaning):", type(e).__name__, e)
+
     return out[:limit * 2]
 
 # ---------------------------------------------------------------- case index (Progress screen)
