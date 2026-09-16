@@ -570,6 +570,97 @@ def generate_cards(cid: str, g: GenIn):
     return {"made": made}
 
 
+# ---------------------------------------------------------------- the arena (Phase 11d/11e)
+class HintIn(BaseModel):
+    question: str
+    options: list = []
+
+@app.post("/api/courses/{cid}/hint")
+def hint(cid: str, h: HintIn):
+    """A lifeline: narrow the field without handing over the answer. Cheap model — this is a nudge, not teaching."""
+    opts = "\n".join(f"- {str(o)[:200]}" for o in h.options[:4])
+    prompt = ("A law student is stuck on this multiple-choice question and has asked for a hint. Give ONE sentence, under 30 "
+              "words, that points at the rule, case or article that decides it, or rules out one wrong option by name. "
+              "Do NOT say which option is correct and do NOT restate the correct answer.\n\n"
+              f"QUESTION: {h.question[:600]}\nOPTIONS:\n{opts}")
+    try:
+        m = client().messages.create(model=CHEAP_MODEL, max_tokens=120, messages=[{"role": "user", "content": prompt}])
+        return {"hint": "".join(b.text for b in m.content if b.type == "text").strip()[:300]}
+    except Exception as e:
+        print("hint:", type(e).__name__, e)
+        return {"hint": "No hint available just now — back yourself."}
+
+
+class CourtIn(BaseModel):
+    case: str
+
+def _case_context(cid: str, name: str, limit: int = 6000) -> str:
+    """Everything the student's own notes say about this case. The hearing is built from this and nothing else."""
+    out, needle = [], name.casefold()
+    for n in rows("SELECT title,body FROM notes WHERE course_id=? ORDER BY updated DESC", cid):
+        body = n["body"] or ""
+        low = body.casefold()
+        i = low.find(needle)
+        while i >= 0 and sum(len(x) for x in out) < limit:
+            out.append(f"[{n['title']}] …{body[max(0, i - 400):i + 900]}…")
+            i = low.find(needle, i + 900)
+    return "\n\n".join(out)[:limit]
+
+
+@app.post("/api/courses/{cid}/court")
+def court(cid: str, c: CourtIn):
+    """
+    Build a hearing from a case the student's own notes already discuss. Everything the bench says has to
+    come from those notes — an invented holding would teach the wrong law, which is worse than no hearing.
+    """
+    context = _case_context(cid, c.case)
+    if not context.strip():
+        raise HTTPException(400, f"Your notes do not discuss {c.case} yet.")
+    prompt = ("From the student's own notes below, set up a moot hearing on this case. Use ONLY what the notes contain; "
+              "if the notes do not say something, leave that field empty rather than inventing it.\n"
+              'Return ONLY JSON: {"case":"","court":"","year":"","parties":"","issue":"one sentence, the question the '
+              'court had to answer","for":"the argument for the applicant, one sentence","against":"the argument for the '
+              'other side, one sentence","bench":["three questions the bench would put to counsel, each answerable from '
+              'the notes"],"holding":"what the court actually held, in the notes\' own terms"}\n\n'
+              f"CASE: {c.case}\n\nNOTES:\n{context}")
+    try:
+        m = client().messages.create(model=CHEAP_MODEL, max_tokens=1400, messages=[{"role": "user", "content": prompt}])
+        got = _model_json(m)
+    except Exception as e:
+        print("court:", type(e).__name__, e)
+        raise HTTPException(502, "Could not build the hearing — try again.")
+    if not isinstance(got, dict): raise HTTPException(502, "Could not build the hearing — try again.")
+    bench = [str(q) for q in (got.get("bench") or []) if str(q).strip()][:3]
+    return {"case": str(got.get("case") or c.case), "court": str(got.get("court") or ""), "year": str(got.get("year") or ""),
+            "parties": str(got.get("parties") or ""), "issue": str(got.get("issue") or ""),
+            "for": str(got.get("for") or ""), "against": str(got.get("against") or ""),
+            "bench": bench, "holding": str(got.get("holding") or "")}
+
+
+class CourtReplyIn(BaseModel):
+    case: str
+    question: str
+    answer: str
+
+@app.post("/api/courses/{cid}/court/reply")
+def court_reply(cid: str, r: CourtReplyIn):
+    """The bench presses counsel. Graded on the same contract as the oral tutor, against the notes only."""
+    context = _case_context(cid, r.case, 4000)
+    sys = ("You are a judge pressing counsel in a moot, and also marking them. Judge the legal substance against the "
+           "supplied notes only. Return ONLY valid JSON: "
+           '{"mastery":"solid|shaky|missed","verdict":"<=6 words","spoken":"<=45 words, what the bench says back: '
+           'acknowledge what was sound, name what was missing, press once more if it was not solid",'
+           '"note":"<=25 words: the gap plus the authority; empty string if solid"}')
+    usr = f"CASE: {r.case}\nTHE BENCH ASKED: {r.question}\nCOUNSEL ANSWERED: \"{r.answer.strip()[:1500]}\"\n\nNOTES:\n{context}"
+    try:
+        m = client().messages.create(model=pick_model("drill", None), max_tokens=600, system=sys,
+                                     messages=[{"role": "user", "content": usr}])
+        return oral.normalise(_model_json(m))
+    except Exception as e:
+        print("court reply:", type(e).__name__, e)
+        raise HTTPException(502, "The bench did not respond — say that again.")
+
+
 # ---------------------------------------------------------------- oral revision (Phase 11c)
 class SpeakIn(BaseModel): text: str
 
