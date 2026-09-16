@@ -117,8 +117,15 @@
   .pal{backdrop-filter:blur(2px)} .palbox{border-radius:10px;background:var(--raised);box-shadow:0 18px 50px rgba(0,0,0,.2)} .palbox input{background:var(--raised)} #palList li.sel{box-shadow:inset 2px 0 0 var(--ink)} #palList .k{text-transform:uppercase;letter-spacing:.07em;font-size:.64rem}
   tr.grouphead td{background:var(--faint);border-top:1px solid var(--rule);padding-top:.5rem} tr.grouphead b{font-family:var(--serif)}
   /* notes editing */
-  .tagbar{display:flex;gap:.3rem;align-items:center;flex-wrap:wrap} .editwrap{flex:1;min-height:0;display:flex;gap:.8rem} .editwrap>*{flex:1;min-height:0}
-  .editwrap textarea{height:100%} .editor textarea{font-family:var(--serif);font-size:1.02rem;line-height:1.6;padding:1rem 1.2rem;tab-size:2}
+  .tagbar{display:flex;gap:.3rem;align-items:center;flex-wrap:wrap} .editwrap{flex:1;min-height:0;display:flex;gap:1rem;--measure:68ch;--pagey:2.6rem} .editwrap>*{flex:1;min-height:0}
+  .editwrap textarea{height:100%}
+  /* Read, Split and Edit are the same page: same measure, same paper, same margins — only the pen changes. */
+  .editor textarea,.noteview{padding-block:var(--pagey);padding-inline:clamp(1.25rem,calc((100% - var(--measure))/2),5rem);background:var(--raised);box-shadow:0 1px 2px rgba(0,0,0,.04),0 10px 30px -18px rgba(0,0,0,.22)}
+  .editor textarea{font-family:var(--serif);font-size:1.06rem;line-height:1.75;tab-size:2;caret-color:var(--accent);border-radius:var(--r)}
+  .editor textarea::selection,.noteview ::selection{background:color-mix(in oklab,var(--accent),transparent 78%)}
+  .editor textarea::placeholder{color:var(--graphite);opacity:.8}
+  #noteTitle{font-family:var(--serif);font-size:1.5rem;border:1px solid transparent;background:transparent;padding:.25rem .5rem}
+  #noteTitle:hover{border-color:var(--rule)} #noteTitle:focus{border-color:var(--rule);background:var(--raised)}
   #noteLive2{overflow:auto}
   .readbar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap} .readbar audio{height:28px;max-width:280px}
   .cover{background:var(--ink);color:var(--ink);border-radius:2px;cursor:pointer;transition:none} .cover:hover{opacity:.85} .cover.on{background:transparent;color:inherit}
@@ -128,9 +135,9 @@
   @media print{.tplay,.readbar{display:none!important}}
   /* notes reading view */
   .seg{display:inline-flex;gap:2px;padding:2px;background:var(--faint);border:1px solid var(--rule);border-radius:calc(var(--r) + 2px)} .seg .btn{border-color:transparent;background:transparent;color:var(--graphite);border-radius:var(--r)} .seg .btn:hover{color:var(--ink);background:transparent} .seg .btn[aria-pressed=true]{background:var(--raised);color:var(--ink);border-color:var(--rule);box-shadow:0 1px 2px rgba(0,0,0,.08);font-weight:500}
-  .noteview{flex:1;overflow:auto;border:1px solid var(--rule);border-radius:var(--r);padding:1.4rem 2rem;font-family:var(--serif);font-size:1.04rem;line-height:1.6;max-width:none}
-  .noteview h1{font-size:1.7rem;margin:0 0 .3rem;padding-bottom:.4rem;border-bottom:1px solid var(--ink)} .noteview h2{font-size:1.2rem;margin:1.4rem 0 .5rem;letter-spacing:.01em} .noteview h3{font-size:1.05rem;margin:1rem 0 .3rem}
-  .noteview p,.noteview li{margin:0 0 .45rem} .noteview ol,.noteview ul{padding-left:1.4rem} .noteview li{padding-left:.2rem}
+  .noteview{flex:1;overflow:auto;border:1px solid var(--rule);border-radius:var(--r);font-family:var(--serif);font-size:1.06rem;line-height:1.75;max-width:none;--measure:68ch;--pagey:2.6rem}
+  .noteview h1{font-size:1.85rem;margin:0 0 .9rem;padding-bottom:.5rem;border-bottom:1px solid var(--rule);letter-spacing:-.01em} .noteview h2{font-size:1.25rem;margin:1.8rem 0 .55rem;letter-spacing:.01em} .noteview h3{font-size:1.05rem;margin:1rem 0 .3rem}
+  .noteview p,.noteview li{margin:0 0 .55rem} .noteview ol,.noteview ul{padding-left:1.4rem} .noteview li{padding-left:.2rem}
   .noteview table{font-family:var(--sans);font-size:.88rem;width:100%;margin:.6rem 0 1rem} .noteview th{border-bottom:1.5px solid var(--ink)} .noteview td{border-bottom:1px solid var(--rule)}
   .noteview blockquote{margin:.8rem 0;padding:.6rem 1rem;border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--r);background:var(--faint);color:var(--ink)} .noteview blockquote p{margin:0} .noteview blockquote strong:first-child{font-family:var(--sans);font-size:.82rem;color:var(--graphite);display:block;margin-bottom:.15rem}
   .noteview code{font-size:.85em;background:var(--faint);padding:0 .25rem} .noteview .viz{margin:.8rem 0}
@@ -138,7 +145,7 @@
   .prov.wg{border-color:var(--ink);color:var(--ink);font-weight:600} .prio{font-size:.7rem;letter-spacing:-1px;margin-right:.2rem} .prio.core{color:#b3524e} .prio.know{color:var(--accent)} .prio.sup{color:var(--graphite)} .prov.flag{border-style:dashed}
   @media print{ html,body{background:#fff!important;color:#000!important;height:auto} body *{visibility:hidden} .noteview,.noteview *{visibility:visible}
     /* content in the left 63%, a ruled annotation column on the right of every page */
-    .noteview{position:absolute;left:0;top:0;width:63%;border:none;padding:0 0 0 0;overflow:visible;color:#000;background:#fff;font-size:10.5pt;line-height:1.5}
+    .noteview{position:absolute;left:0;top:0;width:63%;border:none;padding:0 0 0 0;overflow:visible;color:#000;background:#fff;font-size:10.5pt;line-height:1.5;box-shadow:none}
     .noteview::after{content:"";visibility:visible;position:fixed;top:0;right:0;width:32%;height:100vh;border-left:.5pt solid #000;
       background:repeating-linear-gradient(to bottom,transparent 0 7.6mm,#bbb 7.6mm 7.8mm);background-position:0 6mm}
     .noteview::before{content:"Notes";visibility:visible;position:fixed;top:0;right:0;width:32%;font-family:var(--sans);font-size:7.5pt;color:#666;text-align:right;padding-right:2mm}
