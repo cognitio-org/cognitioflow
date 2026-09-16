@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "CognitioFlow Brightspace grabber",
+  "version": "0.1.0",
+  "description": "Finds new course material on Brightspace and adds it to CognitioFlow. Asks before the first batch; after that only new files.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Brightspace material",
+    "default_icon": { "16": "icons/16.png", "32": "icons/32.png" }
+  },
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "options_page": "options.html",
+  "permissions": ["alarms", "storage", "notifications", "scripting"],
+  "host_permissions": ["https://brightspace.rug.nl/*"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "content_scripts": [
+    { "matches": ["https://brightspace.rug.nl/*"], "js": ["content-brightspace.js"], "run_at": "document_idle" }
+  ]
+}

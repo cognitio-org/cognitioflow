@@ -218,3 +218,19 @@ Until 12 September 2026 CognitioFlow ran on the Mac (`~/Desktop/cognitioflow`: S
 watched Finder folder). That build is retired: its data was moved to Neon and the bucket at the cutover and verified row
 for row. The folder stays untouched until about 27 September 2026 and is then archived. `migrate_sqlite.py`,
 `migrate_storage.py` and `scripts/cutover.sh` record how the move was made.
+
+### Brightspace grabber (Chrome extension)
+`extension/brightspace/` watches your Brightspace courses and adds new material to CognitioFlow. The first time it shows
+the whole list so you can confirm; after that it only offers what is new, with a notification. It keeps a list of
+Brightspace item ids so nothing is added twice, and it reads the **week** from the module title (`Week 4: …`) so files
+land in the right week. PDFs linked *inside* a weekly HTML page or a module description are picked up too, not just
+files attached as topics.
+
+**No passwords, no keys, nothing stored.** Reading happens inside your Brightspace tab and uploading inside your
+CognitioFlow tab, so each side uses the login already open there. If either tab is signed out, the grabber simply
+finds nothing.
+
+Install: `chrome://extensions` → Developer mode → **Load unpacked** → `extension/brightspace`. Then **Options**: put in
+the CognitioFlow address, press *Allow access to that address*, open Brightspace and CognitioFlow in tabs, press
+*Read from open tabs*, pick which CognitioFlow course each Brightspace course feeds, and Save. Logic tests:
+`cd extension/brightspace && node --test`.
