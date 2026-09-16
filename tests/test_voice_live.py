@@ -160,6 +160,10 @@ def test_route_relays_with_the_course_glossary(client, monkeypatch):
 def test_config_reports_whether_gemini_dictation_is_offered(client, monkeypatch):
     monkeypatch.setenv("GCP_PROJECT", "vigilant-axis-483119-r8")
     monkeypatch.delenv("VOICE_GEMINI", raising=False)
-    assert client.get("/api/config").json()["voice"] == {"gemini": True}
+    voice = client.get("/api/config").json()["voice"]
+    assert voice["gemini"] is True
+    # The same field now also reports the speaking voice, so assert both are present rather than
+    # pinning the whole object: dropping either one should still fail this test.
+    assert "backend" in voice and "server" in voice, f"speaking voice missing from config: {voice}"
     monkeypatch.setenv("VOICE_GEMINI", "off")
-    assert client.get("/api/config").json()["voice"] == {"gemini": False}
+    assert client.get("/api/config").json()["voice"]["gemini"] is False
