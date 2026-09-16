@@ -56,7 +56,9 @@ def test_risky_patterns_count_only_when_added():
     wf = ".github/workflows/deploy.yml"
     removed = pw.rules([f(wf)], diff_for(wf, removed=["            --allow-unauthenticated \\"]))
     added = pw.rules([f(wf)], diff_for(wf, added=["            --allow-unauthenticated \\"]))
-    assert removed[0] == 92 and added[0] == 82
+    # deploy.yml now also trips the CHECKER row (-20) on top of the workflow row (-8),
+    # so both drop by 20; the 10-point gap is the point: the risky line counts only when added.
+    assert removed[0] == 100 - 20 - 8 and added[0] == 100 - 20 - 8 - 10
 
 
 def test_verdicts():
