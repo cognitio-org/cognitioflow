@@ -1,0 +1,12 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Brightspace grabber — options</title>
+<link rel="stylesheet" href="style.css"><style>body{max-width:640px;margin:0 auto}</style></head>
+<body><div class="wrap">
+  <h1>Brightspace grabber</h1>
+  <p class="small muted">Reads your courses from a Brightspace tab and adds new material to CognitioFlow. It stores no passwords and no keys — both sides use the login you already have open.</p>
+  <label class="field">CognitioFlow address
+    <input type="url" id="appUrl" placeholder="https://cognitioflow-sarfwmfd3q-ez.a.run.app"></label>
+  <div class="row"><button class="btn" id="grant">Allow access to that address</button><span class="small muted" id="grantState"></span></div>
+  <div class="head"><h1 style="font-size:1rem">Courses</h1><button class="btn ghost small" id="detect">Read from open tabs</button></div>
+  <div id="courses"></div>
+  <div class="row"><button class="btn ghost" id="addRow">Add a course</button><button class="btn primary" id="save">Save</button><span class="small muted" id="saved"></span></div>
+</div><script src="options.js" type="module"></script></body></html>
