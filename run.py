@@ -353,7 +353,7 @@ def _model_json(m):
     raise HTTPException(502, "Model returned non-JSON; try again.")
 
 # Which model each task deserves. Cheap for bulk/recall work, strong where correction quality matters.
-ROUTE = {"drill": MODEL, "explain": MODEL, "notes": CHEAP_MODEL, "cards": CHEAP_MODEL, "summarise": CHEAP_MODEL}
+ROUTE = {"drill": MODEL, "explain": MODEL, "apply": MODEL, "notes": CHEAP_MODEL, "cards": CHEAP_MODEL, "summarise": CHEAP_MODEL}
 
 def pick_model(mode: str, requested: Optional[str], text: str = "") -> str:
     if requested and requested in MODELS: return requested
@@ -382,6 +382,11 @@ MODES = {
     "drill": "Mode: Socratic drill. Ask one question, wait, then correct firmly and specifically.",
     "explain": "Mode: explain. Give a tight, structured explanation with references to the files (file name, slide/page where visible).",
     "notes": "Mode: build notes. Reconcile the supplied files into master notes with provenance tags; flag conflicts and gaps.\n" + NOTE_STYLE,
+    "apply": ("Mode: application. The student gives you facts — a WG question, an exam problem, a scenario. Work the exam method in IRAC: "
+              "applicability, then restriction or scope, then justification and proportionality. At every step name the article and the case "
+              "from the ticked files that decides it, quote the few words that bite, and say in one line why those words catch these facts. "
+              "Where a step turns on one fact, say which fact would flip it. Never state a rule without the authority next to it, and label "
+              "anything outside the ticked files [OUTSIDE FILES]. Finish with a 'Bottom line' of two sentences."),
 }
 
 @app.get("/api/courses/{cid}/messages")

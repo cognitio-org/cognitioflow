@@ -19,13 +19,50 @@
   .panel{border:1px solid var(--rule);border-radius:var(--r);padding:var(--s4) 1.1rem;background:var(--paper)} .panel.bar{border-left:4px solid var(--accent)}
   .hero{border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--r);padding:var(--s5) var(--s5) var(--s5) var(--s5);background:var(--paper);display:grid;grid-template-columns:1fr auto;gap:var(--s5);align-items:center}
   .herobook{grid-template-columns:1fr 260px;align-items:center} .bookwrap{display:flex;flex-direction:column;align-items:center;gap:.4rem} .booknum{text-align:center} .hero h2{font-size:1.6rem;margin:.1rem 0 .4rem}
-  .book{position:relative;display:flex;justify-content:center;padding-right:14px;perspective:900px} .bookstage{transform-style:preserve-3d} .bookstage.open{animation:bookopen .6s cubic-bezier(.22,.61,.36,1) backwards} .booktilt{transform-style:preserve-3d;transform:rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));transition:transform var(--tt,.35s) ease;will-change:transform} .book svg{overflow:visible} .book .cover{filter:drop-shadow(0 6px 14px rgba(60,10,12,.35))}
-  .book .tab{cursor:pointer;transition:transform .18s ease} .book .tab rect{stroke:rgba(0,0,0,.15);stroke-width:.5}
-  .book .tab:hover{transform:translateX(10px)} .book .bk{transform-origin:109px 130px}
+  /* The statute book — one bold object. Ported from the design handoff (static/showcase.html), tilt kept calmer. */
+  .book{position:relative;width:200px;height:264px;perspective:1200px;perspective-origin:50% 40%}
+  .bookstage{position:absolute;inset:0;transform-style:preserve-3d}
+  .booktilt{position:absolute;inset:0;transform-style:preserve-3d;cursor:pointer;
+    transform:translateZ(14px) rotateY(var(--ry,0deg)) rotateX(var(--rx,0deg));transition:transform var(--tt,.45s) cubic-bezier(.2,.8,.2,1)}
+  .booktilt:focus-visible{outline:2px solid var(--accent);outline-offset:6px}
+  .bk__back{position:absolute;inset:0;border-radius:3px 5px 5px 3px;background:linear-gradient(145deg,#7a1f22,#4a1013);box-shadow:0 20px 34px -20px rgba(0,0,0,.75)}
+  .bk__foreedge{position:absolute;top:5px;right:0;width:26px;height:254px;transform-origin:right center;transform:rotateY(-90deg);background:repeating-linear-gradient(180deg,#efe9dc 0 2px,#d9d2c1 2px 4px)}
+  .bk__head{position:absolute;top:5px;left:5px;width:190px;height:26px;transform-origin:center top;transform:rotateX(90deg);background:repeating-linear-gradient(90deg,#efe9dc 0 2px,#d9d2c1 2px 4px)}
+  .bk__tail{position:absolute;bottom:5px;left:5px;width:190px;height:26px;transform-origin:center bottom;transform:rotateX(-90deg);background:repeating-linear-gradient(90deg,#e4ddcd 0 2px,#cec7b5 2px 4px)}
+  .bk__spine{position:absolute;left:0;top:0;width:26px;height:100%;transform-origin:left center;transform:rotateY(-90deg);background:linear-gradient(180deg,#6d1c1f,#3f0e10);display:flex;flex-direction:column;align-items:center;padding:9px 0}
+  .sp__rule{display:block;width:100%;height:4px;background:linear-gradient(180deg,rgba(201,178,58,.55),rgba(201,178,58,.12))}
+  .sp__band{display:block;width:100%;height:6px;background:linear-gradient(180deg,rgba(255,255,255,.12),rgba(0,0,0,.35))}
+  .sp__text{flex:1;display:flex;align-items:center;justify-content:center}
+  .sp__text span{font-family:var(--sans);font-size:8px;letter-spacing:.2em;color:rgba(233,223,201,.8);white-space:nowrap;transform:rotate(-90deg)}
+  .bk__pages{position:absolute;inset:6px;border-radius:3px;background:linear-gradient(90deg,#d9d2c1,#efe9dc);transform:translateZ(-3px);box-shadow:inset 0 0 12px rgba(0,0,0,.15)}
+  .leaf{position:absolute;inset:6px;border-radius:3px;background:linear-gradient(100deg,#f6f1e4,#e6dfcd);color:#2a2724;padding:18px 16px;opacity:0;transition:opacity .2s;display:flex;flex-direction:column;gap:5px;overflow:hidden}
+  .book.is-open .leaf--title{opacity:1} .book.is-open.has-page .leaf--title{opacity:0} .book.is-open.has-page .leaf--tab{opacity:1} .book.is-turning .leaf{opacity:0}
+  .lf__rule{display:block;height:2px;background:#8a1f24;opacity:.5}
+  .lf__h1{font-family:var(--serif);font-size:15px;line-height:1.25;margin-top:4px}
+  .lf__kicker,.lf__eyebrow{font-size:7.5px;letter-spacing:.14em;color:#6b6152}
+  .lf__meta,.lf__folio{margin-top:auto;font-size:8px;color:#6b6152}
+  .lf__label{font-family:var(--serif);font-size:17px}
+  .lf__refs{font-size:9.5px;line-height:1.5;color:#3a352e}
+  .bk__sheet{position:absolute;inset:5px;border-radius:2px;background:linear-gradient(100deg,#f6f1e4,#ddd5c2);transform-origin:left center;opacity:0;backface-visibility:hidden}
+  .book.is-turning .bk__sheet{opacity:1;transform:rotateY(-142deg);transition:transform .34s cubic-bezier(.4,.2,.2,1),opacity .1s}
+  .bk__cover{position:absolute;inset:0;border-radius:3px 5px 5px 3px;transform-origin:left center;backface-visibility:hidden;background:linear-gradient(145deg,#7a1f22,#5c1417);box-shadow:0 10px 22px -12px rgba(60,10,12,.8);transition:transform .5s cubic-bezier(.2,.8,.2,1)}
+  .book.is-open .bk__cover{transform:rotateY(-152deg)}
+  .cv__rule{position:absolute;inset:9px;border:1px solid rgba(201,178,58,.38);border-radius:2px;box-shadow:inset 0 0 22px rgba(0,0,0,.35)}
+  .cv__rule2{position:absolute;inset:13px;border:1px solid rgba(201,178,58,.16);border-radius:2px}
+  .cv__hinge{position:absolute;left:0;top:0;bottom:0;width:14px;background:linear-gradient(90deg,rgba(0,0,0,.45),rgba(0,0,0,0))}
+  .cv__sheen{position:absolute;inset:0;border-radius:3px;background:linear-gradient(118deg,rgba(255,255,255,.14),rgba(255,255,255,0) 42%)}
+  .cv__type{position:absolute;top:30px;left:0;right:0;text-align:center;font-family:var(--serif);padding:0 10px}
+  .cv__type .t1{font-size:12px;letter-spacing:.18em;color:rgba(201,178,58,.9);text-shadow:0 1px 0 rgba(0,0,0,.5);margin-bottom:6px}
+  .cv__type .hr{display:block;width:46px;height:1px;background:rgba(201,178,58,.5);margin:0 auto 6px}
+  .cv__type .t2{font-size:11px;color:rgba(239,233,220,.62);font-style:italic}
+  .book .tab{border:0;padding:0;position:absolute;right:-10px;width:24px;height:26px;border-radius:0 4px 4px 0;transform-style:preserve-3d;display:flex;align-items:center;cursor:pointer;opacity:0;z-index:6;
+    transform:translateX(40px) translateZ(-15px);transition:transform .18s cubic-bezier(.2,.8,.2,1),opacity .4s}
+  .book.is-loaded .tab{opacity:1;transform:translateX(0) translateZ(-15px)}
+  .book.is-loaded .tab:hover,.book.is-loaded .tab:focus-visible{transform:translateX(10px) translateZ(-8px)}
+  .book .tab::before{content:"";position:absolute;top:-3px;bottom:-3px;left:0;right:-8px}   /* 32px hit area */
+  .tab__top{position:absolute;left:0;right:0;top:0;height:26px;transform-origin:center top;transform:rotateX(90deg);border-radius:0 3px 0 0}
   .tabname{position:absolute;bottom:-6px;left:0;right:0;text-align:center;color:var(--graphite);min-height:1.1em;transition:opacity .15s}
-  @keyframes fan{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:translateX(0)}}
-  @keyframes bookopen{from{transform:rotateY(-20deg) rotateX(4deg);opacity:.55}to{transform:rotateY(0) rotateX(0);opacity:1}}
-  .book .tab{animation:fan .4s ease backwards} @media(prefers-reduced-motion:reduce){.book .tab{animation:none} .bookstage.open{animation:none} .booktilt{transition:none;transform:none}}
+  @media(prefers-reduced-motion:reduce){.booktilt,.bk__cover,.bk__sheet,.book .tab{transition:none} .book .tab{opacity:1;transform:translateX(0) translateZ(-15px)}}
   @media(max-width:1300px){.herobook{grid-template-columns:1fr} .book{display:none}} .hero .k{font-family:var(--serif);font-size:2.6rem;line-height:1;text-align:right} .hero .k small{display:block;font-family:var(--sans);font-size:.8rem;color:var(--graphite);margin-top:.3rem}
   .statrow{display:flex;gap:var(--s5);flex-wrap:wrap;padding:var(--s3) 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin:var(--s4) 0}
   .statrow .stat{display:flex;align-items:baseline;gap:.45rem;padding:0} .statrow .stat .n{font-size:1.35rem} .statrow .stat .l{margin:0;font-size:.82rem}
@@ -200,20 +237,17 @@
 <section id="home" class="screen">
   <div class="head"><div><h1 id="homeTitle"></h1><div class="small muted">Private workspace · files, tutor and notes saved to your account</div></div></div>
   <div class="hero herobook"><div><div class="small muted">Next</div><h2 id="h-next"></h2><p id="h-nextBody"></p><button class="btn primary" id="h-go">Open</button></div>
-    <div class="bookwrap"><div class="book" id="book" aria-hidden="true">
-      <div class="bookstage"><div class="booktilt"><svg viewBox="0 0 220 260" width="220" height="260" role="img">
-        <defs>
-          <linearGradient id="cov" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7a1f22"/><stop offset="1" stop-color="#5c1417"/></linearGradient>
-          <linearGradient id="pg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#efe9dc"/><stop offset="1" stop-color="#d9d2c1"/></linearGradient>
-        </defs>
-        <g class="bk">
-          <rect class="cover" x="34" y="16" width="150" height="228" rx="5" fill="url(#cov)"/>
-          <rect x="46" y="22" width="132" height="216" rx="2" fill="url(#pg)"/>
-          <rect x="34" y="16" width="14" height="228" rx="4" fill="#4a1013"/>
-          <text x="41" y="150" fill="#e9dfc9" font-family="Spectral, serif" font-size="9" letter-spacing="2" transform="rotate(90 41 150)" text-anchor="middle">STATUTES</text>
-          <g class="tabs" fill="none"></g>
-        </g>
-      </svg></div></div>
+    <div class="bookwrap"><div class="book" id="book">
+      <div class="bookstage"><div class="booktilt" tabindex="0" role="button" aria-label="Statute book — Enter opens or closes it">
+        <div class="bk__back"></div><div class="bk__foreedge"></div><div class="bk__head"></div><div class="bk__tail"></div>
+        <div class="bk__spine"><i class="sp__rule"></i><i class="sp__band"></i><div class="sp__text"><span>STATUTES</span></div><i class="sp__band"></i><i class="sp__rule"></i></div>
+        <div class="bk__pages"></div>
+        <div class="leaf leaf--title"><i class="lf__rule"></i><div class="lf__h1" id="leafTitle"></div><div class="lf__kicker" id="leafKicker"></div><div class="lf__meta">Groningen — 2026/27</div><i class="lf__rule"></i></div>
+        <div class="leaf leaf--tab"><i class="lf__rule" id="leafRule1"></i><div class="lf__eyebrow" id="leafEyebrow"></div><div class="lf__label" id="leafLabel"></div><div class="lf__refs" id="leafRefs"></div><i class="lf__rule" id="leafRule2"></i><div class="lf__folio" id="leafFolio"></div></div>
+        <div class="bk__sheet"></div>
+        <div class="bk__cover"><i class="cv__rule"></i><i class="cv__rule2"></i><i class="cv__hinge"></i><i class="cv__sheen"></i>
+          <div class="cv__type"><div class="t1" id="coverTitle"></div><i class="hr"></i><div class="t2">Statutes &amp; Case-Law</div></div></div>
+      </div></div>
       <div class="tabname small" id="tabname"></div>
     </div><div class="k booknum"><span id="h-due">–</span><small>cards due today</small></div></div>
   </div>
@@ -243,6 +277,7 @@
       <div class="modes" role="group" aria-label="Mode">
         <button class="btn small active" data-mode="drill">Drill me</button>
         <button class="btn small" data-mode="explain">Explain</button>
+        <button class="btn small" data-mode="apply" title="Give it the facts of a WG or exam question; it applies the articles and cases to them, step by step">Apply to facts</button>
         <button class="btn small" data-mode="notes">Build notes</button>
         <span style="margin-left:auto;display:flex;gap:.4rem;align-items:center">
           <select id="modelSel" class="small" aria-label="Model"><option value="auto">Auto model</option></select><span class="small muted" id="routeHint" title="Which model Auto will use for this message"></span>
@@ -392,23 +427,41 @@ $('#addCourse').addEventListener('click',async()=>{const n=prompt('Course name')
 
 /* home */
 const TABS=[["#2f5fae","Prohibitions","34 · 45 · 101"],["#d98a2b","Derogations","36 · 52 · 65"],["#1f7a4d","Competences","5 · 114 · 352"],["#8fbf6a","Secondary law","2004/38 · 1/2003"],["#8e2f6e","Enforcement","258 · 263 · 267"],["#d46a9a","Rights","18 · 21 · 157"],["#c9b23a","Definitions","28 · 54 · 57"]];
-function drawBook(){ const g=document.querySelector('#book .tabs'); if(!g||g.childElementCount) return; const top=30, gap=27;
-  TABS.forEach((t,i)=>{ const y=top+i*gap; const el=document.createElementNS('http://www.w3.org/2000/svg','g'); el.setAttribute('class','tab'); el.style.animationDelay=(i*60)+'ms';
-    el.innerHTML=`<rect x="170" y="${y}" width="26" height="20" rx="2.5" fill="${t[0]}"/>`;
-    el.onmouseenter=()=>{$('#tabname').textContent=t[1]+' · Art '+t[2]}; el.onmouseleave=()=>{$('#tabname').textContent=''};
-    el.onclick=()=>{ toast(t[1]+': Art '+t[2]); }; g.appendChild(el); }); }
+function drawBook(){ const tilt=document.querySelector('#book .booktilt'); if(!tilt||tilt.querySelector('.tab')) return;
+  const name=i=>TABS[i][1]+' · Art '+TABS[i][2];
+  TABS.forEach((t,i)=>{ const b=document.createElement('button'); b.type='button'; b.className='tab';
+    const dark=`color-mix(in oklab,${t[0]},#000 34%)`;
+    b.style.top=(12+i*32)+'px'; b.style.background=`linear-gradient(160deg,${t[0]},${dark})`; b.style.transitionDelay='0s, '+(i*60)+'ms';
+    b.setAttribute('aria-label',`Tab ${i+1} of ${TABS.length}: ${name(i)}`);
+    b.innerHTML=`<i class="tab__top" style="background:linear-gradient(90deg,${t[0]},${dark})"></i>`;
+    const show=()=>{$('#tabname').textContent=name(i)}, hide=()=>{$('#tabname').textContent=''};
+    b.onmouseenter=show; b.onmouseleave=hide; b.onfocus=show; b.onblur=hide;
+    b.onclick=e=>{ e.stopPropagation(); openTab(i) }; tilt.appendChild(b); }); }
+let _turnT=0;
+function openTab(i){ const book=$('#book'), was=book.classList.contains('is-open'), t=TABS[i];
+  book.classList.add('is-open','is-turning'); clearTimeout(_turnT);
+  _turnT=setTimeout(()=>{ $('#leafEyebrow').textContent=`TAB ${i+1} OF ${TABS.length}`; $('#leafLabel').textContent=t[1];
+    $('#leafRefs').textContent='Art '+t[2]; $('#leafFolio').textContent='§ '+t[1].toLowerCase();
+    $('#leafRule1').style.background=t[0]; $('#leafRule2').style.background=t[0];
+    book.classList.add('has-page'); book.classList.remove('is-turning'); }, was?240:420); }
 let _tiltInit=false;
 function bookMotion(){ const book=document.getElementById('book'); if(!book) return;
-  const stage=book.querySelector('.bookstage'), tilt=book.querySelector('.booktilt');
-  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if(stage && !reduce){ stage.classList.remove('open'); void stage.offsetWidth; stage.classList.add('open'); }
-  if(_tiltInit || reduce || !tilt) return; _tiltInit=true; let raf=0;
+  const tilt=book.querySelector('.booktilt'); if(!tilt) return;
+  setTimeout(()=>book.classList.add('is-loaded'),120);
+  if(_tiltInit) return; _tiltInit=true;
+  const toggle=()=>{ const open=!book.classList.contains('is-open'); book.classList.toggle('is-open',open); if(!open) book.classList.remove('has-page') };
+  tilt.addEventListener('click',toggle);
+  tilt.addEventListener('keydown',e=>{ if(e.target===tilt&&(e.key==='Enter'||e.key===' ')){ e.preventDefault(); toggle() } });
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  let raf=0;
   book.addEventListener('pointermove',e=>{ if(raf) return; const r=book.getBoundingClientRect();
     const px=(e.clientX-r.left)/r.width-0.5, py=(e.clientY-r.top)/r.height-0.5;
-    raf=requestAnimationFrame(()=>{ raf=0; tilt.style.setProperty('--tt','.1s');
-      tilt.style.setProperty('--ry',(px*14).toFixed(2)+'deg'); tilt.style.setProperty('--rx',(-py*10).toFixed(2)+'deg'); }); });
-  book.addEventListener('pointerleave',()=>{ tilt.style.setProperty('--tt','.45s'); tilt.style.setProperty('--rx','0deg'); tilt.style.setProperty('--ry','0deg'); }); }
-async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle').textContent=c.name; const s=await api(`/courses/${cid}/stats`);
+    raf=requestAnimationFrame(()=>{ raf=0; tilt.style.setProperty('--tt','.12s');
+      tilt.style.setProperty('--ry',(px*10).toFixed(2)+'deg'); tilt.style.setProperty('--rx',(-py*7).toFixed(2)+'deg') }) });
+  book.addEventListener('pointerleave',()=>{ tilt.style.setProperty('--tt','.5s'); tilt.style.setProperty('--rx','0deg'); tilt.style.setProperty('--ry','0deg') }); }
+async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle').textContent=c.name;
+  $('#coverTitle').textContent=c.name.toUpperCase(); $('#leafTitle').textContent=c.name;
+  $('#leafKicker').textContent=TABS.slice(0,3).map(x=>x[1]).join(' · ').toUpperCase(); const s=await api(`/courses/${cid}/stats`);
   $('#h-due').textContent=s.due; $('#h-streak').textContent=s.streak; $('#h-files').textContent=s.files; $('#h-acc').textContent=s.recall_accuracy==null?'–':s.recall_accuracy+'%';
   let next,body,go; if(s.files===0){next='Add your files';body='Slides, transcripts and notes go in first — the tutor only works from what you upload.';go='library'}
   else if(s.due>0){next=`Review ${s.due} due card${s.due>1?'s':''}`;body='Clear the queue before adding new material.';go='recall'}
@@ -463,6 +516,7 @@ function addMsg(role,text){const d=document.createElement('div');d.className='ms
 const MODE_UI={
   drill:{hint:'Drill: one question at a time, firm correction. Reply with your answer, or say what to drill.',ph:'Your answer — or "drill me on Art 34"'},
   explain:{hint:'Explain: a tight structured answer with file references; asks for a diagram or table when it helps.',ph:'What do you want explained? e.g. "Keck vs Italian Trailers, with a flowchart"'},
+  apply:{hint:'Apply to facts: paste the facts of a WG or exam question. Every step names the article or case from your ticked files that decides it, and what fact would flip it.',ph:'Paste the facts — e.g. "Germany bans the sale of energy drinks above 50mg caffeine. A French producer\u2026"'},
   notes:{hint:'Build notes: reconciles the ticked files into master notes with provenance tags and saves the result to Notes.',ph:'What to build — e.g. "Week 2 goods master notes" or "case map for Art 36 derogations"'}};
 function setMode(m){mode=m;document.querySelectorAll('[data-mode]').forEach(x=>x.classList.toggle('active',x.dataset.mode===m));$('#modeHint').textContent=MODE_UI[m].hint;$('#q').placeholder=MODE_UI[m].ph;localStorage.setItem('cf.mode',m)}
 document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{setMode(b.dataset.mode);$('#q').focus()});
