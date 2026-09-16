@@ -64,6 +64,50 @@
   .tabname{position:absolute;top:100%;margin-top:8px;left:-20px;right:-20px;text-align:center;color:var(--graphite);min-height:1.1em;transition:opacity .15s}
   @media(prefers-reduced-motion:reduce){.booktilt,.bk__cover,.bk__sheet,.book .tab{transition:none} .book .tab{opacity:1;transform:translateX(0) translateZ(-15px)}}
   @media(max-width:1300px){.herobook{grid-template-columns:1fr} .book{display:none}} .hero .k{font-family:var(--serif);font-size:2.6rem;line-height:1;text-align:right} .hero .k small{display:block;font-family:var(--sans);font-size:.8rem;color:var(--graphite);margin-top:.3rem}
+  /* Arena — the ladder and the courtroom */
+  .arwrap{display:grid;grid-template-columns:1fr 260px;gap:var(--s5)}
+  @media(max-width:1100px){.arwrap{grid-template-columns:1fr}}
+  .lawq{font-family:var(--serif);font-size:1.3rem;line-height:1.35;margin:.2rem 0 .9rem}
+  .lawopts{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+  @media(max-width:700px){.lawopts{grid-template-columns:1fr}}
+  .lawopt{display:flex;gap:.55rem;align-items:flex-start;text-align:left;padding:.65rem .8rem;border:1px solid var(--rule);border-radius:var(--r);background:var(--raised);color:var(--ink);font:inherit;cursor:pointer;min-height:44px;transition:border-color .15s,background .15s}
+  .lawopt:hover:not([disabled]){border-color:var(--accent)}
+  .lawopt .lt{font-family:var(--serif);color:var(--accent);flex:0 0 auto}
+  .lawopt[data-state=picked]{border-color:var(--accent);background:color-mix(in oklab,var(--accent),transparent 88%)}
+  .lawopt[data-state=right]{border-color:var(--ok);background:color-mix(in oklab,var(--ok),transparent 86%)}
+  .lawopt[data-state=wrong]{border-color:#c0563c;background:color-mix(in oklab,#c0563c,transparent 88%)}
+  .lawopt[data-state=gone]{opacity:.32}
+  .lawopt[disabled]{cursor:default}
+  @media(prefers-reduced-motion:no-preference){.lawopt[data-state=right]{animation:pop .32s ease}}
+  @keyframes pop{0%{transform:scale(1)}45%{transform:scale(1.025)}100%{transform:scale(1)}}
+  .lifelines{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.9rem}
+  .lifelines .btn[disabled]{opacity:.4;text-decoration:line-through}
+  .ladder{display:flex;flex-direction:column-reverse;gap:2px}
+  .rung{display:flex;justify-content:space-between;gap:.5rem;padding:.3rem .55rem;border-radius:var(--r);font-size:.82rem;color:var(--graphite)}
+  .rung.safe{font-weight:600;color:var(--ink)}
+  .rung.done{background:color-mix(in oklab,var(--ok),transparent 86%);color:var(--ink)}
+  .rung.at{background:var(--accent);color:#fff}
+  .rung.at .rn{color:#fff}
+  .rn{font-family:var(--serif)}
+  /* the room: a shallow stage, not a game engine */
+  .room{position:relative;height:210px;margin:.2rem 0 1rem;perspective:760px;perspective-origin:50% 42%;overflow:hidden;border:1px solid var(--rule);border-radius:var(--r);background:linear-gradient(180deg,#221c17,#171310)}
+  .room i,.room b{position:absolute;display:block}
+  .rm__back{left:0;right:0;top:0;height:120px;background:linear-gradient(180deg,#2c241c,#211a14);border-bottom:1px solid #3a2f24}
+  .rm__floor{left:-20%;right:-20%;bottom:0;height:150px;transform:rotateX(62deg);transform-origin:50% 100%;background:repeating-linear-gradient(90deg,#3a2f24 0 38px,#332a20 38px 76px)}
+  .rm__arms{left:50%;top:16px;width:26px;height:30px;margin-left:-13px;border-radius:3px 3px 12px 12px;background:linear-gradient(180deg,#c9b23a,#8a7622)}
+  .rm__bench{left:50%;top:62px;width:210px;height:56px;margin-left:-105px;border-radius:4px;background:linear-gradient(180deg,#5c4630,#3d2e1f);box-shadow:0 10px 18px -8px rgba(0,0,0,.8)}
+  .rm__desk{top:126px;width:120px;height:34px;border-radius:3px;background:linear-gradient(180deg,#4a3826,#33261a)}
+  .rm__desk.l{left:14%} .rm__desk.r{right:14%}
+  .rm__label{top:166px;font:500 .68rem/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:#b8ac92}
+  .rm__label.l{left:14%} .rm__label.r{right:14%}
+  .rm__you{box-shadow:0 0 0 2px var(--accent)}
+  .benchq{font-family:var(--serif);font-size:1.12rem;line-height:1.4;margin:.3rem 0 .6rem}
+  .courtlog{display:flex;flex-direction:column;gap:.5rem;max-height:240px;overflow:auto;margin:.6rem 0}
+  .caselist{display:flex;flex-direction:column;gap:.25rem;max-height:420px;overflow:auto}
+  .caselist button{text-align:left;font:inherit;background:transparent;border:1px solid transparent;border-radius:var(--r);padding:.35rem .5rem;cursor:pointer;color:var(--ink)}
+  .caselist button:hover{border-color:var(--rule);background:var(--faint)}
+  .caselist b{font-family:var(--serif);font-weight:500}
+  .holding{border-left:3px solid var(--ok);background:var(--faint);padding:.6rem .8rem;border-radius:var(--r);margin-top:.6rem}
   /* Advocate — oral revision */
   .advgrid{display:grid;grid-template-columns:1.4fr .9fr;gap:var(--s5)}
   @media(max-width:1000px){.advgrid{grid-template-columns:1fr}}
@@ -262,6 +306,7 @@
     <li><a href="#notes" data-nav="notes">Notes</a></li>
     <li><a href="#recall" data-nav="recall">Recall</a></li>
     <li><a href="#advocate" data-nav="advocate">Advocate</a></li>
+    <li><a href="#arena" data-nav="arena">Arena</a></li>
     <li><a href="#planner" data-nav="planner">Planner</a></li>
     <li><a href="#progress" data-nav="progress">Progress</a></li>
   </ul></nav>
@@ -420,6 +465,52 @@
   </div>
 </section>
 
+<section id="arena" class="screen">
+  <div class="head"><div><h1>Arena</h1><div class="small muted" id="arSub">Play it out — from your own cards and your own notes.</div></div>
+    <span><button class="btn small" id="lawStart">Start</button> <span class="seg" role="group"><button class="btn small" id="arTabLaw" aria-pressed="true">Who Wants to Be a Lawyer</button><button class="btn small" id="arTabCourt" aria-pressed="false">Courtroom</button></span></span></div>
+
+  <div id="arLawyer">
+    <div class="arwrap">
+      <div class="panel">
+        <div class="small muted" id="lawState">Questions from your own cards — clear every rung to win.</div>
+        <p class="lawq" id="lawQ">Press Start.</p>
+        <div class="lawopts" id="lawOpts"></div>
+        <div class="lifelines">
+          <button class="btn small ghost" id="lifeFifty" title="Remove two wrong answers">50 : 50</button>
+          <button class="btn small ghost" id="lifeHint" title="One sentence pointing at the rule — never the answer">Ask the tutor</button>
+          <button class="btn small ghost" id="lifeSkip" title="Move on without answering">Skip</button>
+        </div>
+        <div class="small muted" id="lawHint" style="margin-top:.6rem"></div>
+      </div>
+      <aside class="panel"><h3 style="margin-bottom:.4rem">Ladder</h3><div class="ladder" id="ladder"></div></aside>
+    </div>
+  </div>
+
+  <div id="arCourt" hidden>
+    <div class="arwrap">
+      <div class="panel">
+        <div class="room" id="courtRoom" aria-hidden="true">
+          <i class="rm__back"></i><i class="rm__floor"></i><i class="rm__arms"></i><b class="rm__bench"></b>
+          <b class="rm__desk l rm__you"></b><b class="rm__desk r"></b>
+          <i class="rm__label l">You</i><i class="rm__label r">Opposing</i>
+        </div>
+        <div class="small muted" id="courtWho">Pick a case from your notes.</div>
+        <p class="benchq" id="benchQ">The bench is not sitting yet.</p>
+        <div class="courtlog" id="courtLog"></div>
+        <div class="advctrl">
+          <button class="btn" id="courtMic" aria-pressed="false" title="Speak your submission">🎙 Submit</button>
+          <input type="text" id="courtType" placeholder="Address the bench…" aria-label="Your submission">
+          <button class="btn primary" id="courtSend">Reply</button>
+        </div>
+        <div id="courtHolding"></div>
+      </div>
+      <aside class="panel"><h3 style="margin-bottom:.4rem">Cases in your notes</h3>
+        <div class="small muted" style="margin-bottom:.4rem">Taken from names you wrote in <i>italics</i>.</div>
+        <div class="caselist" id="courtCases"></div></aside>
+    </div>
+  </div>
+</section>
+
 <section id="planner" class="screen">
   <div class="head"><div><h1>Planner</h1><div class="small muted" id="planSub">All courses</div></div>
     <span><button class="btn small" id="autoPlan" title="Plan the next days from the course calendar, files by week and cards due">Auto-plan week</button> <button class="btn small ghost" id="rePlan" title="Discard unfinished sessions from today and plan afresh">Re-plan</button> <button class="btn small ghost" id="addToggle">+ Add session</button></span></div>
@@ -480,8 +571,8 @@ let courses=[], cid=localStorage.getItem('cf.course')||'', mode='drill', cfg={};
 const C=()=>courses.find(c=>c.id===cid)||courses[0];
 
 /* nav */
-const SCREENS=['home','library','tutor','notes','recall','advocate','planner','progress'];
-const loaders={home:loadHome,library:loadFiles,tutor:loadTutor,notes:loadNotes,recall:loadRecall,advocate:loadAdvocate,planner:loadPlanner,progress:loadProgress};
+const SCREENS=['home','library','tutor','notes','recall','advocate','arena','planner','progress'];
+const loaders={home:loadHome,library:loadFiles,tutor:loadTutor,notes:loadNotes,recall:loadRecall,advocate:loadAdvocate,arena:loadArena,planner:loadPlanner,progress:loadProgress};
 function show(id){ if(!SCREENS.includes(id)) id='home'; document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.id===id)); document.querySelectorAll('[data-nav]').forEach(a=>a.classList.toggle('active',a.dataset.nav===id)); localStorage.setItem('cf.screen',id); loaders[id](); }
 document.addEventListener('click',e=>{const a=e.target.closest('a[data-nav]'); if(a){e.preventDefault(); show(a.dataset.nav)}});
 
@@ -822,6 +913,7 @@ $('#advMic').onclick=()=>{
   if(!ASR){ toast('Speaking needs Chrome — type your answer instead'); return; }
   if(advListening){ advRecog.stop(); return; }
   advQuiet();
+  micOwner('#advMic','#advType','🎙 Answer',advSubmit);
   try{ advRecog.start(); advListening=true; $('#advMic').setAttribute('aria-pressed','true'); $('#advMic').textContent='● Listening';
        $('#advHint').textContent='Listening — click again when you have finished.'; }catch(e){}
 };
@@ -849,6 +941,189 @@ async function loadAdvocate(){
   $('#advCourse').textContent=C().name;
   advRender();
 }
+
+/* Two screens share one recogniser; whoever starts it owns it until it stops. */
+function micOwner(btn,box,label,send){
+  if(!ASR) return;
+  let buf='';
+  const stopped=()=>{ advListening=false; $(btn).setAttribute('aria-pressed','false'); $(btn).textContent=label; };
+  advRecog.onresult=e=>{ buf=''; for(let i=0;i<e.results.length;i++) buf+=e.results[i][0].transcript; $(box).value=buf; };
+  advRecog.onend=()=>{ stopped(); if(buf.trim()) send(buf); buf=''; };
+  advRecog.onerror=()=>{ stopped(); toast('Mic problem — type it instead'); };
+}
+/* ---- Arena: the ladder and the courtroom. Both feed the same cards as everything else. ---- */
+const RUNGS=15;   // asked for; the ladder is drawn from what the course can actually supply
+const safeRungs=n=>n<6?[] :[...new Set([Math.ceil(n/3),Math.ceil(2*n/3),n])].filter(x=>x>0);
+const law={q:[],i:0,used:{fifty:false,hint:false,skip:false},helped:false,over:false};
+
+function arTab(which){
+  $('#arTabLaw').setAttribute('aria-pressed',which==='law'); $('#arTabCourt').setAttribute('aria-pressed',which==='court');
+  $('#arLawyer').hidden=which!=='law'; $('#arCourt').hidden=which!=='court'; $('#lawStart').hidden=which!=='law';
+  localStorage.setItem('cf.arena',which);
+  if(which==='court') loadCourtCases();
+}
+$('#arTabLaw').onclick=()=>arTab('law'); $('#arTabCourt').onclick=()=>arTab('court');
+
+function ladder(){
+  const el=$('#ladder'); el.innerHTML='';
+  if(!law.q.length){ el.innerHTML='<div class="small muted">Press Start — the ladder is as long as the questions your cards can fill, up to '+RUNGS+'.</div>'; return; }
+  const total=law.q.length, safe=safeRungs(total);
+  for(let n=1;n<=total;n++){
+    const d=document.createElement('div');
+    d.className='rung'+(safe.includes(n)?' safe':'')+(n<law.i+1?' done':'')+(n===law.i+1&&!law.over?' at':'');
+    d.innerHTML=`<span class="rn">${n}</span><span>${safe.includes(n)?'safe':''}</span>`;
+    el.appendChild(d);
+  }
+}
+
+function lawLifelines(on){
+  $('#lifeFifty').disabled=!on||law.used.fifty;
+  $('#lifeHint').disabled=!on||law.used.hint;
+  $('#lifeSkip').disabled=!on||law.used.skip;
+}
+
+async function lawStart(){
+  law.i=0; law.over=false; law.used={fifty:false,hint:false,skip:false};
+  $('#lawHint').textContent=''; $('#lawQ').textContent='Writing fifteen questions from your cards…'; $('#lawOpts').innerHTML='';
+  try{ law.q=await post(`/courses/${cid}/quiz`,{count:RUNGS}); }
+  catch(e){ $('#lawQ').textContent='Could not write questions: '+e.message; return; }
+  if(!law.q.length){ $('#lawQ').textContent='No cards yet — make some in Recall first.'; return; }
+  ladder(); lawShow();
+}
+
+function lawShow(){
+  const it=law.q[law.i];
+  if(!it){ return lawEnd(true); }
+  law.helped=false;
+  $('#lawState').textContent=`Question ${law.i+1} of ${law.q.length}`;
+  $('#lawHint').textContent='';
+  $('#lawQ').textContent=it.question;
+  const letters='ABCD';
+  $('#lawOpts').innerHTML=it.options.map((o,i)=>`<button class="lawopt" data-opt="${i}"><span class="lt">${letters[i]}</span><span>${esc(o)}</span></button>`).join('');
+  $('#lawOpts').querySelectorAll('.lawopt').forEach(b=>b.onclick=()=>lawAnswer(b,it));
+  lawLifelines(true); ladder();
+}
+
+async function lawAnswer(btn,it){
+  const chosen=it.options[+btn.dataset.opt], right=chosen===it.correct;
+  $('#lawOpts').querySelectorAll('.lawopt').forEach(x=>{ x.disabled=true; x.onclick=null; });
+  btn.dataset.state='picked';
+  lawLifelines(false);
+  await new Promise(r=>setTimeout(r,matchMedia('(prefers-reduced-motion: reduce)').matches?120:650));
+  $('#lawOpts').querySelectorAll('.lawopt').forEach(x=>{
+    const v=it.options[+x.dataset.opt];
+    if(v===it.correct) x.dataset.state='right'; else if(x===btn) x.dataset.state='wrong';
+  });
+  // A miss always comes back. A win only counts as knowing it if no lifeline carried you.
+  try{ if(!right) await post(`/cards/${it.id}/review`,{rating:0});
+       else if(!law.helped) await post(`/cards/${it.id}/review`,{rating:2}); }catch(e){}
+  setTimeout(()=>{
+    if(!right) return lawEnd(false);
+    law.i++; if(law.i>=law.q.length) return lawEnd(true);
+    lawShow();
+  }, 900);
+}
+
+function lawEnd(won){
+  law.over=true; ladder(); lawLifelines(false);
+  const reached=law.i;
+  const safe=[...safeRungs(law.q.length||RUNGS)].reverse().find(n=>n<=reached)||0;
+  $('#lawOpts').innerHTML='';
+  $('#lawState').textContent=won?'Cleared':'Out';
+  $('#lawQ').textContent = won
+    ? `All ${law.q.length} — clean sweep. Nothing from this run comes back early.`
+    : `Out at question ${reached+1}. You keep question ${safe||0}. That card is already back in your queue.`;
+}
+
+$('#lawStart').onclick=lawStart;
+$('#lifeFifty').onclick=()=>{
+  const it=law.q[law.i]; if(!it) return;
+  law.used.fifty=true; law.helped=true; lawLifelines(true);
+  const wrong=[...$('#lawOpts').querySelectorAll('.lawopt')].filter(b=>it.options[+b.dataset.opt]!==it.correct);
+  wrong.sort(()=>Math.random()-0.5).slice(0,2).forEach(b=>{ b.dataset.state='gone'; b.disabled=true; b.onclick=null; });
+};
+$('#lifeHint').onclick=async()=>{
+  const it=law.q[law.i]; if(!it) return;
+  law.used.hint=true; law.helped=true; lawLifelines(true);
+  $('#lawHint').textContent='Asking the tutor…';
+  try{ const r=await post(`/courses/${cid}/hint`,{question:it.question,options:it.options}); $('#lawHint').textContent='💡 '+r.hint; }
+  catch(e){ $('#lawHint').textContent='No hint available just now.'; }
+};
+$('#lifeSkip').onclick=()=>{
+  if(!law.q[law.i]) return;
+  law.used.skip=true; law.i++;
+  if(law.i>=law.q.length) return lawEnd(true);
+  lawShow();
+};
+
+/* ---- Courtroom ---- */
+const court={case:null,hearing:null,qi:0,busy:false};
+
+async function loadCourtCases(){
+  const el=$('#courtCases');
+  try{
+    const cs=await api(`/courses/${cid}/cases`);
+    if(!cs.length){ el.innerHTML='<div class="small muted">No cases yet — they appear once your notes name cases in *italics*.</div>'; return; }
+    el.innerHTML=cs.map(c=>`<button data-case="${esc(c.name)}"><b>${esc(c.name)}</b>${c.cite?` <span class="muted">${esc(c.cite)}</span>`:''}</button>`).join('');
+    el.querySelectorAll('button[data-case]').forEach(b=>b.onclick=()=>openCase(b.dataset.case));
+  }catch(e){ el.innerHTML='<div class="small muted">Could not read your cases.</div>'; }
+}
+
+async function openCase(name){
+  court.case=name; court.qi=0; court.hearing=null;
+  $('#courtLog').innerHTML=''; $('#courtHolding').innerHTML='';
+  $('#courtWho').textContent='Preparing the hearing…'; $('#benchQ').textContent='…';
+  try{ court.hearing=await post(`/courses/${cid}/court`,{case:name}); }
+  catch(e){ $('#courtWho').textContent=''; $('#benchQ').textContent=e.message||'Could not build the hearing.'; return; }
+  const h=court.hearing;
+  $('#courtWho').innerHTML=`<b>${esc(h.case)}</b>${h.court?' · '+esc(h.court):''}${h.year?' · '+esc(h.year):''}${h.parties?' — '+esc(h.parties):''}`;
+  if(h.issue) courtSay('tutor','The issue: '+h.issue);
+  if(h.for) courtSay('tutor','You appear for: '+h.for);
+  benchAsk();
+}
+
+function courtSay(who,text){
+  const d=document.createElement('div'); d.className='advb '+who; d.textContent=text;
+  const l=$('#courtLog'); l.appendChild(d); l.scrollTop=l.scrollHeight; return d;
+}
+
+function benchAsk(){
+  const h=court.hearing; if(!h) return;
+  const q=h.bench[court.qi];
+  if(!q){ $('#benchQ').textContent='The bench has heard enough.';
+    if(h.holding) $('#courtHolding').innerHTML=`<div class="holding"><b>What the court actually held</b><div>${esc(h.holding)}</div></div>`;
+    return; }
+  $('#benchQ').textContent=q;
+  advSpeak && advSpeak(q);
+}
+
+async function courtReply(text){
+  text=(text||'').trim();
+  if(!text||court.busy||!court.hearing) return;
+  const q=court.hearing.bench[court.qi]; if(!q) return;
+  court.busy=true; courtSay('me',text); $('#courtType').value='';
+  const think=courtSay('tutor','…');
+  try{
+    const g=await post(`/courses/${cid}/court/reply`,{case:court.case,question:q,answer:text});
+    think.remove();
+    const b=courtSay('tutor','');
+    b.innerHTML=`<div class="verdict v-${g.mastery}">${esc(g.verdict)}</div>${esc(g.spoken)}`;
+    advSpeak && advSpeak(g.spoken);
+    court.qi++; setTimeout(benchAsk,700);
+  }catch(e){ think.remove(); toast('The bench did not respond — say that again'); }
+  court.busy=false;
+}
+$('#courtSend').onclick=()=>courtReply($('#courtType').value);
+$('#courtType').addEventListener('keydown',e=>{ if(e.key==='Enter') courtReply($('#courtType').value); });
+$('#courtMic').onclick=()=>{
+  if(!ASR){ toast('Speaking needs Chrome — type instead'); return; }
+  if(advListening){ advRecog.stop(); return; }
+  advQuiet();
+  micOwner('#courtMic','#courtType','🎙 Submit',courtReply);
+  try{ advRecog.start(); advListening=true; $('#courtMic').setAttribute('aria-pressed','true'); $('#courtMic').textContent='● Listening'; }catch(e){}
+};
+
+function loadArena(){ arTab(localStorage.getItem('cf.arena')||'law'); ladder(); }
 
 /* ---- recorder ---- */
 let rec=null, recId=null, recStart=0, recChunks=[], recTimer=null;

@@ -570,6 +570,173 @@ def generate_cards(cid: str, g: GenIn):
     return {"made": made}
 
 
+# ---------------------------------------------------------------- oral grading (constant, cached)
+# This prompt is identical on every spoken answer, so it is sent as cached blocks: a cache read costs
+# a tenth of a normal input token, and the break-even is two calls. Caching only engages above roughly
+# 1024 tokens, so the calibration below is not padding — it is what makes the marking consistent AND
+# what makes it cacheable. Nothing that varies per question may appear here.
+GRADER_RULES = """You are a sharp, warm Socratic law tutor examining a Groningen LLB student out loud.
+
+You are grading a SPOKEN answer. Tolerate filler, false starts, self-correction and loose word order;
+a student thinking aloud is not the same as a student who does not know. Judge only the legal substance.
+
+How to weigh an answer:
+- The RULE and its AUTHORITY carry the most weight. An answer that states the correct test but cites the
+  wrong case is not "mostly right" — the citation is half the mark in a law exam.
+- Naming the right case with the wrong test is worse still: it looks like recall without understanding.
+- Conditions are cumulative. If a test has three limbs and two are given, that is incomplete, not close.
+- Reward an answer that volunteers the limits of a rule, the exception, or the case that qualifies it.
+- Do not reward fluency. A confident, well-phrased answer that is legally thin is thin.
+- Do not penalise an answer for using different words than the model answer if the law is the same.
+- If the student self-corrects mid-answer, mark the corrected version.
+
+What each grade means:
+- "solid"  — substantially complete: the rule, its authority, and any limb that matters are all present.
+             A tiny omission that would not cost a mark in an exam is still solid.
+- "shaky"  — partly right: the direction is correct but a limb, a qualification or the authority is missing
+             or wrong; or the right idea is attached to the wrong case.
+- "missed" — a core element or the key authority is absent, or the answer states the law incorrectly.
+
+How to speak back:
+- Say what was right first, in their own terms, so they know what to keep.
+- Then name precisely what was missing — the limb, the case, the article — never a vague "be more precise".
+- If the answer was not solid, end with ONE pointed follow-up question. One. Never a list.
+- Never read out a model answer. This is an examination, not a lecture.
+- Under 45 spoken words. You are talking, not writing."""
+
+GRADER_CONTRACT = """Return ONLY valid JSON. No markdown, no code fence, no prose before or after it.
+
+{"mastery":"solid|shaky|missed",
+ "verdict":"<=6 words naming what happened",
+ "spoken":"<=45 words, conversational, what you would say out loud",
+ "note":"<=25 words: the gap plus the authority they should have cited; empty string when solid"}
+
+Calibration — grade these the same way every time:
+
+Q: Conditions for direct effect of a Treaty provision, and the case?
+A: "Clear and precise, unconditional, no further implementing measures. Van Gend en Loos."
+-> solid. All three limbs and the correct authority.
+
+A: "Clear and precise, and unconditional I think. It's Van Gend en Loos."
+-> shaky. Two of three limbs; authority correct. note: "Dropped the 'no further implementing
+   measures' limb; otherwise Van Gend en Loos is right."
+
+A: "It has to be clear and precise, and the case is Costa v ENEL."
+-> missed. Costa is primacy, not direct effect, and two limbs are absent. The wrong authority on a
+   named doctrine is a miss even when part of the test is recited correctly.
+
+Q: Can a directive be relied on against another private party?
+A: "No, no horizontal direct effect — Marshall and Faccini Dori. You'd go for consistent
+   interpretation under Von Colson, or Francovich damages."
+-> solid. Correct answer, authority, and both fallback routes volunteered.
+
+A: "No, directives only bind the state."
+-> shaky. Right conclusion, no authority, no fallback. note: "Correct, but cite Marshall/Faccini Dori
+   and offer Von Colson or Francovich."
+
+A: "Yes, if the state never implemented it the directive applies anyway."
+-> missed. States the law incorrectly.
+
+Q: What did Costa v ENEL establish?
+A: "EU law takes primacy over national law, including later national law, and Simmenthal says national
+   courts disapply it themselves."
+-> solid.
+
+The word "solid" is earned, not given. When an answer sits between two grades, choose the lower one
+and say in 'spoken' exactly what would have lifted it."""
+
+
+# ---------------------------------------------------------------- the arena (Phase 11d/11e)
+class HintIn(BaseModel):
+    question: str
+    options: list = []
+
+@app.post("/api/courses/{cid}/hint")
+def hint(cid: str, h: HintIn):
+    """A lifeline: narrow the field without handing over the answer. Cheap model — this is a nudge, not teaching."""
+    opts = "\n".join(f"- {str(o)[:200]}" for o in h.options[:4])
+    prompt = ("A law student is stuck on this multiple-choice question and has asked for a hint. Give ONE sentence, under 30 "
+              "words, that points at the rule, case or article that decides it, or rules out one wrong option by name. "
+              "Do NOT say which option is correct and do NOT restate the correct answer.\n\n"
+              f"QUESTION: {h.question[:600]}\nOPTIONS:\n{opts}")
+    try:
+        m = client().messages.create(model=CHEAP_MODEL, max_tokens=120, messages=[{"role": "user", "content": prompt}])
+        return {"hint": "".join(b.text for b in m.content if b.type == "text").strip()[:300]}
+    except Exception as e:
+        print("hint:", type(e).__name__, e)
+        return {"hint": "No hint available just now — back yourself."}
+
+
+class CourtIn(BaseModel):
+    case: str
+
+def _case_context(cid: str, name: str, limit: int = 6000) -> str:
+    """Everything the student's own notes say about this case. The hearing is built from this and nothing else."""
+    out, needle = [], name.casefold()
+    for n in rows("SELECT title,body FROM notes WHERE course_id=? ORDER BY updated DESC", cid):
+        body = n["body"] or ""
+        low = body.casefold()
+        i = low.find(needle)
+        while i >= 0 and sum(len(x) for x in out) < limit:
+            out.append(f"[{n['title']}] …{body[max(0, i - 400):i + 900]}…")
+            i = low.find(needle, i + 900)
+    return "\n\n".join(out)[:limit]
+
+
+@app.post("/api/courses/{cid}/court")
+def court(cid: str, c: CourtIn):
+    """
+    Build a hearing from a case the student's own notes already discuss. Everything the bench says has to
+    come from those notes — an invented holding would teach the wrong law, which is worse than no hearing.
+    """
+    context = _case_context(cid, c.case)
+    if not context.strip():
+        raise HTTPException(400, f"Your notes do not discuss {c.case} yet.")
+    prompt = ("From the student's own notes below, set up a moot hearing on this case. Use ONLY what the notes contain; "
+              "if the notes do not say something, leave that field empty rather than inventing it.\n"
+              'Return ONLY JSON: {"case":"","court":"","year":"","parties":"","issue":"one sentence, the question the '
+              'court had to answer","for":"the argument for the applicant, one sentence","against":"the argument for the '
+              'other side, one sentence","bench":["three questions the bench would put to counsel, each answerable from '
+              'the notes"],"holding":"what the court actually held, in the notes\' own terms"}\n\n'
+              f"CASE: {c.case}\n\nNOTES:\n{context}")
+    try:
+        m = client().messages.create(model=CHEAP_MODEL, max_tokens=1400, messages=[{"role": "user", "content": prompt}])
+        got = _model_json(m)
+    except Exception as e:
+        print("court:", type(e).__name__, e)
+        raise HTTPException(502, "Could not build the hearing — try again.")
+    if not isinstance(got, dict): raise HTTPException(502, "Could not build the hearing — try again.")
+    bench = [str(q) for q in (got.get("bench") or []) if str(q).strip()][:3]
+    return {"case": str(got.get("case") or c.case), "court": str(got.get("court") or ""), "year": str(got.get("year") or ""),
+            "parties": str(got.get("parties") or ""), "issue": str(got.get("issue") or ""),
+            "for": str(got.get("for") or ""), "against": str(got.get("against") or ""),
+            "bench": bench, "holding": str(got.get("holding") or "")}
+
+
+class CourtReplyIn(BaseModel):
+    case: str
+    question: str
+    answer: str
+
+@app.post("/api/courses/{cid}/court/reply")
+def court_reply(cid: str, r: CourtReplyIn):
+    """The bench presses counsel. Graded on the same contract as the oral tutor, against the notes only."""
+    context = _case_context(cid, r.case, 4000)
+    sys = ("You are a judge pressing counsel in a moot, and also marking them. Judge the legal substance against the "
+           "supplied notes only. Return ONLY valid JSON: "
+           '{"mastery":"solid|shaky|missed","verdict":"<=6 words","spoken":"<=45 words, what the bench says back: '
+           'acknowledge what was sound, name what was missing, press once more if it was not solid",'
+           '"note":"<=25 words: the gap plus the authority; empty string if solid"}')
+    usr = f"CASE: {r.case}\nTHE BENCH ASKED: {r.question}\nCOUNSEL ANSWERED: \"{r.answer.strip()[:1500]}\"\n\nNOTES:\n{context}"
+    try:
+        m = client().messages.create(model=pick_model("drill", None), max_tokens=600, system=sys,
+                                     messages=[{"role": "user", "content": usr}])
+        return oral.normalise(_model_json(m))
+    except Exception as e:
+        print("court reply:", type(e).__name__, e)
+        raise HTTPException(502, "The bench did not respond — say that again.")
+
+
 # ---------------------------------------------------------------- oral revision (Phase 11c)
 class SpeakIn(BaseModel): text: str
 
@@ -621,13 +788,8 @@ def oral_grade(cid: str, g: OralGradeIn):
     if not c: raise HTTPException(404)
     card = dict(c[0])
     traps = " ; ".join(x for x in (card.get("traps") or "").split("|") if x) or "(none recorded)"
-    sys = ("You are a sharp, warm Socratic law tutor for a Groningen LLB student. You are grading a SPOKEN answer, "
-           "so tolerate filler and loose phrasing but judge the legal substance strictly. Return ONLY valid JSON, no "
-           'markdown, in exactly this shape: {"mastery":"solid|shaky|missed","verdict":"<=6 words","spoken":"<=45 words, '
-           'conversational: say what was right, name what was missing, and if not solid ask ONE pointed follow-up",'
-           '"note":"<=25 words: the gap plus the authority they should have cited; empty string if solid"}. '
-           "Grade 'missed' if a core element or the key authority is absent, 'shaky' if partly right, 'solid' only if "
-           "substantially complete.")
+    sys = [{"type": "text", "text": GRADER_RULES},
+           {"type": "text", "text": GRADER_CONTRACT, "cache_control": {"type": "ephemeral"}}]
     usr = (f"QUESTION: {card['front']}\nMODEL ANSWER: {card['back']}\nCOMMON TRAPS: {traps}\n"
            f"STUDENT'S SPOKEN ANSWER: \"{g.answer.strip()[:2000]}\"")
     if g.teach:
@@ -636,6 +798,10 @@ def oral_grade(cid: str, g: OralGradeIn):
     try:
         m = client().messages.create(model=pick_model("drill", None), max_tokens=700,
                                      system=sys, messages=[{"role": "user", "content": usr}])
+        u = getattr(m, "usage", None)
+        if u is not None:  # first call writes the cache, later calls in the window read it
+            print(f"oral grade cache: write={getattr(u, 'cache_creation_input_tokens', 0)} "
+                  f"read={getattr(u, 'cache_read_input_tokens', 0)} in={getattr(u, 'input_tokens', 0)}")
         graded = _model_json(m)
     except Exception as e:
         print("oral grade:", type(e).__name__, e)
