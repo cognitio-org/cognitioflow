@@ -224,6 +224,7 @@ async def upload(cid: str, file: UploadFile = File(...), week: str = Form("")):
     with db() as d:
         d.execute("INSERT INTO files VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                   (fid, cid, file.filename, kind, key, text, len(text), 1, status, week, time.time()))
+    reindex(cid, "file", fid, file.filename, kind, week, text)
     return {"id": fid, "status": status, "chars": len(text)}
 
 @app.post("/api/files/{fid}/toggle")
@@ -287,6 +288,7 @@ def delete_file(fid: str):
         r = d.execute("SELECT key FROM files WHERE id=?", (fid,)).fetchone()
         if r and r["key"]: storage.delete(r["key"])
         d.execute("DELETE FROM files WHERE id=?", (fid,))
+    retrieval.forget_source(db, "file", fid)
     return {"ok": True}
 
 @app.get("/api/files/{fid}/text")
@@ -319,6 +321,32 @@ def retrieved_context(cid: str, question: str):
     blocks = [f"<passage file=\"{h['name']}\" week=\"{h.get('week', '')}\" heading=\"{h.get('heading', '')}\">\n{h['text']}\n</passage>"
               for h in picked["passages"]]
     return {"parts": blocks, "used": picked["files_used"], "trimmed": picked["files_trimmed"], "chars": picked["chars"]}
+
+
+def reindex(cid: str, source: str, source_id: str, name: str, kind: str, week: str, text: str) -> int:
+    """Re-cut one file or note into passages. Never fatal: if the embedder is missing the app just keeps whole files."""
+    if not RETRIEVAL or not embed.ready():
+        return 0
+    try:
+        return retrieval.index_source(db, embed.embed, course_id=cid, source=source, source_id=source_id,
+                                      name=name, kind=kind, week=week, text=text or "", updated=time.time())
+    except Exception as e:
+        print("indexing:", type(e).__name__, e)
+        return 0
+
+
+@app.post("/api/courses/{cid}/reindex")
+def reindex_course(cid: str):
+    """Index everything ticked in this course. Safe to re-run: each source's passages are replaced, never duplicated."""
+    if not RETRIEVAL or not embed.ready():
+        raise HTTPException(400, "Retrieval is off on this server (RETRIEVAL=on plus the embedding model enable it).")
+    done = 0
+    for f in rows("SELECT id,name,kind,week,text FROM files WHERE course_id=? AND kind!='image' AND text IS NOT NULL AND text<>''", cid):
+        done += bool(reindex(cid, "file", f["id"], f["name"], f["kind"], f["week"], f["text"]))
+    for n in rows("SELECT id,title,body FROM notes WHERE course_id=?", cid):
+        done += bool(reindex(cid, "note", n["id"], n["title"], "note", "", n["body"]))
+    passages = rows("SELECT COUNT(*) AS n FROM chunks WHERE course_id=?", cid)[0]["n"]
+    return {"sources": done, "passages": passages}
 
 
 def build_context(cid: str, question: str = ""):
@@ -488,6 +516,8 @@ def save_note(nid: str, n: NoteIn):
         if cur and cur["body"] != n.body and cur["body"].strip() and (not last or time.time() - last["created"] > 180):
             d.execute("INSERT INTO note_versions VALUES(?,?,?,?,?)", (uuid.uuid4().hex, nid, cur["title"], cur["body"], time.time()))
         d.execute("UPDATE notes SET title=?,body=?,updated=? WHERE id=?", (n.title, n.body, time.time(), nid))
+    note = rows("SELECT course_id FROM notes WHERE id=?", nid)
+    if note: reindex(note[0]["course_id"], "note", nid, n.title, "note", "", n.body)
     return {"ok": True}
 
 @app.get("/api/notes/{nid}/versions")
@@ -652,10 +682,25 @@ def search(cid: str, q: str, limit: int = 20):
         out.append({"kind": "note", "id": n["id"], "title": n["title"], "snippet": snip(n["body"])})
     for f in rows("SELECT id,name,text,week FROM files WHERE course_id=? AND (name LIKE ? OR text LIKE ?) ORDER BY created DESC LIMIT ?", cid, like, like, limit):
         out.append({"kind": "file", "id": f["id"], "title": f["name"], "snippet": snip(f["text"]), "week": f["week"]})
-    for m in rows("SELECT id,role,content,created FROM messages WHERE course_id=? AND content LIKE ? ORDER BY created DESC LIMIT ?", cid, like, limit):
+    for m in rows("SELECT id,role,content,created FROM messages WHERE course_id=? AND content LIKE ? ORDER BY created DESC LIMIT ?", cid, like, limit):  # noqa: E501
         out.append({"kind": "chat", "id": m["id"], "title": ("You: " if m["role"] == "user" else "Tutor: ") + m["content"][:60].replace("\n", " "), "snippet": snip(m["content"])})
     for c in rows("SELECT id,front,back FROM cards WHERE course_id=? AND (front LIKE ? OR back LIKE ?) LIMIT ?", cid, like, like, limit):
         out.append({"kind": "card", "id": c["id"], "title": c["front"], "snippet": snip(c["back"])})
+    exact = {(o["kind"], o["id"]) for o in out}
+    if RETRIEVAL and embed.ready() and len(q) >= 3:
+        try:   # meaning-matches from the user's own materials, after the exact ones and marked as such
+            sources = [f["id"] for f in rows("SELECT id FROM files WHERE course_id=? AND kind!='image'", cid)]
+            sources += [n["id"] for n in rows("SELECT id FROM notes WHERE course_id=?", cid)]
+            for h in retrieval.search(rows, embed.embed, course_id=cid, query=q, source_ids=sources, limit=limit):
+                key = ("note" if h["source"] == "note" else "file", h["source_id"])
+                if key in exact: continue
+                exact.add(key)
+                out.append({"kind": key[0], "id": h["source_id"], "title": h["name"], "week": h.get("week", ""),
+                            "snippet": (h["heading"] + " — " if h["heading"] else "") + h["text"][:140].replace("\n", " ") + "…",
+                            "match": "meaning"})
+        except Exception as e:
+            print("search (meaning):", type(e).__name__, e)
+
     return out[:limit * 2]
 
 # ---------------------------------------------------------------- case index (Progress screen)

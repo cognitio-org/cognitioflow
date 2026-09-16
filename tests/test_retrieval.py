@@ -120,3 +120,40 @@ def test_reindexing_replaces_and_unticked_sources_are_not_searched(chunk_db):
     assert retrieval.search(rows, _fake_embed, course_id="eu", query="cassis", source_ids=["other"]) == []
     retrieval.forget_source(db, "file", "f1")
     assert retrieval.search(rows, _fake_embed, course_id="eu", query="cassis", source_ids=["f1"]) == []
+
+
+# ---------------------------------------------------------------- the app's endpoints (retrieval switched on)
+
+@pytest.fixture
+def retrieval_on(client, monkeypatch):
+    """Turn retrieval on with a stand-in embedder, so no model is downloaded in tests."""
+    import run
+    monkeypatch.setattr(run, "RETRIEVAL", True)
+    monkeypatch.setattr(run.embed, "ready", lambda: True)
+    monkeypatch.setattr(run.embed, "embed", _fake_embed)
+    return client
+
+
+def test_uploading_a_file_indexes_it_and_deleting_forgets_it(retrieval_on, pg):
+    body = ("Dassonville dassonville dassonville. " * 40).encode()
+    r = retrieval_on.post("/api/courses/eu/files", files={"file": ("W1 WG complete notes (annotated).txt", body, "text/plain")}, data={"week": "1"})
+    fid = r.json()["id"]
+    assert pg.execute("SELECT COUNT(*) FROM chunks WHERE source_id=%s", (fid,)).fetchone()[0] > 0
+    retrieval_on.delete(f"/api/files/{fid}")
+    assert pg.execute("SELECT COUNT(*) FROM chunks WHERE source_id=%s", (fid,)).fetchone()[0] == 0
+
+
+def test_reindex_endpoint_counts_sources_and_is_repeatable(retrieval_on, pg):
+    retrieval_on.post("/api/courses/eu/files", files={"file": ("W2 Lecture A transcript.txt", ("Cassis cassis. " * 40).encode(), "text/plain")}, data={"week": "2"})
+    first = retrieval_on.post("/api/courses/eu/reindex").json()
+    second = retrieval_on.post("/api/courses/eu/reindex").json()
+    assert first["sources"] >= 1 and first["passages"] == second["passages"]     # replaced, never doubled
+
+
+def test_search_puts_exact_matches_before_meaning_matches(retrieval_on):
+    retrieval_on.post("/api/courses/eu/files", files={"file": ("W1 WG complete notes (annotated).txt", ("Dassonville formula. " * 40).encode(), "text/plain")}, data={"week": "1"})
+    retrieval_on.post("/api/courses/eu/files", files={"file": ("W2 Lecture A transcript.txt", ("Packaging packaging rules. " * 40).encode(), "text/plain")}, data={"week": "2"})
+    out = retrieval_on.get("/api/courses/eu/search", params={"q": "packaging"}).json()
+    assert out, "search returned nothing"
+    assert out[0].get("match") != "meaning"                                        # the word itself comes first
+    assert any(o.get("match") == "meaning" for o in out) or len(out) == 1
