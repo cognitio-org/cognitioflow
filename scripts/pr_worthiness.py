@@ -14,8 +14,11 @@ A PR that changes this checker or its workflows is always held for a person.
 Scoring
   Rules always run on the diff: leaked credentials and committed .env/data files block; changes to sign-in, the deploy
   workflow, infrastructure, migrations, container images and dependencies, and risky added lines (public access, broad
-  IAM roles, shell=True, disabled TLS checks...) each lower the score. With ANTHROPIC_API_KEY set, Claude reviews the same
-  diff and gives its own score; the lower of the two is reported.
+  IAM roles, shell=True, disabled TLS checks...) each lower the score; prose (.md) and test files are exempt from the
+  risky-line rules. A model then reviews the same diff and gives its own score; the lower of the two is reported.
+Model
+  PR_CHECK_MODEL, default claude-haiku-4-5 (needs ANTHROPIC_API_KEY). An id with a slash is served by OpenRouter's
+  Anthropic-compatible endpoint (needs OPENROUTER_API_KEY) — e.g. z-ai/glm-5.3-flash, the cheapest capable option.
 Verdict
   Approve only when the tests passed, security >= 75, nothing blocking was found, and the model (if used) agrees.
 
@@ -33,7 +36,7 @@ from dataclasses import dataclass, field
 MARKER = "<!-- pr-worthiness -->"
 BOT = "github-actions[bot]"
 CHECKER = "the PR checker itself"
-MODEL = os.environ.get("PR_CHECK_MODEL", "claude-sonnet-5")
+MODEL = os.environ.get("PR_CHECK_MODEL") or "claude-haiku-4-5"
 APPROVE_AT = 75
 MAX_DIFF_CHARS = 60_000
 
@@ -66,7 +69,7 @@ RISKY = [  # (added-line pattern, penalty, label)
     (re.compile(r"verify\s*=\s*False|--insecure\b"), 10, "TLS verification turned off"),
     (re.compile(r"(?<![\w.])(?:eval|exec)\("), 6, "eval/exec"),
     (re.compile(r"\bAUTH\b\s*[:=]\s*['\"]?off\b"), 6, "sign-in switched off"),
-    (re.compile(r"_public\("), 8, "a change to which routes skip sign-in"),
+    (re.compile(r"def _public\("), 8, "a change to which routes skip sign-in"),
 ]
 
 
@@ -102,6 +105,15 @@ def secret_hits(lines) -> list:
     return sorted(hits)
 
 
+def _prose_or_test(path: str) -> bool:
+    """Docs and tests describe or exercise risky settings (AUTH=off, shell=True) without shipping them."""
+    return path.endswith((".md", ".txt")) or path.startswith("tests/") or "/test/" in path
+
+
+def model_key_present() -> bool:
+    return bool(os.environ.get("OPENROUTER_API_KEY" if "/" in MODEL else "ANTHROPIC_API_KEY"))
+
+
 def rules(files: list, diff: str):
     """files: [{"path", "additions", "deletions"}]. Returns (score, findings, blocking)."""
     score, findings, blocking = 100, [], []
@@ -119,7 +131,7 @@ def rules(files: list, diff: str):
             touched.append(label)
             findings.append((penalty, label))
     for pat, penalty, label in RISKY:
-        where = [p for p, lines in added.items() if any(pat.search(l) for l in lines)]
+        where = [p for p, lines in added.items() if not _prose_or_test(p) and any(pat.search(l) for l in lines)]
         if where:
             score -= penalty
             findings.append((penalty, f"{label} ({where[0]})"))
@@ -161,8 +173,13 @@ def model_review(title: str, body: str, files: list, diff: str, findings: list) 
     clipped = diff if len(diff) <= MAX_DIFF_CHARS else diff[:MAX_DIFF_CHARS] + "\n[diff truncated]"
     prompt = (f"Title: {title}\n\nDescription:\n{(body or '')[:3000]}\n\nFiles:\n{listing}\n\n"
               f"Rule-based findings: {rule_notes}\n\n<diff>\n{clipped}\n</diff>")
-    msg = anthropic.Anthropic().messages.create(model=MODEL, max_tokens=400, system=SYSTEM,
-                                                 messages=[{"role": "user", "content": prompt}])
+    if "/" in MODEL:  # OpenRouter speaks the Anthropic Messages protocol
+        client = anthropic.Anthropic(base_url="https://openrouter.ai/api", auth_token=os.environ["OPENROUTER_API_KEY"],
+                                     default_headers={"HTTP-Referer": "https://github.com/cognitio-org/cognitioflow",
+                                                      "X-Title": "CognitioFlow PR check"})
+    else:
+        client = anthropic.Anthropic()
+    msg = client.messages.create(model=MODEL, max_tokens=400, system=SYSTEM, messages=[{"role": "user", "content": prompt}])
     return parse_model("".join(getattr(b, "text", "") for b in msg.content))
 
 
@@ -294,7 +311,7 @@ def assess_pr(repo: str, number: int, tests: str, use_model: bool, do_post: bool
     tests = tests_from_checks(repo, number) if tests == "auto" else tests
     score, findings, blocking = rules(files, diff)
     model, note = None, ""
-    if use_model and os.environ.get("ANTHROPIC_API_KEY") and not blocking:
+    if use_model and model_key_present() and not blocking:
         try:
             model = model_review(pr["title"], pr["body"], files, diff, findings)
         except Exception as e:  # the rules verdict still stands

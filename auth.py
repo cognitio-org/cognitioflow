@@ -74,6 +74,7 @@ class AuthMiddleware:
     def __init__(self, app): self.app = app
 
     async def __call__(self, scope, receive, send):
+        if scope["type"] == "websocket": return await self._websocket(scope, receive, send)
         if scope["type"] != "http": return await self.app(scope, receive, send)
         request = Request(scope)
         session = _load_session(request.cookies.get(COOKIE))
@@ -93,6 +94,22 @@ class AuthMiddleware:
                     headers.append("set-cookie", _cookie_header(session, secure))
             await send(message)
         await self.app(scope, receive, send_wrapper)
+
+    async def _websocket(self, scope, receive, send):
+        """WebSockets get the same gate as HTTP, decided before the handshake is accepted: a signed-out session, or an
+        Origin that isn't this app, is closed with 4401/4403 (the client sees a refused handshake)."""
+        from starlette.requests import HTTPConnection
+        conn = HTTPConnection(scope)
+        origin = conn.headers.get("origin")
+        if origin and origin.split("://", 1)[-1].rstrip("/") != (conn.headers.get("host") or ""):
+            return await send({"type": "websocket.close", "code": 4403})
+        session = _load_session(conn.cookies.get(COOKIE))
+        scope["session"] = session
+        user = _identity(session)
+        if user is None and not _public(scope["path"]):
+            return await send({"type": "websocket.close", "code": 4401})
+        scope.setdefault("state", {})["user"] = user
+        await self.app(scope, receive, send)
 
 
 # ---------------------------------------------------------------- users

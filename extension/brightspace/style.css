@@ -1,0 +1,24 @@
+:root{--ink:#1c1c1a;--graphite:#5c5b55;--rule:#dcdad3;--faint:#f3f2ee;--paper:#fbfbf9;--raised:#fff;--accent:#24467a;
+  --serif:Charter,"Iowan Old Style",Georgia,serif;--sans:"Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;--r:4px}
+@media(prefers-color-scheme:dark){:root{--ink:#e9e7e2;--graphite:#a3a19a;--rule:#383733;--faint:#242320;--paper:#191918;--raised:#2c2b28;--accent:#8fa8d0}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 var(--sans)}
+h1{font:500 1.15rem/1.2 var(--serif);margin:0}
+.wrap{padding:.9rem 1rem;display:flex;flex-direction:column;gap:.7rem}
+.head{display:flex;align-items:baseline;justify-content:space-between;gap:.5rem}
+.muted{color:var(--graphite)} .small{font-size:.82rem}
+.btn{font:inherit;padding:.35rem .7rem;border:1px solid var(--rule);border-radius:var(--r);background:var(--raised);color:var(--ink);cursor:pointer;min-height:32px}
+.btn:hover{border-color:var(--ink)} .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.ghost{background:transparent}
+.btn[disabled]{opacity:.5;cursor:default}
+.group{border:1px solid var(--rule);border-radius:var(--r);background:var(--raised)}
+.group h2{font:500 .8rem/1 var(--sans);letter-spacing:.04em;text-transform:uppercase;color:var(--graphite);margin:0;padding:.5rem .7rem;border-bottom:1px solid var(--rule)}
+.item{display:flex;gap:.55rem;align-items:flex-start;padding:.45rem .7rem;border-bottom:1px solid var(--faint)}
+.item:last-child{border-bottom:0}
+.item label{flex:1;cursor:pointer} .item .name{font-family:var(--serif);font-size:.95rem}
+.week{font-size:.72rem;color:var(--graphite);border:1px solid var(--rule);border-radius:999px;padding:0 .35rem;white-space:nowrap}
+.row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.empty{padding:1.2rem;text-align:center;color:var(--graphite);font-family:var(--serif)}
+input[type=text],input[type=url],select{font:inherit;padding:.4rem;border:1px solid var(--rule);border-radius:var(--r);background:var(--paper);color:var(--ink)}
+label.field{display:flex;flex-direction:column;gap:.25rem;font-size:.82rem;color:var(--graphite)}

@@ -19,14 +19,124 @@
   .panel{border:1px solid var(--rule);border-radius:var(--r);padding:var(--s4) 1.1rem;background:var(--paper)} .panel.bar{border-left:4px solid var(--accent)}
   .hero{border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--r);padding:var(--s5) var(--s5) var(--s5) var(--s5);background:var(--paper);display:grid;grid-template-columns:1fr auto;gap:var(--s5);align-items:center}
   .herobook{grid-template-columns:1fr 260px;align-items:center} .bookwrap{display:flex;flex-direction:column;align-items:center;gap:.4rem} .booknum{text-align:center} .hero h2{font-size:1.6rem;margin:.1rem 0 .4rem}
-  .book{position:relative;display:flex;justify-content:center;padding-right:14px;perspective:900px} .bookstage{transform-style:preserve-3d} .bookstage.open{animation:bookopen .6s cubic-bezier(.22,.61,.36,1) backwards} .booktilt{transform-style:preserve-3d;transform:rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));transition:transform var(--tt,.35s) ease;will-change:transform} .book svg{overflow:visible} .book .cover{filter:drop-shadow(0 6px 14px rgba(60,10,12,.35))}
-  .book .tab{cursor:pointer;transition:transform .18s ease} .book .tab rect{stroke:rgba(0,0,0,.15);stroke-width:.5}
-  .book .tab:hover{transform:translateX(10px)} .book .bk{transform-origin:109px 130px}
-  .tabname{position:absolute;bottom:-6px;left:0;right:0;text-align:center;color:var(--graphite);min-height:1.1em;transition:opacity .15s}
-  @keyframes fan{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:translateX(0)}}
-  @keyframes bookopen{from{transform:rotateY(-20deg) rotateX(4deg);opacity:.55}to{transform:rotateY(0) rotateX(0);opacity:1}}
-  .book .tab{animation:fan .4s ease backwards} @media(prefers-reduced-motion:reduce){.book .tab{animation:none} .bookstage.open{animation:none} .booktilt{transition:none;transform:none}}
+  /* The statute book — one bold object. Ported from the design handoff (static/showcase.html), tilt kept calmer. */
+  .book{position:relative;width:200px;height:264px;margin-bottom:1.7rem;perspective:1200px;perspective-origin:50% 40%}
+  .bookstage{position:absolute;inset:0;transform-style:preserve-3d}
+  .booktilt{position:absolute;inset:0;transform-style:preserve-3d;cursor:pointer;
+    transform:translateZ(14px) rotateY(var(--ry,0deg)) rotateX(var(--rx,0deg));transition:transform var(--tt,.45s) cubic-bezier(.2,.8,.2,1)}
+  .booktilt:focus-visible{outline:2px solid var(--accent);outline-offset:6px}
+  .bk__back{position:absolute;inset:0;border-radius:3px 5px 5px 3px;background:linear-gradient(145deg,#7a1f22,#4a1013);box-shadow:0 20px 34px -20px rgba(0,0,0,.75)}
+  .bk__foreedge{position:absolute;top:5px;right:0;width:26px;height:254px;transform-origin:right center;transform:rotateY(-90deg);background:repeating-linear-gradient(180deg,#efe9dc 0 2px,#d9d2c1 2px 4px)}
+  .bk__head{position:absolute;top:5px;left:5px;width:190px;height:26px;transform-origin:center top;transform:rotateX(90deg);background:repeating-linear-gradient(90deg,#efe9dc 0 2px,#d9d2c1 2px 4px)}
+  .bk__tail{position:absolute;bottom:5px;left:5px;width:190px;height:26px;transform-origin:center bottom;transform:rotateX(-90deg);background:repeating-linear-gradient(90deg,#e4ddcd 0 2px,#cec7b5 2px 4px)}
+  .bk__spine{position:absolute;left:0;top:0;width:26px;height:100%;transform-origin:left center;transform:rotateY(-90deg);background:linear-gradient(180deg,#6d1c1f,#3f0e10);display:flex;flex-direction:column;align-items:center;padding:9px 0}
+  .sp__rule{display:block;width:100%;height:4px;background:linear-gradient(180deg,rgba(201,178,58,.55),rgba(201,178,58,.12))}
+  .sp__band{display:block;width:100%;height:6px;background:linear-gradient(180deg,rgba(255,255,255,.12),rgba(0,0,0,.35))}
+  .sp__text{flex:1;display:flex;align-items:center;justify-content:center}
+  .sp__text span{font-family:var(--sans);font-size:8px;letter-spacing:.2em;color:rgba(233,223,201,.8);white-space:nowrap;transform:rotate(-90deg)}
+  .bk__pages{position:absolute;inset:6px;border-radius:3px;background:linear-gradient(90deg,#d9d2c1,#efe9dc);transform:translateZ(-3px);box-shadow:inset 0 0 12px rgba(0,0,0,.15)}
+  .leaf{position:absolute;inset:6px;border-radius:3px;background:linear-gradient(100deg,#f6f1e4,#e6dfcd);color:#2a2724;padding:18px 16px;opacity:0;transition:opacity .2s;display:flex;flex-direction:column;gap:5px;overflow:hidden}
+  .book.is-open .leaf--title{opacity:1} .book.is-open.has-page .leaf--title{opacity:0} .book.is-open.has-page .leaf--tab{opacity:1} .book.is-turning .leaf{opacity:0}
+  .lf__rule{display:block;height:2px;background:#8a1f24;opacity:.5}
+  .lf__h1{font-family:var(--serif);font-size:15px;line-height:1.25;margin-top:4px}
+  .lf__kicker,.lf__eyebrow{font-size:7.5px;letter-spacing:.14em;color:#6b6152}
+  .lf__meta,.lf__folio{margin-top:auto;font-size:8px;color:#6b6152}
+  .lf__label{font-family:var(--serif);font-size:17px}
+  .lf__refs{font-size:9.5px;line-height:1.5;color:#3a352e}
+  .bk__sheet{position:absolute;inset:5px;border-radius:2px;background:linear-gradient(100deg,#f6f1e4,#ddd5c2);transform-origin:left center;opacity:0;backface-visibility:hidden}
+  .book.is-turning .bk__sheet{opacity:1;transform:rotateY(-142deg);transition:transform .34s cubic-bezier(.4,.2,.2,1),opacity .1s}
+  .bk__cover{position:absolute;inset:0;border-radius:3px 5px 5px 3px;transform-origin:left center;backface-visibility:hidden;background:linear-gradient(145deg,#7a1f22,#5c1417);box-shadow:0 10px 22px -12px rgba(60,10,12,.8);transition:transform .5s cubic-bezier(.2,.8,.2,1)}
+  .book.is-open .bk__cover{transform:rotateY(-152deg)}
+  .cv__rule{position:absolute;inset:9px;border:1px solid rgba(201,178,58,.38);border-radius:2px;box-shadow:inset 0 0 22px rgba(0,0,0,.35)}
+  .cv__rule2{position:absolute;inset:13px;border:1px solid rgba(201,178,58,.16);border-radius:2px}
+  .cv__hinge{position:absolute;left:0;top:0;bottom:0;width:14px;background:linear-gradient(90deg,rgba(0,0,0,.45),rgba(0,0,0,0))}
+  .cv__sheen{position:absolute;inset:0;border-radius:3px;background:linear-gradient(118deg,rgba(255,255,255,.14),rgba(255,255,255,0) 42%)}
+  .cv__type{position:absolute;top:30px;left:0;right:0;text-align:center;font-family:var(--serif);padding:0 10px}
+  .cv__type .t1{font-size:12px;letter-spacing:.18em;color:rgba(201,178,58,.9);text-shadow:0 1px 0 rgba(0,0,0,.5);margin-bottom:6px}
+  .cv__type .hr{display:block;width:46px;height:1px;background:rgba(201,178,58,.5);margin:0 auto 6px}
+  .cv__type .t2{font-size:11px;color:rgba(239,233,220,.62);font-style:italic}
+  .book .tab{border:0;padding:0;position:absolute;right:-22px;width:24px;height:26px;border-radius:0 4px 4px 0;transform-style:preserve-3d;display:flex;align-items:center;cursor:pointer;opacity:0;z-index:6;
+    transform:translateX(40px) translateZ(-15px);transition:transform .18s cubic-bezier(.2,.8,.2,1),opacity .4s}
+  .book.is-loaded .tab{opacity:1;transform:translateX(0) translateZ(-15px)}
+  .book.is-loaded .tab:hover,.book.is-loaded .tab:focus-visible{transform:translateX(8px) translateZ(-8px)}
+  .book .tab::before{content:"";position:absolute;top:-3px;bottom:-3px;left:0;right:-8px}   /* 32px hit area */
+  .tab__top{position:absolute;left:0;right:0;top:0;height:26px;transform-origin:center top;transform:rotateX(90deg);border-radius:0 3px 0 0}
+  .tabname{position:absolute;top:100%;margin-top:8px;left:-20px;right:-20px;text-align:center;color:var(--graphite);min-height:1.1em;transition:opacity .15s}
+  @media(prefers-reduced-motion:reduce){.booktilt,.bk__cover,.bk__sheet,.book .tab{transition:none} .book .tab{opacity:1;transform:translateX(0) translateZ(-15px)}}
   @media(max-width:1300px){.herobook{grid-template-columns:1fr} .book{display:none}} .hero .k{font-family:var(--serif);font-size:2.6rem;line-height:1;text-align:right} .hero .k small{display:block;font-family:var(--sans);font-size:.8rem;color:var(--graphite);margin-top:.3rem}
+  /* Arena — the ladder and the courtroom */
+  .arwrap{display:grid;grid-template-columns:1fr 260px;gap:var(--s5)}
+  @media(max-width:1100px){.arwrap{grid-template-columns:1fr}}
+  .lawq{font-family:var(--serif);font-size:1.3rem;line-height:1.35;margin:.2rem 0 .9rem}
+  .lawopts{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+  @media(max-width:700px){.lawopts{grid-template-columns:1fr}}
+  .lawopt{display:flex;gap:.55rem;align-items:flex-start;text-align:left;padding:.65rem .8rem;border:1px solid var(--rule);border-radius:var(--r);background:var(--raised);color:var(--ink);font:inherit;cursor:pointer;min-height:44px;transition:border-color .15s,background .15s}
+  .lawopt:hover:not([disabled]){border-color:var(--accent)}
+  .lawopt .lt{font-family:var(--serif);color:var(--accent);flex:0 0 auto}
+  .lawopt[data-state=picked]{border-color:var(--accent);background:color-mix(in oklab,var(--accent),transparent 88%)}
+  .lawopt[data-state=right]{border-color:var(--ok);background:color-mix(in oklab,var(--ok),transparent 86%)}
+  .lawopt[data-state=wrong]{border-color:#c0563c;background:color-mix(in oklab,#c0563c,transparent 88%)}
+  .lawopt[data-state=gone]{opacity:.32}
+  .lawopt[disabled]{cursor:default}
+  @media(prefers-reduced-motion:no-preference){.lawopt[data-state=right]{animation:pop .32s ease}}
+  @keyframes pop{0%{transform:scale(1)}45%{transform:scale(1.025)}100%{transform:scale(1)}}
+  .lifelines{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.9rem}
+  .lifelines .btn[disabled]{opacity:.4;text-decoration:line-through}
+  .ladder{display:flex;flex-direction:column-reverse;gap:2px}
+  .rung{display:flex;justify-content:space-between;gap:.5rem;padding:.3rem .55rem;border-radius:var(--r);font-size:.82rem;color:var(--graphite)}
+  .rung.safe{font-weight:600;color:var(--ink)}
+  .rung.done{background:color-mix(in oklab,var(--ok),transparent 86%);color:var(--ink)}
+  .rung.at{background:var(--accent);color:#fff}
+  .rung.at .rn{color:#fff}
+  .rn{font-family:var(--serif)}
+  /* the room: a shallow stage, not a game engine */
+  .room{position:relative;height:210px;margin:.2rem 0 1rem;perspective:760px;perspective-origin:50% 42%;overflow:hidden;border:1px solid var(--rule);border-radius:var(--r);background:linear-gradient(180deg,#221c17,#171310)}
+  .room i,.room b{position:absolute;display:block}
+  .rm__back{left:0;right:0;top:0;height:120px;background:linear-gradient(180deg,#2c241c,#211a14);border-bottom:1px solid #3a2f24}
+  .rm__floor{left:-20%;right:-20%;bottom:0;height:150px;transform:rotateX(62deg);transform-origin:50% 100%;background:repeating-linear-gradient(90deg,#3a2f24 0 38px,#332a20 38px 76px)}
+  .rm__arms{left:50%;top:16px;width:26px;height:30px;margin-left:-13px;border-radius:3px 3px 12px 12px;background:linear-gradient(180deg,#c9b23a,#8a7622)}
+  .rm__bench{left:50%;top:62px;width:210px;height:56px;margin-left:-105px;border-radius:4px;background:linear-gradient(180deg,#5c4630,#3d2e1f);box-shadow:0 10px 18px -8px rgba(0,0,0,.8)}
+  .rm__desk{top:126px;width:120px;height:34px;border-radius:3px;background:linear-gradient(180deg,#4a3826,#33261a)}
+  .rm__desk.l{left:14%} .rm__desk.r{right:14%}
+  .rm__label{top:166px;font:500 .68rem/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:#b8ac92}
+  .rm__label.l{left:14%} .rm__label.r{right:14%}
+  .rm__you{box-shadow:0 0 0 2px var(--accent)}
+  .benchq{font-family:var(--serif);font-size:1.12rem;line-height:1.4;margin:.3rem 0 .6rem}
+  .courtlog{display:flex;flex-direction:column;gap:.5rem;max-height:240px;overflow:auto;margin:.6rem 0}
+  .caselist{display:flex;flex-direction:column;gap:.25rem;max-height:420px;overflow:auto}
+  .caselist button{text-align:left;font:inherit;background:transparent;border:1px solid transparent;border-radius:var(--r);padding:.35rem .5rem;cursor:pointer;color:var(--ink)}
+  .caselist button:hover{border-color:var(--rule);background:var(--faint)}
+  .caselist b{font-family:var(--serif);font-weight:500}
+  .holding{border-left:3px solid var(--ok);background:var(--faint);padding:.6rem .8rem;border-radius:var(--r);margin-top:.6rem}
+  /* Advocate — oral revision */
+  .advgrid{display:grid;grid-template-columns:1.4fr .9fr;gap:var(--s5)}
+  @media(max-width:1000px){.advgrid{grid-template-columns:1fr}}
+  .advstage{display:flex;flex-direction:column;min-height:460px}
+  .advq{font-family:var(--serif);font-size:1.35rem;line-height:1.35;margin:.2rem 0 .4rem}
+  .tagrow{display:flex;gap:.3rem;flex-wrap:wrap}
+  .tag{font-size:.72rem;color:var(--graphite);border:1px solid var(--rule);border-radius:999px;padding:.05rem .5rem}
+  .advconvo{flex:1;overflow:auto;display:flex;flex-direction:column;gap:.5rem;margin:.8rem 0;padding-right:.3rem}
+  .advb{padding:.55rem .8rem;border-radius:var(--r);max-width:88%;font-size:.94rem;line-height:1.5;overflow-wrap:anywhere}
+  .advb.me{align-self:flex-end;background:var(--ink);color:var(--paper)}
+  .advb.tutor{align-self:flex-start;background:var(--faint);border-left:3px solid var(--accent)}
+  .advb .verdict{font-family:var(--sans);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;margin-bottom:.2rem}
+  .v-solid{color:var(--ok)} .v-shaky{color:var(--warn)} .v-missed{color:#c0563c}
+  .advctrl{display:flex;gap:.5rem;align-items:center;border-top:1px solid var(--rule);padding-top:.7rem}
+  .advctrl input{flex:1}
+  #advMic{min-height:36px;white-space:nowrap}
+  #advMic[aria-pressed=true]{background:#b3261e;color:#fff;border-color:#b3261e}
+  .advside{display:flex;flex-direction:column;gap:var(--s4)}
+  .statrow2{display:flex;gap:1.4rem;margin-top:.3rem}
+  .statrow2 b{display:block;font-family:var(--serif);font-size:1.5rem}
+  .statrow2 span{font-size:.78rem;color:var(--graphite)}
+  .mrow{display:flex;justify-content:space-between;gap:.5rem;align-items:center;padding:.35rem 0;border-bottom:1px dashed var(--rule);font-size:.86rem}
+  .mrow:last-child{border-bottom:0}
+  .mdot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:.45rem;flex:0 0 auto}
+  .m-untested{background:var(--rule)} .m-solid{background:var(--ok)} .m-shaky{background:var(--warn)} .m-missed{background:#c0563c}
+  .mstate{font-size:.72rem;color:var(--graphite);text-transform:uppercase;letter-spacing:.06em}
+  .advnotes{max-height:240px;overflow:auto;margin:.4rem 0}
+  .advnotes .emptystate{padding:.5rem 0}
+  .advnote{border-left:2px solid var(--accent);padding:.35rem 0 .35rem .6rem;margin-bottom:.5rem;font-size:.86rem;line-height:1.5}
   .statrow{display:flex;gap:var(--s5);flex-wrap:wrap;padding:var(--s3) 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin:var(--s4) 0}
   .statrow .stat{display:flex;align-items:baseline;gap:.45rem;padding:0} .statrow .stat .n{font-size:1.35rem} .statrow .stat .l{margin:0;font-size:.82rem}
   .grid{display:grid;gap:1rem} .g4{grid-template-columns:repeat(4,1fr)} .g2{grid-template-columns:1fr 1fr}
@@ -117,8 +227,15 @@
   .pal{backdrop-filter:blur(2px)} .palbox{border-radius:10px;background:var(--raised);box-shadow:0 18px 50px rgba(0,0,0,.2)} .palbox input{background:var(--raised)} #palList li.sel{box-shadow:inset 2px 0 0 var(--ink)} #palList .k{text-transform:uppercase;letter-spacing:.07em;font-size:.64rem}
   tr.grouphead td{background:var(--faint);border-top:1px solid var(--rule);padding-top:.5rem} tr.grouphead b{font-family:var(--serif)}
   /* notes editing */
-  .tagbar{display:flex;gap:.3rem;align-items:center;flex-wrap:wrap} .editwrap{flex:1;min-height:0;display:flex;gap:.8rem} .editwrap>*{flex:1;min-height:0}
-  .editwrap textarea{height:100%} .editor textarea{font-family:var(--serif);font-size:1.02rem;line-height:1.6;padding:1rem 1.2rem;tab-size:2}
+  .tagbar{display:flex;gap:.3rem;align-items:center;flex-wrap:wrap} .editwrap{flex:1;min-height:0;display:flex;gap:1rem;--measure:68ch;--pagey:2.6rem} .editwrap>*{flex:1;min-height:0}
+  .editwrap textarea{height:100%}
+  /* Read, Split and Edit are the same page: same measure, same paper, same margins — only the pen changes. */
+  .editor textarea,.noteview{padding-block:var(--pagey);padding-inline:clamp(1.25rem,calc((100% - var(--measure))/2),5rem);background:var(--raised);box-shadow:0 1px 2px rgba(0,0,0,.04),0 10px 30px -18px rgba(0,0,0,.22)}
+  .editor textarea{font-family:var(--serif);font-size:1.06rem;line-height:1.75;tab-size:2;caret-color:var(--accent);border-radius:var(--r)}
+  .editor textarea::selection,.noteview ::selection{background:color-mix(in oklab,var(--accent),transparent 78%)}
+  .editor textarea::placeholder{color:var(--graphite);opacity:.8}
+  #noteTitle{font-family:var(--serif);font-size:1.5rem;border:1px solid transparent;background:transparent;padding:.25rem .5rem}
+  #noteTitle:hover{border-color:var(--rule)} #noteTitle:focus{border-color:var(--rule);background:var(--raised)}
   #noteLive2{overflow:auto}
   .readbar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap} .readbar audio{height:28px;max-width:280px}
   .cover{background:var(--ink);color:var(--ink);border-radius:2px;cursor:pointer;transition:none} .cover:hover{opacity:.85} .cover.on{background:transparent;color:inherit}
@@ -128,9 +245,9 @@
   @media print{.tplay,.readbar{display:none!important}}
   /* notes reading view */
   .seg{display:inline-flex;gap:2px;padding:2px;background:var(--faint);border:1px solid var(--rule);border-radius:calc(var(--r) + 2px)} .seg .btn{border-color:transparent;background:transparent;color:var(--graphite);border-radius:var(--r)} .seg .btn:hover{color:var(--ink);background:transparent} .seg .btn[aria-pressed=true]{background:var(--raised);color:var(--ink);border-color:var(--rule);box-shadow:0 1px 2px rgba(0,0,0,.08);font-weight:500}
-  .noteview{flex:1;overflow:auto;border:1px solid var(--rule);border-radius:var(--r);padding:1.4rem 2rem;font-family:var(--serif);font-size:1.04rem;line-height:1.6;max-width:none}
-  .noteview h1{font-size:1.7rem;margin:0 0 .3rem;padding-bottom:.4rem;border-bottom:1px solid var(--ink)} .noteview h2{font-size:1.2rem;margin:1.4rem 0 .5rem;letter-spacing:.01em} .noteview h3{font-size:1.05rem;margin:1rem 0 .3rem}
-  .noteview p,.noteview li{margin:0 0 .45rem} .noteview ol,.noteview ul{padding-left:1.4rem} .noteview li{padding-left:.2rem}
+  .noteview{flex:1;overflow:auto;border:1px solid var(--rule);border-radius:var(--r);font-family:var(--serif);font-size:1.06rem;line-height:1.75;max-width:none;--measure:68ch;--pagey:2.6rem}
+  .noteview h1{font-size:1.85rem;margin:0 0 .9rem;padding-bottom:.5rem;border-bottom:1px solid var(--rule);letter-spacing:-.01em} .noteview h2{font-size:1.25rem;margin:1.8rem 0 .55rem;letter-spacing:.01em} .noteview h3{font-size:1.05rem;margin:1rem 0 .3rem}
+  .noteview p,.noteview li{margin:0 0 .55rem} .noteview ol,.noteview ul{padding-left:1.4rem} .noteview li{padding-left:.2rem}
   .noteview table{font-family:var(--sans);font-size:.88rem;width:100%;margin:.6rem 0 1rem} .noteview th{border-bottom:1.5px solid var(--ink)} .noteview td{border-bottom:1px solid var(--rule)}
   .noteview blockquote{margin:.8rem 0;padding:.6rem 1rem;border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--r);background:var(--faint);color:var(--ink)} .noteview blockquote p{margin:0} .noteview blockquote strong:first-child{font-family:var(--sans);font-size:.82rem;color:var(--graphite);display:block;margin-bottom:.15rem}
   .noteview code{font-size:.85em;background:var(--faint);padding:0 .25rem} .noteview .viz{margin:.8rem 0}
@@ -138,7 +255,7 @@
   .prov.wg{border-color:var(--ink);color:var(--ink);font-weight:600} .prio{font-size:.7rem;letter-spacing:-1px;margin-right:.2rem} .prio.core{color:#b3524e} .prio.know{color:var(--accent)} .prio.sup{color:var(--graphite)} .prov.flag{border-style:dashed}
   @media print{ html,body{background:#fff!important;color:#000!important;height:auto} body *{visibility:hidden} .noteview,.noteview *{visibility:visible}
     /* content in the left 63%, a ruled annotation column on the right of every page */
-    .noteview{position:absolute;left:0;top:0;width:63%;border:none;padding:0 0 0 0;overflow:visible;color:#000;background:#fff;font-size:10.5pt;line-height:1.5}
+    .noteview{position:absolute;left:0;top:0;width:63%;border:none;padding:0 0 0 0;overflow:visible;color:#000;background:#fff;font-size:10.5pt;line-height:1.5;box-shadow:none}
     .noteview::after{content:"";visibility:visible;position:fixed;top:0;right:0;width:32%;height:100vh;border-left:.5pt solid #000;
       background:repeating-linear-gradient(to bottom,transparent 0 7.6mm,#bbb 7.6mm 7.8mm);background-position:0 6mm}
     .noteview::before{content:"Notes";visibility:visible;position:fixed;top:0;right:0;width:32%;font-family:var(--sans);font-size:7.5pt;color:#666;text-align:right;padding-right:2mm}
@@ -188,6 +305,8 @@
     <li><a href="#tutor" data-nav="tutor">Tutor</a></li>
     <li><a href="#notes" data-nav="notes">Notes</a></li>
     <li><a href="#recall" data-nav="recall">Recall</a></li>
+    <li><a href="#advocate" data-nav="advocate">Advocate</a></li>
+    <li><a href="#arena" data-nav="arena">Arena</a></li>
     <li><a href="#planner" data-nav="planner">Planner</a></li>
     <li><a href="#progress" data-nav="progress">Progress</a></li>
   </ul></nav>
@@ -200,20 +319,17 @@
 <section id="home" class="screen">
   <div class="head"><div><h1 id="homeTitle"></h1><div class="small muted">Private workspace · files, tutor and notes saved to your account</div></div></div>
   <div class="hero herobook"><div><div class="small muted">Next</div><h2 id="h-next"></h2><p id="h-nextBody"></p><button class="btn primary" id="h-go">Open</button></div>
-    <div class="bookwrap"><div class="book" id="book" aria-hidden="true">
-      <div class="bookstage"><div class="booktilt"><svg viewBox="0 0 220 260" width="220" height="260" role="img">
-        <defs>
-          <linearGradient id="cov" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7a1f22"/><stop offset="1" stop-color="#5c1417"/></linearGradient>
-          <linearGradient id="pg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#efe9dc"/><stop offset="1" stop-color="#d9d2c1"/></linearGradient>
-        </defs>
-        <g class="bk">
-          <rect class="cover" x="34" y="16" width="150" height="228" rx="5" fill="url(#cov)"/>
-          <rect x="46" y="22" width="132" height="216" rx="2" fill="url(#pg)"/>
-          <rect x="34" y="16" width="14" height="228" rx="4" fill="#4a1013"/>
-          <text x="41" y="150" fill="#e9dfc9" font-family="Spectral, serif" font-size="9" letter-spacing="2" transform="rotate(90 41 150)" text-anchor="middle">STATUTES</text>
-          <g class="tabs" fill="none"></g>
-        </g>
-      </svg></div></div>
+    <div class="bookwrap"><div class="book" id="book">
+      <div class="bookstage"><div class="booktilt" tabindex="0" role="button" aria-label="Statute book — Enter opens or closes it">
+        <div class="bk__back"></div><div class="bk__foreedge"></div><div class="bk__head"></div><div class="bk__tail"></div>
+        <div class="bk__spine"><i class="sp__rule"></i><i class="sp__band"></i><div class="sp__text"><span>STATUTES</span></div><i class="sp__band"></i><i class="sp__rule"></i></div>
+        <div class="bk__pages"></div>
+        <div class="leaf leaf--title"><i class="lf__rule"></i><div class="lf__h1" id="leafTitle"></div><div class="lf__kicker" id="leafKicker"></div><div class="lf__meta">Groningen — 2026/27</div><i class="lf__rule"></i></div>
+        <div class="leaf leaf--tab"><i class="lf__rule" id="leafRule1"></i><div class="lf__eyebrow" id="leafEyebrow"></div><div class="lf__label" id="leafLabel"></div><div class="lf__refs" id="leafRefs"></div><i class="lf__rule" id="leafRule2"></i><div class="lf__folio" id="leafFolio"></div></div>
+        <div class="bk__sheet"></div>
+        <div class="bk__cover"><i class="cv__rule"></i><i class="cv__rule2"></i><i class="cv__hinge"></i><i class="cv__sheen"></i>
+          <div class="cv__type"><div class="t1" id="coverTitle"></div><i class="hr"></i><div class="t2">Statutes &amp; Case-Law</div></div></div>
+      </div></div>
       <div class="tabname small" id="tabname"></div>
     </div><div class="k booknum"><span id="h-due">–</span><small>cards due today</small></div></div>
   </div>
@@ -244,10 +360,12 @@
       <div class="modes" role="group" aria-label="Mode">
         <button class="btn small active" data-mode="drill">Drill me</button>
         <button class="btn small" data-mode="explain">Explain</button>
+        <button class="btn small" data-mode="apply" title="Give it the facts of a WG or exam question; it applies the articles and cases to them, step by step">Apply to facts</button>
         <button class="btn small" data-mode="notes">Build notes</button>
         <span style="margin-left:auto;display:flex;gap:.4rem;align-items:center">
           <select id="modelSel" class="small" aria-label="Model"><option value="auto">Auto model</option></select><span class="small muted" id="routeHint" title="Which model Auto will use for this message"></span>
-          <button class="btn small ghost" id="micBtn" aria-pressed="false" title="Dictate (Chrome)">🎙 Talk</button>
+          <span class="seg" role="group" id="micMode" hidden title="Which speech engine Talk uses"><button class="btn small" type="button" data-mic="browser" aria-pressed="true">Browser</button><button class="btn small" type="button" data-mic="gemini" aria-pressed="false">Gemini</button></span>
+          <button class="btn small ghost" id="micBtn" aria-pressed="false" title="Dictate your answer">🎙 Talk</button>
           <button class="btn small ghost" id="speakBtn" aria-pressed="false" title="Read replies aloud — click again on a reply to hear its spoken version">🔊 Read aloud</button>
           <span class="small muted" id="costState" title="Estimated API spend since you last cleared it; click to reset" style="cursor:pointer"></span>
         </span>
@@ -321,6 +439,79 @@
   <div id="allCards" hidden style="margin-top:1.5rem"><table><thead><tr><th>Front</th><th>Back</th><th>Wk</th><th>Due</th><th></th></tr></thead><tbody id="cardRows"></tbody></table></div>
 </section>
 
+<section id="advocate" class="screen">
+  <div class="head"><div><h1>Advocate</h1><div class="small muted" id="advSub">Oral revision — it asks, you answer out loud.</div></div>
+    <span><button class="btn small" id="advStart">Start</button> <button class="btn small ghost" id="advBank" title="Write viva questions from the files you have ticked">Build questions from my files</button></span></div>
+  <div class="advgrid">
+    <div class="panel advstage">
+      <div class="small muted" id="advCourse">Question</div>
+      <p class="advq" id="advQ">Press Start and it will ask you the first question.</p>
+      <div class="tagrow" id="advTags"></div>
+      <div class="advconvo" id="advConvo"></div>
+      <div class="advctrl">
+        <button class="btn" id="advMic" aria-pressed="false" title="Speak your answer">🎙 Answer</button>
+        <input type="text" id="advType" placeholder="…or type your answer and press Enter" aria-label="Your answer">
+        <button class="btn primary" id="advSend">Send</button>
+      </div>
+      <div class="small muted" id="advHint">Answer in full sentences — it grades what you actually say, not what you meant.</div>
+    </div>
+    <aside class="advside">
+      <div class="panel"><h3>This session</h3>
+        <div class="statrow2"><div><b id="advAsked">0</b><span>answered</span></div><div><b id="advSolid">0</b><span>solid</span></div><div><b id="advWeak">0</b><span>to revisit</span></div></div></div>
+      <div class="panel"><h3>Mastery</h3><div class="small muted">Missed ideas jump the queue and come back until they hold.</div><div id="advMap"></div></div>
+      <div class="panel"><h3>Weak-point notes</h3><div class="small muted">Written only from what you got wrong.</div>
+        <div class="advnotes" id="advNotes"><div class="emptystate">Nothing yet. Miss something and it lands here.</div></div>
+        <button class="btn small ghost" id="advCopy">Copy notes</button></div>
+    </aside>
+  </div>
+</section>
+
+<section id="arena" class="screen">
+  <div class="head"><div><h1>Arena</h1><div class="small muted" id="arSub">Play it out — from your own cards and your own notes.</div></div>
+    <span><button class="btn small" id="lawStart">Start</button> <span class="seg" role="group"><button class="btn small" id="arTabLaw" aria-pressed="true">Who Wants to Be a Lawyer</button><button class="btn small" id="arTabCourt" aria-pressed="false">Courtroom</button></span></span></div>
+
+  <div id="arLawyer">
+    <div class="arwrap">
+      <div class="panel">
+        <div class="small muted" id="lawState">Questions from your own cards — clear every rung to win.</div>
+        <p class="lawq" id="lawQ">Press Start.</p>
+        <div class="lawopts" id="lawOpts"></div>
+        <div class="lifelines">
+          <button class="btn small ghost" id="lifeFifty" title="Remove two wrong answers">50 : 50</button>
+          <button class="btn small ghost" id="lifeHint" title="One sentence pointing at the rule — never the answer">Ask the tutor</button>
+          <button class="btn small ghost" id="lifeSkip" title="Move on without answering">Skip</button>
+        </div>
+        <div class="small muted" id="lawHint" style="margin-top:.6rem"></div>
+      </div>
+      <aside class="panel"><h3 style="margin-bottom:.4rem">Ladder</h3><div class="ladder" id="ladder"></div></aside>
+    </div>
+  </div>
+
+  <div id="arCourt" hidden>
+    <div class="arwrap">
+      <div class="panel">
+        <div class="room" id="courtRoom" aria-hidden="true">
+          <i class="rm__back"></i><i class="rm__floor"></i><i class="rm__arms"></i><b class="rm__bench"></b>
+          <b class="rm__desk l rm__you"></b><b class="rm__desk r"></b>
+          <i class="rm__label l">You</i><i class="rm__label r">Opposing</i>
+        </div>
+        <div class="small muted" id="courtWho">Pick a case from your notes.</div>
+        <p class="benchq" id="benchQ">The bench is not sitting yet.</p>
+        <div class="courtlog" id="courtLog"></div>
+        <div class="advctrl">
+          <button class="btn" id="courtMic" aria-pressed="false" title="Speak your submission">🎙 Submit</button>
+          <input type="text" id="courtType" placeholder="Address the bench…" aria-label="Your submission">
+          <button class="btn primary" id="courtSend">Reply</button>
+        </div>
+        <div id="courtHolding"></div>
+      </div>
+      <aside class="panel"><h3 style="margin-bottom:.4rem">Cases in your notes</h3>
+        <div class="small muted" style="margin-bottom:.4rem">Taken from names you wrote in <i>italics</i>.</div>
+        <div class="caselist" id="courtCases"></div></aside>
+    </div>
+  </div>
+</section>
+
 <section id="planner" class="screen">
   <div class="head"><div><h1>Planner</h1><div class="small muted" id="planSub">All courses</div></div>
     <span><button class="btn small" id="autoPlan" title="Plan the next days from the course calendar, files by week and cards due">Auto-plan week</button> <button class="btn small ghost" id="rePlan" title="Discard unfinished sessions from today and plan afresh">Re-plan</button> <button class="btn small ghost" id="addToggle">+ Add session</button></span></div>
@@ -381,8 +572,8 @@ let courses=[], cid=localStorage.getItem('cf.course')||'', mode='drill', cfg={};
 const C=()=>courses.find(c=>c.id===cid)||courses[0];
 
 /* nav */
-const SCREENS=['home','library','tutor','notes','recall','planner','progress'];
-const loaders={home:loadHome,library:loadFiles,tutor:loadTutor,notes:loadNotes,recall:loadRecall,planner:loadPlanner,progress:loadProgress};
+const SCREENS=['home','library','tutor','notes','recall','advocate','arena','planner','progress'];
+const loaders={home:loadHome,library:loadFiles,tutor:loadTutor,notes:loadNotes,recall:loadRecall,advocate:loadAdvocate,arena:loadArena,planner:loadPlanner,progress:loadProgress};
 function show(id){ if(!SCREENS.includes(id)) id='home'; document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.id===id)); document.querySelectorAll('[data-nav]').forEach(a=>a.classList.toggle('active',a.dataset.nav===id)); localStorage.setItem('cf.screen',id); loaders[id](); }
 document.addEventListener('click',e=>{const a=e.target.closest('a[data-nav]'); if(a){e.preventDefault(); show(a.dataset.nav)}});
 
@@ -393,23 +584,41 @@ $('#addCourse').addEventListener('click',async()=>{const n=prompt('Course name')
 
 /* home */
 const TABS=[["#2f5fae","Prohibitions","34 · 45 · 101"],["#d98a2b","Derogations","36 · 52 · 65"],["#1f7a4d","Competences","5 · 114 · 352"],["#8fbf6a","Secondary law","2004/38 · 1/2003"],["#8e2f6e","Enforcement","258 · 263 · 267"],["#d46a9a","Rights","18 · 21 · 157"],["#c9b23a","Definitions","28 · 54 · 57"]];
-function drawBook(){ const g=document.querySelector('#book .tabs'); if(!g||g.childElementCount) return; const top=30, gap=27;
-  TABS.forEach((t,i)=>{ const y=top+i*gap; const el=document.createElementNS('http://www.w3.org/2000/svg','g'); el.setAttribute('class','tab'); el.style.animationDelay=(i*60)+'ms';
-    el.innerHTML=`<rect x="170" y="${y}" width="26" height="20" rx="2.5" fill="${t[0]}"/>`;
-    el.onmouseenter=()=>{$('#tabname').textContent=t[1]+' · Art '+t[2]}; el.onmouseleave=()=>{$('#tabname').textContent=''};
-    el.onclick=()=>{ toast(t[1]+': Art '+t[2]); }; g.appendChild(el); }); }
+function drawBook(){ const tilt=document.querySelector('#book .booktilt'); if(!tilt||tilt.querySelector('.tab')) return;
+  const name=i=>TABS[i][1]+' · Art '+TABS[i][2];
+  TABS.forEach((t,i)=>{ const b=document.createElement('button'); b.type='button'; b.className='tab';
+    const dark=`color-mix(in oklab,${t[0]},#000 34%)`;
+    b.style.top=(12+i*32)+'px'; b.style.background=`linear-gradient(160deg,${t[0]},${dark})`; b.style.transitionDelay='0s, '+(i*60)+'ms';
+    b.setAttribute('aria-label',`Tab ${i+1} of ${TABS.length}: ${name(i)}`);
+    b.innerHTML=`<i class="tab__top" style="background:linear-gradient(90deg,${t[0]},${dark})"></i>`;
+    const show=()=>{$('#tabname').textContent=name(i)}, hide=()=>{$('#tabname').textContent=''};
+    b.onmouseenter=show; b.onmouseleave=hide; b.onfocus=show; b.onblur=hide;
+    b.onclick=e=>{ e.stopPropagation(); openTab(i) }; tilt.appendChild(b); }); }
+let _turnT=0;
+function openTab(i){ const book=$('#book'), was=book.classList.contains('is-open'), t=TABS[i];
+  book.classList.add('is-open','is-turning'); clearTimeout(_turnT);
+  _turnT=setTimeout(()=>{ $('#leafEyebrow').textContent=`TAB ${i+1} OF ${TABS.length}`; $('#leafLabel').textContent=t[1];
+    $('#leafRefs').textContent='Art '+t[2]; $('#leafFolio').textContent='§ '+t[1].toLowerCase();
+    $('#leafRule1').style.background=t[0]; $('#leafRule2').style.background=t[0];
+    book.classList.add('has-page'); book.classList.remove('is-turning'); }, was?240:420); }
 let _tiltInit=false;
 function bookMotion(){ const book=document.getElementById('book'); if(!book) return;
-  const stage=book.querySelector('.bookstage'), tilt=book.querySelector('.booktilt');
-  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if(stage && !reduce){ stage.classList.remove('open'); void stage.offsetWidth; stage.classList.add('open'); }
-  if(_tiltInit || reduce || !tilt) return; _tiltInit=true; let raf=0;
+  const tilt=book.querySelector('.booktilt'); if(!tilt) return;
+  setTimeout(()=>book.classList.add('is-loaded'),120);
+  if(_tiltInit) return; _tiltInit=true;
+  const toggle=()=>{ const open=!book.classList.contains('is-open'); book.classList.toggle('is-open',open); if(!open) book.classList.remove('has-page') };
+  tilt.addEventListener('click',toggle);
+  tilt.addEventListener('keydown',e=>{ if(e.target===tilt&&(e.key==='Enter'||e.key===' ')){ e.preventDefault(); toggle() } });
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  let raf=0;
   book.addEventListener('pointermove',e=>{ if(raf) return; const r=book.getBoundingClientRect();
     const px=(e.clientX-r.left)/r.width-0.5, py=(e.clientY-r.top)/r.height-0.5;
-    raf=requestAnimationFrame(()=>{ raf=0; tilt.style.setProperty('--tt','.1s');
-      tilt.style.setProperty('--ry',(px*14).toFixed(2)+'deg'); tilt.style.setProperty('--rx',(-py*10).toFixed(2)+'deg'); }); });
-  book.addEventListener('pointerleave',()=>{ tilt.style.setProperty('--tt','.45s'); tilt.style.setProperty('--rx','0deg'); tilt.style.setProperty('--ry','0deg'); }); }
-async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle').textContent=c.name; const s=await api(`/courses/${cid}/stats`);
+    raf=requestAnimationFrame(()=>{ raf=0; tilt.style.setProperty('--tt','.12s');
+      tilt.style.setProperty('--ry',(px*10).toFixed(2)+'deg'); tilt.style.setProperty('--rx',(-py*7).toFixed(2)+'deg') }) });
+  book.addEventListener('pointerleave',()=>{ tilt.style.setProperty('--tt','.5s'); tilt.style.setProperty('--rx','0deg'); tilt.style.setProperty('--ry','0deg') }); }
+async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle').textContent=c.name;
+  $('#coverTitle').textContent=c.name.toUpperCase(); $('#leafTitle').textContent=c.name;
+  $('#leafKicker').textContent=TABS.slice(0,3).map(x=>x[1]).join(' · ').toUpperCase(); const s=await api(`/courses/${cid}/stats`);
   $('#h-due').textContent=s.due; $('#h-streak').textContent=s.streak; $('#h-files').textContent=s.files; $('#h-acc').textContent=s.recall_accuracy==null?'–':s.recall_accuracy+'%';
   let next,body,go; if(s.files===0){next='Add your files';body='Slides, transcripts and notes go in first — the tutor only works from what you upload.';go='library'}
   else if(s.due>0){next=`Review ${s.due} due card${s.due>1?'s':''}`;body='Clear the queue before adding new material.';go='recall'}
@@ -464,6 +673,7 @@ function addMsg(role,text){const d=document.createElement('div');d.className='ms
 const MODE_UI={
   drill:{hint:'Drill: one question at a time, firm correction. Reply with your answer, or say what to drill.',ph:'Your answer — or "drill me on Art 34"'},
   explain:{hint:'Explain: a tight structured answer with file references; asks for a diagram or table when it helps.',ph:'What do you want explained? e.g. "Keck vs Italian Trailers, with a flowchart"'},
+  apply:{hint:'Apply to facts: paste the facts of a WG or exam question. Every step names the article or case from your ticked files that decides it, and what fact would flip it.',ph:'Paste the facts — e.g. "Germany bans the sale of energy drinks above 50mg caffeine. A French producer\u2026"'},
   notes:{hint:'Build notes: reconciles the ticked files into master notes with provenance tags and saves the result to Notes.',ph:'What to build — e.g. "Week 2 goods master notes" or "case map for Art 36 derogations"'}};
 function setMode(m){mode=m;document.querySelectorAll('[data-mode]').forEach(x=>x.classList.toggle('active',x.dataset.mode===m));$('#modeHint').textContent=MODE_UI[m].hint;$('#q').placeholder=MODE_UI[m].ph;localStorage.setItem('cf.mode',m)}
 document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{setMode(b.dataset.mode);$('#q').focus()});
@@ -491,10 +701,55 @@ function initVoice(){
       if($('#q').value.trim()) send();};
     recog.onerror=e=>{listening=false;$('#micBtn').textContent='🎙 Talk';toast('Mic: '+e.error)};
   }
+  if(cfg.voice?.gemini){ $('#micMode').hidden=false; document.querySelectorAll('#micMode [data-mic]').forEach(b=>b.onclick=()=>setMicMode(b.dataset.mic)); setMicMode(currentMicMode()); }
   $('#speakBtn').setAttribute('aria-pressed',speakOn?'true':'false'); $('#speakBtn').classList.toggle('primary',speakOn);
   if(!('speechSynthesis' in window)){$('#speakBtn').disabled=true}
 }
-$('#micBtn').onclick=()=>{ if(!recog) return; if(listening){recog.stop();return}
+/* ---- Gemini dictation (Phase 8): mic → 16 kHz PCM → this app's relay → Vertex AI; only text comes back ---- */
+let gem=null;
+const currentMicMode=()=>localStorage.getItem('cf.micMode')||((window.SpeechRecognition||window.webkitSpeechRecognition)?'browser':'gemini');
+function setMicMode(m){ localStorage.setItem('cf.micMode',m);
+  document.querySelectorAll('#micMode [data-mic]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.mic===m?'true':'false'));
+  $('#micBtn').disabled=(m==='browser'&&!recog); }
+const PCM_WORKLET=`class Pcm16k extends AudioWorkletProcessor{constructor(){super();this.r=sampleRate/16000;this.a=0;this.s=0;this.n=0;this.b=new Int16Array(1600);this.i=0}
+process(inputs){const ch=inputs[0]&&inputs[0][0];if(!ch)return true;for(let k=0;k<ch.length;k++){this.s+=ch[k];this.n++;this.a+=1;
+if(this.a>=this.r){this.a-=this.r;const v=Math.max(-1,Math.min(1,this.s/this.n));this.s=0;this.n=0;this.b[this.i++]=v<0?v*32768:v*32767;
+if(this.i===1600){this.port.postMessage(this.b.buffer.slice(0));this.i=0}}}return true}}
+registerProcessor('pcm16k',Pcm16k)`;
+async function startGemini(){
+  const btn=$('#micBtn'); let stream=null, ctx=null, node=null, ws=null, gotText=false, stopped=false, finished=false, guard=null;
+  const cleanup=()=>{ try{node&&node.disconnect()}catch(e){} try{stream&&stream.getTracks().forEach(t=>t.stop())}catch(e){} try{ctx&&ctx.close()}catch(e){}
+    clearTimeout(guard); gem=null; listening=false; btn.setAttribute('aria-pressed','false'); btn.textContent='🎙 Talk'; };
+  const fallback=message=>{ cleanup(); toast(message);
+    if(recog && !gotText){ listening=true; btn.setAttribute('aria-pressed','true'); btn.textContent='● Listening'; $('#q').value=''; recog.start(); } };
+  const finish=()=>{ if(finished) return; finished=true; cleanup(); if($('#q').value.trim()) send(); };
+  try{
+    window.speechSynthesis?.cancel();
+    stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
+    ctx=new AudioContext();
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([PCM_WORKLET],{type:'application/javascript'})));
+    node=new AudioWorkletNode(ctx,'pcm16k'); ctx.createMediaStreamSource(stream).connect(node);
+    ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/api/voice/live?course=${encodeURIComponent(cid||'')}`);
+    ws.binaryType='arraybuffer';
+    node.port.onmessage=e=>{ if(ws.readyState===1 && !stopped) ws.send(e.data) };
+    ws.onmessage=e=>{ let m; try{ m=JSON.parse(e.data) }catch(err){ return }
+      if('interim' in m || 'final' in m){ gotText=true; $('#q').value=('final' in m)?m.final:m.interim; }
+      if(m.limit){ toast('Gemini dictation stops at about ten minutes'); gem&&gem.stop(); }
+      if(m.error){ finished=true; fallback(m.error+' Using the browser mic.'); }
+      if('done' in m){ if(m.done) $('#q').value=m.done;
+        if(m.cost_usd){ sessionCost+=m.cost_usd; localStorage.setItem('cf.cost',sessionCost); showCost(); }
+        finish(); } };
+    ws.onclose=()=>{ if(finished) return; if(stopped) finish(); else { finished=true; fallback('Gemini dictation is unavailable. Using the browser mic.'); } };
+    gem={ stop(){ if(stopped) return; stopped=true; btn.textContent='… Finishing';
+      try{ if(ws.readyState===1) ws.send(JSON.stringify({stop:true})) }catch(e){}
+      try{ stream.getTracks().forEach(t=>t.stop()) }catch(e){}
+      guard=setTimeout(()=>{ try{ws.close()}catch(e){} finish(); },10000); } };
+    listening=true; btn.setAttribute('aria-pressed','true'); btn.textContent='● Listening'; $('#q').value='';
+  }catch(e){ finished=true; fallback('Gemini dictation needs microphone access. Using the browser mic.'); }
+}
+$('#micBtn').onclick=()=>{ if(listening && !gem){ recog?.stop(); return }  // the browser mic is on (chosen, or a Gemini fallback): stop it
+  if(cfg.voice?.gemini && currentMicMode()==='gemini'){ return gem ? gem.stop() : startGemini(); }
+  if(!recog) return; if(listening){recog.stop();return}
   window.speechSynthesis?.cancel(); listening=true; $('#micBtn').setAttribute('aria-pressed','true'); $('#micBtn').textContent='● Listening'; $('#q').value=''; recog.start(); };
 $('#costState').onclick=()=>{ sessionCost=0; localStorage.setItem('cf.cost',0); showCost() }; showCost();
 $('#speakBtn').onclick=()=>{ speakOn=!speakOn; localStorage.setItem('cf.speak',speakOn?'1':'0');
@@ -582,6 +837,306 @@ $('#cleanBtn').onclick=async()=>{ if(!nid) return; const b=$('#cleanBtn'); b.dis
 $('#histBack').onclick=()=>{ histVid=null; $('#histBar').hidden=true; showNote() };
 $('#histRestore').onclick=async()=>{ if(!histVid) return; if(!confirm('Replace the current text with this version? The current text is kept in History.')) return; await post(`/notes/${nid}/restore/${histVid}`); histVid=null; $('#histBar').hidden=true; toast('Restored'); loadNotes() };
 $('#cardsFromMap').onclick=async()=>{ if(!nid) return; const r=await post(`/notes/${nid}/cards-from-tables`); toast(r.made?`${r.made} card(s) added to Recall`:'No case-map table found (needs a table with a Case column)') };
+/* ---- Advocate: oral revision. The engine lives on the server; this is the mouth and ears. ---- */
+const adv={mastery:{},cooldown:{},misses:{},notes:[],asked:0,q:null,busy:false};
+let advRecog=null, advListening=false, advAudio=null;
+
+async function advSpeak(text){
+  if(!text||!text.trim()) return;
+  const v=window.CFVOICE||{};
+  if(v.server){   // every sentence is requested at once, then played in order: the first words start while the rest arrive
+    const parts=(text.match(/[^.!?]+[.!?]*/g)||[text]).map(s=>s.trim()).filter(Boolean);
+    const pending=parts.map(s=>fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:s})})
+      .then(r=>r.status===204?null:r.blob()).catch(()=>null));
+    for(const job of pending){ const b=await job; if(!b) break;
+      await new Promise(done=>{ advAudio=new Audio(URL.createObjectURL(b)); advAudio.onended=done; advAudio.onerror=done; advAudio.play().catch(done) }); }
+    return;
+  }
+  if('speechSynthesis' in window){ const u=new SpeechSynthesisUtterance(text); u.lang='en-GB'; u.rate=1.05;
+    window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); }
+}
+function advQuiet(){ window.speechSynthesis?.cancel(); if(advAudio){ try{advAudio.pause()}catch(e){} } }
+
+function advBubble(who,text){ const d=document.createElement('div'); d.className='advb '+who; d.textContent=text;
+  const c=$('#advConvo'); c.appendChild(d); c.scrollTop=c.scrollHeight; return d; }
+
+function advRender(){
+  $('#advAsked').textContent=adv.asked;
+  const vals=Object.values(adv.mastery);
+  $('#advSolid').textContent=vals.filter(v=>v==='solid').length;
+  $('#advWeak').textContent=vals.filter(v=>v==='missed'||v==='shaky').length;
+  const map=$('#advMap');
+  const keys=Object.keys(adv.mastery);
+  map.innerHTML = keys.length ? keys.map(k=>`<div class="mrow"><span><span class="mdot m-${adv.mastery[k]}"></span>${esc(k)}</span><span class="mstate">${adv.mastery[k]}</span></div>`).join('')
+                              : '<div class="small muted" style="padding-top:.4rem">Nothing tested yet.</div>';
+  const n=$('#advNotes');
+  n.innerHTML = adv.notes.length ? adv.notes.map(x=>`<div class="advnote"><b>${esc(x.concept)}</b> · ${esc(x.text)}</div>`).join('')
+                                 : '<div class="emptystate">Nothing yet. Miss something and it lands here.</div>';
+}
+
+async function advNext(){
+  try{
+    const r=await post(`/courses/${cid}/oral/next`,{mastery:adv.mastery,cooldown:adv.cooldown});
+    if(!r.question){ adv.q=null; $('#advQ').textContent='No questions yet — press "Build questions from my files".'; $('#advTags').innerHTML=''; return; }
+    adv.q=r.question;
+    $('#advQ').textContent=r.question.question; $('#advCourse').textContent=C().name;
+    $('#advTags').innerHTML=`<span class="tag">${esc(r.question.concept)}</span>`;
+    if(!(r.question.concept in adv.mastery)) adv.mastery[r.question.concept]='untested';
+    advRender(); advSpeak(r.question.question);
+  }catch(e){ toast('Could not fetch a question: '+e.message); }
+}
+
+async function advSubmit(text){
+  text=(text||'').trim();
+  if(!text||adv.busy) return;
+  if(!adv.q){ toast('Press Start first'); return; }
+  adv.busy=true; advQuiet();
+  advBubble('me',text); $('#advType').value='';
+  const think=advBubble('tutor','…');
+  try{
+    const teach=(adv.misses[adv.q.concept]||0)>=2;
+    const g=await post(`/courses/${cid}/oral/grade`,{card_id:adv.q.id,answer:text,teach});
+    think.remove();
+    adv.asked++; adv.mastery[g.concept]=g.mastery;
+    adv.cooldown=Object.fromEntries(Object.entries(adv.cooldown).map(([k,v])=>[k,v-1]).filter(([,v])=>v>0));
+    adv.cooldown[adv.q.id]=g.mastery==='solid'?6:(g.mastery==='shaky'?2:1);
+    if(g.mastery==='missed') adv.misses[g.concept]=(adv.misses[g.concept]||0)+1;
+    else if(g.mastery==='solid') adv.misses[g.concept]=0;
+    if(g.note) adv.notes.unshift({concept:g.concept,text:g.note});
+    const b=advBubble('tutor','');
+    b.innerHTML=`<div class="verdict v-${g.mastery}">${esc(g.verdict)}</div>${esc(g.spoken)}`;
+    advRender();
+    await advSpeak(g.spoken);
+    setTimeout(advNext, g.mastery==='missed'?1400:700);
+  }catch(e){ think.remove(); toast('Could not grade that — say it again'); }
+  adv.busy=false;
+}
+
+const ASR=window.SpeechRecognition||window.webkitSpeechRecognition;
+if(ASR){
+  advRecog=new ASR(); advRecog.lang='en-GB'; advRecog.interimResults=true; advRecog.continuous=false;
+  let abuf='';
+  const stopped=()=>{ advListening=false; $('#advMic').setAttribute('aria-pressed','false'); $('#advMic').textContent='🎙 Answer'; };
+  advRecog.onresult=e=>{ abuf=''; for(let i=0;i<e.results.length;i++) abuf+=e.results[i][0].transcript; $('#advType').value=abuf; };
+  advRecog.onend=()=>{ stopped(); if(abuf.trim()) advSubmit(abuf); abuf=''; };
+  advRecog.onerror=()=>{ stopped(); $('#advHint').textContent='Mic problem — type your answer instead.'; };
+}
+$('#advMic').onclick=()=>{
+  if(!ASR){ toast('Speaking needs Chrome — type your answer instead'); return; }
+  if(advListening){ advRecog.stop(); return; }
+  advQuiet();
+  micOwner('#advMic','#advType','🎙 Answer',advSubmit);
+  try{ advRecog.start(); advListening=true; $('#advMic').setAttribute('aria-pressed','true'); $('#advMic').textContent='● Listening';
+       $('#advHint').textContent='Listening — click again when you have finished.'; }catch(e){}
+};
+$('#advSend').onclick=()=>advSubmit($('#advType').value);
+$('#advType').addEventListener('keydown',e=>{ if(e.key==='Enter') advSubmit($('#advType').value); });
+$('#advStart').onclick=()=>{ $('#advConvo').innerHTML=''; advNext(); };
+$('#advBank').onclick=async()=>{
+  const b=$('#advBank'); b.disabled=true; b.textContent='Writing questions…';
+  try{ const r=await post(`/courses/${cid}/oral/bank`,{count:10});
+       toast(r.made?`${r.made} spoken question(s) added`:'Nothing made — tick some files first'); if(r.made) advNext(); }
+  catch(e){ toast('Could not build questions: '+e.message); }
+  b.disabled=false; b.textContent='Build questions from my files';
+};
+$('#advCopy').onclick=()=>{
+  const txt=adv.notes.map(n=>`• [${n.concept}] ${n.text}`).join('\n')||'No notes yet.';
+  navigator.clipboard?.writeText(txt); $('#advCopy').textContent='Copied ✓';
+  setTimeout(()=>$('#advCopy').textContent='Copy notes',1400);
+};
+
+async function loadAdvocate(){
+  if(!window.CFVOICE){ try{ const cfg=await api('/config'); window.CFVOICE=cfg.voice||{}; }catch(e){ window.CFVOICE={}; } }
+  $('#advSub').textContent = (window.CFVOICE||{}).server
+    ? 'Oral revision — it asks, you answer out loud.'
+    : 'Oral revision — using the browser voice for now.';
+  $('#advCourse').textContent=C().name;
+  advRender();
+}
+
+/* Two screens share one recogniser; whoever starts it owns it until it stops. */
+function micOwner(btn,box,label,send){
+  if(!ASR) return;
+  let buf='';
+  const stopped=()=>{ advListening=false; $(btn).setAttribute('aria-pressed','false'); $(btn).textContent=label; };
+  advRecog.onresult=e=>{ buf=''; for(let i=0;i<e.results.length;i++) buf+=e.results[i][0].transcript; $(box).value=buf; };
+  advRecog.onend=()=>{ stopped(); if(buf.trim()) send(buf); buf=''; };
+  advRecog.onerror=()=>{ stopped(); toast('Mic problem — type it instead'); };
+}
+/* ---- Arena: the ladder and the courtroom. Both feed the same cards as everything else. ---- */
+const RUNGS=15;   // asked for; the ladder is drawn from what the course can actually supply
+const safeRungs=n=>n<6?[] :[...new Set([Math.ceil(n/3),Math.ceil(2*n/3),n])].filter(x=>x>0);
+const law={q:[],i:0,used:{fifty:false,hint:false,skip:false},helped:false,over:false};
+
+function arTab(which){
+  $('#arTabLaw').setAttribute('aria-pressed',which==='law'); $('#arTabCourt').setAttribute('aria-pressed',which==='court');
+  $('#arLawyer').hidden=which!=='law'; $('#arCourt').hidden=which!=='court'; $('#lawStart').hidden=which!=='law';
+  localStorage.setItem('cf.arena',which);
+  if(which==='court') loadCourtCases();
+}
+$('#arTabLaw').onclick=()=>arTab('law'); $('#arTabCourt').onclick=()=>arTab('court');
+
+function ladder(){
+  const el=$('#ladder'); el.innerHTML='';
+  if(!law.q.length){ el.innerHTML='<div class="small muted">Press Start — the ladder is as long as the questions your cards can fill, up to '+RUNGS+'.</div>'; return; }
+  const total=law.q.length, safe=safeRungs(total);
+  for(let n=1;n<=total;n++){
+    const d=document.createElement('div');
+    d.className='rung'+(safe.includes(n)?' safe':'')+(n<law.i+1?' done':'')+(n===law.i+1&&!law.over?' at':'');
+    d.innerHTML=`<span class="rn">${n}</span><span>${safe.includes(n)?'safe':''}</span>`;
+    el.appendChild(d);
+  }
+}
+
+function lawLifelines(on){
+  $('#lifeFifty').disabled=!on||law.used.fifty;
+  $('#lifeHint').disabled=!on||law.used.hint;
+  $('#lifeSkip').disabled=!on||law.used.skip;
+}
+
+async function lawStart(){
+  law.i=0; law.over=false; law.used={fifty:false,hint:false,skip:false};
+  $('#lawHint').textContent=''; $('#lawQ').textContent='Writing fifteen questions from your cards…'; $('#lawOpts').innerHTML='';
+  try{ law.q=await post(`/courses/${cid}/quiz`,{count:RUNGS}); }
+  catch(e){ $('#lawQ').textContent='Could not write questions: '+e.message; return; }
+  if(!law.q.length){ $('#lawQ').textContent='No cards yet — make some in Recall first.'; return; }
+  ladder(); lawShow();
+}
+
+function lawShow(){
+  const it=law.q[law.i];
+  if(!it){ return lawEnd(true); }
+  law.helped=false;
+  $('#lawState').textContent=`Question ${law.i+1} of ${law.q.length}`;
+  $('#lawHint').textContent='';
+  $('#lawQ').textContent=it.question;
+  const letters='ABCD';
+  $('#lawOpts').innerHTML=it.options.map((o,i)=>`<button class="lawopt" data-opt="${i}"><span class="lt">${letters[i]}</span><span>${esc(o)}</span></button>`).join('');
+  $('#lawOpts').querySelectorAll('.lawopt').forEach(b=>b.onclick=()=>lawAnswer(b,it));
+  lawLifelines(true); ladder();
+}
+
+async function lawAnswer(btn,it){
+  const chosen=it.options[+btn.dataset.opt], right=chosen===it.correct;
+  $('#lawOpts').querySelectorAll('.lawopt').forEach(x=>{ x.disabled=true; x.onclick=null; });
+  btn.dataset.state='picked';
+  lawLifelines(false);
+  await new Promise(r=>setTimeout(r,matchMedia('(prefers-reduced-motion: reduce)').matches?120:650));
+  $('#lawOpts').querySelectorAll('.lawopt').forEach(x=>{
+    const v=it.options[+x.dataset.opt];
+    if(v===it.correct) x.dataset.state='right'; else if(x===btn) x.dataset.state='wrong';
+  });
+  // A miss always comes back. A win only counts as knowing it if no lifeline carried you.
+  try{ if(!right) await post(`/cards/${it.id}/review`,{rating:0});
+       else if(!law.helped) await post(`/cards/${it.id}/review`,{rating:2}); }catch(e){}
+  setTimeout(()=>{
+    if(!right) return lawEnd(false);
+    law.i++; if(law.i>=law.q.length) return lawEnd(true);
+    lawShow();
+  }, 900);
+}
+
+function lawEnd(won){
+  law.over=true; ladder(); lawLifelines(false);
+  const reached=law.i;
+  const safe=[...safeRungs(law.q.length||RUNGS)].reverse().find(n=>n<=reached)||0;
+  $('#lawOpts').innerHTML='';
+  $('#lawState').textContent=won?'Cleared':'Out';
+  $('#lawQ').textContent = won
+    ? `All ${law.q.length} — clean sweep. Nothing from this run comes back early.`
+    : `Out at question ${reached+1}. You keep question ${safe||0}. That card is already back in your queue.`;
+}
+
+$('#lawStart').onclick=lawStart;
+$('#lifeFifty').onclick=()=>{
+  const it=law.q[law.i]; if(!it) return;
+  law.used.fifty=true; law.helped=true; lawLifelines(true);
+  const wrong=[...$('#lawOpts').querySelectorAll('.lawopt')].filter(b=>it.options[+b.dataset.opt]!==it.correct);
+  wrong.sort(()=>Math.random()-0.5).slice(0,2).forEach(b=>{ b.dataset.state='gone'; b.disabled=true; b.onclick=null; });
+};
+$('#lifeHint').onclick=async()=>{
+  const it=law.q[law.i]; if(!it) return;
+  law.used.hint=true; law.helped=true; lawLifelines(true);
+  $('#lawHint').textContent='Asking the tutor…';
+  try{ const r=await post(`/courses/${cid}/hint`,{question:it.question,options:it.options}); $('#lawHint').textContent='💡 '+r.hint; }
+  catch(e){ $('#lawHint').textContent='No hint available just now.'; }
+};
+$('#lifeSkip').onclick=()=>{
+  if(!law.q[law.i]) return;
+  law.used.skip=true; law.i++;
+  if(law.i>=law.q.length) return lawEnd(true);
+  lawShow();
+};
+
+/* ---- Courtroom ---- */
+const court={case:null,hearing:null,qi:0,busy:false};
+
+async function loadCourtCases(){
+  const el=$('#courtCases');
+  try{
+    const cs=await api(`/courses/${cid}/cases`);
+    if(!cs.length){ el.innerHTML='<div class="small muted">No cases yet — they appear once your notes name cases in *italics*.</div>'; return; }
+    el.innerHTML=cs.map(c=>`<button data-case="${esc(c.name)}"><b>${esc(c.name)}</b>${c.cite?` <span class="muted">${esc(c.cite)}</span>`:''}</button>`).join('');
+    el.querySelectorAll('button[data-case]').forEach(b=>b.onclick=()=>openCase(b.dataset.case));
+  }catch(e){ el.innerHTML='<div class="small muted">Could not read your cases.</div>'; }
+}
+
+async function openCase(name){
+  court.case=name; court.qi=0; court.hearing=null;
+  $('#courtLog').innerHTML=''; $('#courtHolding').innerHTML='';
+  $('#courtWho').textContent='Preparing the hearing…'; $('#benchQ').textContent='…';
+  try{ court.hearing=await post(`/courses/${cid}/court`,{case:name}); }
+  catch(e){ $('#courtWho').textContent=''; $('#benchQ').textContent=e.message||'Could not build the hearing.'; return; }
+  const h=court.hearing;
+  $('#courtWho').innerHTML=`<b>${esc(h.case)}</b>${h.court?' · '+esc(h.court):''}${h.year?' · '+esc(h.year):''}${h.parties?' — '+esc(h.parties):''}`;
+  if(h.issue) courtSay('tutor','The issue: '+h.issue);
+  if(h.for) courtSay('tutor','You appear for: '+h.for);
+  benchAsk();
+}
+
+function courtSay(who,text){
+  const d=document.createElement('div'); d.className='advb '+who; d.textContent=text;
+  const l=$('#courtLog'); l.appendChild(d); l.scrollTop=l.scrollHeight; return d;
+}
+
+function benchAsk(){
+  const h=court.hearing; if(!h) return;
+  const q=h.bench[court.qi];
+  if(!q){ $('#benchQ').textContent='The bench has heard enough.';
+    if(h.holding) $('#courtHolding').innerHTML=`<div class="holding"><b>What the court actually held</b><div>${esc(h.holding)}</div></div>`;
+    return; }
+  $('#benchQ').textContent=q;
+  advSpeak && advSpeak(q);
+}
+
+async function courtReply(text){
+  text=(text||'').trim();
+  if(!text||court.busy||!court.hearing) return;
+  const q=court.hearing.bench[court.qi]; if(!q) return;
+  court.busy=true; courtSay('me',text); $('#courtType').value='';
+  const think=courtSay('tutor','…');
+  try{
+    const g=await post(`/courses/${cid}/court/reply`,{case:court.case,question:q,answer:text});
+    think.remove();
+    const b=courtSay('tutor','');
+    b.innerHTML=`<div class="verdict v-${g.mastery}">${esc(g.verdict)}</div>${esc(g.spoken)}`;
+    advSpeak && advSpeak(g.spoken);
+    court.qi++; setTimeout(benchAsk,700);
+  }catch(e){ think.remove(); toast('The bench did not respond — say that again'); }
+  court.busy=false;
+}
+$('#courtSend').onclick=()=>courtReply($('#courtType').value);
+$('#courtType').addEventListener('keydown',e=>{ if(e.key==='Enter') courtReply($('#courtType').value); });
+$('#courtMic').onclick=()=>{
+  if(!ASR){ toast('Speaking needs Chrome — type instead'); return; }
+  if(advListening){ advRecog.stop(); return; }
+  advQuiet();
+  micOwner('#courtMic','#courtType','🎙 Submit',courtReply);
+  try{ advRecog.start(); advListening=true; $('#courtMic').setAttribute('aria-pressed','true'); $('#courtMic').textContent='● Listening'; }catch(e){}
+};
+
+function loadArena(){ arTab(localStorage.getItem('cf.arena')||'law'); ladder(); }
+
 /* ---- recorder ---- */
 let rec=null, recId=null, recStart=0, recChunks=[], recTimer=null;
 async function loadRecIds(){ if(!nid){recIds=[];return} const all=await api(`/notes/${nid}/recordings?all=1`); recIds=all.map(r=>r.id) }

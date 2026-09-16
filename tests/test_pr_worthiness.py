@@ -132,3 +132,44 @@ def test_sweep_plan_skips_drafts_pending_tests_and_assessed_commits():
     assert todo == [(4, "failure")]
     assert skipped == {1: "draft", 2: "tests pending", 3: "latest commit already assessed"}
     assert pw.plan(prs, {3: "success"}, {3: {"ccccccc"}}, force=True)[0] == [(3, "success")]
+
+
+
+def test_default_model_is_haiku(monkeypatch):
+    import importlib
+    monkeypatch.delenv("PR_CHECK_MODEL", raising=False)
+    assert importlib.reload(pw).MODEL == "claude-haiku-4-5"
+    monkeypatch.setenv("PR_CHECK_MODEL", "")
+    assert importlib.reload(pw).MODEL == "claude-haiku-4-5"
+
+
+def test_model_ids_with_a_slash_go_through_openrouter(monkeypatch):
+    import types as pytypes
+    seen = {}
+    class FakeAnthropic:
+        def __init__(self, **kw):
+            seen.update(kw)
+            self.messages = pytypes.SimpleNamespace(create=lambda **k: seen.setdefault("create", k) and pytypes.SimpleNamespace(
+                content=[pytypes.SimpleNamespace(text='{"verdict": "approve", "security": 90, "explanation": "Docs only."}')]))
+    monkeypatch.setitem(sys.modules, "anthropic", pytypes.SimpleNamespace(Anthropic=FakeAnthropic))
+    monkeypatch.setattr(pw, "MODEL", "z-ai/glm-5.3-flash")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    assert pw.model_key_present()
+    out = pw.model_review("Docs", "", [f("README.md")], diff_for("README.md", ["x"]), [])
+    assert out["verdict"] == "approve" and seen["base_url"] == "https://openrouter.ai/api" and seen["auth_token"] == "or-test"
+    assert seen["create"]["model"] == "z-ai/glm-5.3-flash"
+    monkeypatch.setattr(pw, "MODEL", "claude-haiku-4-5")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert not pw.model_key_present()
+
+
+def test_risky_lines_in_docs_and_tests_do_not_count():
+    assert pw.rules([f("README.md")], diff_for("README.md", ["AUTH=off signs you in as the first address"]))[0] == 100
+    assert pw.rules([f("tests/test_x.py")], diff_for("tests/test_x.py", ["subprocess.run(cmd, shell=True)"]))[0] == 100
+    assert pw.rules([f("run.py")], diff_for("run.py", ["subprocess.run(cmd, shell=True)"]))[0] == 92
+
+
+def test_using_the_public_helper_is_not_a_change_to_public_routes():
+    use = pw.rules([f("auth.py")], diff_for("auth.py", ['        if user is None and not _public(scope["path"]):']))
+    define = pw.rules([f("auth.py")], diff_for("auth.py", ["def _public(path: str) -> bool:"]))
+    assert use[0] == 100 - 12 and define[0] == 100 - 12 - 8

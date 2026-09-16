@@ -28,7 +28,7 @@ PROVIDER=github
 SECRETS=(ANTHROPIC_API_KEY DATABASE_URL SESSION_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET)
 APIS=(run.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com speech.googleapis.com
       iamcredentials.googleapis.com iam.googleapis.com sts.googleapis.com cloudresourcemanager.googleapis.com
-      storage.googleapis.com)
+      storage.googleapis.com aiplatform.googleapis.com)
 
 DRY_RUN=0
 ROTATE=0
@@ -119,6 +119,7 @@ if exists gcloud iam service-accounts describe "$RUN_SA" --project "$PROJECT"; t
 else run gcloud iam service-accounts create "$RUN_SA_NAME" --project "$PROJECT" --display-name "CognitioFlow Cloud Run"; fi
 grant bucket  "$BUCKET"  roles/storage.objectAdmin              "serviceAccount:$RUN_SA"
 grant project "$PROJECT" roles/speech.client                    "serviceAccount:$RUN_SA"
+grant project  "$PROJECT"  roles/aiplatform.user                "serviceAccount:$RUN_SA"   # Phase 8: Gemini dictation via Vertex AI
 grant sa      "$RUN_SA"  roles/iam.serviceAccountTokenCreator   "serviceAccount:$RUN_SA"   # signed URLs
 grant sa      "$RUN_SA"  roles/iam.serviceAccountTokenCreator   "user:$OWNER_EMAIL"        # local impersonation
 
