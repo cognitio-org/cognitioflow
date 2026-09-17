@@ -1,0 +1,109 @@
+"""The courtroom: a missed bench question has to come back, and must not pile up.
+
+Until now the grader wrote the gap and its authority, the page rendered the verdict, and the note was
+dropped — so the courtroom could tell you that you were wrong but never help you stop being wrong.
+"""
+import json
+from datetime import date
+from unittest import mock
+
+import run
+
+
+def _bench(payload):
+    msg = mock.MagicMock()
+    msg.content = [mock.MagicMock(type="text", text=json.dumps(payload))]
+    fake = mock.MagicMock()
+    fake.messages.create.return_value = msg
+    return fake
+
+
+MISSED = {"mastery": "missed", "verdict": "Not yet", "spoken": "You did not reach the justification.",
+          "note": "forgot the proportionality limb — Cassis"}
+SOLID = {"mastery": "solid", "verdict": "Solid", "spoken": "That is right.", "note": ""}
+
+CASE = "Dassonville"
+QUESTION = "What must the measure be capable of doing to fall within Article 34?"
+
+
+def _course(pg):
+    cid = pg.execute("SELECT id FROM courses ORDER BY created LIMIT 1").fetchone()[0]
+    pg.execute("INSERT INTO notes(id,course_id,title,body,updated) VALUES(%s,%s,%s,%s,%s)",
+               ("n-court", cid, "Week 3", f"*{CASE}* — all trading rules capable of hindering trade.", 0))
+    pg.commit()
+    return cid
+
+
+def _reply(client, cid, payload, answer="Something vague."):
+    with mock.patch.object(run, "client", return_value=_bench(payload)):
+        return client.post(f"/api/courses/{cid}/court/reply",
+                           json={"case": CASE, "question": QUESTION, "answer": answer})
+
+
+def test_a_missed_bench_question_becomes_a_card_due_today(client, pg):
+    cid = _course(pg)
+    r = _reply(client, cid, MISSED)
+    assert r.status_code == 200 and r.json()["mastery"] == "missed"
+
+    card = pg.execute("SELECT front,back,source,concept,due FROM cards WHERE course_id=%s AND source LIKE 'court:%%'",
+                      (cid,)).fetchone()
+    assert card is not None, "a missed bench question must leave a card behind"
+    front, back, source, concept, due = card
+    assert front == QUESTION
+    assert back == MISSED["note"], "the card carries the gap and its authority, which is the whole point"
+    assert source == f"court:{CASE}" and concept == CASE
+    assert due == date.today().isoformat(), "it goes into the queue now, not eventually"
+
+
+def test_the_reply_tells_the_page_when_the_card_is_due(client, pg):
+    cid = _course(pg)
+    assert _reply(client, cid, MISSED).json()["due"] == date.today().isoformat()
+
+
+def test_a_solid_answer_leaves_no_card(client, pg):
+    cid = _course(pg)
+    r = _reply(client, cid, SOLID, answer="Capable of hindering trade, directly or indirectly.")
+    assert r.status_code == 200 and r.json()["mastery"] == "solid"
+    assert "due" not in r.json()
+    assert pg.execute("SELECT COUNT(*) FROM cards WHERE course_id=%s", (cid,)).fetchone()[0] == 0
+
+
+def test_the_same_question_missed_twice_leaves_one_card(client, pg):
+    """Ten hearings on one case must leave one card per question, not ten."""
+    cid = _course(pg)
+    _reply(client, cid, MISSED)
+    _reply(client, cid, MISSED)
+    n = pg.execute("SELECT COUNT(*) FROM cards WHERE course_id=%s AND source LIKE 'court:%%'", (cid,)).fetchone()[0]
+    assert n == 1, f"expected one card for one question, found {n}"
+
+
+def test_missing_it_again_is_rated_through_the_apps_own_review_path(client, pg):
+    """Recurrence is decided in exactly one place; the courtroom must not invent a second."""
+    cid = _course(pg)
+    _reply(client, cid, MISSED)
+    with mock.patch.object(run, "review", wraps=run.review) as review:
+        _reply(client, cid, MISSED)
+    assert review.call_count == 1, "the second miss goes through review(), not a fresh insert"
+    assert review.call_args.args[1].rating == 0, "a miss is rated 'again'"
+
+
+def test_two_different_questions_on_one_case_keep_their_own_cards(client, pg):
+    cid = _course(pg)
+    _reply(client, cid, MISSED)
+    with mock.patch.object(run, "client", return_value=_bench(MISSED)):
+        client.post(f"/api/courses/{cid}/court/reply",
+                    json={"case": CASE, "question": "And what is the effect on inter-State trade?", "answer": "?"})
+    n = pg.execute("SELECT COUNT(*) FROM cards WHERE course_id=%s AND source LIKE 'court:%%'", (cid,)).fetchone()[0]
+    assert n == 2
+
+
+def test_a_bench_that_does_not_answer_is_still_a_502(client, pg):
+    """The persistence sits outside the try; the model's own failure must still read as one."""
+    cid = _course(pg)
+    broken = mock.MagicMock()
+    broken.messages.create.side_effect = RuntimeError("upstream is down")
+    with mock.patch.object(run, "client", return_value=broken):
+        r = client.post(f"/api/courses/{cid}/court/reply",
+                        json={"case": CASE, "question": QUESTION, "answer": "x"})
+    assert r.status_code == 502
+    assert pg.execute("SELECT COUNT(*) FROM cards WHERE course_id=%s", (cid,)).fetchone()[0] == 0
