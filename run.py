@@ -24,10 +24,11 @@ import schedule
 import storage
 import transcribe as stt
 from transcribe import live as voice
-import tts
 
 load_dotenv(".env.local", override=True)
 load_dotenv()
+
+import tts  # noqa: E402  (after the env files: tts reads TTS/TTS_LANGUAGE once, at import)
 
 ROOT = Path(__file__).parent
 
@@ -181,7 +182,6 @@ class ReviewIn(BaseModel): rating: int  # 0 again, 1 hard, 2 good, 3 easy
 class SessionIn(BaseModel): day: str; topic: str; minutes: int = 60
 class ChatIn(BaseModel): message: str; mode: str = "drill"; model: Optional[str] = None  # model="auto" or explicit
 class GenIn(BaseModel): file_id: Optional[str] = None; count: int = 8; model: Optional[str] = None
-class SpeechIn(BaseModel): question: str; answer: str; notes: str = ""; model_answer: str = ""
 
 def rows(q, *a):
     with db() as c:
@@ -511,35 +511,6 @@ def chat(cid: str, body: ChatIn):
         yield "data: [DONE]\n\n"
     return StreamingResponse(gen(), media_type="text/event-stream")
 
-# ---------------------------------------------------------------- voice (Phase 12)
-@app.post("/speech")      # the name the Phase 12 spec uses
-@app.post("/api/speech")  # same handler; a signed-out call gets a 401 here instead of a login redirect
-def speech(body: SpeechIn):
-    """
-    Grade a spoken answer outside any course's card queue — a quick "did I get that right?" rather than a
-    scheduled review. Same rules, contract and cached system prompt as the in-course oral grader, and the
-    same normalised shape back. No card is rescheduled: this call was never told about one.
-    """
-    if not body.question.strip() or not body.answer.strip():
-        raise HTTPException(400, "question and answer are required")
-    sys = [{"type": "text", "text": GRADER_RULES},
-           {"type": "text", "text": GRADER_CONTRACT, "cache_control": {"type": "ephemeral"}}]
-    usr = f"QUESTION: {body.question.strip()[:600]}\n"
-    if body.model_answer.strip():
-        usr += f"MODEL ANSWER: {body.model_answer.strip()[:2000]}\n"
-    if body.notes.strip():
-        usr += f"THE STUDENT'S NOTES (the standard to grade against):\n{body.notes.strip()[:8000]}\n"
-    usr += f"STUDENT'S SPOKEN ANSWER: \"{body.answer.strip()[:2000]}\""
-    try:
-        m = client().messages.create(model=pick_model("drill", None), max_tokens=700,
-                                     system=sys, messages=[{"role": "user", "content": usr}])
-        graded = _model_json(m)
-    except Exception as e:
-        print("speech:", type(e).__name__, e)
-        raise HTTPException(502, "Could not reach the grader — say that answer again.")
-    return oral.normalise(graded)
-
-
 # ---------------------------------------------------------------- notes
 @app.get("/api/courses/{cid}/notes")
 def notes(cid: str): return rows("SELECT id,title,updated,length(body) AS chars FROM notes WHERE course_id=? ORDER BY updated DESC", cid)
@@ -742,6 +713,13 @@ The word "solid" is earned, not given. When an answer sits between two grades, c
 and say in 'spoken' exactly what would have lifted it."""
 
 
+def _grader_system():
+    """Both spoken graders (a card, or the student's own question) send exactly these bytes, so they
+    share one cache entry and one marking standard."""
+    return [{"type": "text", "text": GRADER_RULES},
+            {"type": "text", "text": GRADER_CONTRACT, "cache_control": {"type": "ephemeral"}}]
+
+
 # ---------------------------------------------------------------- the arena (Phase 11d/11e)
 class HintIn(BaseModel):
     question: str
@@ -884,8 +862,7 @@ def oral_grade(cid: str, g: OralGradeIn):
     if not c: raise HTTPException(404)
     card = dict(c[0])
     traps = " ; ".join(x for x in (card.get("traps") or "").split("|") if x) or "(none recorded)"
-    sys = [{"type": "text", "text": GRADER_RULES},
-           {"type": "text", "text": GRADER_CONTRACT, "cache_control": {"type": "ephemeral"}}]
+    sys = _grader_system()
     usr = (f"QUESTION: {card['front']}\nMODEL ANSWER: {card['back']}\nCOMMON TRAPS: {traps}\n"
            f"STUDENT'S SPOKEN ANSWER: \"{g.answer.strip()[:2000]}\"")
     if g.teach:
@@ -908,6 +885,57 @@ def oral_grade(cid: str, g: OralGradeIn):
     out["due"] = review(g.card_id, ReviewIn(rating=out["rating"]))["due"]
     out["concept"] = (card.get("concept") or card["front"])[:80]
     return out
+
+
+# ---------------------------------------------------------------- spoken answer to your own question (Phase 12)
+SPEECH_QUESTION_CHARS, SPEECH_ANSWER_CHARS, SPEECH_NOTES_CHARS = 600, 2000, 12000
+_HIDDEN = re.compile(r"<!--.*?-->", re.S)  # recording anchors and continue markers are not course content
+
+
+class SpeechGradeIn(BaseModel):
+    question: str
+    answer: str
+    notes: str = ""
+    model_answer: str = ""
+
+
+@app.post("/speech")      # the name the Phase 12 spec uses; signed out, this path redirects to sign-in
+@app.post("/api/speech")  # same handler; the page calls this one, where signed out is a clean 401
+def speech_grade(s: SpeechGradeIn):
+    """
+    Grade a spoken answer outside any card queue — a quick "did I get that right?" against the
+    student's own note or model answer. Same cached grader and result shape as oral_grade, but
+    stateless: no card, so nothing is reviewed, rescheduled or written. The model is auto-routed, as for
+    every oral route; a caller cannot choose one.
+    """
+    question = s.question.strip()[:SPEECH_QUESTION_CHARS]
+    answer = s.answer.strip()[:SPEECH_ANSWER_CHARS]
+    if not question or not answer:
+        raise HTTPException(400, "A question and a spoken answer are both needed.")
+    notes = _HIDDEN.sub("", s.notes).strip()[:SPEECH_NOTES_CHARS]
+    model_answer = s.model_answer.strip()[:SPEECH_ANSWER_CHARS]
+    usr = f"QUESTION: {question}\n"
+    if model_answer:
+        usr += f"MODEL ANSWER: {model_answer}\n"
+    if notes:
+        usr += f"THE STUDENT'S OWN NOTE (the standard to grade against):\n{notes}\n"
+    if not (notes or model_answer):
+        # The course's rule: anything not from the student's own material is labelled as such.
+        usr += "REFERENCE: none supplied. If the answer is not solid, begin 'note' with [OUTSIDE FILES].\n"
+    usr += f"STUDENT'S SPOKEN ANSWER: \"{answer}\""
+    try:
+        m = client().messages.create(model=pick_model("drill", None), max_tokens=700,
+                                     system=_grader_system(), messages=[{"role": "user", "content": usr}])
+        u = getattr(m, "usage", None)
+        if u is not None:
+            print(f"speech grade cache: write={getattr(u, 'cache_creation_input_tokens', 0)} "
+                  f"read={getattr(u, 'cache_read_input_tokens', 0)} in={getattr(u, 'input_tokens', 0)}")
+        return oral.normalise(_model_json(m))
+    except HTTPException:
+        raise  # a missing key (400) or a non-JSON reply (502) already says what went wrong
+    except Exception as e:
+        print("speech grade:", type(e).__name__, e)
+        raise HTTPException(502, "Could not reach the grader — say that answer again.")
 
 
 class OralBankIn(BaseModel):
