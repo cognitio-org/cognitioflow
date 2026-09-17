@@ -4,7 +4,7 @@ Run:  python run.py   then open http://localhost:8000
 Everything lives in ./data (SQLite + uploaded files). Nothing leaves your Mac except tutor calls to the Claude API.
 """
 import re
-import asyncio, base64, io, json, mimetypes, os, random, tempfile, time, uuid
+import asyncio, base64, hashlib, io, json, mimetypes, os, random, tempfile, time, uuid
 from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
@@ -725,9 +725,25 @@ class HintIn(BaseModel):
     question: str
     options: list = []
 
+HINT_TTL_S = 30 * 24 * 3600  # Phase 11g: a stored hint is reused for 30 days, then regenerated
+HINT_FALLBACK = "No hint available just now — back yourself."
+
+def _hint_key(cid: str, question: str, options: list) -> str:
+    """sha256 of course id + normalised question + sorted options — same question asked two ways still hits the cache."""
+    norm_q = re.sub(r"\s+", " ", (question or "").strip().lower())
+    norm_opts = sorted(re.sub(r"\s+", " ", str(o).strip().lower()) for o in options)
+    return hashlib.sha256("\n".join([cid, norm_q, *norm_opts]).encode("utf-8")).hexdigest()
+
 @app.post("/api/courses/{cid}/hint")
 def hint(cid: str, h: HintIn):
-    """A lifeline: narrow the field without handing over the answer. Cheap model — this is a nudge, not teaching."""
+    """A lifeline: narrow the field without handing over the answer. Cheap model — this is a nudge, not teaching.
+    Phase 11g: a hint for the same question+options is stored and reused for 30 days instead of calling the model
+    every time (the prompt is too short for Anthropic prompt caching to help here)."""
+    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    key = _hint_key(cid, h.question, h.options)
+    hit = rows("SELECT hint, created FROM hint_cache WHERE key=?", key)
+    if hit and (time.time() - (hit[0]["created"] or 0)) < HINT_TTL_S:
+        return {"hint": hit[0]["hint"]}
     opts = "\n".join(f"- {str(o)[:200]}" for o in h.options[:4])
     prompt = ("A law student is stuck on this multiple-choice question and has asked for a hint. Give ONE sentence, under 30 "
               "words, that points at the rule, case or article that decides it, or rules out one wrong option by name. "
@@ -735,10 +751,15 @@ def hint(cid: str, h: HintIn):
               f"QUESTION: {h.question[:600]}\nOPTIONS:\n{opts}")
     try:
         m = client().messages.create(model=CHEAP_MODEL, max_tokens=120, messages=[{"role": "user", "content": prompt}])
-        return {"hint": "".join(b.text for b in m.content if b.type == "text").strip()[:300]}
+        text = "".join(b.text for b in m.content if b.type == "text").strip()[:300]
+        with db() as d:
+            d.execute("INSERT INTO hint_cache(key,course_id,hint,model,created) VALUES(?,?,?,?,?) "
+                      "ON CONFLICT(key) DO UPDATE SET hint=EXCLUDED.hint, model=EXCLUDED.model, created=EXCLUDED.created",
+                      (key, cid, text, CHEAP_MODEL, time.time()))
+        return {"hint": text}
     except Exception as e:
         print("hint:", type(e).__name__, e)
-        return {"hint": "No hint available just now — back yourself."}
+        return {"hint": HINT_FALLBACK}  # never cached: a transient failure shouldn't haunt this question for 30 days
 
 
 class CourtIn(BaseModel):
@@ -991,33 +1012,75 @@ def recall_map(cid: str):
 
 class QuizIn(BaseModel): count: int = 8; week: str = ""; weak: int = 0
 
+def _distractor_hash(back: str) -> str:
+    """sha1 of a card's back — the cache key that ties a stored distractor set to the exact answer it was written for."""
+    return hashlib.sha1((back or "").strip().encode("utf-8")).hexdigest()
+
+def _valid_wrong(wrong, right: str) -> list:
+    """Exactly three distinct wrong options, none equal to the right answer — [] if the set doesn't qualify."""
+    seen = list(dict.fromkeys(str(v).strip() for v in (wrong or []) if str(v).strip() and str(v).strip() != right))
+    return seen[:3] if len(seen) >= 3 else []
+
 @app.post("/api/courses/{cid}/quiz")
 def quiz(cid: str, qz: QuizIn):
-    """Multiple choice built from the course's own cards: the card's back is the right answer, the cheap model writes three wrong ones."""
+    """Multiple choice built from the course's own cards: the card's back is the right answer, the cheap model writes three wrong ones.
+    Phase 11g: a card's distractors are stored (keyed on a hash of its back) and reused; only cards whose stored set is missing or
+    stale (the back changed) go to the model, and the call is skipped entirely when every picked card is already cached."""
+    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
     q, a = _card_scope(cid, 0, qz.week, qz.weak)
     picked = rows(q + " ORDER BY (CASE WHEN due IS NULL OR due<=? THEN 0 ELSE 1 END), ease, RANDOM() LIMIT ?",
                   *a, date.today().isoformat(), max(1, min(20, qz.count)))
     if not picked: return []
     ids = [c["id"] for c in picked]
-    others = [c["back"][:200] for c in rows("SELECT id,back FROM cards WHERE course_id=? ORDER BY RANDOM() LIMIT 60", cid) if c["id"] not in ids]
-    items = "\n".join(f"{i}. Q: {c['front']}\n   A: {c['back']}" for i, c in enumerate(picked))
-    prompt = ("Write multiple-choice distractors for a law exam quiz. For each numbered question, give exactly three wrong answers: plausible to a student "
-              "who half-knows the material, the same form and length as the right answer, clearly wrong on a careful reading, never a paraphrase of the "
-              "right answer. Borrow names, articles and rules from the course's other cards where they fit.\n"
-              'Return ONLY a JSON array of objects {"i": <question number>, "wrong": [three strings]}.\n\nQUESTIONS:\n' + items +
-              "\n\nOTHER CARDS IN THIS COURSE (answers only):\n" + ("\n".join("- " + o for o in others) or "(none)"))
-    got = _model_json(client().messages.create(model=CHEAP_MODEL, max_tokens=3000, messages=[{"role": "user", "content": prompt}]))
-    wrong_by_i = {}
-    for x in got if isinstance(got, list) else []:
-        if not (isinstance(x, dict) and isinstance(x.get("wrong"), list)): continue  # a string here would be iterated letter by letter
-        try: wrong_by_i[int(x["i"])] = x["wrong"]
-        except Exception: continue
+
+    cached_by_id = {}
+    if ids:
+        placeholders = ",".join("?" * len(ids))
+        for row in rows(f"SELECT card_id, back_hash, wrong FROM card_distractors WHERE card_id IN ({placeholders})", *ids):
+            cached_by_id[row["card_id"]] = row
+
+    wrong_by_id, need = {}, []
+    for c in picked:
+        hit = cached_by_id.get(c["id"])
+        if hit and hit["back_hash"] == _distractor_hash(c["back"]):
+            valid = _valid_wrong(hit["wrong"], c["back"].strip())
+            if valid:
+                wrong_by_id[c["id"]] = valid
+                continue
+        need.append(c)  # missing, stale (back edited since it was cached), or an invalid stored set
+
+    if need:  # only the cards without a valid stored set are sent to the model — zero calls when everything hit
+        others = [c["back"][:200] for c in rows("SELECT id,back FROM cards WHERE course_id=? ORDER BY RANDOM() LIMIT 60", cid) if c["id"] not in ids]
+        items = "\n".join(f"{i}. Q: {c['front']}\n   A: {c['back']}" for i, c in enumerate(need))
+        prompt = ("Write multiple-choice distractors for a law exam quiz. For each numbered question, give exactly three wrong answers: plausible to a student "
+                  "who half-knows the material, the same form and length as the right answer, clearly wrong on a careful reading, never a paraphrase of the "
+                  "right answer. Borrow names, articles and rules from the course's other cards where they fit.\n"
+                  'Return ONLY a JSON array of objects {"i": <question number>, "wrong": [three strings]}.\n\nQUESTIONS:\n' + items +
+                  "\n\nOTHER CARDS IN THIS COURSE (answers only):\n" + ("\n".join("- " + o for o in others) or "(none)"))
+        got = _model_json(client().messages.create(model=CHEAP_MODEL, max_tokens=3000, messages=[{"role": "user", "content": prompt}]))
+        wrong_by_i = {}
+        for x in got if isinstance(got, list) else []:
+            if not (isinstance(x, dict) and isinstance(x.get("wrong"), list)): continue  # a string here would be iterated letter by letter
+            try: wrong_by_i[int(x["i"])] = x["wrong"]
+            except Exception: continue
+        to_store = []
+        for i, c in enumerate(need):
+            valid = _valid_wrong(wrong_by_i.get(i), c["back"].strip())
+            if valid:
+                wrong_by_id[c["id"]] = valid
+                to_store.append((c["id"], _distractor_hash(c["back"]), valid))
+        if to_store:
+            with db() as d:
+                for card_id, back_hash, wrong in to_store:
+                    d.execute("INSERT INTO card_distractors(card_id,back_hash,wrong,model,created) VALUES(?,?,CAST(? AS jsonb),?,?) "
+                              "ON CONFLICT(card_id) DO UPDATE SET back_hash=EXCLUDED.back_hash, wrong=EXCLUDED.wrong, model=EXCLUDED.model, created=EXCLUDED.created",
+                              (card_id, back_hash, json.dumps(wrong), CHEAP_MODEL, time.time()))
+
     out = []
-    for i, c in enumerate(picked):
-        right = c["back"].strip()
-        wrong = list(dict.fromkeys(str(v).strip() for v in (wrong_by_i.get(i) or []) if str(v).strip() and str(v).strip() != right))[:3]
-        if len(wrong) < 3: continue  # never show a question with fewer than four options
-        opts = wrong + [c["back"]]; random.shuffle(opts)
+    for c in picked:
+        wrong = wrong_by_id.get(c["id"])
+        if not wrong: continue  # never show a question with fewer than four options
+        opts = wrong + [c["back"]]; random.shuffle(opts)  # shuffled fresh every request, cached or not
         out.append({"id": c["id"], "question": c["front"], "options": opts, "correct": c["back"]})
     return out
 
