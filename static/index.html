@@ -4,7 +4,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CognitioFlow</title>
 <style>
-  :root{--ink:#1c1c1a;--graphite:#5c5b55;--rule:#dcdad3;--faint:#f3f2ee;--paper:#fbfbf9;--accent:#24467a;--ok:#2e6b4a;--warn:#a4541f;
+  :root{--ink:#1c1c1a;--graphite:#5c5b55;--rule:#dcdad3;--faint:#f3f2ee;--paper:#fbfbf9;--raised:#ffffff;--accent:var(--course,#24467a);--ok:#2e6b4a;--warn:#a4541f;
     --s1:.25rem;--s2:.5rem;--s3:.75rem;--s4:1rem;--s5:1.5rem;--s6:2.25rem;
     --serif:Charter,"Iowan Old Style","Palatino Linotype",Georgia,serif;--sans:"Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;--r:4px}
   *{box-sizing:border-box} [hidden]{display:none!important} html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;height:100%}
@@ -12,27 +12,141 @@
   p{margin:0 0 .7rem} button{font:inherit;cursor:pointer} input,select,textarea{font:inherit}
   .btn{border:1px solid var(--ink);background:var(--paper);color:var(--ink);padding:.45rem .9rem;border-radius:var(--r);line-height:1.2} .btn:hover{background:var(--faint)}
   .btn.primary{background:var(--ink);color:#fff} .btn.primary:hover{background:#333} .btn.small{padding:.3rem .6rem;font-size:.82rem} .btn.ghost{border-color:var(--rule);color:var(--graphite);background:transparent} .btn.ghost:hover{color:var(--ink);border-color:var(--graphite);background:var(--faint)}
-  .btn[disabled]{opacity:.45;cursor:not-allowed} :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .btn[disabled]{opacity:.45;cursor:not-allowed} .btn:active:not([disabled]){transform:translateY(1px)} :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  kbd{font-family:var(--sans);font-size:.72em;line-height:1.25;padding:.02rem .34rem;border:1px solid var(--rule);border-bottom-width:2px;border-radius:4px;background:var(--faint);color:var(--graphite);white-space:nowrap;vertical-align:.08em}
   .muted{color:var(--graphite)} .small{font-size:.85rem} ul.clean{list-style:none;margin:0;padding:0}
   .tag{display:inline-block;font-size:.74rem;padding:.05rem .45rem;border:1px solid var(--rule);border-radius:999px;color:var(--graphite)} .tag.ok{border-color:var(--ok);color:var(--ok)} .tag.warn{border-color:var(--warn);color:var(--warn)}
   .panel{border:1px solid var(--rule);border-radius:var(--r);padding:var(--s4) 1.1rem;background:var(--paper)} .panel.bar{border-left:4px solid var(--accent)}
   .hero{border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--r);padding:var(--s5) var(--s5) var(--s5) var(--s5);background:var(--paper);display:grid;grid-template-columns:1fr auto;gap:var(--s5);align-items:center}
   .herobook{grid-template-columns:1fr 260px;align-items:center} .bookwrap{display:flex;flex-direction:column;align-items:center;gap:.4rem} .booknum{text-align:center} .hero h2{font-size:1.6rem;margin:.1rem 0 .4rem}
-  .book{position:relative;display:flex;justify-content:center;padding-right:14px;perspective:900px} .bookstage{transform-style:preserve-3d} .bookstage.open{animation:bookopen .6s cubic-bezier(.22,.61,.36,1) backwards} .booktilt{transform-style:preserve-3d;transform:rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));transition:transform var(--tt,.35s) ease;will-change:transform} .book svg{overflow:visible} .book .cover{filter:drop-shadow(0 6px 14px rgba(60,10,12,.35))}
-  .book .tab{cursor:pointer;transition:transform .18s ease} .book .tab rect{stroke:rgba(0,0,0,.15);stroke-width:.5}
-  .book .tab:hover{transform:translateX(10px)} .book .bk{transform-origin:109px 130px}
-  .tabname{position:absolute;bottom:-6px;left:0;right:0;text-align:center;color:var(--graphite);min-height:1.1em;transition:opacity .15s}
-  @keyframes fan{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:translateX(0)}}
-  @keyframes bookopen{from{transform:rotateY(-20deg) rotateX(4deg);opacity:.55}to{transform:rotateY(0) rotateX(0);opacity:1}}
-  .book .tab{animation:fan .4s ease backwards} @media(prefers-reduced-motion:reduce){.book .tab{animation:none} .bookstage.open{animation:none} .booktilt{transition:none;transform:none}}
+  /* The statute book — one bold object. Ported from the design handoff (static/showcase.html), tilt kept calmer. */
+  .book{position:relative;width:200px;height:264px;margin-bottom:1.7rem;perspective:1200px;perspective-origin:50% 40%}
+  .bookstage{position:absolute;inset:0;transform-style:preserve-3d}
+  .booktilt{position:absolute;inset:0;transform-style:preserve-3d;cursor:pointer;
+    transform:translateZ(14px) rotateY(var(--ry,0deg)) rotateX(var(--rx,0deg));transition:transform var(--tt,.45s) cubic-bezier(.2,.8,.2,1)}
+  .booktilt:focus-visible{outline:2px solid var(--accent);outline-offset:6px}
+  .bk__back{position:absolute;inset:0;border-radius:3px 5px 5px 3px;background:linear-gradient(145deg,#7a1f22,#4a1013);box-shadow:0 20px 34px -20px rgba(0,0,0,.75)}
+  .bk__foreedge{position:absolute;top:5px;right:0;width:26px;height:254px;transform-origin:right center;transform:rotateY(-90deg);background:repeating-linear-gradient(180deg,#efe9dc 0 2px,#d9d2c1 2px 4px)}
+  .bk__head{position:absolute;top:5px;left:5px;width:190px;height:26px;transform-origin:center top;transform:rotateX(90deg);background:repeating-linear-gradient(90deg,#efe9dc 0 2px,#d9d2c1 2px 4px)}
+  .bk__tail{position:absolute;bottom:5px;left:5px;width:190px;height:26px;transform-origin:center bottom;transform:rotateX(-90deg);background:repeating-linear-gradient(90deg,#e4ddcd 0 2px,#cec7b5 2px 4px)}
+  .bk__spine{position:absolute;left:0;top:0;width:26px;height:100%;transform-origin:left center;transform:rotateY(-90deg);background:linear-gradient(180deg,#6d1c1f,#3f0e10);display:flex;flex-direction:column;align-items:center;padding:9px 0}
+  .sp__rule{display:block;width:100%;height:4px;background:linear-gradient(180deg,rgba(201,178,58,.55),rgba(201,178,58,.12))}
+  .sp__band{display:block;width:100%;height:6px;background:linear-gradient(180deg,rgba(255,255,255,.12),rgba(0,0,0,.35))}
+  .sp__text{flex:1;display:flex;align-items:center;justify-content:center}
+  .sp__text span{font-family:var(--sans);font-size:8px;letter-spacing:.2em;color:rgba(233,223,201,.8);white-space:nowrap;transform:rotate(-90deg)}
+  .bk__pages{position:absolute;inset:6px;border-radius:3px;background:linear-gradient(90deg,#d9d2c1,#efe9dc);transform:translateZ(-3px);box-shadow:inset 0 0 12px rgba(0,0,0,.15)}
+  .leaf{position:absolute;inset:6px;border-radius:3px;background:linear-gradient(100deg,#f6f1e4,#e6dfcd);color:#2a2724;padding:18px 16px;opacity:0;transition:opacity .2s;display:flex;flex-direction:column;gap:5px;overflow:hidden}
+  .book.is-open .leaf--title{opacity:1} .book.is-open.has-page .leaf--title{opacity:0} .book.is-open.has-page .leaf--tab{opacity:1} .book.is-turning .leaf{opacity:0}
+  .lf__rule{display:block;height:2px;background:#8a1f24;opacity:.5}
+  .lf__h1{font-family:var(--serif);font-size:15px;line-height:1.25;margin-top:4px}
+  .lf__kicker,.lf__eyebrow{font-size:7.5px;letter-spacing:.14em;color:#6b6152}
+  .lf__meta,.lf__folio{margin-top:auto;font-size:8px;color:#6b6152}
+  .lf__label{font-family:var(--serif);font-size:17px}
+  .lf__refs{font-size:9.5px;line-height:1.5;color:#3a352e}
+  .bk__sheet{position:absolute;inset:5px;border-radius:2px;background:linear-gradient(100deg,#f6f1e4,#ddd5c2);transform-origin:left center;opacity:0;backface-visibility:hidden}
+  .book.is-turning .bk__sheet{opacity:1;transform:rotateY(-142deg);transition:transform .34s cubic-bezier(.4,.2,.2,1),opacity .1s}
+  .bk__cover{position:absolute;inset:0;border-radius:3px 5px 5px 3px;transform-origin:left center;backface-visibility:hidden;background:linear-gradient(145deg,#7a1f22,#5c1417);box-shadow:0 10px 22px -12px rgba(60,10,12,.8);transition:transform .5s cubic-bezier(.2,.8,.2,1)}
+  .book.is-open .bk__cover{transform:rotateY(-152deg)}
+  .cv__rule{position:absolute;inset:9px;border:1px solid rgba(201,178,58,.38);border-radius:2px;box-shadow:inset 0 0 22px rgba(0,0,0,.35)}
+  .cv__rule2{position:absolute;inset:13px;border:1px solid rgba(201,178,58,.16);border-radius:2px}
+  .cv__hinge{position:absolute;left:0;top:0;bottom:0;width:14px;background:linear-gradient(90deg,rgba(0,0,0,.45),rgba(0,0,0,0))}
+  .cv__sheen{position:absolute;inset:0;border-radius:3px;background:linear-gradient(118deg,rgba(255,255,255,.14),rgba(255,255,255,0) 42%)}
+  .cv__type{position:absolute;top:30px;left:0;right:0;text-align:center;font-family:var(--serif);padding:0 10px}
+  .cv__type .t1{font-size:12px;letter-spacing:.18em;color:rgba(201,178,58,.9);text-shadow:0 1px 0 rgba(0,0,0,.5);margin-bottom:6px}
+  .cv__type .hr{display:block;width:46px;height:1px;background:rgba(201,178,58,.5);margin:0 auto 6px}
+  .cv__type .t2{font-size:11px;color:rgba(239,233,220,.62);font-style:italic}
+  .book .tab{border:0;padding:0;position:absolute;right:-22px;width:24px;height:26px;border-radius:0 4px 4px 0;transform-style:preserve-3d;display:flex;align-items:center;cursor:pointer;opacity:0;z-index:6;
+    transform:translateX(40px) translateZ(-15px);transition:transform .18s cubic-bezier(.2,.8,.2,1),opacity .4s}
+  .book.is-loaded .tab{opacity:1;transform:translateX(0) translateZ(-15px)}
+  .book.is-loaded .tab:hover,.book.is-loaded .tab:focus-visible{transform:translateX(8px) translateZ(-8px)}
+  .book .tab::before{content:"";position:absolute;top:-3px;bottom:-3px;left:0;right:-8px}   /* 32px hit area */
+  .tab__top{position:absolute;left:0;right:0;top:0;height:26px;transform-origin:center top;transform:rotateX(90deg);border-radius:0 3px 0 0}
+  .tabname{position:absolute;top:100%;margin-top:8px;left:-20px;right:-20px;text-align:center;color:var(--graphite);min-height:1.1em;transition:opacity .15s}
+  @media(prefers-reduced-motion:reduce){.booktilt,.bk__cover,.bk__sheet,.book .tab{transition:none} .book .tab{opacity:1;transform:translateX(0) translateZ(-15px)}}
   @media(max-width:1300px){.herobook{grid-template-columns:1fr} .book{display:none}} .hero .k{font-family:var(--serif);font-size:2.6rem;line-height:1;text-align:right} .hero .k small{display:block;font-family:var(--sans);font-size:.8rem;color:var(--graphite);margin-top:.3rem}
+  /* Arena — the ladder and the courtroom */
+  .arwrap{display:grid;grid-template-columns:1fr 260px;gap:var(--s5)}
+  @media(max-width:1100px){.arwrap{grid-template-columns:1fr}}
+  .lawq{font-family:var(--serif);font-size:1.3rem;line-height:1.35;margin:.2rem 0 .9rem}
+  .lawopts{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+  @media(max-width:700px){.lawopts{grid-template-columns:1fr}}
+  .lawopt{display:flex;gap:.55rem;align-items:flex-start;text-align:left;padding:.65rem .8rem;border:1px solid var(--rule);border-radius:var(--r);background:var(--raised);color:var(--ink);font:inherit;cursor:pointer;min-height:44px;transition:border-color .15s,background .15s}
+  .lawopt:hover:not([disabled]){border-color:var(--accent)}
+  .lawopt .lt{font-family:var(--serif);color:var(--accent);flex:0 0 auto}
+  .lawopt[data-state=picked]{border-color:var(--accent);background:color-mix(in oklab,var(--accent),transparent 88%)}
+  .lawopt[data-state=right]{border-color:var(--ok);background:color-mix(in oklab,var(--ok),transparent 86%)}
+  .lawopt[data-state=wrong]{border-color:#c0563c;background:color-mix(in oklab,#c0563c,transparent 88%)}
+  .lawopt[data-state=gone]{opacity:.32}
+  .lawopt[disabled]{cursor:default}
+  @media(prefers-reduced-motion:no-preference){.lawopt[data-state=right]{animation:pop .32s ease}}
+  @keyframes pop{0%{transform:scale(1)}45%{transform:scale(1.025)}100%{transform:scale(1)}}
+  .lifelines{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.9rem}
+  .lifelines .btn[disabled]{opacity:.4;text-decoration:line-through}
+  .ladder{display:flex;flex-direction:column-reverse;gap:2px}
+  .rung{display:flex;justify-content:space-between;gap:.5rem;padding:.3rem .55rem;border-radius:var(--r);font-size:.82rem;color:var(--graphite)}
+  .rung.safe{font-weight:600;color:var(--ink)}
+  .rung.done{background:color-mix(in oklab,var(--ok),transparent 86%);color:var(--ink)}
+  .rung.at{background:var(--accent);color:#fff}
+  .rung.at .rn{color:#fff}
+  .rn{font-family:var(--serif)}
+  /* the room: a shallow stage, not a game engine */
+  .room{position:relative;height:210px;margin:.2rem 0 1rem;perspective:760px;perspective-origin:50% 42%;overflow:hidden;border:1px solid var(--rule);border-radius:var(--r);background:linear-gradient(180deg,#221c17,#171310)}
+  .room i,.room b{position:absolute;display:block}
+  .rm__back{left:0;right:0;top:0;height:120px;background:linear-gradient(180deg,#2c241c,#211a14);border-bottom:1px solid #3a2f24}
+  .rm__floor{left:-20%;right:-20%;bottom:0;height:150px;transform:rotateX(62deg);transform-origin:50% 100%;background:repeating-linear-gradient(90deg,#3a2f24 0 38px,#332a20 38px 76px)}
+  .rm__arms{left:50%;top:16px;width:26px;height:30px;margin-left:-13px;border-radius:3px 3px 12px 12px;background:linear-gradient(180deg,#c9b23a,#8a7622)}
+  .rm__bench{left:50%;top:62px;width:210px;height:56px;margin-left:-105px;border-radius:4px;background:linear-gradient(180deg,#5c4630,#3d2e1f);box-shadow:0 10px 18px -8px rgba(0,0,0,.8)}
+  .rm__desk{top:126px;width:120px;height:34px;border-radius:3px;background:linear-gradient(180deg,#4a3826,#33261a)}
+  .rm__desk.l{left:14%} .rm__desk.r{right:14%}
+  .rm__label{top:166px;font:500 .68rem/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:#b8ac92}
+  .rm__label.l{left:14%} .rm__label.r{right:14%}
+  .rm__you{box-shadow:0 0 0 2px var(--accent)}
+  .benchq{font-family:var(--serif);font-size:1.12rem;line-height:1.4;margin:.3rem 0 .6rem}
+  .courtlog{display:flex;flex-direction:column;gap:.5rem;max-height:240px;overflow:auto;margin:.6rem 0}
+  .caselist{display:flex;flex-direction:column;gap:.25rem;max-height:420px;overflow:auto}
+  .caselist button{text-align:left;font:inherit;background:transparent;border:1px solid transparent;border-radius:var(--r);padding:.35rem .5rem;cursor:pointer;color:var(--ink)}
+  .caselist button:hover{border-color:var(--rule);background:var(--faint)}
+  .caselist b{font-family:var(--serif);font-weight:500}
+  .holding{border-left:3px solid var(--ok);background:var(--faint);padding:.6rem .8rem;border-radius:var(--r);margin-top:.6rem}
+  /* Advocate — oral revision */
+  .advgrid{display:grid;grid-template-columns:1.4fr .9fr;gap:var(--s5)}
+  @media(max-width:1000px){.advgrid{grid-template-columns:1fr}}
+  .advstage{display:flex;flex-direction:column;min-height:460px}
+  .advq{font-family:var(--serif);font-size:1.35rem;line-height:1.35;margin:.2rem 0 .4rem}
+  .tagrow{display:flex;gap:.3rem;flex-wrap:wrap}
+  .tag{font-size:.72rem;color:var(--graphite);border:1px solid var(--rule);border-radius:999px;padding:.05rem .5rem}
+  .advconvo{flex:1;overflow:auto;display:flex;flex-direction:column;gap:.5rem;margin:.8rem 0;padding-right:.3rem}
+  .advb{padding:.55rem .8rem;border-radius:var(--r);max-width:88%;font-size:.94rem;line-height:1.5;overflow-wrap:anywhere}
+  .advb.me{align-self:flex-end;background:var(--ink);color:var(--paper)}
+  .advb.tutor{align-self:flex-start;background:var(--faint);border-left:3px solid var(--accent)}
+  .advb .verdict{font-family:var(--sans);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;margin-bottom:.2rem}
+  .v-solid{color:var(--ok)} .v-shaky{color:var(--warn)} .v-missed{color:#c0563c}
+  .advctrl{display:flex;gap:.5rem;align-items:center;border-top:1px solid var(--rule);padding-top:.7rem}
+  .advctrl input{flex:1}
+  #advMic,#advOwnMic{min-height:36px;white-space:nowrap}
+  #advMic[aria-pressed=true],#advOwnMic[aria-pressed=true]{background:#b3261e;color:#fff;border-color:#b3261e}
+  .advown{display:flex;flex-direction:column;gap:var(--s2)} .advown h3{margin:0}
+  .advownrow{display:flex;gap:var(--s2);align-items:center} .advownrow input{flex:1;min-width:0}
+  .advown select{width:100%;min-height:36px} .advown .btn{min-height:36px}
+  .advside{display:flex;flex-direction:column;gap:var(--s4)}
+  .statrow2{display:flex;gap:1.4rem;margin-top:.3rem}
+  .statrow2 b{display:block;font-family:var(--serif);font-size:1.5rem}
+  .statrow2 span{font-size:.78rem;color:var(--graphite)}
+  .mrow{display:flex;justify-content:space-between;gap:.5rem;align-items:center;padding:.35rem 0;border-bottom:1px dashed var(--rule);font-size:.86rem}
+  .mrow:last-child{border-bottom:0}
+  .mdot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:.45rem;flex:0 0 auto}
+  .m-untested{background:var(--rule)} .m-solid{background:var(--ok)} .m-shaky{background:var(--warn)} .m-missed{background:#c0563c}
+  .mstate{font-size:.72rem;color:var(--graphite);text-transform:uppercase;letter-spacing:.06em}
+  .advnotes{max-height:240px;overflow:auto;margin:.4rem 0}
+  .advnotes .emptystate{padding:.5rem 0}
+  .advnote{border-left:2px solid var(--accent);padding:.35rem 0 .35rem .6rem;margin-bottom:.5rem;font-size:.86rem;line-height:1.5}
   .statrow{display:flex;gap:var(--s5);flex-wrap:wrap;padding:var(--s3) 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin:var(--s4) 0}
   .statrow .stat{display:flex;align-items:baseline;gap:.45rem;padding:0} .statrow .stat .n{font-size:1.35rem} .statrow .stat .l{margin:0;font-size:.82rem}
   .grid{display:grid;gap:1rem} .g4{grid-template-columns:repeat(4,1fr)} .g2{grid-template-columns:1fr 1fr}
   .stat .n{font-family:var(--serif);font-size:2rem;line-height:1} .stat .l{color:var(--graphite);font-size:.85rem;margin-top:.3rem}
   table{width:100%;border-collapse:collapse;font-size:.92rem} th,td{text-align:left;padding:.5rem .4rem;border-bottom:1px solid var(--rule);vertical-align:top} th{font-weight:500;color:var(--graphite);font-size:.85rem}
   .meter{height:6px;background:var(--faint);border-radius:3px;overflow:hidden} .meter span{display:block;height:100%;background:var(--accent)}
-  .toast{position:fixed;bottom:1.25rem;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:.6rem 1rem;border-radius:var(--r);font-size:.9rem;opacity:0;pointer-events:none;transition:opacity .2s;z-index:50} .toast.show{opacity:1}
+  .toast{position:fixed;bottom:1.25rem;left:50%;transform:translate(-50%,6px);display:flex;align-items:center;gap:.55rem;max-width:min(560px,92vw);background:var(--raised);color:var(--ink);border:1px solid var(--rule);box-shadow:0 10px 30px rgba(0,0,0,.14);padding:.55rem .95rem .55rem .8rem;border-radius:8px;font-size:.9rem;opacity:0;pointer-events:none;transition:opacity .18s ease-out,transform .18s ease-out;z-index:50} .toast::before{content:"";flex:none;width:8px;height:8px;border-radius:50%;background:var(--ok)} .toast[data-tone=warn]::before{background:var(--warn)} .toast[data-tone=busy]::before{background:var(--graphite)} .toast.show{opacity:1;transform:translate(-50%,0)} @media(prefers-reduced-motion:reduce){.toast{transition:none}}
   input[type=text],input[type=url],select,textarea{padding:.45rem;border:1px solid var(--rule);border-radius:var(--r);background:var(--paper)}
 
   .app{display:grid;grid-template-columns:220px minmax(0,1fr);height:100vh}
@@ -41,12 +155,13 @@
   nav ul{list-style:none;margin:0;padding:0} nav a{display:block;text-decoration:none;color:var(--graphite);padding:.4rem .6rem;border-radius:var(--r);border-left:3px solid transparent}
   nav a:hover{background:var(--faint);color:var(--ink)} nav a.active{color:var(--ink);border-left-color:var(--accent);background:var(--faint)}
   .keystate{font-size:.78rem;color:var(--graphite);margin-top:auto}
+  .acct{margin:auto 0 2.5rem;display:flex;flex-direction:column;align-items:flex-start;gap:.3rem;padding-top:.75rem;border-top:1px solid var(--rule)} .acct .who{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} #signOut{min-height:32px}
   main{overflow:auto;min-width:0;padding:1.4rem 1.6rem 3rem}
   .screen{display:none} .screen.active{display:block}
   .head{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap;border-bottom:1px solid var(--rule);padding-bottom:.7rem;margin-bottom:1.1rem}
 
   /* library */
-  .drop{border:1.5px dashed var(--rule);border-radius:var(--r);padding:1.2rem;text-align:center;color:var(--graphite);margin-bottom:1rem} .drop.over{border-color:var(--accent);background:var(--faint)}
+  .drop{border:1.5px dashed var(--rule);border-radius:var(--r);padding:1.1rem 1.2rem;text-align:center;color:var(--graphite);margin-bottom:1rem;transition:border-color .15s,background .15s} .drop::before{content:"";display:block;width:18px;height:18px;margin:0 auto .45rem;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 16V4M6 10l6-6 6 6M4 20h16'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 16V4M6 10l6-6 6 6M4 20h16'/%3E%3C/svg%3E") center/contain no-repeat} .drop.over{border-color:var(--accent);border-style:solid;background:var(--faint);color:var(--ink)} .drop.over::after{content:"Release to add these files";display:block;margin-top:.3rem;font-weight:500} .drop label:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
   /* tutor */
   .tutor{display:grid;grid-template-columns:230px minmax(0,1fr);gap:1rem;height:calc(100vh - 8rem)}
   .col{border:1px solid var(--rule);border-radius:var(--r);padding:.8rem;display:flex;flex-direction:column;min-height:0}
@@ -77,7 +192,7 @@
   .sess .body{flex:1;min-width:0} .sess .top{display:flex;gap:.5rem;align-items:baseline} .sess .tp{font-size:.96rem} .sess.done .tp{color:var(--graphite);text-decoration:line-through}
   .sess .meta{font-size:.78rem;color:var(--graphite)} .sess .act{display:flex;gap:.35rem;opacity:0;transition:opacity .12s} .sess:hover .act{opacity:1}
   .sess .chk{width:18px;height:18px;flex:none;border:1.5px solid var(--graphite);border-radius:5px;cursor:pointer;display:grid;place-items:center;color:transparent} .sess.done .chk{background:var(--accent);border-color:var(--accent);color:var(--paper)}
-  .agenda .empty{color:var(--graphite);padding:2rem;text-align:center;border:1px dashed var(--rule);border-radius:var(--r)}
+  .emptystate,.agenda .empty{display:grid;justify-items:center;gap:.3rem;text-align:center;padding:2rem 1rem;color:var(--graphite);font-size:.92rem} .emptystate b{font-family:var(--serif);font-weight:500;font-size:1.1rem;color:var(--ink)} .emptystate .btn{margin-top:.55rem} .agenda .empty{border:1px dashed var(--rule);border-radius:var(--r)} .notes .list li.emptystate{cursor:default;border-bottom:none;padding:1.4rem .5rem}
   @media(max-width:1300px){.agenda{max-width:none}}
   .rtools{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-bottom:1.2rem}
   .rstage{max-width:620px;margin:0 auto}
@@ -93,7 +208,7 @@
   .ratings{display:grid;grid-template-columns:repeat(4,1fr);gap:.6rem;margin-top:1.2rem}
   .rate{padding:.7rem;font-size:.9rem} .rate.again{border-color:#b3524e;color:#b3524e} .rate.hard{border-color:#a4771f;color:#a4771f} .rate.good{border-color:#2e6b4a;color:#2e6b4a} .rate.easy{border-color:var(--accent);color:var(--accent)}
   .rate:hover{background:var(--faint)}
-  .rdone{text-align:center;padding:3rem 1rem;font-family:var(--serif);font-size:1.3rem;color:var(--graphite)}
+  .rdone{text-align:center;padding:3rem 1rem;font-family:var(--serif);font-size:1.3rem;color:var(--graphite)} .rdone:has(b){display:grid;justify-items:center;gap:.3rem;font-family:var(--sans);font-size:.92rem} .rdone b{font-family:var(--serif);font-weight:500;font-size:1.25rem;color:var(--ink)}
   .quizcard .q{font-family:var(--serif);font-size:1.3rem;line-height:1.4;margin-bottom:1.4rem;min-height:2.4em}
   .qopt{display:block;width:100%;text-align:left;border:1px solid var(--rule);background:var(--paper);border-radius:10px;padding:.85rem 1.1rem;margin-bottom:.7rem;font-size:1rem;cursor:pointer;transition:border-color .15s,background .15s}
   .qopt:hover{border-color:var(--graphite)} .qopt .lt{display:inline-block;width:1.6rem;color:var(--graphite);font-family:var(--serif)}
@@ -134,8 +249,15 @@
   @media(max-width:900px){.cdlgbody{grid-template-columns:1fr;overflow:auto} .cfields,.cpreview pre{overflow:visible} .cpreview{border-left:none;border-top:1px solid var(--rule)} .cfields fieldset{grid-template-columns:1fr}}
   tr.grouphead td{background:var(--faint);border-top:1px solid var(--rule);padding-top:.5rem} tr.grouphead b{font-family:var(--serif)}
   /* notes editing */
-  .tagbar{display:flex;gap:.3rem;align-items:center;flex-wrap:wrap} .editwrap{flex:1;min-height:0;display:flex;gap:.8rem} .editwrap>*{flex:1;min-height:0}
-  .editwrap textarea{height:100%} .editor textarea{font-family:var(--serif);font-size:1.02rem;line-height:1.6;padding:1rem 1.2rem;tab-size:2}
+  .tagbar{display:flex;gap:.3rem;align-items:center;flex-wrap:wrap} .editwrap{flex:1;min-height:0;display:flex;gap:1rem;--measure:68ch;--pagey:2.6rem} .editwrap>*{flex:1;min-height:0}
+  .editwrap textarea{height:100%}
+  /* Read, Split and Edit are the same page: same measure, same paper, same margins — only the pen changes. */
+  .editor textarea,.noteview{padding-block:var(--pagey);padding-inline:clamp(1.25rem,calc((100% - var(--measure))/2),5rem);background:var(--raised);box-shadow:0 1px 2px rgba(0,0,0,.04),0 10px 30px -18px rgba(0,0,0,.22)}
+  .editor textarea{font-family:var(--serif);font-size:1.06rem;line-height:1.75;tab-size:2;caret-color:var(--accent);border-radius:var(--r)}
+  .editor textarea::selection,.noteview ::selection{background:color-mix(in oklab,var(--accent),transparent 78%)}
+  .editor textarea::placeholder{color:var(--graphite);opacity:.8}
+  #noteTitle{font-family:var(--serif);font-size:1.5rem;border:1px solid transparent;background:transparent;padding:.25rem .5rem}
+  #noteTitle:hover{border-color:var(--rule)} #noteTitle:focus{border-color:var(--rule);background:var(--raised)}
   #noteLive2{overflow:auto}
   .readbar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap} .readbar audio{height:28px;max-width:280px}
   .cover{background:var(--ink);color:var(--ink);border-radius:2px;cursor:pointer;transition:none} .cover:hover{opacity:.85} .cover.on{background:transparent;color:inherit}
@@ -144,10 +266,10 @@
   #recBtn.on{background:#b3261e;color:#fff;border-color:#b3261e}
   @media print{.tplay,.readbar{display:none!important}}
   /* notes reading view */
-  .seg .btn{border-radius:0} .seg .btn:first-child{border-radius:var(--r) 0 0 var(--r)} .seg .btn:last-child{border-radius:0 var(--r) var(--r) 0;margin-left:-1px} .seg .btn[aria-pressed=true]{background:var(--ink);color:var(--paper)}
-  .noteview{flex:1;overflow:auto;border:1px solid var(--rule);border-radius:var(--r);padding:1.4rem 2rem;font-family:var(--serif);font-size:1.04rem;line-height:1.6;max-width:none}
-  .noteview h1{font-size:1.7rem;margin:0 0 .3rem;padding-bottom:.4rem;border-bottom:1px solid var(--ink)} .noteview h2{font-size:1.2rem;margin:1.4rem 0 .5rem;letter-spacing:.01em} .noteview h3{font-size:1.05rem;margin:1rem 0 .3rem}
-  .noteview p,.noteview li{margin:0 0 .45rem} .noteview ol,.noteview ul{padding-left:1.4rem} .noteview li{padding-left:.2rem}
+  .seg{display:inline-flex;gap:2px;padding:2px;background:var(--faint);border:1px solid var(--rule);border-radius:calc(var(--r) + 2px)} .seg .btn{border-color:transparent;background:transparent;color:var(--graphite);border-radius:var(--r)} .seg .btn:hover{color:var(--ink);background:transparent} .seg .btn[aria-pressed=true]{background:var(--raised);color:var(--ink);border-color:var(--rule);box-shadow:0 1px 2px rgba(0,0,0,.08);font-weight:500}
+  .noteview{flex:1;overflow:auto;border:1px solid var(--rule);border-radius:var(--r);font-family:var(--serif);font-size:1.06rem;line-height:1.75;max-width:none;--measure:68ch;--pagey:2.6rem}
+  .noteview h1{font-size:1.85rem;margin:0 0 .9rem;padding-bottom:.5rem;border-bottom:1px solid var(--rule);letter-spacing:-.01em} .noteview h2{font-size:1.25rem;margin:1.8rem 0 .55rem;letter-spacing:.01em} .noteview h3{font-size:1.05rem;margin:1rem 0 .3rem}
+  .noteview p,.noteview li{margin:0 0 .55rem} .noteview ol,.noteview ul{padding-left:1.4rem} .noteview li{padding-left:.2rem}
   .noteview table{font-family:var(--sans);font-size:.88rem;width:100%;margin:.6rem 0 1rem} .noteview th{border-bottom:1.5px solid var(--ink)} .noteview td{border-bottom:1px solid var(--rule)}
   .noteview blockquote{margin:.8rem 0;padding:.6rem 1rem;border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--r);background:var(--faint);color:var(--ink)} .noteview blockquote p{margin:0} .noteview blockquote strong:first-child{font-family:var(--sans);font-size:.82rem;color:var(--graphite);display:block;margin-bottom:.15rem}
   .noteview code{font-size:.85em;background:var(--faint);padding:0 .25rem} .noteview .viz{margin:.8rem 0}
@@ -155,7 +277,7 @@
   .prov.wg{border-color:var(--ink);color:var(--ink);font-weight:600} .prio{font-size:.7rem;letter-spacing:-1px;margin-right:.2rem} .prio.core{color:#b3524e} .prio.know{color:var(--accent)} .prio.sup{color:var(--graphite)} .prov.flag{border-style:dashed}
   @media print{ html,body{background:#fff!important;color:#000!important;height:auto} body *{visibility:hidden} .noteview,.noteview *{visibility:visible}
     /* content in the left 63%, a ruled annotation column on the right of every page */
-    .noteview{position:absolute;left:0;top:0;width:63%;border:none;padding:0 0 0 0;overflow:visible;color:#000;background:#fff;font-size:10.5pt;line-height:1.5}
+    .noteview{position:absolute;left:0;top:0;width:63%;border:none;padding:0 0 0 0;overflow:visible;color:#000;background:#fff;font-size:10.5pt;line-height:1.5;box-shadow:none}
     .noteview::after{content:"";visibility:visible;position:fixed;top:0;right:0;width:32%;height:100vh;border-left:.5pt solid #000;
       background:repeating-linear-gradient(to bottom,transparent 0 7.6mm,#bbb 7.6mm 7.8mm);background-position:0 6mm}
     .noteview::before{content:"Notes";visibility:visible;position:fixed;top:0;right:0;width:32%;font-family:var(--sans);font-size:7.5pt;color:#666;text-align:right;padding-right:2mm}
@@ -167,8 +289,8 @@
   .stage{max-width:640px;margin:0 auto} .flip{width:100%;text-align:left;border:1px solid var(--ink);border-radius:var(--r);min-height:220px;padding:1.4rem;font-family:var(--serif);font-size:1.2rem;line-height:1.4;background:var(--paper);display:flex;flex-direction:column;justify-content:center;white-space:pre-wrap}
   .flip .side{font-family:var(--sans);font-size:.74rem;color:var(--graphite);margin-bottom:.5rem} .ratings{display:flex;gap:.5rem;justify-content:center;margin-top:1rem;flex-wrap:wrap} .ratings .btn{min-width:88px}
   /* dark scheme — neutral panels, accent only on bars (standing rule) */
-  @media(prefers-color-scheme:dark){:root{--ink:#e9e7e2;--graphite:#a3a19a;--rule:#383733;--faint:#242320;--paper:#191918;--accent:#8aa6dc}
-    .btn.primary{background:#e8e6e1;color:#1a1a19} .btn.primary:hover{background:#fff} .msg.user{background:#e8e6e1;color:#1a1a19} .toast{background:#e8e6e1;color:#1a1a19} .modes .btn.active{background:#e8e6e1;color:#1a1a19}}
+  @media(prefers-color-scheme:dark){:root{--ink:#e9e7e2;--graphite:#a3a19a;--rule:#383733;--faint:#242320;--paper:#191918;--raised:#2c2b28;--accent:color-mix(in oklab,var(--course,#24467a),#fff 55%);--ok:#7cc59d;--warn:#e5a06f}
+    .btn.primary{background:#e8e6e1;color:#1a1a19} .btn.primary:hover{background:#fff} .msg.user{background:#e8e6e1;color:#1a1a19} .modes .btn.active{background:#e8e6e1;color:#1a1a19}}
   html{color-scheme:light dark}
 
   /* half-screen: slim top bar, dense content */
@@ -177,18 +299,18 @@
     aside.side{flex-direction:row;align-items:center;flex-wrap:nowrap;gap:.8rem;padding:0 1rem;border-right:none;border-bottom:1px solid var(--rule);overflow:visible;background:var(--paper)}
     .brand{align-items:center;font-size:1rem} .brand i{height:1rem} aside.side label{font-size:0} aside.side label select{font-size:.85rem;padding:.25rem}
     nav{flex:1;min-width:0;align-self:stretch;display:flex} nav ul{display:flex;gap:0;overflow-x:auto;overflow-y:visible;align-items:stretch} nav a{padding:.55rem .6rem .5rem;font-size:.88rem;border-left:none;border-top:3px solid transparent;border-radius:0;white-space:nowrap} nav a:hover{background:transparent;color:var(--ink)} nav a.active{background:none;border-top-color:var(--accent);color:var(--ink)}
-    #addCourse{display:none} #searchBtn{padding:.15rem .5rem;font-size:.78rem;border-color:transparent} .keystate{margin:0 3.2rem 0 0;font-size:0;width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none} .keystate.off{background:var(--warn)}
-    main{padding:.9rem 1rem 2rem} .head{margin-bottom:.7rem;padding-bottom:.45rem} h1{font-size:1.3rem} .head>div>div.small{display:none}
+    #addCourse{display:none} #searchBtn{padding:.15rem .5rem;font-size:.78rem;border-color:transparent} .acct{margin:0 3.2rem 0 0;padding:0;border:none;flex:none} .acct .who{display:none} #signOut{padding:.15rem .5rem;font-size:.78rem} .keystate{margin:0 3.2rem 0 0;font-size:0;width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none} .keystate.off{background:var(--warn)}
+    main{padding:.9rem 1rem 3.5rem} .head{margin-bottom:.7rem;padding-bottom:.45rem} h1{font-size:1.3rem} .head>div>div.small{display:none}
     .g4{grid-template-columns:repeat(4,1fr);gap:.5rem} .stat{padding:.5rem .7rem;display:flex;align-items:baseline;gap:.4rem} .stat .n{font-size:1.25rem} .stat .l{margin:0;font-size:.78rem}
     .hero{padding:var(--s4) var(--s5);gap:var(--s4)} .hero h2{font-size:1.35rem} .hero .k{font-size:2.1rem}
     .g2{grid-template-columns:1fr} .panel{padding:.75rem .9rem}
-    .tutor,.notes{grid-template-columns:1fr;height:calc(100vh - 6.5rem)} .tutor{grid-template-rows:auto 1fr} .tutor aside.col{max-height:7.5rem;overflow:auto;padding:.45rem .7rem;flex-direction:row;align-items:baseline;gap:.5rem;flex-wrap:wrap;flex:0 0 auto} .tutor aside.col h3{font-size:.8rem;margin:0;color:var(--graphite);white-space:nowrap}
+    .tutor,.notes{grid-template-columns:1fr;height:calc(100vh - 9.25rem)} .tutor{grid-template-rows:auto 1fr} .tutor aside.col{max-height:7.5rem;overflow:auto;padding:.45rem .7rem;flex-direction:row;align-items:baseline;gap:.5rem;flex-wrap:wrap;flex:0 0 auto} .tutor aside.col h3{font-size:.8rem;margin:0;color:var(--graphite);white-space:nowrap}
     .tutor .ctx{display:flex;flex-wrap:wrap;gap:.3rem;flex:1} .tutor .ctx li{border:1px solid var(--rule);border-radius:999px;padding:.05rem .55rem;font-size:.78rem;color:var(--graphite)} .tutor .ctx li:last-child{border:1px solid var(--rule)} .tutor #ctxSize{margin:0!important;white-space:nowrap}
     .modes{flex-wrap:wrap;row-gap:.3rem} .msg{max-width:94%}
   }
   /* focus mode: current screen only, nothing else */
   body.focus aside.side, body.focus .head, body.focus .tutor aside.col, body.focus .notes>aside.col{display:none}
-  body.focus .tutor,body.focus .notes{grid-template-columns:1fr;height:calc(100vh - 1.6rem)} body.focus main{padding:.8rem 1rem}
+  body.focus .app{grid-template-columns:1fr} body.focus .tutor,body.focus .notes{grid-template-columns:1fr;height:calc(100vh - 4.4rem)} body.focus main{padding:.8rem 1rem}
   #focusBtn{position:fixed;right:.7rem;top:.5rem;z-index:40;opacity:.55;font-size:.74rem;padding:.12rem .45rem;border-color:transparent} #focusBtn:hover{opacity:1}
 </style>
 <script src="/static/marked.min.js"></script>
@@ -205,31 +327,31 @@
     <li><a href="#tutor" data-nav="tutor">Tutor</a></li>
     <li><a href="#notes" data-nav="notes">Notes</a></li>
     <li><a href="#recall" data-nav="recall">Recall</a></li>
+    <li><a href="#advocate" data-nav="advocate">Advocate</a></li>
+    <li><a href="#arena" data-nav="arena">Arena</a></li>
     <li><a href="#planner" data-nav="planner">Planner</a></li>
     <li><a href="#progress" data-nav="progress">Progress</a></li>
   </ul></nav>
-  <button class="btn small ghost" id="searchBtn" title="Search and jump (⌘K)">Search ⌘K</button>
+  <button class="btn small ghost" id="searchBtn" title="Search and jump (⌘K)">Search <kbd>⌘K</kbd></button>
   <button class="btn small ghost" id="addCourse">+ Add course</button>
+  <form class="acct" id="acct" method="post" action="/auth/logout"><span class="small muted who" id="who"></span><button class="btn small ghost" id="signOut" type="submit">Sign out</button></form>
 </aside>
 <main>
 
 <section id="home" class="screen">
   <div class="head"><div><h1 id="homeTitle"></h1><div class="small muted">Local workspace · files, tutor and notes stay on this Mac</div></div><button class="btn ghost" id="courseSettings" title="Name, accent and tutor brief for this course">Course settings</button></div>
   <div class="hero herobook"><div><div class="small muted">Next</div><h2 id="h-next"></h2><p id="h-nextBody"></p><button class="btn primary" id="h-go">Open</button></div>
-    <div class="bookwrap"><div class="book" id="book" aria-hidden="true">
-      <div class="bookstage"><div class="booktilt"><svg viewBox="0 0 220 260" width="220" height="260" role="img">
-        <defs>
-          <linearGradient id="cov" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7a1f22"/><stop offset="1" stop-color="#5c1417"/></linearGradient>
-          <linearGradient id="pg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#efe9dc"/><stop offset="1" stop-color="#d9d2c1"/></linearGradient>
-        </defs>
-        <g class="bk">
-          <rect class="cover" x="34" y="16" width="150" height="228" rx="5" fill="url(#cov)"/>
-          <rect x="46" y="22" width="132" height="216" rx="2" fill="url(#pg)"/>
-          <rect x="34" y="16" width="14" height="228" rx="4" fill="#4a1013"/>
-          <text x="41" y="150" fill="#e9dfc9" font-family="Spectral, serif" font-size="9" letter-spacing="2" transform="rotate(90 41 150)" text-anchor="middle">STATUTES</text>
-          <g class="tabs" fill="none"></g>
-        </g>
-      </svg></div></div>
+    <div class="bookwrap"><div class="book" id="book">
+      <div class="bookstage"><div class="booktilt" tabindex="0" role="button" aria-label="Statute book — Enter opens or closes it">
+        <div class="bk__back"></div><div class="bk__foreedge"></div><div class="bk__head"></div><div class="bk__tail"></div>
+        <div class="bk__spine"><i class="sp__rule"></i><i class="sp__band"></i><div class="sp__text"><span>STATUTES</span></div><i class="sp__band"></i><i class="sp__rule"></i></div>
+        <div class="bk__pages"></div>
+        <div class="leaf leaf--title"><i class="lf__rule"></i><div class="lf__h1" id="leafTitle"></div><div class="lf__kicker" id="leafKicker"></div><div class="lf__meta">Groningen — 2026/27</div><i class="lf__rule"></i></div>
+        <div class="leaf leaf--tab"><i class="lf__rule" id="leafRule1"></i><div class="lf__eyebrow" id="leafEyebrow"></div><div class="lf__label" id="leafLabel"></div><div class="lf__refs" id="leafRefs"></div><i class="lf__rule" id="leafRule2"></i><div class="lf__folio" id="leafFolio"></div></div>
+        <div class="bk__sheet"></div>
+        <div class="bk__cover"><i class="cv__rule"></i><i class="cv__rule2"></i><i class="cv__hinge"></i><i class="cv__sheen"></i>
+          <div class="cv__type"><div class="t1" id="coverTitle"></div><i class="hr"></i><div class="t2">Statutes &amp; Case-Law</div></div></div>
+      </div></div>
       <div class="tabname small" id="tabname"></div>
     </div><div class="k booknum"><span id="h-due">–</span><small>cards due today</small></div></div>
   </div>
@@ -247,22 +369,25 @@
   <div class="panel small" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
     <button class="btn small ghost" id="inferBtn" title="Recognise each untagged file week from its content">Detect weeks</button>
   </div>
-  <div class="drop" id="drop">Drop files here or <label style="text-decoration:underline;cursor:pointer">choose<input type="file" id="fileInput" multiple hidden></label> — pdf, pptx, docx, txt/md/vtt, png/jpg</div>
+  <div class="drop" id="drop">Drop files here or <label style="text-decoration:underline;cursor:pointer" tabindex="0" role="button">choose<input type="file" id="fileInput" multiple hidden></label> — pdf, pptx, docx, txt/md/vtt, png/jpg</div>
   <table><thead><tr><th></th><th>Name</th><th>Type</th><th>Week</th><th>Text</th><th>Status</th><th></th></tr></thead><tbody id="fileRows"></tbody></table>
 </section>
 
 <section id="tutor" class="screen">
   <div class="head"><div><h1>Tutor</h1><div class="small muted" id="tutorSub"></div></div><button class="btn small ghost" id="clearChat">Clear conversation</button></div>
   <div class="tutor">
-    <aside class="col"><h3>Reading</h3><ul class="clean ctx" id="ctxList"></ul><div class="small muted" style="margin-top:.5rem" id="ctxSize"></div></aside>
+    <aside class="col"><h3>Reading</h3><ul class="clean ctx" id="ctxList"></ul><div class="small muted" style="margin-top:.5rem" id="ctxSize"></div>
+      <div class="small" id="ctxAnswer" hidden style="margin-top:.5rem;padding-top:.5rem;border-top:1px solid var(--rule)"></div></aside>
     <div class="col">
       <div class="modes" role="group" aria-label="Mode">
         <button class="btn small active" data-mode="drill">Drill me</button>
         <button class="btn small" data-mode="explain">Explain</button>
+        <button class="btn small" data-mode="apply" title="Give it the facts of a WG or exam question; it applies the articles and cases to them, step by step">Apply to facts</button>
         <button class="btn small" data-mode="notes">Build notes</button>
         <span style="margin-left:auto;display:flex;gap:.4rem;align-items:center">
           <select id="modelSel" class="small" aria-label="Model"><option value="auto">Auto model</option></select><span class="small muted" id="routeHint" title="Which model Auto will use for this message"></span>
-          <button class="btn small ghost" id="micBtn" aria-pressed="false" title="Dictate (Chrome)">🎙 Talk</button>
+          <span class="seg" role="group" id="micMode" hidden title="Which speech engine Talk uses"><button class="btn small" type="button" data-mic="browser" aria-pressed="true">Browser</button><button class="btn small" type="button" data-mic="gemini" aria-pressed="false">Gemini</button></span>
+          <button class="btn small ghost" id="micBtn" aria-pressed="false" title="Dictate your answer">🎙 Talk</button>
           <button class="btn small ghost" id="speakBtn" aria-pressed="false" title="Read replies aloud — click again on a reply to hear its spoken version">🔊 Read aloud</button>
           <span class="small muted" id="costState" title="Estimated API spend since you last cleared it; click to reset" style="cursor:pointer"></span>
         </span>
@@ -297,7 +422,7 @@
       <div id="noteView" class="noteview md"></div>
       <div class="tagbar small" id="tagbar" hidden>
         <button class="btn small ghost" data-ins="[LEC] " title="⌘1">[LEC]</button><button class="btn small ghost" data-ins="[!] " title="⌘2">[!] correction</button><button class="btn small ghost" data-ins="[P] " title="⌘3">[P] pinpoint</button><button class="btn small ghost" data-ins="?? " title="⌘4">?? verify</button> <button class="btn small ghost" id="bulletBtn" title="Toggle bullet on this line">• Bullet</button> <button class="btn small ghost" id="recBtn" title="Record the lecture locally; every line you type is linked to the audio">● Record</button><span class="small muted" id="recState"></span>
-        <label class="small muted" style="display:flex;gap:.25rem;align-items:center" title="When a recording stops, transcribe it on this Mac straight away"><input type="checkbox" id="autoTx" checked> auto-transcribe</label>
+        <label class="small muted" style="display:flex;gap:.25rem;align-items:center" title="When a recording stops, send it to Google Speech-to-Text straight away"><input type="checkbox" id="autoTx" checked> auto-transcribe</label>
         <span class="muted" style="margin-left:auto">Start a line with <b>l</b>, <b>!</b>, <b>p</b> or <b>?</b> and a space — bullet and tag appear · Enter continues a list · Tab indents</span>
       </div>
       <div class="editwrap" id="editwrap">
@@ -319,11 +444,11 @@
     <div class="progress" id="rprog"><span></span></div>
     <div class="flashcard" id="fc" tabindex="0" aria-label="Flashcard — click to flip">
       <div class="fcinner" id="fcinner">
-        <div class="face front"><div class="tagline">Question</div><div class="ftext" id="fcFront"></div><div class="hintline">Click, or press Space, to reveal</div></div>
+        <div class="face front"><div class="tagline">Question</div><div class="ftext" id="fcFront"></div><div class="hintline">Click, or press <kbd>Space</kbd>, to reveal</div></div>
         <div class="face back"><div class="tagline">Answer</div><div class="ftext" id="fcBack"></div></div>
       </div>
     </div>
-    <div class="ratings" id="ratings" hidden><button class="btn rate again" data-r="0">Again</button><button class="btn rate hard" data-r="1">Hard</button><button class="btn rate good" data-r="2">Good</button><button class="btn rate easy" data-r="3">Easy</button></div>
+    <div class="ratings" id="ratings" hidden><button class="btn rate again" data-r="0">Again <kbd>1</kbd></button><button class="btn rate hard" data-r="1">Hard <kbd>2</kbd></button><button class="btn rate good" data-r="2">Good <kbd>3</kbd></button><button class="btn rate easy" data-r="3">Easy <kbd>4</kbd></button></div>
     <div class="rdone" id="rdone" hidden></div>
   </div>
 
@@ -334,6 +459,87 @@
   </div>
 
   <div id="allCards" hidden style="margin-top:1.5rem"><table><thead><tr><th>Front</th><th>Back</th><th>Wk</th><th>Due</th><th></th></tr></thead><tbody id="cardRows"></tbody></table></div>
+</section>
+
+<section id="advocate" class="screen">
+  <div class="head"><div><h1>Advocate</h1><div class="small muted" id="advSub">Oral revision — it asks, you answer out loud.</div></div>
+    <span><button class="btn small" id="advStart">Start</button> <button class="btn small ghost" id="advBank" title="Write viva questions from the files you have ticked">Build questions from my files</button></span></div>
+  <div class="advgrid">
+    <div class="panel advstage">
+      <div class="small muted" id="advCourse">Question</div>
+      <p class="advq" id="advQ">Press Start and it will ask you the first question.</p>
+      <div class="tagrow" id="advTags"></div>
+      <div class="advconvo" id="advConvo"></div>
+      <div class="advctrl">
+        <button class="btn" id="advMic" aria-pressed="false" title="Speak your answer">🎙 Answer</button>
+        <input type="text" id="advType" placeholder="…or type your answer and press Enter" aria-label="Your answer">
+        <button class="btn primary" id="advSend">Send</button>
+      </div>
+      <div class="small muted" id="advHint">Answer in full sentences — it grades what you actually say, not what you meant.</div>
+    </div>
+    <aside class="advside">
+      <div class="panel advown" id="advOwn"><h3>Your own question</h3>
+        <div class="small muted">Ask anything, answer out loud, and it is graded only against the note you pick. Nothing is rescheduled.</div>
+        <div class="advownrow"><input type="text" id="advOwnQ" placeholder="Type or dictate a question" aria-label="Your question" autocomplete="off">
+          <button class="btn" id="advOwnMic" type="button" aria-pressed="false" aria-label="Dictate your question" title="Dictate your question">🎙</button></div>
+        <select id="advOwnRef" aria-label="Note to grade against"></select>
+        <div class="advownrow"><button class="btn primary" id="advOwnGo" type="button" aria-describedby="advOwnHint" disabled>Ask it</button>
+          <button class="btn ghost" id="advOwnOff" type="button" hidden>Back to my cards</button></div>
+        <div class="small muted" id="advOwnHint"></div></div>
+      <div class="panel"><h3>This session</h3>
+        <div class="statrow2"><div><b id="advAsked">0</b><span>answered</span></div><div><b id="advSolid">0</b><span>solid</span></div><div><b id="advWeak">0</b><span>to revisit</span></div></div></div>
+      <div class="panel"><h3>Mastery</h3><div class="small muted">Missed ideas jump the queue and come back until they hold.</div><div id="advMap"></div></div>
+      <div class="panel"><h3>Weak-point notes</h3><div class="small muted">Written only from what you got wrong.</div>
+        <div class="advnotes" id="advNotes"><div class="emptystate">Nothing yet. Miss something and it lands here.</div></div>
+        <button class="btn small ghost" id="advCopy">Copy notes</button></div>
+    </aside>
+  </div>
+</section>
+
+<section id="arena" class="screen">
+  <div class="head"><div><h1>Arena</h1><div class="small muted" id="arSub">Play it out — from your own cards and your own notes.</div></div>
+    <span><button class="btn small" id="lawStart">Start</button> <span class="seg" role="group"><button class="btn small" id="arTabLaw" aria-pressed="true">Who Wants to Be a Lawyer</button><button class="btn small" id="arTabCourt" aria-pressed="false">Courtroom</button></span></span></div>
+
+  <div id="arLawyer">
+    <div class="arwrap">
+      <div class="panel">
+        <div class="small muted" id="lawState">Questions from your own cards — clear every rung to win.</div>
+        <p class="lawq" id="lawQ">Press Start.</p>
+        <div class="lawopts" id="lawOpts"></div>
+        <div class="lifelines">
+          <button class="btn small ghost" id="lifeFifty" title="Remove two wrong answers">50 : 50</button>
+          <button class="btn small ghost" id="lifeHint" title="One sentence pointing at the rule — never the answer">Ask the tutor</button>
+          <button class="btn small ghost" id="lifeSkip" title="Move on without answering">Skip</button>
+        </div>
+        <div class="small muted" id="lawHint" style="margin-top:.6rem"></div>
+      </div>
+      <aside class="panel"><h3 style="margin-bottom:.4rem">Ladder</h3><div class="ladder" id="ladder"></div></aside>
+    </div>
+  </div>
+
+  <div id="arCourt" hidden>
+    <div class="arwrap">
+      <div class="panel">
+        <div class="room" id="courtRoom" aria-hidden="true">
+          <i class="rm__back"></i><i class="rm__floor"></i><i class="rm__arms"></i><b class="rm__bench"></b>
+          <b class="rm__desk l rm__you"></b><b class="rm__desk r"></b>
+          <i class="rm__label l">You</i><i class="rm__label r">Opposing</i>
+        </div>
+        <div class="small muted" id="courtWho">Pick a case from your notes.</div>
+        <p class="benchq" id="benchQ">The bench is not sitting yet.</p>
+        <div class="courtlog" id="courtLog"></div>
+        <div class="advctrl">
+          <button class="btn" id="courtMic" aria-pressed="false" title="Speak your submission">🎙 Submit</button>
+          <input type="text" id="courtType" placeholder="Address the bench…" aria-label="Your submission">
+          <button class="btn primary" id="courtSend">Reply</button>
+        </div>
+        <div id="courtHolding"></div>
+      </div>
+      <aside class="panel"><h3 style="margin-bottom:.4rem">Cases in your notes</h3>
+        <div class="small muted" style="margin-bottom:.4rem">Taken from names you wrote in <i>italics</i>.</div>
+        <div class="caselist" id="courtCases"></div></aside>
+    </div>
+  </div>
 </section>
 
 <section id="planner" class="screen">
@@ -425,13 +631,13 @@ const setFocus=v=>{document.body.classList.toggle('focus',v);localStorage.setIte
 $('#focusBtn').onclick=()=>setFocus(!document.body.classList.contains('focus'));
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='.'){e.preventDefault();$('#focusBtn').click()}});
 if(localStorage.getItem('cf.focus')==='1') setFocus(true);
-function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2800)}
+function toast(m){const t=$('#toast');t.textContent=m;t.dataset.tone=/^(failed|could not|error)|failed|not allowed/i.test(m)?'warn':/…$/.test(m)?'busy':'ok';t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2800)}
 let courses=[], cid=localStorage.getItem('cf.course')||'', mode='drill', cfg={};
 const C=()=>courses.find(c=>c.id===cid)||courses[0];
 
 /* nav */
-const SCREENS=['home','library','tutor','notes','recall','planner','progress'];
-const loaders={home:loadHome,library:loadFiles,tutor:loadTutor,notes:loadNotes,recall:loadRecall,planner:loadPlanner,progress:loadProgress};
+const SCREENS=['home','library','tutor','notes','recall','advocate','arena','planner','progress'];
+const loaders={home:loadHome,library:loadFiles,tutor:loadTutor,notes:loadNotes,recall:loadRecall,advocate:loadAdvocate,arena:loadArena,planner:loadPlanner,progress:loadProgress};
 function show(id){ if(!SCREENS.includes(id)) id='home'; document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.id===id)); document.querySelectorAll('[data-nav]').forEach(a=>a.classList.toggle('active',a.dataset.nav===id)); localStorage.setItem('cf.screen',id); loaders[id](); }
 document.addEventListener('click',e=>{const a=e.target.closest('a[data-nav]'); if(a){e.preventDefault(); show(a.dataset.nav)}});
 
@@ -478,23 +684,41 @@ $('#cfDelete').onclick=async()=>{ const c=courses.find(x=>x.id===cdId); if(!c) r
 
 /* home */
 const TABS=[["#2f5fae","Prohibitions","34 · 45 · 101"],["#d98a2b","Derogations","36 · 52 · 65"],["#1f7a4d","Competences","5 · 114 · 352"],["#8fbf6a","Secondary law","2004/38 · 1/2003"],["#8e2f6e","Enforcement","258 · 263 · 267"],["#d46a9a","Rights","18 · 21 · 157"],["#c9b23a","Definitions","28 · 54 · 57"]];
-function drawBook(){ const g=document.querySelector('#book .tabs'); if(!g||g.childElementCount) return; const top=30, gap=27;
-  TABS.forEach((t,i)=>{ const y=top+i*gap; const el=document.createElementNS('http://www.w3.org/2000/svg','g'); el.setAttribute('class','tab'); el.style.animationDelay=(i*60)+'ms';
-    el.innerHTML=`<rect x="170" y="${y}" width="26" height="20" rx="2.5" fill="${t[0]}"/>`;
-    el.onmouseenter=()=>{$('#tabname').textContent=t[1]+' · Art '+t[2]}; el.onmouseleave=()=>{$('#tabname').textContent=''};
-    el.onclick=()=>{ toast(t[1]+': Art '+t[2]); }; g.appendChild(el); }); }
+function drawBook(){ const tilt=document.querySelector('#book .booktilt'); if(!tilt||tilt.querySelector('.tab')) return;
+  const name=i=>TABS[i][1]+' · Art '+TABS[i][2];
+  TABS.forEach((t,i)=>{ const b=document.createElement('button'); b.type='button'; b.className='tab';
+    const dark=`color-mix(in oklab,${t[0]},#000 34%)`;
+    b.style.top=(12+i*32)+'px'; b.style.background=`linear-gradient(160deg,${t[0]},${dark})`; b.style.transitionDelay='0s, '+(i*60)+'ms';
+    b.setAttribute('aria-label',`Tab ${i+1} of ${TABS.length}: ${name(i)}`);
+    b.innerHTML=`<i class="tab__top" style="background:linear-gradient(90deg,${t[0]},${dark})"></i>`;
+    const show=()=>{$('#tabname').textContent=name(i)}, hide=()=>{$('#tabname').textContent=''};
+    b.onmouseenter=show; b.onmouseleave=hide; b.onfocus=show; b.onblur=hide;
+    b.onclick=e=>{ e.stopPropagation(); openTab(i) }; tilt.appendChild(b); }); }
+let _turnT=0;
+function openTab(i){ const book=$('#book'), was=book.classList.contains('is-open'), t=TABS[i];
+  book.classList.add('is-open','is-turning'); clearTimeout(_turnT);
+  _turnT=setTimeout(()=>{ $('#leafEyebrow').textContent=`TAB ${i+1} OF ${TABS.length}`; $('#leafLabel').textContent=t[1];
+    $('#leafRefs').textContent='Art '+t[2]; $('#leafFolio').textContent='§ '+t[1].toLowerCase();
+    $('#leafRule1').style.background=t[0]; $('#leafRule2').style.background=t[0];
+    book.classList.add('has-page'); book.classList.remove('is-turning'); }, was?240:420); }
 let _tiltInit=false;
 function bookMotion(){ const book=document.getElementById('book'); if(!book) return;
-  const stage=book.querySelector('.bookstage'), tilt=book.querySelector('.booktilt');
-  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if(stage && !reduce){ stage.classList.remove('open'); void stage.offsetWidth; stage.classList.add('open'); }
-  if(_tiltInit || reduce || !tilt) return; _tiltInit=true; let raf=0;
+  const tilt=book.querySelector('.booktilt'); if(!tilt) return;
+  setTimeout(()=>book.classList.add('is-loaded'),120);
+  if(_tiltInit) return; _tiltInit=true;
+  const toggle=()=>{ const open=!book.classList.contains('is-open'); book.classList.toggle('is-open',open); if(!open) book.classList.remove('has-page') };
+  tilt.addEventListener('click',toggle);
+  tilt.addEventListener('keydown',e=>{ if(e.target===tilt&&(e.key==='Enter'||e.key===' ')){ e.preventDefault(); toggle() } });
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  let raf=0;
   book.addEventListener('pointermove',e=>{ if(raf) return; const r=book.getBoundingClientRect();
     const px=(e.clientX-r.left)/r.width-0.5, py=(e.clientY-r.top)/r.height-0.5;
-    raf=requestAnimationFrame(()=>{ raf=0; tilt.style.setProperty('--tt','.1s');
-      tilt.style.setProperty('--ry',(px*14).toFixed(2)+'deg'); tilt.style.setProperty('--rx',(-py*10).toFixed(2)+'deg'); }); });
-  book.addEventListener('pointerleave',()=>{ tilt.style.setProperty('--tt','.45s'); tilt.style.setProperty('--rx','0deg'); tilt.style.setProperty('--ry','0deg'); }); }
-async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle').textContent=c.name; const s=await api(`/courses/${cid}/stats`);
+    raf=requestAnimationFrame(()=>{ raf=0; tilt.style.setProperty('--tt','.12s');
+      tilt.style.setProperty('--ry',(px*10).toFixed(2)+'deg'); tilt.style.setProperty('--rx',(-py*7).toFixed(2)+'deg') }) });
+  book.addEventListener('pointerleave',()=>{ tilt.style.setProperty('--tt','.5s'); tilt.style.setProperty('--rx','0deg'); tilt.style.setProperty('--ry','0deg') }); }
+async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle').textContent=c.name;
+  $('#coverTitle').textContent=c.name.toUpperCase(); $('#leafTitle').textContent=c.name;
+  $('#leafKicker').textContent=TABS.slice(0,3).map(x=>x[1]).join(' · ').toUpperCase(); const s=await api(`/courses/${cid}/stats`);
   $('#h-due').textContent=s.due; $('#h-streak').textContent=s.streak; $('#h-files').textContent=s.files; $('#h-acc').textContent=s.recall_accuracy==null?'–':s.recall_accuracy+'%';
   let next,body,go; if(s.files===0){next='Add your files';body='Slides, transcripts and notes go in first — the tutor only works from what you upload.';go='library'}
   else if(s.due>0){next=`Review ${s.due} due card${s.due>1?'s':''}`;body='Clear the queue before adding new material.';go='recall'}
@@ -508,7 +732,7 @@ async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle'
 /* files */
 async function loadFiles(){
   const fs=await api(`/courses/${cid}/files`);
-  if(!fs.length){ $('#fileRows').innerHTML='<tr><td colspan="7" class="muted">No files yet. Drop the Week 2 slides and a transcript in to start.</td></tr>'; }
+  if(!fs.length){ $('#fileRows').innerHTML='<tr><td colspan="7"><div class="emptystate"><b>No files yet</b><span>Drop the Week 2 slides and a transcript in to start.</span><button class="btn small" type="button" onclick="document.getElementById(\'fileInput\').click()">Choose files</button></div></td></tr>'; }
   else {
     const groups={}; fs.forEach(f=>{ const k=f.week?('Week '+f.week):'Unsorted'; (groups[k]=groups[k]||[]).push(f) });
     const order=Object.keys(groups).sort((a,b)=>{ if(a==='Unsorted')return 1; if(b==='Unsorted')return -1; return (+a.slice(5))-(+b.slice(5)) });
@@ -525,7 +749,7 @@ async function loadFiles(){
 async function upload(files){ for(const f of files){ const fd=new FormData(); fd.append('file',f); fd.append('week',$('#week').value); toast('Indexing '+f.name+'…'); try{ const r=await api(`/courses/${cid}/files`,{method:'POST',body:fd}); toast(`${f.name}: ${r.status}${r.chars?' · '+Math.round(r.chars/1000)+'k chars':''}`);}catch(e){toast('Failed: '+e.message)} } loadFiles(); }
 $('#inferBtn').onclick=async()=>{const b=$('#inferBtn');b.disabled=true;b.textContent='Detecting…';try{const r=await post(`/courses/${cid}/infer-weeks`);toast(r.tagged?`Sorted ${r.tagged} file(s) into weeks`:'Nothing to sort — all files already have a week');loadFiles()}catch(e){toast('Failed: '+e.message)}b.disabled=false;b.textContent='Detect weeks'};
 $('#fileInput').addEventListener('change',e=>upload([...e.target.files]));
-const drop=$('#drop'); ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')})); ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')})); drop.addEventListener('drop',e=>upload([...e.dataTransfer.files]));
+const drop=$('#drop'); ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')})); ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')})); drop.addEventListener('drop',e=>upload([...e.dataTransfer.files])); drop.querySelector('label').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#fileInput').click()}});
 
 /* tutor */
 async function loadTutor(){ const fs=await api(`/courses/${cid}/files`); const sel=fs.filter(f=>f.selected); $('#tutorSub').textContent=`${C().name} · auto-routing: notes and cards on ${(cfg.cheap_model||'').replace('claude-','')}, drilling on ${(cfg.model||'').replace('claude-','')}`;
@@ -549,12 +773,71 @@ function addMsg(role,text){const d=document.createElement('div');d.className='ms
 const MODE_UI={
   drill:{hint:'Drill: one question at a time, firm correction. Reply with your answer, or say what to drill.',ph:'Your answer — or "drill me on Art 34"'},
   explain:{hint:'Explain: a tight structured answer with file references; asks for a diagram or table when it helps.',ph:'What do you want explained? e.g. "Keck vs Italian Trailers, with a flowchart"'},
+  apply:{hint:'Apply to facts: paste the facts of a WG or exam question. Every step names the article or case from your ticked files that decides it, and what fact would flip it.',ph:'Paste the facts — e.g. "Germany bans the sale of energy drinks above 50mg caffeine. A French producer\u2026"'},
   notes:{hint:'Build notes: reconciles the ticked files into master notes with provenance tags and saves the result to Notes.',ph:'What to build — e.g. "Week 2 goods master notes" or "case map for Art 36 derogations"'}};
 function setMode(m){mode=m;document.querySelectorAll('[data-mode]').forEach(x=>x.classList.toggle('active',x.dataset.mode===m));$('#modeHint').textContent=MODE_UI[m].hint;$('#q').placeholder=MODE_UI[m].ph;localStorage.setItem('cf.mode',m)}
 document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{setMode(b.dataset.mode);$('#q').focus()});
 setMode(localStorage.getItem('cf.mode')||'drill');
 /* ---- voice: browser speech, no API cost ---- */
 let recog=null, listening=false, speakOn=localStorage.getItem('cf.speak')==='1', voiceUtter=null, lastSpeech='', sessionCost=+(localStorage.getItem('cf.cost')||0);
+/* ---- one voice for the whole page (Phase 12): the server's (Kokoro / Google / ElevenLabs) when it is configured,
+   the browser's otherwise — and the browser's for the rest of a reply whenever a server sentence fails ---- */
+let cfRun=0, cfAudio=null, cfWake=null;
+const TUTOR_SERVER_CHARS=1500;   // longer tutor replies are read by the browser: the server voice is for short spoken turns
+const cfClean=t=>String(t||'').replace(/\[(?:LECTURE|WG|SLIDES|READER|SCHUTZE|SCRIPTUM|DCFR|NATIONAL|ADDED|OUTSIDE FILES)[^\]]*\]/g,'').replace(/[*_`#>|]/g,'').replace(/\s{2,}/g,' ').trim();
+function cfChunks(t){   // sentences, merged to at least 40 characters ("Art." is not a sentence) and kept under the server's cap
+  const out=[]; let cur='';
+  for(const s of t.match(/[^.!?]+[.!?]*/g)||[]){
+    cur=(cur+' '+s.trim()).trim(); if(cur.length<40) continue;
+    while(cur.length>400){ const k=cur.lastIndexOf(' ',400), cut=k>0?k:400; out.push(cur.slice(0,cut)); cur=cur.slice(cut).trim(); }
+    if(cur) out.push(cur); cur=''; }
+  if(cur) out.push(cur);
+  return out.filter(s=>/[\p{L}\p{N}]/u.test(s)); }   // a chunk of punctuation alone would come back empty and trip the fallback
+function cfHush(){ cfRun++; window.speechSynthesis?.cancel();
+  if(cfAudio){ try{ cfAudio.pause() }catch(e){} cfAudio=null; }
+  const w=cfWake; cfWake=null; if(w) w(false); }   // whatever was waiting on the old voice finishes now, so nothing stays locked
+function cfWait(start,ms){ return new Promise(done=>{ let t;
+  const fin=ok=>{ clearTimeout(t); if(cfWake===fin) cfWake=null; done(ok); };
+  t=setTimeout(()=>fin(true),ms); cfWake=fin; start(fin); }); }
+function cfBrowser(parts,run){
+  if(!('speechSynthesis' in window)||run!==cfRun||!parts.length) return Promise.resolve(false);
+  const v=speechSynthesis.getVoices().find(v=>/Daniel|Serena|Kate|en-GB/.test(v.name+v.lang));
+  return cfWait(fin=>parts.forEach((p,i)=>{
+    const u=new SpeechSynthesisUtterance(p); u.lang=(window.CFVOICE||{}).language||'en-GB'; u.rate=1.05; if(v) u.voice=v;
+    u.onerror=()=>fin(false);
+    if(i===parts.length-1){ voiceUtter=u; u.onend=()=>fin(true); }   // keep the last one referenced until it ends
+    speechSynthesis.speak(u); }), 3000+parts.join(' ').length*120); }
+const cfFetch=s=>fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:s})})
+  .then(r=>r.ok&&r.status!==204&&/^audio\//.test(r.headers.get('content-type')||'')?r.blob():null).catch(()=>null);
+async function cfSpeak(text,{serverMax=Infinity}={}){   // resolves true when fully spoken, false when stopped or failed
+  cfHush(); const run=cfRun, clean=cfClean(text), parts=cfChunks(clean);
+  if(!parts.length) return true;
+  if(!(window.CFVOICE||{}).server||clean.length>serverMax) return cfBrowser(parts,run);
+  let next=cfFetch(parts[0]);
+  for(let i=0;i<parts.length;i++){
+    const blob=await next; if(run!==cfRun) return false;
+    if(!blob) return cfBrowser(parts.slice(i),run);          // 204, an error, or not audio: the browser reads the rest
+    next=i+1<parts.length?cfFetch(parts[i+1]):null;          // one sentence ahead, never a burst of calls
+    const src=URL.createObjectURL(blob);
+    const ok=await cfWait(fin=>{ cfAudio=new Audio(src); cfAudio.onended=()=>fin(true); cfAudio.onerror=()=>fin(false);
+      cfAudio.play().catch(()=>fin(false)); }, 60000);
+    URL.revokeObjectURL(src);
+    if(run!==cfRun) return false;
+    cfAudio=null;
+    if(!ok) return cfBrowser(parts.slice(i),run);             // playback refused (autoplay rules): same rule
+  }
+  return true; }
+function showReading(r){
+  /* Which of your own materials answered the last question, and what did not fit. */
+  const box=$('#ctxAnswer'); if(!box) return;
+  const esc=t=>String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const used=(r.used||[]).map(esc), trimmed=(r.trimmed||[]).map(esc);
+  box.hidden=false;
+  box.innerHTML=`<b>Answered from</b> ${used.length} of ${used.length+trimmed.length} ticked files`
+    + `<div class="muted" style="margin-top:.2rem">${used.join(' · ')||'—'}</div>`
+    + (trimmed.length?`<div class="muted" style="margin-top:.35rem">Not needed for this question: ${trimmed.join(' · ')}</div>`:'')
+    + `<div class="muted" style="margin-top:.35rem">${Math.round((r.chars||0)/1000)}k characters sent instead of the whole set</div>`;
+}
 function showCost(){ const el=$('#costState'); if(el) el.textContent=sessionCost?`$${sessionCost.toFixed(2)} this session`:'' }
 function initVoice(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -565,20 +848,61 @@ function initVoice(){
       if($('#q').value.trim()) send();};
     recog.onerror=e=>{listening=false;$('#micBtn').textContent='🎙 Talk';toast('Mic: '+e.error)};
   }
+  if(cfg.voice?.gemini){ $('#micMode').hidden=false; document.querySelectorAll('#micMode [data-mic]').forEach(b=>b.onclick=()=>setMicMode(b.dataset.mic)); setMicMode(currentMicMode()); }
   $('#speakBtn').setAttribute('aria-pressed',speakOn?'true':'false'); $('#speakBtn').classList.toggle('primary',speakOn);
-  if(!('speechSynthesis' in window)){$('#speakBtn').disabled=true}
+  if(!('speechSynthesis' in window) && !(window.CFVOICE||{}).server){$('#speakBtn').disabled=true}
 }
-$('#micBtn').onclick=()=>{ if(!recog) return; if(listening){recog.stop();return}
-  window.speechSynthesis?.cancel(); listening=true; $('#micBtn').setAttribute('aria-pressed','true'); $('#micBtn').textContent='● Listening'; $('#q').value=''; recog.start(); };
+/* ---- Gemini dictation (Phase 8): mic → 16 kHz PCM → this app's relay → Vertex AI; only text comes back ---- */
+let gem=null;
+const currentMicMode=()=>localStorage.getItem('cf.micMode')||((window.SpeechRecognition||window.webkitSpeechRecognition)?'browser':'gemini');
+function setMicMode(m){ localStorage.setItem('cf.micMode',m);
+  document.querySelectorAll('#micMode [data-mic]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.mic===m?'true':'false'));
+  $('#micBtn').disabled=(m==='browser'&&!recog); }
+const PCM_WORKLET=`class Pcm16k extends AudioWorkletProcessor{constructor(){super();this.r=sampleRate/16000;this.a=0;this.s=0;this.n=0;this.b=new Int16Array(1600);this.i=0}
+process(inputs){const ch=inputs[0]&&inputs[0][0];if(!ch)return true;for(let k=0;k<ch.length;k++){this.s+=ch[k];this.n++;this.a+=1;
+if(this.a>=this.r){this.a-=this.r;const v=Math.max(-1,Math.min(1,this.s/this.n));this.s=0;this.n=0;this.b[this.i++]=v<0?v*32768:v*32767;
+if(this.i===1600){this.port.postMessage(this.b.buffer.slice(0));this.i=0}}}return true}}
+registerProcessor('pcm16k',Pcm16k)`;
+async function startGemini(){
+  const btn=$('#micBtn'); let stream=null, ctx=null, node=null, ws=null, gotText=false, stopped=false, finished=false, guard=null;
+  const cleanup=()=>{ try{node&&node.disconnect()}catch(e){} try{stream&&stream.getTracks().forEach(t=>t.stop())}catch(e){} try{ctx&&ctx.close()}catch(e){}
+    clearTimeout(guard); gem=null; listening=false; btn.setAttribute('aria-pressed','false'); btn.textContent='🎙 Talk'; };
+  const fallback=message=>{ cleanup(); toast(message);
+    if(recog && !gotText){ listening=true; btn.setAttribute('aria-pressed','true'); btn.textContent='● Listening'; $('#q').value=''; recog.start(); } };
+  const finish=()=>{ if(finished) return; finished=true; cleanup(); if($('#q').value.trim()) send(); };
+  try{
+    cfHush();
+    stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
+    ctx=new AudioContext();
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([PCM_WORKLET],{type:'application/javascript'})));
+    node=new AudioWorkletNode(ctx,'pcm16k'); ctx.createMediaStreamSource(stream).connect(node);
+    ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/api/voice/live?course=${encodeURIComponent(cid||'')}`);
+    ws.binaryType='arraybuffer';
+    node.port.onmessage=e=>{ if(ws.readyState===1 && !stopped) ws.send(e.data) };
+    ws.onmessage=e=>{ let m; try{ m=JSON.parse(e.data) }catch(err){ return }
+      if('interim' in m || 'final' in m){ gotText=true; $('#q').value=('final' in m)?m.final:m.interim; }
+      if(m.limit){ toast('Gemini dictation stops at about ten minutes'); gem&&gem.stop(); }
+      if(m.error){ finished=true; fallback(m.error+' Using the browser mic.'); }
+      if('done' in m){ if(m.done) $('#q').value=m.done;
+        if(m.cost_usd){ sessionCost+=m.cost_usd; localStorage.setItem('cf.cost',sessionCost); showCost(); }
+        finish(); } };
+    ws.onclose=()=>{ if(finished) return; if(stopped) finish(); else { finished=true; fallback('Gemini dictation is unavailable. Using the browser mic.'); } };
+    gem={ stop(){ if(stopped) return; stopped=true; btn.textContent='… Finishing';
+      try{ if(ws.readyState===1) ws.send(JSON.stringify({stop:true})) }catch(e){}
+      try{ stream.getTracks().forEach(t=>t.stop()) }catch(e){}
+      guard=setTimeout(()=>{ try{ws.close()}catch(e){} finish(); },10000); } };
+    listening=true; btn.setAttribute('aria-pressed','true'); btn.textContent='● Listening'; $('#q').value='';
+  }catch(e){ finished=true; fallback('Gemini dictation needs microphone access. Using the browser mic.'); }
+}
+$('#micBtn').onclick=()=>{ if(listening && !gem){ recog?.stop(); return }  // the browser mic is on (chosen, or a Gemini fallback): stop it
+  if(cfg.voice?.gemini && currentMicMode()==='gemini'){ return gem ? gem.stop() : startGemini(); }
+  if(!recog) return; if(listening){recog.stop();return}
+  cfHush(); listening=true; $('#micBtn').setAttribute('aria-pressed','true'); $('#micBtn').textContent='● Listening'; $('#q').value=''; recog.start(); };
 $('#costState').onclick=()=>{ sessionCost=0; localStorage.setItem('cf.cost',0); showCost() }; showCost();
 $('#speakBtn').onclick=()=>{ speakOn=!speakOn; localStorage.setItem('cf.speak',speakOn?'1':'0');
   $('#speakBtn').setAttribute('aria-pressed',speakOn?'true':'false'); $('#speakBtn').classList.toggle('primary',speakOn);
-  if(!speakOn) window.speechSynthesis.cancel(); else { if(lastSpeech) speak(lastSpeech); else toast('Replies will be read aloud — the tutor now writes a spoken version of each answer'); } };
-function speak(text){ if(!speakOn||!text||!text.trim()) return; const u=new SpeechSynthesisUtterance(
-    text.replace(/\[(LECTURE|WG|SLIDES|READER|SCHUTZE|SCRIPTUM|DCFR|NATIONAL|ADDED|OUTSIDE FILES)[^\]]*\]/g,'').replace(/[*_`#>|]/g,'').replace(/\s{2,}/g,' '));
-  u.lang='en-GB'; u.rate=1.05;
-  const v=speechSynthesis.getVoices().find(v=>/Daniel|Serena|Kate|en-GB/.test(v.name+v.lang)); if(v) u.voice=v;
-  window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); }
+  if(!speakOn) cfHush(); else { if(lastSpeech) speak(lastSpeech); else toast('Replies will be read aloud — the tutor now writes a spoken version of each answer'); } };
+function speak(text){ if(!speakOn||!text||!text.trim()) return; cfSpeak(text,{serverMax:TUTOR_SERVER_CHARS}); }
 
 const DOWN=["define","definition","what is","list","summarise","summarize","recap","translate","when did","who is","how many"];
 const UP=["compare","contrast","irac","critique","conflict","diverge","exam answer","argue","reconcile","distinguish","apply to the facts","which outranks","is this caught","step by step","walk me through"];
@@ -587,12 +911,12 @@ function routeGuess(){ const sel=$('#modelSel').value; if(sel!=='auto'){ $('#rou
   if(m===window.CFCHEAP&&UP.some(k=>t.includes(k))) m=window.CFMODEL;
   $('#routeHint').textContent = t? '→ '+(m||'').replace('claude-','') : ''; }
 $('#q').addEventListener('input',routeGuess); document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setTimeout(routeGuess,0))); $('#modelSel').addEventListener('change',routeGuess);
-async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_key){toast('Add ANTHROPIC_API_KEY to .env and restart');return}
+async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_key){toast('No Claude API key on the server — add it to .env.local and restart');return}
   addMsg('user',q); $('#q').value=''; $('#send').disabled=true; const d=addMsg('assistant','');
   try{ const r=await fetch(`/api/courses/${cid}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:q,mode,model:$('#modelSel').value,speech:speakOn})});
     const rd=r.body.getReader(); const td=new TextDecoder(); let buf='';
     while(true){const {value,done}=await rd.read(); if(done) break; buf+=td.decode(value,{stream:true}); const lines=buf.split('\n\n'); buf=lines.pop();
-      for(const l of lines){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; const j=JSON.parse(p); if(j.model){d.dataset.model=j.model; continue} if(j.usage){d.dataset.usage=JSON.stringify(j.usage); sessionCost+=j.usage.cost; localStorage.setItem('cf.cost',sessionCost); showCost(); continue} if(j.error){d.textContent+='\n[error] '+j.error; d.style.borderLeftColor='var(--warn)'} else d.textContent+=j.t; $('#chat').scrollTop=$('#chat').scrollHeight; } }
+      for(const l of lines){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; const j=JSON.parse(p); if(j.model){d.dataset.model=j.model; continue} if(j.reading){d.dataset.reading=JSON.stringify(j.reading); showReading(j.reading); continue} if(j.usage){d.dataset.usage=JSON.stringify(j.usage); sessionCost+=j.usage.cost; localStorage.setItem('cf.cost',sessionCost); showCost(); continue} if(j.error){d.textContent+='\n[error] '+j.error; d.style.borderLeftColor='var(--warn)'} else d.textContent+=j.t; $('#chat').scrollTop=$('#chat').scrollHeight; } }
   }catch(e){d.textContent+='\n[error] '+e.message}
   let raw=d.textContent; const sm=raw.match(/<speech>([\s\S]*?)<\/speech>\s*$/); if(sm){ d.dataset.speech=sm[1].trim(); raw=raw.replace(sm[0],'').trim() } await render(d,raw);
   lastSpeech=d.dataset.speech||raw.replace(/```[\s\S]*?```/g,' (see the diagram on screen) ');
@@ -611,7 +935,7 @@ $('#clearChat').onclick=async()=>{if(confirm('Clear this course\'s conversation?
 /* notes */
 let nid=null, saveT=null;
 async function loadNotes(){ const ns=await api(`/courses/${cid}/notes`); if(!ns.find(n=>n.id===nid)) nid=ns[0]?.id||null;
-  $('#noteList').innerHTML=ns.length?ns.map(n=>`<li class="${n.id===nid?'active':''}" data-note="${n.id}">${esc(n.title)}<div class="small muted">${new Date(n.updated*1000).toLocaleDateString()} · ${Math.round(n.chars/1000)||0}k</div></li>`).join(''):'<li class="muted small" style="padding:.5rem">No notes yet.</li>';
+  $('#noteList').innerHTML=ns.length?ns.map(n=>`<li class="${n.id===nid?'active':''}" data-note="${n.id}">${esc(n.title)}<div class="small muted">${new Date(n.updated*1000).toLocaleDateString()} · ${Math.round(n.chars/1000)||0}k</div></li>`).join(''):'<li class="emptystate small"><b>No notes yet</b><span>Start one, or draft it from your files.</span><button class="btn small" type="button" onclick="document.getElementById(\'newNote\').click()">New note</button></li>';
   document.querySelectorAll('[data-note]').forEach(l=>l.onclick=()=>{nid=l.dataset.note;loadNotes()});
   if(nid){const n=await api(`/notes/${nid}`);$('#noteTitle').value=n.title;await loadRecIds();$('#noteBody').value=toDisplay(n.body);$('#noteStatus').textContent='Saved'} else {$('#noteTitle').value='';$('#noteBody').value='';$('#noteStatus').textContent=''}
   histVid=null; $('#histBar').hidden=true; $('#txBar').hidden=true; showNote(); loadRecs();
@@ -656,21 +980,372 @@ $('#cleanBtn').onclick=async()=>{ if(!nid) return; const b=$('#cleanBtn'); b.dis
 $('#histBack').onclick=()=>{ histVid=null; $('#histBar').hidden=true; showNote() };
 $('#histRestore').onclick=async()=>{ if(!histVid) return; if(!confirm('Replace the current text with this version? The current text is kept in History.')) return; await post(`/notes/${nid}/restore/${histVid}`); histVid=null; $('#histBar').hidden=true; toast('Restored'); loadNotes() };
 $('#cardsFromMap').onclick=async()=>{ if(!nid) return; const r=await post(`/notes/${nid}/cards-from-tables`); toast(r.made?`${r.made} card(s) added to Recall`:'No case-map table found (needs a table with a Case column)') };
+/* ---- Advocate: oral revision. The engine lives on the server; this is the mouth and ears. ---- */
+const adv={mastery:{},cooldown:{},misses:{},notes:[],asked:0,q:null,busy:false};
+let advRecog=null, advListening=false;
+
+function advSpeak(text){ return cfSpeak(text); }   // resolves once the whole line has been heard (false if interrupted)
+function advQuiet(){ cfHush(); }
+
+function advBubble(who,text){ const d=document.createElement('div'); d.className='advb '+who; d.textContent=text;
+  const c=$('#advConvo'); c.appendChild(d); c.scrollTop=c.scrollHeight; return d; }
+
+function advRender(){
+  $('#advAsked').textContent=adv.asked;
+  const vals=Object.values(adv.mastery);
+  $('#advSolid').textContent=vals.filter(v=>v==='solid').length;
+  $('#advWeak').textContent=vals.filter(v=>v==='missed'||v==='shaky').length;
+  const map=$('#advMap');
+  const keys=Object.keys(adv.mastery);
+  map.innerHTML = keys.length ? keys.map(k=>`<div class="mrow"><span><span class="mdot m-${adv.mastery[k]}"></span>${esc(k)}</span><span class="mstate">${adv.mastery[k]}</span></div>`).join('')
+                              : '<div class="small muted" style="padding-top:.4rem">Nothing tested yet.</div>';
+  const n=$('#advNotes');
+  n.innerHTML = adv.notes.length ? adv.notes.map(x=>`<div class="advnote"><b>${esc(x.concept)}</b> · ${esc(x.text)}</div>`).join('')
+                                 : '<div class="emptystate">Nothing yet. Miss something and it lands here.</div>';
+}
+
+async function advNext(){
+  advOwnOff();
+  try{
+    const r=await post(`/courses/${cid}/oral/next`,{mastery:adv.mastery,cooldown:adv.cooldown});
+    if(!r.question){ adv.q=null; $('#advQ').textContent='No questions yet — press "Build questions from my files".'; $('#advTags').innerHTML=''; return; }
+    adv.q=r.question;
+    $('#advQ').textContent=r.question.question; $('#advCourse').textContent=C().name;
+    $('#advTags').innerHTML=`<span class="tag">${esc(r.question.concept)}</span>`;
+    if(!(r.question.concept in adv.mastery)) adv.mastery[r.question.concept]='untested';
+    advRender(); advSpeak(r.question.question);
+  }catch(e){ toast('Could not fetch a question: '+e.message); }
+}
+
+async function advSubmit(text){
+  text=(text||'').trim();
+  if(!text||adv.busy) return;
+  const own=adv.own, q=adv.q;   // pinned: grading takes a few seconds and the stage can change meanwhile
+  if(!own&&!q){ toast('Press Start, or ask your own question'); return; }
+  adv.busy=true; advQuiet();
+  advBubble('me',text); $('#advType').value='';
+  const think=advBubble('tutor','…');
+  let g;
+  try{
+    g = own
+      ? {...await post('/speech',{question:own.question,answer:text,notes:own.text}), concept:own.concept}
+      : await post(`/courses/${cid}/oral/grade`,{card_id:q.id,answer:text,teach:(adv.misses[q.concept]||0)>=2});
+  }catch(e){ think.remove(); adv.busy=false; toast('Could not grade that — '+(e.message||'say it again')); return; }
+  think.remove();
+  adv.asked++; adv.mastery[g.concept]=g.mastery;
+  if(!own){   // only cards have a queue to cool down
+    adv.cooldown=Object.fromEntries(Object.entries(adv.cooldown).map(([k,v])=>[k,v-1]).filter(([,v])=>v>0));
+    adv.cooldown[q.id]=g.mastery==='solid'?6:(g.mastery==='shaky'?2:1);
+  }
+  if(g.mastery==='missed') adv.misses[g.concept]=(adv.misses[g.concept]||0)+1;
+  else if(g.mastery==='solid') adv.misses[g.concept]=0;
+  if(g.note) adv.notes.unshift({concept:g.concept,text:g.note});
+  const b=advBubble('tutor','');
+  b.innerHTML=`<div class="verdict v-${g.mastery}">${esc(g.verdict)}</div>${esc(g.spoken)}`;
+  advRender();
+  adv.busy=false;   // answering again interrupts the verdict; it never locks the screen
+  const heard=await advSpeak(g.spoken);
+  if(heard && !own) setTimeout(()=>{ if(!adv.own&&!adv.busy&&!advListening) advNext(); }, g.mastery==='missed'?1400:700);
+}
+
+const ASR=window.SpeechRecognition||window.webkitSpeechRecognition;
+if(ASR){
+  advRecog=new ASR(); advRecog.lang='en-GB'; advRecog.interimResults=true; advRecog.continuous=false;
+  let abuf='';
+  const stopped=()=>{ advListening=false; $('#advMic').setAttribute('aria-pressed','false'); $('#advMic').textContent='🎙 Answer'; };
+  advRecog.onresult=e=>{ abuf=''; for(let i=0;i<e.results.length;i++) abuf+=e.results[i][0].transcript; $('#advType').value=abuf; };
+  advRecog.onend=()=>{ stopped(); if(abuf.trim()) advSubmit(abuf); abuf=''; };
+  advRecog.onerror=()=>{ stopped(); $('#advHint').textContent='Mic problem — type your answer instead.'; };
+}
+$('#advMic').onclick=()=>{
+  if(!ASR){ toast('Speaking needs Chrome — type your answer instead'); return; }
+  if(advListening){ advRecog.stop(); return; }
+  advQuiet();
+  micOwner('#advMic','#advType','🎙 Answer',advSubmit);
+  try{ advRecog.start(); advListening=true; $('#advMic').setAttribute('aria-pressed','true'); $('#advMic').textContent='● Listening';
+       $('#advHint').textContent='Listening — click again when you have finished.'; }catch(e){}
+};
+$('#advSend').onclick=()=>advSubmit($('#advType').value);
+$('#advType').addEventListener('keydown',e=>{ if(e.key==='Enter') advSubmit($('#advType').value); });
+$('#advStart').onclick=()=>{ $('#advConvo').innerHTML=''; advNext(); };
+$('#advBank').onclick=async()=>{
+  const b=$('#advBank'); b.disabled=true; b.textContent='Writing questions…';
+  try{ const r=await post(`/courses/${cid}/oral/bank`,{count:10});
+       toast(r.made?`${r.made} spoken question(s) added`:'Nothing made — tick some files first'); if(r.made && !adv.own) advNext(); }
+  catch(e){ toast('Could not build questions: '+e.message); }
+  b.disabled=false; b.textContent='Build questions from my files';
+};
+$('#advCopy').onclick=()=>{
+  const txt=adv.notes.map(n=>`• [${n.concept}] ${n.text}`).join('\n')||'No notes yet.';
+  navigator.clipboard?.writeText(txt); $('#advCopy').textContent='Copied ✓';
+  setTimeout(()=>$('#advCopy').textContent='Copy notes',1400);
+};
+
+async function loadAdvocate(){
+  if(!window.CFVOICE){ try{ const cfg=await api('/config'); window.CFVOICE=cfg.voice||{}; }catch(e){ window.CFVOICE={}; } }
+  $('#advSub').textContent = (window.CFVOICE||{}).server
+    ? 'Oral revision — it asks, you answer out loud.'
+    : 'Oral revision — using the browser voice for now.';
+  if(adv.own && adv.own.cid!==cid) advOwnOff();   // a question graded against another course's note stays with that course
+  if(!adv.own) $('#advCourse').textContent=C().name;
+  advRender();
+  advOwnNotes();
+}
+
+/* Two screens share one recogniser; whoever starts it owns it until it stops. */
+function micOwner(btn,box,label,send){
+  if(!ASR) return;
+  let buf='';
+  const stopped=()=>{ advListening=false; $(btn).setAttribute('aria-pressed','false'); $(btn).textContent=label; };
+  advRecog.onresult=e=>{ buf=''; for(let i=0;i<e.results.length;i++) buf+=e.results[i][0].transcript; $(box).value=buf; };
+  advRecog.onend=()=>{ stopped(); if(buf.trim()) send(buf); buf=''; };
+  advRecog.onerror=()=>{ stopped(); toast('Mic problem — type it instead'); };
+}
+
+/* ---- Your own question (Phase 12): any question, graded only against a note you pick; nothing is rescheduled ---- */
+async function advOwnNotes(){
+  const sel=$('#advOwnRef'), keep=sel.value;
+  let list=[]; try{ list=await api(`/courses/${cid}/notes`); }catch(e){}
+  sel.innerHTML = list.length
+    ? '<option value="">Pick a note to grade against…</option>'+list.map(n=>`<option value="${esc(n.id)}">${esc(n.title||'Untitled')}</option>`).join('')
+    : '<option value="">No notes in this course yet</option>';
+  sel.disabled=!list.length;
+  if(keep && list.some(n=>n.id===keep)) sel.value=keep;
+  $('#advOwnHint').textContent = list.length ? '' : 'Write or import a note first — the grader only uses your own material.';
+  advOwnReady();
+}
+function advOwnReady(){ $('#advOwnGo').disabled = !($('#advOwnQ').value.trim() && $('#advOwnRef').value); }
+async function advOwnStart(){
+  const question=$('#advOwnQ').value.trim(), id=$('#advOwnRef').value;
+  if(!question||!id){ advOwnReady(); return; }
+  $('#advOwnGo').disabled=true;
+  let note;
+  try{ note=await api(`/notes/${encodeURIComponent(id)}`); }
+  catch(e){ toast('Could not open that note: '+e.message); advOwnReady(); return; }
+  let text=String(note.body||'').replace(/<!--[\s\S]*?-->/g,'').trim();
+  if(!text){ toast('That note is empty — pick another'); advOwnReady(); return; }
+  if(text.length>12000){ text=text.slice(0,12000); toast('Long note — only its first part is used for grading'); }
+  advQuiet();
+  adv.own={question, concept:question.slice(0,80), cid, text, title:note.title||'Untitled'};
+  $('#advCourse').textContent=`Your question · graded against “${adv.own.title}”`;
+  $('#advQ').textContent=question;
+  $('#advTags').innerHTML='<span class="tag">your question</span>';
+  $('#advOwn').classList.add('bar'); $('#advOwnOff').hidden=false;
+  if(!(adv.own.concept in adv.mastery)) adv.mastery[adv.own.concept]='untested';
+  advRender(); advOwnReady();
+  $('#advType').focus();
+  advSpeak(question);
+}
+function advOwnOff(){
+  if(!adv.own) return;
+  adv.own=null; adv.q=null;
+  $('#advOwn').classList.remove('bar'); $('#advOwnOff').hidden=true;
+  $('#advTags').innerHTML=''; $('#advCourse').textContent=C().name;
+  $('#advQ').textContent='Press Start and it will ask you the first question.';
+}
+$('#advOwnQ').addEventListener('input',advOwnReady);
+$('#advOwnQ').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); advOwnStart(); } });
+$('#advOwnRef').addEventListener('change',advOwnReady);
+$('#advOwnGo').onclick=advOwnStart;
+$('#advOwnOff').onclick=()=>advNext();
+$('#advOwnMic').onclick=()=>{
+  if(!ASR){ toast('Dictation needs Chrome — type your question instead'); return; }
+  if(advListening){ advRecog.stop(); return; }
+  advQuiet();
+  micOwner('#advOwnMic','#advOwnQ','🎙',()=>advOwnReady());
+  try{ advRecog.start(); advListening=true; $('#advOwnMic').setAttribute('aria-pressed','true'); $('#advOwnMic').textContent='●'; }catch(e){}
+};
+/* ---- Arena: the ladder and the courtroom. Both feed the same cards as everything else. ---- */
+const RUNGS=15;   // asked for; the ladder is drawn from what the course can actually supply
+const safeRungs=n=>n<6?[] :[...new Set([Math.ceil(n/3),Math.ceil(2*n/3),n])].filter(x=>x>0);
+const law={q:[],i:0,used:{fifty:false,hint:false,skip:false},helped:false,over:false};
+
+function arTab(which){
+  $('#arTabLaw').setAttribute('aria-pressed',which==='law'); $('#arTabCourt').setAttribute('aria-pressed',which==='court');
+  $('#arLawyer').hidden=which!=='law'; $('#arCourt').hidden=which!=='court'; $('#lawStart').hidden=which!=='law';
+  localStorage.setItem('cf.arena',which);
+  if(which==='court') loadCourtCases();
+}
+$('#arTabLaw').onclick=()=>arTab('law'); $('#arTabCourt').onclick=()=>arTab('court');
+
+function ladder(){
+  const el=$('#ladder'); el.innerHTML='';
+  if(!law.q.length){ el.innerHTML='<div class="small muted">Press Start — the ladder is as long as the questions your cards can fill, up to '+RUNGS+'.</div>'; return; }
+  const total=law.q.length, safe=safeRungs(total);
+  for(let n=1;n<=total;n++){
+    const d=document.createElement('div');
+    d.className='rung'+(safe.includes(n)?' safe':'')+(n<law.i+1?' done':'')+(n===law.i+1&&!law.over?' at':'');
+    d.innerHTML=`<span class="rn">${n}</span><span>${safe.includes(n)?'safe':''}</span>`;
+    el.appendChild(d);
+  }
+}
+
+function lawLifelines(on){
+  $('#lifeFifty').disabled=!on||law.used.fifty;
+  $('#lifeHint').disabled=!on||law.used.hint;
+  $('#lifeSkip').disabled=!on||law.used.skip;
+}
+
+async function lawStart(){
+  law.i=0; law.over=false; law.used={fifty:false,hint:false,skip:false};
+  $('#lawHint').textContent=''; $('#lawQ').textContent='Writing fifteen questions from your cards…'; $('#lawOpts').innerHTML='';
+  try{ law.q=await post(`/courses/${cid}/quiz`,{count:RUNGS}); }
+  catch(e){ $('#lawQ').textContent='Could not write questions: '+e.message; return; }
+  if(!law.q.length){ $('#lawQ').textContent='No cards yet — make some in Recall first.'; return; }
+  ladder(); lawShow();
+}
+
+function lawShow(){
+  const it=law.q[law.i];
+  if(!it){ return lawEnd(true); }
+  law.helped=false;
+  $('#lawState').textContent=`Question ${law.i+1} of ${law.q.length}`;
+  $('#lawHint').textContent='';
+  $('#lawQ').textContent=it.question;
+  const letters='ABCD';
+  $('#lawOpts').innerHTML=it.options.map((o,i)=>`<button class="lawopt" data-opt="${i}"><span class="lt">${letters[i]}</span><span>${esc(o)}</span></button>`).join('');
+  $('#lawOpts').querySelectorAll('.lawopt').forEach(b=>b.onclick=()=>lawAnswer(b,it));
+  lawLifelines(true); ladder();
+}
+
+async function lawAnswer(btn,it){
+  const chosen=it.options[+btn.dataset.opt], right=chosen===it.correct;
+  $('#lawOpts').querySelectorAll('.lawopt').forEach(x=>{ x.disabled=true; x.onclick=null; });
+  btn.dataset.state='picked';
+  lawLifelines(false);
+  await new Promise(r=>setTimeout(r,matchMedia('(prefers-reduced-motion: reduce)').matches?120:650));
+  $('#lawOpts').querySelectorAll('.lawopt').forEach(x=>{
+    const v=it.options[+x.dataset.opt];
+    if(v===it.correct) x.dataset.state='right'; else if(x===btn) x.dataset.state='wrong';
+  });
+  // A miss always comes back. A win only counts as knowing it if no lifeline carried you.
+  try{ if(!right) await post(`/cards/${it.id}/review`,{rating:0});
+       else if(!law.helped) await post(`/cards/${it.id}/review`,{rating:2}); }catch(e){}
+  setTimeout(()=>{
+    if(!right) return lawEnd(false);
+    law.i++; if(law.i>=law.q.length) return lawEnd(true);
+    lawShow();
+  }, 900);
+}
+
+function lawEnd(won){
+  law.over=true; ladder(); lawLifelines(false);
+  const reached=law.i;
+  const safe=[...safeRungs(law.q.length||RUNGS)].reverse().find(n=>n<=reached)||0;
+  $('#lawOpts').innerHTML='';
+  $('#lawState').textContent=won?'Cleared':'Out';
+  $('#lawQ').textContent = won
+    ? `All ${law.q.length} — clean sweep. Nothing from this run comes back early.`
+    : `Out at question ${reached+1}. You keep question ${safe||0}. That card is already back in your queue.`;
+}
+
+$('#lawStart').onclick=lawStart;
+$('#lifeFifty').onclick=()=>{
+  const it=law.q[law.i]; if(!it) return;
+  law.used.fifty=true; law.helped=true; lawLifelines(true);
+  const wrong=[...$('#lawOpts').querySelectorAll('.lawopt')].filter(b=>it.options[+b.dataset.opt]!==it.correct);
+  wrong.sort(()=>Math.random()-0.5).slice(0,2).forEach(b=>{ b.dataset.state='gone'; b.disabled=true; b.onclick=null; });
+};
+$('#lifeHint').onclick=async()=>{
+  const it=law.q[law.i]; if(!it) return;
+  law.used.hint=true; law.helped=true; lawLifelines(true);
+  $('#lawHint').textContent='Asking the tutor…';
+  try{ const r=await post(`/courses/${cid}/hint`,{question:it.question,options:it.options}); $('#lawHint').textContent='💡 '+r.hint; }
+  catch(e){ $('#lawHint').textContent='No hint available just now.'; }
+};
+$('#lifeSkip').onclick=()=>{
+  if(!law.q[law.i]) return;
+  law.used.skip=true; law.i++;
+  if(law.i>=law.q.length) return lawEnd(true);
+  lawShow();
+};
+
+/* ---- Courtroom ---- */
+const court={case:null,hearing:null,qi:0,busy:false};
+
+async function loadCourtCases(){
+  const el=$('#courtCases');
+  try{
+    const cs=await api(`/courses/${cid}/cases`);
+    if(!cs.length){ el.innerHTML='<div class="small muted">No cases yet — they appear once your notes name cases in *italics*.</div>'; return; }
+    el.innerHTML=cs.map(c=>`<button data-case="${esc(c.name)}"><b>${esc(c.name)}</b>${c.cite?` <span class="muted">${esc(c.cite)}</span>`:''}</button>`).join('');
+    el.querySelectorAll('button[data-case]').forEach(b=>b.onclick=()=>openCase(b.dataset.case));
+  }catch(e){ el.innerHTML='<div class="small muted">Could not read your cases.</div>'; }
+}
+
+async function openCase(name){
+  court.case=name; court.qi=0; court.hearing=null;
+  $('#courtLog').innerHTML=''; $('#courtHolding').innerHTML='';
+  $('#courtWho').textContent='Preparing the hearing…'; $('#benchQ').textContent='…';
+  try{ court.hearing=await post(`/courses/${cid}/court`,{case:name}); }
+  catch(e){ $('#courtWho').textContent=''; $('#benchQ').textContent=e.message||'Could not build the hearing.'; return; }
+  const h=court.hearing;
+  $('#courtWho').innerHTML=`<b>${esc(h.case)}</b>${h.court?' · '+esc(h.court):''}${h.year?' · '+esc(h.year):''}${h.parties?' — '+esc(h.parties):''}`;
+  if(h.issue) courtSay('tutor','The issue: '+h.issue);
+  if(h.for) courtSay('tutor','You appear for: '+h.for);
+  benchAsk();
+}
+
+function courtSay(who,text){
+  const d=document.createElement('div'); d.className='advb '+who; d.textContent=text;
+  const l=$('#courtLog'); l.appendChild(d); l.scrollTop=l.scrollHeight; return d;
+}
+
+function benchAsk(){
+  const h=court.hearing; if(!h) return;
+  const q=h.bench[court.qi];
+  if(!q){ $('#benchQ').textContent='The bench has heard enough.';
+    if(h.holding) $('#courtHolding').innerHTML=`<div class="holding"><b>What the court actually held</b><div>${esc(h.holding)}</div></div>`;
+    return; }
+  $('#benchQ').textContent=q;
+  advSpeak && advSpeak(q);
+}
+
+async function courtReply(text){
+  text=(text||'').trim();
+  if(!text||court.busy||!court.hearing) return;
+  const q=court.hearing.bench[court.qi]; if(!q) return;
+  court.busy=true; courtSay('me',text); $('#courtType').value='';
+  const think=courtSay('tutor','…');
+  try{
+    const g=await post(`/courses/${cid}/court/reply`,{case:court.case,question:q,answer:text});
+    think.remove();
+    const b=courtSay('tutor','');
+    b.innerHTML=`<div class="verdict v-${g.mastery}">${esc(g.verdict)}</div>${esc(g.spoken)}`;
+    if(advSpeak) await advSpeak(g.spoken);   // the verdict finishes before the bench moves on
+    court.qi++; setTimeout(benchAsk,700);
+  }catch(e){ think.remove(); toast('The bench did not respond — say that again'); }
+  court.busy=false;
+}
+$('#courtSend').onclick=()=>courtReply($('#courtType').value);
+$('#courtType').addEventListener('keydown',e=>{ if(e.key==='Enter') courtReply($('#courtType').value); });
+$('#courtMic').onclick=()=>{
+  if(!ASR){ toast('Speaking needs Chrome — type instead'); return; }
+  if(advListening){ advRecog.stop(); return; }
+  advQuiet();
+  micOwner('#courtMic','#courtType','🎙 Submit',courtReply);
+  try{ advRecog.start(); advListening=true; $('#courtMic').setAttribute('aria-pressed','true'); $('#courtMic').textContent='● Listening'; }catch(e){}
+};
+
+function loadArena(){ arTab(localStorage.getItem('cf.arena')||'law'); ladder(); }
+
 /* ---- recorder ---- */
 let rec=null, recId=null, recStart=0, recChunks=[], recTimer=null;
 async function loadRecIds(){ if(!nid){recIds=[];return} const all=await api(`/notes/${nid}/recordings?all=1`); recIds=all.map(r=>r.id) }
 async function loadRecs(){ const box=$('#recList'); box.innerHTML=''; if(!nid) return; await loadRecIds(); const rs=await api(`/notes/${nid}/recordings`);
   rs.forEach((r,i)=>{ const a=document.createElement('audio'); a.controls=true; a.preload='none'; a.src=`/api/recordings/${r.id}/audio`; a.dataset.r=r.id; a.title=`Recording ${i+1} · ${fmt(r.seconds)}`; box.appendChild(a);
-    const tr=document.createElement('button'); tr.className='btn small'; tr.textContent='Transcribe'; tr.title='Whisper on this Mac — offline after the first model download'; tr.onclick=()=>transcribe(r.id,tr); box.appendChild(tr);
+    const tr=document.createElement('button'); tr.className='btn small'; tr.textContent='Transcribe'; tr.title='Google Speech-to-Text (about €0.016 per minute of audio)'; tr.onclick=()=>transcribe(r.id,tr); box.appendChild(tr);
+    api(`/recordings/${r.id}/transcribe`).then(s=>{ if(s.status==='running'||s.status==='queued') transcribe(r.id,tr,true); else if(s.status==='done'){ tr.textContent='Transcribed'; if(s.collected){ toast('Transcript collected from Google Cloud'); loadNotes() } } }).catch(()=>{});
     const x=document.createElement('button'); x.className='btn small ghost'; x.textContent='×'; x.title='Delete recording'; x.onclick=async()=>{ if(confirm('Delete this recording?')){ await del(`/recordings/${r.id}`); loadRecs() } }; box.appendChild(x) }) }
-async function transcribe(rid,btn){ btn.disabled=true; btn.textContent='Transcribing…'; toast('Transcribing on this Mac — a 45-minute recording takes a few minutes. First time also downloads the model.');
-  try{ await post(`/recordings/${rid}/transcribe`); }catch(e){ btn.disabled=false; btn.textContent='Transcribe'; toast('Could not start: '+e.message); return }
+async function transcribe(rid,btn,resume){ btn.disabled=true; btn.textContent='Transcribing…';
+  if(!resume){ toast('Transcribing in Google Cloud — reopen this note any time to collect the transcript');
+    try{ await post(`/recordings/${rid}/transcribe`); }catch(e){ btn.disabled=false; btn.textContent='Transcribe'; toast('Could not start: '+e.message); return } }
   const tick=setInterval(async()=>{ const s=await api(`/recordings/${rid}/transcribe`);
     if(s.status==='done'){ clearInterval(tick); btn.textContent='Transcribed'; toast('Transcript added as a Live capture — press Reconcile with lecture'); loadNotes() }
     else if(s.status==='failed'){ clearInterval(tick); btn.disabled=false; btn.textContent='Transcribe'; toast('Transcription failed: '+s.error) } },3000) }
 function playAt(r,s){ const a=document.querySelector(`audio[data-r="${r}"]`); if(!a){toast('Recording not found');return} a.currentTime=Math.max(0,s-20); a.play() }
 function watchTranscript(rid){ const t0=Date.now(); const tick=setInterval(async()=>{ let s; try{ s=await api(`/recordings/${rid}/transcribe`) }catch{ return }
-    if(s.status==='running'||s.status==='queued'){ $('#recState').textContent=(s.stage==='cleaning'?'Cleaning names ':'Transcribing ')+fmt((Date.now()-t0)/1000); return }
+    if(s.status==='running'||s.status==='queued'){ $('#recState').textContent=(s.stage==='cleaning'?'Cleaning names ':'Transcribing in Google Cloud — reopen this note any time to collect · ')+fmt((Date.now()-t0)/1000); return }
     clearInterval(tick); $('#recState').textContent='';
     if(s.status==='done'){ await loadNotes(); offerReconcile() } else if(s.status==='failed'){ toast('Transcription failed: '+s.error) } },3000) }
 function offerReconcile(){ const bar=$('#txBar'); bar.hidden=false; }
@@ -680,7 +1355,7 @@ $('#recBtn').onclick=async()=>{ if(rec){ rec.stop(); return } if(!nid){$('#newNo
   rec=new MediaRecorder(stream,{mimeType:'audio/webm'}); rec.ondataavailable=e=>{ if(e.data.size) recChunks.push(e.data) };
   rec.onstop=async()=>{ clearInterval(recTimer); stream.getTracks().forEach(t=>t.stop()); const blob=new Blob(recChunks,{type:'audio/webm'}); const fd=new FormData(); fd.append('audio',blob,'rec.webm'); fd.append('seconds',String((Date.now()-recStart)/1000));
     fd.append('auto',$('#autoTx').checked?'1':'0'); const rid=recId;
-    $('#recState').textContent='Saving…'; let ok=false; try{ await api(`/recordings/${rid}/finish`,{method:'POST',body:fd}); ok=true; toast($('#autoTx').checked?'Saved — transcribing on this Mac in the background':'Recording saved to this note'); }catch(e){ toast('Could not save recording: '+e.message) }
+    $('#recState').textContent='Saving…'; let ok=false; try{ await api(`/recordings/${rid}/finish`,{method:'POST',body:fd}); ok=true; toast($('#autoTx').checked?'Saved — transcribing in Google Cloud':'Recording saved to this note'); }catch(e){ toast('Could not save recording: '+e.message) }
     rec=null; recId=null; $('#recBtn').classList.remove('on'); $('#recBtn').textContent='● Record'; $('#recState').textContent=''; loadRecs();
     if(ok&&$('#autoTx').checked) watchTranscript(rid) };
 
@@ -765,7 +1440,7 @@ $('#mCards').onclick=()=>setRMode('cards'); $('#mQuiz').onclick=()=>setRMode('qu
 function rprog(done,total){ $('#rprog').firstElementChild.style.width=total?(done/total*100)+'%':'0'; }
 function nextCard(){ cur=queue.shift()||null; flipped=false; $('#ratings').hidden=true; $('#fc').classList.remove('flipped');
   rprog(qStart-queue.length-(cur?1:0), qStart||1);
-  if(!cur){ $('#fc').hidden=true; $('#rdone').hidden=false; $('#rdone').textContent='Queue clear. Generate cards from a file, or come back tomorrow.'; rprog(1,1); return; }
+  if(!cur){ $('#fc').hidden=true; $('#rdone').hidden=false; $('#rdone').innerHTML='<b>Queue clear</b><span>Generate cards from a file, or come back tomorrow.</span>'; rprog(1,1); return; }
   $('#fc').hidden=false; $('#rdone').hidden=true; $('#fcFront').textContent=cur.front; $('#fcBack').textContent=cur.back; }
 function flipCard(){ if(!cur) return; flipped=!flipped; $('#fc').classList.toggle('flipped',flipped); $('#ratings').hidden=!flipped; }
 $('#fc').onclick=flipCard; $('#fc').onkeydown=e=>{ if(e.key===' '||e.key==='Enter'){e.preventDefault();flipCard()} };
@@ -793,7 +1468,7 @@ function showQ(){ const it=quiz[qi]; rprog(qi,qTotal);
     const nx=document.createElement('div'); nx.className='qnext'; nx.innerHTML='<button class="btn small" id="qn">Next</button>';
     $('#qcard').appendChild(nx); $('#qn').onclick=()=>{ qi++; showQ(); }; $('#qn').focus();
   }); }
-$('#genCards').onclick=async()=>{if(!cfg.has_key){toast('Add ANTHROPIC_API_KEY to .env and restart');return} $('#genCards').disabled=true; toast('Writing cards…'); try{const r=await post(`/courses/${cid}/cards/generate`,{file_id:$('#genFrom').value||null,count:8});toast(`${r.made} cards added`);loadRecall()}catch(e){toast('Failed: '+e.message)} $('#genCards').disabled=false;};
+$('#genCards').onclick=async()=>{if(!cfg.has_key){toast('No Claude API key on the server — add it to .env.local and restart');return} $('#genCards').disabled=true; toast('Writing cards…'); try{const r=await post(`/courses/${cid}/cards/generate`,{file_id:$('#genFrom').value||null,count:8});toast(`${r.made} cards added`);loadRecall()}catch(e){toast('Failed: '+e.message)} $('#genCards').disabled=false;};
 $('#addCard').onclick=async()=>{const f=prompt('Front'); if(!f) return; const b=prompt('Back'); if(!b) return; await post(`/courses/${cid}/cards`,{front:f,back:b,source:'manual'}); loadRecall();};
 $('#showAll').onclick=()=>{$('#allCards').hidden=!$('#allCards').hidden};
 function renderAll(all){ $('#cardRows').innerHTML=all.map(c=>`<tr><td>${esc(c.front)}</td><td class="small">${esc(c.back)}</td><td class="small muted">${c.week?'W'+c.week:''}</td><td class="small muted">${c.due}</td><td><button class="btn small ghost" data-delcard="${c.id}">Remove</button></td></tr>`).join(''); document.querySelectorAll('[data-delcard]').forEach(b=>b.onclick=async()=>{await del(`/cards/${b.dataset.delcard}`);loadRecall()}); }
@@ -839,9 +1514,11 @@ async function loadProgress(){ loadCaseIndex(); const s=await api(`/courses/${ci
   $('#p-next').textContent=s.due?`Clear ${s.due} due cards`:(s.cards<10?'Build the deck to at least 10 cards':(s.recall_accuracy!=null&&s.recall_accuracy<70?'Accuracy under 70% — drill the weak cards with the tutor':'Ask the tutor for an IRAC case question'));}
 
 /* init */
-(async()=>{ cfg=await api('/config'); $('#dot').classList.toggle('off',!cfg.has_key); $('#dot').title=cfg.has_key?`Claude connected · auto ${cfg.cheap_model.replace('claude-','')} / ${cfg.model.replace('claude-','')}`:'No API key — add ANTHROPIC_API_KEY to .env';
+(async()=>{ cfg=await api('/config'); $('#dot').classList.toggle('off',!cfg.has_key); $('#dot').title=cfg.has_key?`Claude connected · auto ${cfg.cheap_model.replace('claude-','')} / ${cfg.model.replace('claude-','')}`:'No Claude API key on the server — add it to .env.local';
+  $('#who').textContent=cfg.email||''; $('#who').title=$('#signOut').title=cfg.email?`Signed in as ${cfg.email}`:'';
   $('#modelSel').innerHTML='<option value="auto">Auto model</option>'+cfg.models.map(m=>`<option value="${m}">${m.replace('claude-','')}</option>`).join('');
   window.CFCHEAP=cfg.cheap_model; window.CFMODEL=cfg.model;
+  window.CFVOICE=cfg.voice||{};   // every screen speaks with the same voice, not only the Advocate
   initVoice(); if('speechSynthesis' in window) speechSynthesis.onvoiceschanged=()=>{}; await loadCourses(); show(location.hash.slice(1)||localStorage.getItem('cf.screen')||'home'); })();
 </script>
 </body>

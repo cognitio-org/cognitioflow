@@ -1,0 +1,570 @@
+<!doctype html>
+<!-- Design handoff "3D Showcase" (design_handoff_cognitioflow/README.md). Standalone page: the app never loads it.
+     Geometry and colour values are the handoff's, verbatim; additions are keyboard access, focus rings, 32px hit areas
+     and a narrow-screen scale for the tab fan. One geometry fix: the handoff's coin rim (rotateY(a) translateZ(61px))
+     is a hoop around the vertical axis that crosses the obverse as a bar; it is built around the coin's own axis here. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CognitioFlow — 3D Showcase</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#fbfbf9; --ink:#1c1c1a; --ivory:#efe9dc;
+  --accent:#3B82F6; --gold:#FBBF24; --navy:#16213E;
+  --oxblood:#7a1f22;
+  --t-blue:#2f5fae; --t-orange:#d98a2b; --t-green:#1f7a4d; --t-lime:#8fbf6a;
+  --t-magenta:#8e2f6e; --t-pink:#d46a9a; --t-yellow:#c9b23a;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:#141414;color:var(--ivory);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;overflow-x:hidden}
+a{color:var(--accent);text-decoration:none}
+a:hover{color:var(--gold)}
+:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+
+.scroller{height:100vh;overflow-y:scroll;overflow-x:hidden;scroll-snap-type:y mandatory;scroll-behavior:smooth}
+.scene{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;scroll-snap-align:start;padding:28px 24px;position:relative}
+.scene--a{background:radial-gradient(ellipse at 30% 20%,rgba(22,33,62,.55),#141414 65%)}
+.scene--b{background:radial-gradient(ellipse at 70% 30%,rgba(22,33,62,.5),#141414 65%)}
+.scene--c{background:radial-gradient(ellipse at 30% 70%,rgba(22,33,62,.5),#141414 65%)}
+.scene--d{background:radial-gradient(ellipse at 70% 60%,rgba(22,33,62,.5),#141414 65%)}
+.scene--e{background:radial-gradient(ellipse at 50% 50%,rgba(22,33,62,.55),#141414 65%)}
+
+.eyebrow{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.18em;color:var(--gold);margin-bottom:8px;text-align:center}
+.title{font-family:Spectral,Georgia,serif;font-size:28px;font-weight:600;text-align:center;margin:0}
+.hint{font-family:"JetBrains Mono",monospace;font-size:11px;color:rgba(255,255,255,.4);text-align:center}
+.port{font-family:"JetBrains Mono",monospace;font-size:10.5px;color:rgba(255,255,255,.35);max-width:440px;line-height:1.5;text-align:center}
+
+/* ---------- 01 · the book ---------- */
+.book-stage{position:relative}
+.book-shadow{position:absolute;left:26px;top:38px;right:-6px;bottom:-10px;background:rgba(0,0,0,.6);filter:blur(26px);border-radius:14px;pointer-events:none}
+.book-persp{perspective:1400px;perspective-origin:50% 40%;position:relative}
+.book{width:230px;height:300px;position:relative;transform-style:preserve-3d;cursor:pointer;
+  transform:translateZ(17px) scale(.94);transition:transform .15s cubic-bezier(.2,.8,.2,1)}
+.book__back{position:absolute;inset:0;border-radius:3px 5px 5px 3px;
+  background:linear-gradient(135deg,#5c1417,#3d0d0f);transform:translateZ(-34px);box-shadow:0 0 0 1px rgba(0,0,0,.4)}
+.book__foreedge{position:absolute;top:5px;right:0;width:34px;height:290px;transform-origin:right center;transform:rotateY(-90deg);
+  background:repeating-linear-gradient(180deg,#f3eee2 0,#f3eee2 1px,#ddd5c2 1px,#ddd5c2 2.6px);box-shadow:inset -6px 0 12px rgba(0,0,0,.18)}
+.book__head{position:absolute;top:5px;left:5px;width:220px;height:34px;transform-origin:center top;transform:rotateX(90deg);
+  background:repeating-linear-gradient(90deg,#f3eee2 0,#f3eee2 1px,#dcd4c1 1px,#dcd4c1 2.6px);box-shadow:inset 0 6px 12px rgba(0,0,0,.22)}
+.book__tail{position:absolute;bottom:5px;left:5px;width:220px;height:34px;transform-origin:center bottom;transform:rotateX(-90deg);
+  background:repeating-linear-gradient(90deg,#e6dfcd 0,#e6dfcd 1px,#cec5b0 1px,#cec5b0 2.6px);box-shadow:inset 0 -8px 14px rgba(0,0,0,.35)}
+.book__spine{position:absolute;left:0;top:0;width:34px;height:100%;transform-origin:left center;transform:rotateY(-90deg);
+  background:linear-gradient(90deg,#8a2427,#5c1417 55%,#43100f);border-radius:2px;display:flex;flex-direction:column;
+  align-items:center;justify-content:space-between;padding:14px 0;box-shadow:inset 0 0 14px rgba(0,0,0,.45)}
+.spine__rule{width:100%;height:5px;background:linear-gradient(180deg,rgba(251,191,36,.55),rgba(251,191,36,.12));box-shadow:0 1px 0 rgba(0,0,0,.35)}
+.spine__band{width:100%;height:8px;background:linear-gradient(180deg,rgba(255,255,255,.14),rgba(0,0,0,.35))}
+.spine__text{flex:1;display:flex;align-items:center;justify-content:center}
+.spine__text span{font-family:"JetBrains Mono",monospace;font-size:9px;letter-spacing:.22em;color:rgba(251,191,36,.75);white-space:nowrap;transform:rotate(-90deg)}
+.book__pages{position:absolute;inset:6px;background:linear-gradient(90deg,#d9d2c1,var(--ivory));transform:translateZ(-3px);border-radius:3px;box-shadow:inset 0 0 12px rgba(0,0,0,.15)}
+
+.leaf{position:absolute;inset:5px;border-radius:2px;background:linear-gradient(172deg,#f6f1e4,#e3dcc9);
+  box-shadow:inset 14px 0 22px rgba(0,0,0,.16);display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;padding:20px 16px;opacity:0;transition:opacity .4s .2s}
+.leaf--title{transform:translateZ(-1px)}
+.leaf--tab{transform:translateZ(-.5px);transition:opacity .22s}
+.book.is-open .leaf--title{opacity:1}
+.book.is-open.has-page .leaf--title{opacity:0}
+.book.is-open.has-page .leaf--tab{opacity:1}
+.book.is-turning .leaf--tab,.book.is-turning .leaf--title{opacity:0}
+.leaf__rule{width:70px;height:1px;background:var(--oxblood);margin:12px 0;flex:none}
+.leaf__h1{font-family:Spectral,Georgia,serif;font-size:18px;color:var(--ink);font-weight:600;line-height:1.3}
+.leaf__kicker{margin-top:12px;font-family:"JetBrains Mono",monospace;font-size:8.5px;letter-spacing:.09em;color:var(--oxblood)}
+.leaf__meta{margin-top:14px;font-size:10.5px;color:#5c5c56}
+.leaf__eyebrow{font-family:"JetBrains Mono",monospace;font-size:8px;letter-spacing:.16em;color:#8a8a80}
+.leaf__label{font-family:Spectral,Georgia,serif;font-size:17px;color:var(--ink);font-weight:600;margin-top:6px;line-height:1.25}
+.leaf__line{font-family:Spectral,Georgia,serif;font-size:11px;font-style:italic;color:#5c5c56;margin-top:8px;line-height:1.4}
+.leaf__refs{font-family:"JetBrains Mono",monospace;font-size:9px;color:#3a3a34;line-height:1.7}
+.leaf__folio{position:absolute;bottom:12px;left:0;right:0;text-align:center;font-family:"JetBrains Mono",monospace;font-size:8px;color:#9a9a90}
+
+.book__sheet{position:absolute;inset:5px;border-radius:2px;background:linear-gradient(100deg,#f6f1e4,#ddd5c2);
+  transform-origin:left center;backface-visibility:hidden;box-shadow:10px 0 24px rgba(0,0,0,.35);pointer-events:none;
+  opacity:0;transform:rotateY(0deg);transition:opacity .18s .1s}
+.book.is-turning .book__sheet{opacity:1;transform:rotateY(-142deg);transition:transform .34s cubic-bezier(.4,.2,.2,1),opacity .1s}
+
+.book__cover{position:absolute;inset:0;border-radius:3px 5px 5px 3px;
+  background:linear-gradient(128deg,#8f272a,#6a191c 48%,#4d1113);backface-visibility:hidden;
+  transform-origin:left center;transform:rotateY(0deg);transition:transform .6s cubic-bezier(.4,.2,.2,1)}
+.book.is-open .book__cover{transform:rotateY(-152deg)}
+.cover__rule{position:absolute;inset:9px;border:1px solid rgba(251,191,36,.35);border-radius:2px;box-shadow:inset 0 0 22px rgba(0,0,0,.35)}
+.cover__rule2{position:absolute;inset:13px;border:1px solid rgba(251,191,36,.15);border-radius:2px}
+.cover__hinge{position:absolute;left:0;top:0;bottom:0;width:16px;background:linear-gradient(90deg,rgba(0,0,0,.45),rgba(0,0,0,0))}
+.cover__sheen{position:absolute;inset:0;border-radius:3px;background:linear-gradient(118deg,rgba(255,255,255,.16),rgba(255,255,255,0) 42%)}
+.cover__type{position:absolute;top:34px;left:0;right:0;text-align:center;font-family:Spectral,Georgia,serif}
+.cover__type .t1{font-size:13px;letter-spacing:.2em;color:rgba(251,191,36,.85);text-shadow:0 1px 0 rgba(0,0,0,.5);margin-bottom:7px}
+.cover__type .hr{width:52px;height:1px;background:rgba(251,191,36,.5);margin:0 auto 8px}
+.cover__type .t2{font-size:13px;color:rgba(239,233,220,.62);font-style:italic;text-shadow:0 1px 0 rgba(0,0,0,.45)}
+
+.tab{border:0;padding:0;position:absolute;right:-12px;width:28px;height:30px;border-radius:0 4px 4px 0;transform-style:preserve-3d;
+  display:flex;align-items:center;cursor:pointer;z-index:6;opacity:0;
+  transform:translateX(46px) translateZ(-17px);
+  transition:transform .18s cubic-bezier(.2,.8,.2,1),opacity .4s}
+.book.is-loaded .tab{opacity:1;transform:translateX(0) translateZ(-17px)}
+.book.is-loaded .tab:hover,.book.is-loaded .tab:focus-visible{transform:translateX(12px) translateZ(-8px)}
+.tab::before{content:"";position:absolute;top:-1px;bottom:-1px;left:0;right:-4px}  /* 32px hit area */
+.tab__top{position:absolute;left:0;right:0;top:0;height:30px;transform-origin:center top;transform:rotateX(90deg);border-radius:0 3px 0 0}
+.tab__label{position:absolute;left:34px;top:50%;transform:translateY(-50%);white-space:nowrap;
+  font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.04em;color:var(--ivory);
+  background:rgba(20,20,20,.88);padding:3px 8px;border-radius:4px;opacity:0;transition:opacity .15s;pointer-events:none}
+.tab:hover .tab__label,.tab:focus-visible .tab__label{opacity:1}
+
+/* ---------- 02 · the flip card ---------- */
+.cards-persp{perspective:1600px}
+.cards{width:340px;height:210px;position:relative}
+.card{position:absolute;inset:0;transform-style:preserve-3d;cursor:default;
+  transition:transform .5s cubic-bezier(.2,.8,.2,1),opacity .3s}
+.card[data-pos="0"]{transform:translate3d(0,0,0) scale(1);opacity:1;z-index:3;cursor:pointer}
+.card[data-pos="1"]{transform:translate3d(0,16px,-46px) scale(.94);opacity:.85;z-index:2}
+.card[data-pos="2"]{transform:translate3d(0,30px,-90px) scale(.88);opacity:.6;z-index:1}
+.card[data-pos="0"].is-flipped{transform:translate3d(0,0,0) scale(1) rotateY(180deg)}
+.card__edge{position:absolute;border-radius:2px}
+.card__edge--t{left:0;right:0;top:0;height:7px;transform-origin:center top;transform:rotateX(90deg);background:linear-gradient(90deg,#fffdf6,#ded6c3)}
+.card__edge--b{left:0;right:0;bottom:0;height:7px;transform-origin:center bottom;transform:rotateX(-90deg);background:linear-gradient(90deg,#c9c0ab,#b3ab97)}
+.card__edge--l{top:0;bottom:0;left:0;width:7px;transform-origin:left center;transform:rotateY(-90deg);background:linear-gradient(180deg,#f6f1e4,#d3cbb8)}
+.card__edge--r{top:0;bottom:0;right:0;width:7px;transform-origin:right center;transform:rotateY(90deg);background:linear-gradient(180deg,#d8d0bd,#b9b19d)}
+.card__face{position:absolute;inset:0;border-radius:16px;backface-visibility:hidden;overflow:hidden;
+  display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:26px}
+.card__face--front{transform:translateZ(3.5px);background:linear-gradient(158deg,#f8f4e8,#e0d9c6);
+  border:1px solid rgba(0,0,0,.08);box-shadow:12px 20px 30px rgba(0,0,0,.5)}
+.card__face--back{transform:rotateY(180deg) translateZ(3.5px);background:linear-gradient(158deg,#1e2f52,#141d33);
+  border:1px solid rgba(255,255,255,.12);box-shadow:12px 20px 30px rgba(0,0,0,.5)}
+.card__gloss{position:absolute;inset:0;border-radius:16px;pointer-events:none}
+.card__face--front .card__gloss{background:linear-gradient(122deg,rgba(255,255,255,.55),rgba(255,255,255,0) 46%)}
+.card__face--back .card__gloss{background:linear-gradient(122deg,rgba(255,255,255,.14),rgba(255,255,255,0) 44%)}
+.card__tag{font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.14em;margin-bottom:12px}
+.card__face--front .card__tag{color:var(--accent)}
+.card__face--back .card__tag{color:var(--gold)}
+.card__q{font-family:Spectral,Georgia,serif;font-size:19px;color:var(--ink);line-height:1.4}
+.card__a{font-family:Spectral,Georgia,serif;font-size:15.5px;color:var(--ivory);line-height:1.45}
+.controls{display:flex;gap:14px;align-items:center}
+.btn{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.08em;color:#141414;background:var(--gold);
+  border:none;padding:8px 16px;min-height:32px;border-radius:999px;cursor:pointer}
+.btn:hover{background:#ffd25a}
+
+/* ---------- 03 · the remedial ladder ---------- */
+.ladder-persp{perspective:1300px;perspective-origin:50% 60%}
+.ladder{width:340px;height:300px;position:relative;transform-style:preserve-3d;transform:rotateX(58deg) rotateZ(-2deg);cursor:pointer}
+.step{position:absolute;left:50%;bottom:8px;width:210px;height:36px;margin-left:-105px;transform-style:preserve-3d;
+  transform:translate3d(0,calc(var(--i) * -19px),calc(var(--i) * 22px))}
+.step__top{position:absolute;inset:0;border-radius:3px;background:linear-gradient(160deg,#26314c,#1a2338);
+  border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;transition:background .3s}
+.step__riser{position:absolute;left:0;right:0;bottom:0;height:19px;transform-origin:center bottom;transform:rotateX(-90deg);
+  background:linear-gradient(180deg,#1e2a44,#141c2e);border-radius:0 0 3px 3px;border:1px solid rgba(255,255,255,.1);
+  display:flex;align-items:center;justify-content:center;box-shadow:0 8px 14px rgba(0,0,0,.45);transition:background .3s}
+.step__side{position:absolute;top:0;bottom:0;right:0;width:19px;transform-origin:right center;transform:rotateY(90deg);
+  background:linear-gradient(180deg,#182036,#0f1524);border-radius:0 3px 3px 0}
+.step.is-active .step__top{background:linear-gradient(160deg,#4f92ff,#2f6ddb)}
+.step.is-active .step__riser{background:linear-gradient(180deg,#3b7ce0,#28518f)}
+.step__case{font-family:Spectral,Georgia,serif;font-size:11.5px;color:var(--ivory);font-weight:600;white-space:nowrap}
+.step__note{font-family:"JetBrains Mono",monospace;font-size:8.5px;letter-spacing:.06em;color:rgba(239,233,220,.5)}
+.marker{position:absolute;left:50%;bottom:8px;width:18px;height:18px;margin-left:-9px;border-radius:50%;
+  background:radial-gradient(circle at 32% 28%,#ffe08a,var(--gold) 55%,#c48f0d);
+  box-shadow:0 0 14px rgba(251,191,36,.75),3px 6px 10px rgba(0,0,0,.55);
+  transform:translate3d(0,calc(var(--s) * -19px - 10px),calc(var(--s) * 22px + 10px)) rotateX(-58deg);
+  transition:transform .5s cubic-bezier(.2,.8,.2,1)}
+
+/* ---------- 04 · the tab fan ---------- */
+.fan-persp{perspective:1400px;margin-bottom:44px}  /* the outer cards swing ~40px below the stage and covered the hint */
+.fan{width:430px;height:210px;position:relative}
+.fan-card{position:absolute;left:50%;bottom:8px;width:96px;height:146px;margin-left:-48px;transform-origin:bottom center}
+.fan-inner{width:100%;height:100%;position:relative;transform-style:preserve-3d;transition:transform .45s cubic-bezier(.2,.8,.2,1)}
+.fan-card:hover .fan-inner,.fan-card:focus-visible .fan-inner{transform:rotateY(180deg)}
+.fan__front,.fan__back{position:absolute;inset:0;border-radius:10px;backface-visibility:hidden;
+  display:flex;flex-direction:column;align-items:center;justify-content:center}
+.fan__front{transform:translateZ(2.5px);border:1px solid rgba(255,255,255,.22);box-shadow:6px 12px 20px rgba(0,0,0,.5)}
+.fan__back{transform:rotateY(180deg) translateZ(2.5px);background:linear-gradient(158deg,#20201e,#141413);padding:10px}
+.fan__index{position:absolute;top:-9px;right:10px;width:26px;height:12px;border-radius:3px 3px 0 0;box-shadow:0 -1px 0 rgba(255,255,255,.2)}
+.fan__sheen{position:absolute;inset:0;border-radius:10px;background:linear-gradient(120deg,rgba(255,255,255,.4),rgba(255,255,255,0) 45%);pointer-events:none}
+.fan__edge-t{position:absolute;left:0;right:0;top:0;height:5px;transform-origin:center top;transform:rotateX(90deg);border-radius:2px}
+.fan__edge-r{position:absolute;top:0;bottom:0;right:0;width:5px;transform-origin:right center;transform:rotateY(90deg);border-radius:2px}
+.fan__kicker{font-family:"JetBrains Mono",monospace;font-size:8.5px;letter-spacing:.1em;color:rgba(20,20,20,.5)}
+.fan__label{font-family:Spectral,Georgia,serif;font-size:15px;color:#141414;font-weight:600;margin-top:4px;text-align:center;padding:0 8px}
+.fan__dot{position:absolute;top:10px;left:50%;margin-left:-9px;width:18px;height:3px;border-radius:2px}
+.fan__backlabel{font-family:"JetBrains Mono",monospace;font-size:9px;letter-spacing:.08em;margin-bottom:6px}
+.fan__refs{font-family:"JetBrains Mono",monospace;font-size:9.5px;color:rgba(239,233,220,.78);text-align:center;line-height:1.55}
+
+/* ---------- 05 · the streak coin ---------- */
+.coin-persp{perspective:900px}
+.coin-wrap{width:130px;height:130px;position:relative;cursor:pointer}
+.coin{position:absolute;inset:0;transform-style:preserve-3d;animation:coinSpin 4s linear infinite}
+.coin.is-settling{animation:none;transform:rotateY(1440deg) rotateX(8deg);transition:transform 1s cubic-bezier(.2,.8,.2,1)}
+.coin__seg{position:absolute;left:50%;top:50%;height:14px;margin-top:-7px}
+.coin__face{position:absolute;inset:0;border-radius:50%;backface-visibility:hidden}
+.coin__face--obverse{transform:translateZ(7px);background:radial-gradient(circle at 32% 28%,#e8c268,#c9932e 55%,#9a6f1f);box-shadow:inset 0 0 14px rgba(74,53,16,.45)}
+.coin__face--reverse{transform:rotateY(180deg) translateZ(7px);background:radial-gradient(circle at 32% 28%,#d9b45c,#b8842a 55%,#8a611b);
+  display:flex;align-items:center;justify-content:center;font-family:Spectral,Georgia,serif;font-size:26px;color:#4a3510}
+.coin__spec{position:absolute;inset:0;border-radius:50%;pointer-events:none;mix-blend-mode:overlay;
+  background:radial-gradient(circle at 50% 50%,rgba(255,255,255,.6),transparent 60%);
+  animation:specularDrift 3s ease-in-out infinite}
+.coin__shadow{position:absolute;left:50%;bottom:-26px;width:96px;height:14px;margin-left:-48px;border-radius:50%;
+  background:radial-gradient(ellipse,rgba(0,0,0,.5),transparent 70%);pointer-events:none}
+
+@keyframes coinSpin{from{transform:rotateY(0deg)}to{transform:rotateY(360deg)}}
+@keyframes specularDrift{0%,100%{transform:translate(-32%,-32%)}50%{transform:translate(28%,22%)}}
+/* the fan is 430px wide: scale it down on phones rather than clip it */
+@media (max-width:480px){.fan-persp{transform:scale(.8)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="scroller">
+
+  <section class="scene scene--a" data-screen-label="Book">
+    <div>
+      <div class="eyebrow">OBJECT 01 — THE LIVING BLACKSTONE</div>
+      <h2 class="title">Open the statute&#8209;book</h2>
+    </div>
+    <div class="book-stage">
+      <div class="book-shadow"></div>
+      <div class="book-persp">
+        <div class="book" id="book" tabindex="0" aria-label="Statute book: Enter opens or closes it">
+          <div class="book__back"></div>
+          <div class="book__foreedge"></div>
+          <div class="book__head"></div>
+          <div class="book__tail"></div>
+          <div class="book__spine">
+            <div class="spine__rule"></div>
+            <div class="spine__text"><span>STATUTES</span></div>
+            <div class="spine__band"></div>
+            <div class="spine__band"></div>
+            <div class="spine__rule"></div>
+          </div>
+          <div class="book__pages"></div>
+          <div class="leaf leaf--title">
+            <div class="leaf__rule"></div>
+            <div class="leaf__h1">The European Union<br>Legal Order</div>
+            <div class="leaf__kicker">CONFERRAL · EFFECT · FREE MOVEMENT</div>
+            <div class="leaf__meta">Groningen — 2026/27</div>
+            <div class="leaf__rule"></div>
+          </div>
+          <div class="leaf leaf--tab" id="tabLeaf">
+            <div class="leaf__rule" id="leafRule1"></div>
+            <div class="leaf__eyebrow" id="leafEyebrow">TAB 1 OF 7</div>
+            <div class="leaf__label" id="leafLabel">Prohibitions</div>
+            <div class="leaf__line" id="leafLine"></div>
+            <div class="leaf__rule" id="leafRule2"></div>
+            <div class="leaf__refs" id="leafRefs"></div>
+            <div class="leaf__folio" id="leafFolio"></div>
+          </div>
+          <div class="book__sheet"></div>
+          <div class="book__cover">
+            <div class="cover__rule"></div>
+            <div class="cover__rule2"></div>
+            <div class="cover__hinge"></div>
+            <div class="cover__sheen"></div>
+            <div class="cover__type">
+              <div class="t1">EU LAW</div>
+              <div class="hr"></div>
+              <div class="t2">Statutes &amp; Case&#8209;Law</div>
+            </div>
+          </div>
+          <!-- tabs injected here -->
+        </div>
+      </div>
+    </div>
+    <div class="hint">click the cover to open · click a tab to turn to its page</div>
+    <div class="port">PORT — worth porting: the open + pointer tilt, into the app’s Overview book. Keep the tilt calm there.</div>
+  </section>
+
+  <section class="scene scene--b" data-screen-label="Flip card">
+    <div>
+      <div class="eyebrow">OBJECT 02 — RECALL, LARGE AND GLOSSY</div>
+      <h2 class="title">Flip the card</h2>
+    </div>
+    <div class="cards-persp">
+      <div class="cards" id="cards"></div>
+    </div>
+    <div class="controls">
+      <div class="hint">click the card to flip</div>
+      <button class="btn" id="nextCard">NEXT CARD</button>
+    </div>
+    <div class="port">PORT — already in the app. This oversized glossy version stays showcase-only.</div>
+  </section>
+
+  <section class="scene scene--c" data-screen-label="Ladder">
+    <div>
+      <div class="eyebrow">OBJECT 03 — THE REMEDIAL LADDER</div>
+      <h2 class="title">Climb the doctrine</h2>
+    </div>
+    <div class="ladder-persp">
+      <div class="ladder" id="ladder" tabindex="0" role="button" aria-label="Climb one rung"></div>
+    </div>
+    <div class="hint">click the stairs to advance a rung · you only reach the top if the ones below fail</div>
+    <div class="port">PORT — a static stepped version could live in the app; the climbing loop stays here.</div>
+  </section>
+
+  <section class="scene scene--d" data-screen-label="Tab fan">
+    <div>
+      <div class="eyebrow">OBJECT 04 — THE TAB SPREAD</div>
+      <h2 class="title">Seven functions, seven colours</h2>
+    </div>
+    <div class="fan-persp">
+      <div class="fan" id="fan"></div>
+    </div>
+    <div class="hint">hover a card to see what it tabs</div>
+    <div class="port">PORT — showcase only. The app keeps its tabs flat.</div>
+  </section>
+
+  <section class="scene scene--e" data-screen-label="Coin">
+    <div>
+      <div class="eyebrow">OBJECT 05 — THE STREAK COIN</div>
+      <h2 class="title">Pure delight, kept small</h2>
+    </div>
+    <div class="coin-persp">
+      <div class="coin-wrap" id="coinWrap" tabindex="0" role="button" aria-label="Spin the streak coin">
+        <div class="coin" id="coin">
+          <div class="coin__face coin__face--obverse">
+            <svg viewBox="0 0 100 100" width="100%" height="100%">
+              <circle cx="50" cy="50" r="43" fill="none" stroke="#8f6a1d" stroke-width="1.4"/>
+              <circle cx="50" cy="50" r="39" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="0.8"/>
+              <path d="M50 22 C36 28 30 41 34 55 C36 62 42 68 50 70" fill="none" stroke="#4a3510" stroke-width="2.2" stroke-linecap="round"/>
+              <path d="M50 22 C64 28 70 41 66 55 C64 62 58 68 50 70" fill="none" stroke="#4a3510" stroke-width="2.2" stroke-linecap="round"/>
+              <g fill="#4a3510">
+                <ellipse cx="38" cy="31" rx="5" ry="2.5" transform="rotate(-40 38 31)"/>
+                <ellipse cx="33" cy="41" rx="5" ry="2.5" transform="rotate(-15 33 41)"/>
+                <ellipse cx="33" cy="52" rx="5" ry="2.5" transform="rotate(10 33 52)"/>
+                <ellipse cx="62" cy="31" rx="5" ry="2.5" transform="rotate(40 62 31)"/>
+                <ellipse cx="67" cy="41" rx="5" ry="2.5" transform="rotate(15 67 41)"/>
+                <ellipse cx="67" cy="52" rx="5" ry="2.5" transform="rotate(-10 67 52)"/>
+              </g>
+              <text x="50" y="49" text-anchor="middle" dominant-baseline="middle" font-family="JetBrains Mono, monospace" font-size="20" font-weight="700" fill="#4a3510">7</text>
+              <text x="50" y="80" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="7" letter-spacing="1.2" fill="#5c421a">DAY STREAK</text>
+            </svg>
+          </div>
+          <div class="coin__face coin__face--reverse"><span>CF</span></div>
+        </div>
+        <div class="coin__spec"></div>
+        <div class="coin__shadow"></div>
+      </div>
+    </div>
+    <div class="hint">click the coin</div>
+    <div class="port">PORT — showcase only, pure delight.</div>
+  </section>
+
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function onActivate(el, fn){  // Enter / Space on the element itself, as for a button
+    el.addEventListener('keydown', function(e){
+      if (e.target === el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); fn(); }
+    });
+  }
+
+  var TABS = [
+    {color:'#2f5fae', dark:'#22406f', label:'Prohibitions',  refs:'Art 34, 45, 49, 56, 63, 101, 102, 107, 30, 110',
+     line:'The core prohibitions — free movement of goods, persons, services and capital, and the competition rules.'},
+    {color:'#d98a2b', dark:'#a5651d', label:'Derogations',   refs:'Art 36, 45(3), 51, 52, 62, 65, 106(2)',
+     line:'Where a member state may lawfully justify a restriction, and how far.'},
+    {color:'#1f7a4d', dark:'#155937', label:'Competences',   refs:'Art 4(3) &amp; 5 TEU · 2–6, 26, 114, 352 TFEU',
+     line:'Who may act, on what legal basis, and how far the Union’s competence runs.'},
+    {color:'#8fbf6a', dark:'#6d9550', label:'Secondary law', refs:'Dir 2004/38 · Reg 492/2011 · Dir 2006/123 · Reg 1/2003',
+     line:'The regulations and directives that build the Treaty out into working law.'},
+    {color:'#8e2f6e', dark:'#6a2153', label:'Enforcement',   refs:'Art 19 TEU · 258, 263, 265, 267, 340',
+     line:'Actions, references and remedies before the Court of Justice.'},
+    {color:'#d46a9a', dark:'#a44f76', label:'Rights',        refs:'Art 18, 20, 21, 157 · Charter 51–52',
+     line:'Citizenship, equal treatment, and the reach of the Charter.'},
+    {color:'#c9b23a', dark:'#9a8829', label:'Definitions',   refs:'Art 26(2), 28–29, 54, 57',
+     line:'Scope terms — goods, establishment, services, and what counts as which.'}
+  ];
+
+  var LADDER = [
+    {name:'Van Gend en Loos', note:'Direct effect'},
+    {name:'Costa v ENEL',     note:'Primacy'},
+    {name:'Simmenthal',       note:'Courts disapply, own motion'},
+    {name:'Direct effect',    note:'Van Duyn · Ratti · Marshall — vertical only'},
+    {name:'Indirect effect',  note:'Von Colson · Adeneler — no contra legem'},
+    {name:'State liability',  note:'Francovich · Brasserie/Factortame'}
+  ];
+
+  var CARDS = [
+    {q:'Direct effect — foundational case?', a:'Van Gend en Loos [1963]: autonomy of the EU legal order; individuals rely on clear, unconditional Treaty duties (Art 30 TFEU).'},
+    {q:'Primacy over national law?', a:'Costa v ENEL [1964].'},
+    {q:'State liability — 3 conditions?', a:'Brasserie/Factortame C-46/93 &amp; C-48/93 §51: rule confers rights · sufficiently serious breach · direct causal link.'}
+  ];
+
+  /* ---------- book ---------- */
+  var book = document.getElementById('book');
+  var tilt = {rx:0, ry:0};
+
+  TABS.forEach(function(t, i){
+    var tab = document.createElement('button');
+    tab.type = 'button';
+    tab.className = 'tab';
+    tab.setAttribute('aria-label', 'Tab ' + (i + 1) + ': ' + t.label);
+    tab.style.top = (14 + i * 36) + 'px';
+    tab.style.background = 'linear-gradient(160deg,' + t.color + ',' + t.dark + ')';
+    tab.style.transitionDelay = '0s, ' + (i * 60) + 'ms';
+    tab.innerHTML = '<div class="tab__top" style="background:linear-gradient(90deg,' + t.color + ',' + t.dark + ')"></div>' +
+                    '<span class="tab__label">' + t.label + '</span>';
+    tab.addEventListener('click', function(e){ e.stopPropagation(); openTab(i); });
+    book.appendChild(tab);
+  });
+
+  function setBookTransform(){
+    book.style.transform = 'translateZ(17px) rotateY(' + tilt.ry + 'deg) rotateX(' + tilt.rx + 'deg) scale(' +
+      (book.classList.contains('is-loaded') ? 1 : 0.94) + ')';
+  }
+  book.addEventListener('mousemove', function(e){
+    var r = book.getBoundingClientRect();
+    tilt.ry = ((e.clientX - r.left) / r.width - 0.5) * 26;
+    tilt.rx = -((e.clientY - r.top) / r.height - 0.5) * 18;
+    setBookTransform();
+  });
+  book.addEventListener('mouseleave', function(){ tilt.rx = 0; tilt.ry = 0; setBookTransform(); });
+  function toggleBook(){
+    var willOpen = !book.classList.contains('is-open');
+    book.classList.toggle('is-open', willOpen);
+    if (!willOpen) book.classList.remove('has-page');
+  }
+  book.addEventListener('click', toggleBook);
+  onActivate(book, toggleBook);
+
+  var turnTimer;
+  function openTab(i){
+    var wasOpen = book.classList.contains('is-open');
+    book.classList.add('is-open', 'is-turning');
+    clearTimeout(turnTimer);
+    turnTimer = setTimeout(function(){
+      var t = TABS[i];
+      document.getElementById('leafEyebrow').textContent = 'TAB ' + (i + 1) + ' OF 7';
+      document.getElementById('leafLabel').textContent = t.label;
+      document.getElementById('leafLine').textContent = t.line;
+      document.getElementById('leafRefs').innerHTML = t.refs;
+      document.getElementById('leafFolio').textContent = '§ ' + t.label.toLowerCase() + ' · p. ' + (i * 14 + 21);
+      document.getElementById('leafRule1').style.background = t.color;
+      document.getElementById('leafRule2').style.background = t.color;
+      document.getElementById('tabLeaf').style.boxShadow =
+        'inset 14px 0 22px rgba(0,0,0,.16), inset 0 0 0 1px ' + t.color + '22';
+      book.classList.add('has-page');
+      book.classList.remove('is-turning');
+    }, wasOpen ? 240 : 420);
+  }
+
+  setTimeout(function(){ book.classList.add('is-loaded'); setBookTransform(); }, 150);
+
+  /* ---------- flip cards ---------- */
+  var cardsEl = document.getElementById('cards');
+  var order = [0, 1, 2];
+  function renderCards(){
+    cardsEl.innerHTML = '';
+    order.forEach(function(idx, pos){
+      var c = CARDS[idx];
+      var el = document.createElement('div');
+      el.className = 'card';
+      el.setAttribute('data-pos', pos);
+      el.innerHTML =
+        '<div class="card__edge card__edge--t"></div><div class="card__edge card__edge--b"></div>' +
+        '<div class="card__edge card__edge--l"></div><div class="card__edge card__edge--r"></div>' +
+        '<div class="card__face card__face--front"><div class="card__gloss"></div>' +
+          '<div class="card__tag">QUESTION</div><div class="card__q">' + c.q + '</div></div>' +
+        '<div class="card__face card__face--back"><div class="card__gloss"></div>' +
+          '<div class="card__tag">ANSWER</div><div class="card__a">' + c.a + '</div></div>';
+      if (pos === 0) {
+        var flip = function(){ el.classList.toggle('is-flipped'); };
+        el.tabIndex = 0;
+        el.setAttribute('role', 'button');
+        el.setAttribute('aria-label', 'Flip the card');
+        el.addEventListener('click', flip);
+        onActivate(el, flip);
+      }
+      cardsEl.appendChild(el);
+    });
+  }
+  renderCards();
+  document.getElementById('nextCard').addEventListener('click', function(){
+    order = order.slice(1).concat(order[0]);
+    renderCards();
+  });
+
+  /* ---------- ladder ---------- */
+  var ladder = document.getElementById('ladder');
+  LADDER.forEach(function(s, i){
+    var step = document.createElement('div');
+    step.className = 'step';
+    step.style.setProperty('--i', i + 1);
+    step.innerHTML =
+      '<div class="step__top"><div class="step__note">' + s.note + '</div></div>' +
+      '<div class="step__riser"><div class="step__case">' + s.name + '</div></div>' +
+      '<div class="step__side"></div>';
+    ladder.appendChild(step);
+  });
+  var marker = document.createElement('div');
+  marker.className = 'marker';
+  ladder.appendChild(marker);
+
+  var stepIdx = reduced ? 6 : 0;
+  function renderLadder(){
+    marker.style.setProperty('--s', stepIdx);
+    var steps = ladder.querySelectorAll('.step');
+    for (var i = 0; i < steps.length; i++) steps[i].classList.toggle('is-active', stepIdx === i + 1);
+  }
+  renderLadder();
+  function climb(){ stepIdx = (stepIdx + 1) % 7; renderLadder(); }
+  ladder.addEventListener('click', climb);
+  onActivate(ladder, climb);
+  if (!reduced) setInterval(climb, 1500);
+
+  /* ---------- tab fan ---------- */
+  var fan = document.getElementById('fan');
+  TABS.forEach(function(t, i){
+    var off = i - 3;
+    var card = document.createElement('div');
+    card.className = 'fan-card';
+    card.tabIndex = 0;
+    card.setAttribute('aria-label', t.label);
+    card.style.transform = 'rotate(' + (off * 11) + 'deg) translateY(' + (Math.abs(off) * 8) + 'px)';
+    card.style.zIndex = 10 - Math.abs(off);
+    card.innerHTML =
+      '<div class="fan-inner">' +
+        '<div class="fan__edge-t" style="background:linear-gradient(90deg,' + t.color + ',' + t.dark + ')"></div>' +
+        '<div class="fan__edge-r" style="background:linear-gradient(180deg,' + t.dark + ',rgba(0,0,0,.6))"></div>' +
+        '<div class="fan__front" style="background:linear-gradient(158deg,' + t.color + ',' + t.dark + ')">' +
+          '<div class="fan__index" style="background:linear-gradient(180deg,' + t.color + ',' + t.dark + ')"></div>' +
+          '<div class="fan__sheen"></div>' +
+          '<div class="fan__kicker">TAB</div><div class="fan__label">' + t.label + '</div>' +
+        '</div>' +
+        '<div class="fan__back" style="border:1px solid ' + t.color + '55">' +
+          '<div class="fan__dot" style="background:' + t.color + '"></div>' +
+          '<div class="fan__backlabel" style="color:' + t.color + '">' + t.label + '</div>' +
+          '<div class="fan__refs">' + t.refs + '</div>' +
+        '</div>' +
+      '</div>';
+    fan.appendChild(card);
+  });
+
+  /* ---------- coin ---------- */
+  var coin = document.getElementById('coin');
+  var SEGMENTS = 26, R = 61, segW = (2 * Math.PI * R) / SEGMENTS + 1.5;
+  for (var i = 0; i < SEGMENTS; i++) {
+    var a = (360 / SEGMENTS) * i;
+    // a runs clockwise from 12 o'clock, so the top-left light sits at -40deg
+    var lum = 0.42 + 0.58 * Math.max(0, Math.cos(((a + 40) * Math.PI) / 180));
+    var seg = document.createElement('div');
+    seg.className = 'coin__seg';
+    seg.style.width = segW + 'px';
+    seg.style.marginLeft = (-segW / 2) + 'px';
+    seg.style.background = 'rgb(' + Math.round(60 + 170 * lum) + ',' + Math.round(44 + 130 * lum) + ',' + Math.round(16 + 60 * lum) + ')';
+    seg.style.transform = 'rotateZ(' + a + 'deg) translateY(' + (-R) + 'px) rotateX(90deg)';
+    coin.insertBefore(seg, coin.firstChild);
+  }
+  var coinTimer;
+  function settleCoin(){
+    if (coin.classList.contains('is-settling')) return;
+    coin.classList.add('is-settling');
+    clearTimeout(coinTimer);
+    coinTimer = setTimeout(function(){ coin.classList.remove('is-settling'); }, 1000);
+  }
+  var coinWrap = document.getElementById('coinWrap');
+  coinWrap.addEventListener('click', settleCoin);
+  onActivate(coinWrap, settleCoin);
+})();
+</script>
+</body>
+</html>

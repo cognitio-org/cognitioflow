@@ -1,0 +1,44 @@
+# Every 30 minutes, GitHub-side (no laptop): assess open PRs whose latest commit has no verdict yet — PRs opened before
+# the checker existed, or whose tests finished outside a normal run — post the short verdict comment and approve the
+# ones that pass. It approves; it never merges. The checker runs from main, so a PR cannot change its own reviewer.
+name: pr sweep
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: read
+  statuses: read
+
+concurrency:
+  group: pr-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          sparse-checkout: scripts/pr_worthiness.py
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Assess open PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PR_CHECK_MODEL: ${{ vars.PR_CHECK_MODEL }}
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY$OPENROUTER_API_KEY" ]; then pip install -q anthropic; fi
+          python scripts/pr_worthiness.py --repo "$GITHUB_REPOSITORY" --all --post --approve

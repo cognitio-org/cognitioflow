@@ -1,0 +1,6 @@
+{
+  "name": "cognitioflow-brightspace-grabber",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test" }
+}

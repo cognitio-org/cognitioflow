@@ -12,6 +12,10 @@ import sys
 # Set DATABASE_URL before importing run so the pool connects to the right DB
 os.environ.setdefault("DATABASE_URL", "postgresql://cf:cf@localhost:5432/cognitioflow")
 os.environ.setdefault("ANTHROPIC_API_KEY", "sk-ant-test-key")
+# Phase 4: tests run with the dev bypass; tests/test_auth.py turns auth back on per test
+os.environ.setdefault("AUTH", "off")
+os.environ.setdefault("ALLOWED_EMAILS", "matej@mgms.eu")  # AUTH=off signs in as its first address
+os.environ.setdefault("MATEJ_EMAIL", "matej@mgms.eu")     # owner email for migrate_sqlite.py only
 
 # run.py loads .env.local with override=True, which would point storage at ./data. Remember what this test run asked
 # for (e.g. STORAGE=gcs + STORAGE_EMULATOR_HOST for the fake-gcs pass) and re-pin it once run is imported.
@@ -60,16 +64,30 @@ def pinned_storage(apply_migrations):
     shutil.rmtree(_TEST_LOCAL_ROOT, ignore_errors=True)
 
 
+_TRUNCATE = ("TRUNCATE courses, files, messages, notes, cards, reviews, "
+             "note_versions, recordings, sessions, users, jobs CASCADE")
+
+
+@pytest.fixture(scope="session")
+def _truncate_conn(apply_migrations):
+    """One connection for the per-test cleanup. In CI the database is a Neon branch across the Atlantic,
+    and opening a fresh TLS connection after every test is slow. Holder list so a dropped connection
+    can be replaced for the rest of the session."""
+    holder = [psycopg.connect(_pg_url(), autocommit=True)]
+    yield holder
+    holder[0].close()
+
+
 @pytest.fixture(autouse=True)
-def clean_tables(apply_migrations):
-    """Truncate all user-data tables before each test."""
+def clean_tables(_truncate_conn):
+    """Truncate all user-data tables after each test."""
     yield
-    with psycopg.connect(_pg_url()) as conn:
-        conn.execute(
-            "TRUNCATE courses, files, messages, notes, cards, reviews, "
-            "note_versions, recordings, sessions, users CASCADE"
-        )
-        conn.commit()
+    try:
+        _truncate_conn[0].execute(_TRUNCATE)
+    except psycopg.OperationalError:  # the server dropped the connection (idle timeout, compute restart)
+        _truncate_conn[0].close()
+        _truncate_conn[0] = psycopg.connect(_pg_url(), autocommit=True)
+        _truncate_conn[0].execute(_TRUNCATE)
 
 
 @pytest.fixture

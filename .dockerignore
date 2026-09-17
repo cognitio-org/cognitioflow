@@ -1,0 +1,16 @@
+# Keep secrets, user data and dev-only files out of the build context.
+.git
+.github
+.env
+.env.*
+data/
+.venv/
+tests/
+docs/
+infra/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.db
+.DS_Store
+Start CognitioFlow.command
