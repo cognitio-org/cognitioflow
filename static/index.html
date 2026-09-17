@@ -325,12 +325,12 @@
     .g4{grid-template-columns:repeat(4,1fr);gap:.5rem} .stat{padding:.5rem .7rem;display:flex;align-items:baseline;gap:.4rem} .stat .n{font-size:1.25rem} .stat .l{margin:0;font-size:.78rem}
     .hero{padding:var(--s4) var(--s5);gap:var(--s4)} .hero h2{font-size:1.35rem} .hero .k{font-size:2.1rem}
     .g2{grid-template-columns:1fr} .panel{padding:.75rem .9rem}
-    .screen>.tutor,.screen>.notes{grid-template-columns:1fr;height:calc(100vh - 9.25rem)} .screen>.tutor{grid-template-rows:auto 1fr} .tutor aside.col{max-height:7.5rem;overflow:auto;padding:.45rem .7rem;flex-direction:row;align-items:baseline;gap:.5rem;flex-wrap:wrap;flex:0 0 auto} .tutor aside.col h3{font-size:.8rem;margin:0;color:var(--graphite);white-space:nowrap}
-    .tutor .ctx{display:flex;flex-wrap:wrap;gap:.3rem;flex:1} .tutor .ctx li{border:1px solid var(--rule);border-radius:999px;padding:.05rem .55rem;font-size:.78rem;color:var(--graphite)} .tutor .ctx li:last-child{border:1px solid var(--rule)} .tutor #ctxSize{margin:0!important;white-space:nowrap}
+    .screen>.tutor,.screen>.notes{grid-template-columns:1fr;height:calc(100vh - 9.25rem)} .screen>.tutor{grid-template-rows:auto 1fr} .screen>.tutor aside.col{max-height:7.5rem;overflow:auto;padding:.45rem .7rem;flex-direction:row;align-items:baseline;gap:.5rem;flex-wrap:wrap;flex:0 0 auto} .screen>.tutor aside.col h3{font-size:.8rem;margin:0;color:var(--graphite);white-space:nowrap}
+    .screen>.tutor .ctx{display:flex;flex-wrap:wrap;gap:.3rem;flex:1} .screen>.tutor .ctx li{border:1px solid var(--rule);border-radius:999px;padding:.05rem .55rem;font-size:.78rem;color:var(--graphite)} .screen>.tutor .ctx li:last-child{border:1px solid var(--rule)} .screen>.tutor #ctxSize{margin:0!important;white-space:nowrap}
     .modes{flex-wrap:wrap;row-gap:.3rem} .msg{max-width:94%}
   }
   /* focus mode: current screen only, nothing else */
-  body.focus aside.side, body.focus .head, body.focus .tutor aside.col, body.focus .notes>aside.col{display:none}
+  body.focus aside.side, body.focus .head, body.focus .screen>.tutor aside.col, body.focus .notes>aside.col{display:none}
   body.focus .app{grid-template-columns:1fr} body.focus .screen>.tutor,body.focus .screen>.notes{grid-template-columns:1fr;height:calc(100vh - 4.4rem)} body.focus main{padding:.8rem 1rem}
   #focusBtn{position:fixed;right:.7rem;top:.5rem;z-index:40;opacity:.55;font-size:.74rem;padding:.12rem .45rem;border-color:transparent} #focusBtn:hover{opacity:1}
 </style>

@@ -10,6 +10,13 @@ from pathlib import Path
 PAGE = (Path(__file__).resolve().parent.parent / "static" / "index.html").read_text(encoding="utf-8")
 
 
+def test_the_bubble_class_the_scoping_defends_against_is_still_written():
+    """If the JS stops writing `advb <who>`, the scoping below is guarding nothing — say so here
+    rather than letting the guard quietly become decorative. (Idea taken from #48.)"""
+    assert PAGE.count("d.className='advb '+who") == 2, "advBubble/courtSay no longer write `advb <who>`"
+    assert re.search(r"advBubble\('tutor'", PAGE) and re.search(r"courtSay\('tutor'", PAGE)
+
+
 def test_the_screen_layouts_cannot_catch_chat_bubbles():
     """`.tutor` was the Tutor SCREEN grid, and bubbles are built in JS as `advb tutor`.
 
@@ -17,9 +24,16 @@ def test_the_screen_layouts_cannot_catch_chat_bubbles():
     layout, and in focus mode a height of calc(100vh - 4.4rem) as well. The layout div is a direct
     child of .screen; the bubbles are not, so `>` is what separates them.
     """
-    for rule in re.findall(r"(?<![\w>.])\.(?:tutor|notes)\{[^}]*\}", PAGE):
-        assert "display:grid" not in rule and "grid-template-columns" not in rule, (
-            f"unscoped screen layout can match an `advb tutor` bubble: {rule[:80]}")
+    css = re.sub(r"/\*.*?\*/", "", re.search(r"<style>(.*?)</style>", PAGE, re.S).group(1), flags=re.S)
+    for m in re.finditer(r"\.tutor\b", css):
+        at = m.start()
+        start = max(css.rfind("{", 0, at), css.rfind("}", 0, at)) + 1
+        sel = next(s for s in css[start:css.index("{", at)].split(",") if ".tutor" in s).strip()
+        if ".advb" in sel:
+            continue                      # the bubble's own rule, which is the point
+        assert ">.tutor" in sel, (
+            f"{sel!r} reaches chat bubbles. A DESCENDANT scope such as `#tutor .tutor` is not "
+            "enough — the tutor's own bubbles live inside #tutor. It has to be a child combinator.")
     assert ".screen>.tutor{display:grid" in PAGE
     assert ".screen>.notes{display:grid" in PAGE
 
