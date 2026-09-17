@@ -282,6 +282,10 @@
   .tplay{display:inline-block;font-family:var(--sans);font-size:.7rem;color:var(--graphite);border:1px solid var(--rule);border-radius:999px;padding:0 .35rem;margin-left:.3rem;text-decoration:none;cursor:pointer;vertical-align:.1em} .tplay:hover{color:var(--ink);border-color:var(--ink)}
   #recBtn.on{background:#b3261e;color:#fff;border-color:#b3261e}
   @media print{.tplay,.readbar{display:none!important}}
+  /* mermaid 10 paints a pink "syntax error" diagram when a graph fails to parse, and leaves its temp
+     node on <body>: it then floats over every screen until a reload, and prints with the note. Hide both —
+     renderMd()'s catch already falls back to showing the diagram source. */
+  svg[aria-roledescription="error"],body>div[id^="dmm"],body>svg[id^="mm"]{display:none!important}
   /* notes reading view */
   .seg{display:inline-flex;gap:2px;padding:2px;background:var(--faint);border:1px solid var(--rule);border-radius:calc(var(--r) + 2px)} .seg .btn{border-color:transparent;background:transparent;color:var(--graphite);border-radius:var(--r)} .seg .btn:hover{color:var(--ink);background:transparent} .seg .btn[aria-pressed=true]{background:var(--raised);color:var(--ink);border-color:var(--rule);box-shadow:0 1px 2px rgba(0,0,0,.08);font-weight:500}
   .noteview{flex:1;overflow:auto;border:1px solid var(--rule);border-radius:var(--r);font-family:var(--serif);font-size:1.06rem;line-height:1.75;max-width:none;--measure:68ch;--pagey:2.6rem}
@@ -816,10 +820,13 @@ async function render(d,raw){
     const mid='mm'+Math.random().toString(36).slice(2);
     try{ mmSetup(); const {svg}=await mermaid.render(mid,b.body.trim()); el.innerHTML=svg }
     catch(e){ el.innerHTML='<pre>'+b.body.replace(/</g,'&lt;')+'</pre>' }
-    // Mermaid measures in a sandbox div it appends to <body> as 'd'+id, and on a parse error it leaves
-    // it there — that is the bomb graphic the user sees stuck at the foot of an unrelated screen. The
-    // catch above cannot reach it, because it is not inside the element we are rendering into.
-    finally{ document.getElementById('d'+mid)?.remove() } }
+    // Mermaid measures in a sandbox it appends to <body>, and on a parse error leaves it there with
+    // its bomb graphic — the thing found stuck at the foot of an unrelated screen. The catch above
+    // cannot reach it: it is not inside the element we render into. finally, not catch, because a
+    // SUCCESSFUL render leaves the sandbox behind too. #45 contributed the wider selector, which
+    // also catches the shapes this id lookup would miss.
+    finally{ document.getElementById('d'+mid)?.remove();
+             for(const stray of document.querySelectorAll('body>div[id^="dmm"],body>svg[id^="mm"]')) stray.remove() } }
   if(d.closest('#chat')) $('#chat').scrollTop=$('#chat').scrollHeight;
 }
 function addMsg(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;$('#chat').appendChild(d);$('#chat').scrollTop=$('#chat').scrollHeight;return d}
