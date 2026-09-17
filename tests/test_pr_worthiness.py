@@ -267,15 +267,41 @@ def test_a_malformed_request_is_not_retried_on_the_fallback(monkeypatch):
     assert tried == ["claude-haiku-4-5"], "a 400 must not spend the fallback"
 
 
-def test_out_of_capacity_covers_exhaustion_and_not_bad_input(monkeypatch):
+def test_worth_another_model_covers_exhaustion_and_unusable_replies_but_not_bad_input(monkeypatch):
     _, Rate, Conn = _fake_anthropic(monkeypatch, {})
-    assert pw.out_of_capacity(Rate("429"))
-    assert pw.out_of_capacity(Conn("unreachable"))
+    assert pw.worth_another_model(Rate("429"))
+    assert pw.worth_another_model(Conn("unreachable"))
+    assert pw.worth_another_model(ValueError("model reply had no security score")), \
+        "an unusable reply is this model's fault, and another model may answer properly"
     for status, expected in [(429, True), (402, True), (401, True), (529, True), (503, True),
                              (400, False), (404, False), (422, False)]:
         e = Exception("x")
         e.status_code = status
-        assert pw.out_of_capacity(e) is expected, f"status {status}"
+        assert pw.worth_another_model(e) is expected, f"status {status}"
+
+
+def test_an_unusable_reply_from_the_primary_hands_over_to_the_fallback(monkeypatch):
+    """The #38 case, 2026-09-17: GLM answered with something parse_model could not read, and the
+    whole model review was skipped — the verdict silently fell back to the rules alone."""
+    _both_keys(monkeypatch)
+    answers = {}
+    tried, _, _ = _fake_anthropic(monkeypatch, answers)
+    answers.update({"claude-haiku-4-5": "Sure! Here is my review: it looks fine to me.",
+                    "z-ai/glm-5.3-flash": APPROVED})
+    out, used = pw.model_review("Docs", "", [f("README.md")], diff_for("README.md", ["x"]), [])
+    assert tried == ["claude-haiku-4-5", "z-ai/glm-5.3-flash"], "the unusable reply must not end the review"
+    assert out["verdict"] == "approve" and used == "z-ai/glm-5.3-flash"
+
+
+def test_an_unusable_reply_with_no_fallback_left_still_raises(monkeypatch):
+    """Rules-only is the right outcome when nothing else can be asked — it just must not be the
+    outcome while a second model is sitting there unused."""
+    _both_keys(monkeypatch)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    tried, _, _ = _fake_anthropic(monkeypatch, {"claude-haiku-4-5": "no json here"})
+    with pytest.raises(ValueError):
+        pw.model_review("Docs", "", [f("README.md")], diff_for("README.md", ["x"]), [])
+    assert tried == ["claude-haiku-4-5"]
 
 
 def test_an_openrouter_key_in_the_diff_blocks_the_pr():

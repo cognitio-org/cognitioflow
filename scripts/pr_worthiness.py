@@ -20,8 +20,9 @@ Model
   PR_CHECK_MODEL, default claude-haiku-4-5 (needs ANTHROPIC_API_KEY). An id with a slash is served by OpenRouter's
   Anthropic-compatible endpoint (needs OPENROUTER_API_KEY) — e.g. z-ai/glm-5.3-flash, the cheapest capable option.
   PR_CHECK_FALLBACK_MODEL, default z-ai/glm-5.3-flash, takes over when the primary is out of capacity rather than
-  out of sense: a rate limit, spent credit, a revoked key, an overloaded or unreachable endpoint. A 400 is not that
-  — the request itself is wrong and the fallback would fail identically — so it is not retried elsewhere. Only models
+  out of sense (a rate limit, spent credit, a revoked key, an overloaded or unreachable endpoint), and when it
+  answers with something unusable (no JSON, or no security score). A 400 is neither — the request itself is wrong
+  and the fallback would fail identically — so it is not retried elsewhere. Only models
   whose key is actually set are tried, so one key alone is a working configuration either way, and the comment
   footer names the model that answered, never the one that was asked first.
 Verdict
@@ -141,14 +142,22 @@ def model_key_present() -> bool:
     return bool(model_chain())
 
 
-def out_of_capacity(e: Exception) -> bool:
-    """Out of capacity, not out of sense.
+def worth_another_model(e: Exception) -> bool:
+    """Would asking a different model plausibly help?
 
-    A rate limit, spent credit, a revoked key, an overloaded or unreachable endpoint — another
-    provider can answer those. A 400 means the request itself is malformed and the fallback would
-    fail the same way, so it is raised rather than retried elsewhere.
+    Two ways it would. The primary can be out of capacity rather than out of sense — a rate limit,
+    spent credit, a revoked key, an overloaded or unreachable endpoint. Or it can answer with
+    something no one can act on: parse_model raises ValueError when the reply carries no JSON or no
+    security score, and that is this model's output being poor, not the request being wrong. A
+    second model is exactly what fixes that, and on 2026-09-17 it did not get the chance — GLM
+    returned unparseable JSON on #38 and the whole review fell back to rules alone, silently.
+
+    One way it would not: a 400. The request itself is malformed, the fallback would fail
+    identically, and its budget should not be spent proving that twice.
     """
     import anthropic
+    if isinstance(e, ValueError):        # an unusable reply; parse_model's own failure mode
+        return True
     if isinstance(e, (anthropic.RateLimitError, anthropic.APIConnectionError)):
         return True
     return getattr(e, "status_code", None) in {401, 402, 403, 408, 429, 500, 502, 503, 504, 529}
@@ -230,9 +239,9 @@ def model_review(title: str, body: str, files: list, diff: str, findings: list) 
                                                     messages=[{"role": "user", "content": prompt}])
             return parse_model("".join(getattr(b, "text", "") for b in msg.content)), model
         except Exception as e:
-            if i + 1 < len(chain) and out_of_capacity(e):
+            if i + 1 < len(chain) and worth_another_model(e):
                 # Never print the exception itself: a client can put the key in its message.
-                print(f"{model} is out of capacity ({type(e).__name__}); falling back to {chain[i + 1]}")
+                print(f"{model} could not answer ({type(e).__name__}); falling back to {chain[i + 1]}")
                 continue
             raise
 
