@@ -277,6 +277,10 @@
   .tplay{display:inline-block;font-family:var(--sans);font-size:.7rem;color:var(--graphite);border:1px solid var(--rule);border-radius:999px;padding:0 .35rem;margin-left:.3rem;text-decoration:none;cursor:pointer;vertical-align:.1em} .tplay:hover{color:var(--ink);border-color:var(--ink)}
   #recBtn.on{background:#b3261e;color:#fff;border-color:#b3261e}
   @media print{.tplay,.readbar{display:none!important}}
+  /* mermaid 10 paints a pink "syntax error" diagram when a graph fails to parse, and leaves its temp
+     node on <body>: it then floats over every screen until a reload, and prints with the note. Hide both —
+     renderMd()'s catch already falls back to showing the diagram source. */
+  svg[aria-roledescription="error"],body>div[id^="dmm"],body>svg[id^="mm"]{display:none!important}
   /* notes reading view */
   .seg{display:inline-flex;gap:2px;padding:2px;background:var(--faint);border:1px solid var(--rule);border-radius:calc(var(--r) + 2px)} .seg .btn{border-color:transparent;background:transparent;color:var(--graphite);border-radius:var(--r)} .seg .btn:hover{color:var(--ink);background:transparent} .seg .btn[aria-pressed=true]{background:var(--raised);color:var(--ink);border-color:var(--rule);box-shadow:0 1px 2px rgba(0,0,0,.08);font-weight:500}
   .noteview{flex:1;overflow:auto;border:1px solid var(--rule);border-radius:var(--r);font-family:var(--serif);font-size:1.06rem;line-height:1.75;max-width:none;--measure:68ch;--pagey:2.6rem}
@@ -796,8 +800,11 @@ async function render(d,raw){
   for(const el of d.querySelectorAll('.viz')){ const b=blocks[+el.dataset.viz]; if(!b) continue;
     if(b.k==='svg'){ el.innerHTML=b.body; continue }
     try{ if(!mmInit){ mermaid.initialize({startOnLoad:false,theme:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'neutral',fontFamily:'inherit',flowchart:{useMaxWidth:true,nodeSpacing:28,rankSpacing:34,padding:8}}); mmInit=true }
-      const {svg}=await mermaid.render('mm'+Math.random().toString(36).slice(2),b.body.trim()); el.innerHTML=svg }
-    catch(e){ el.innerHTML='<pre>'+b.body.replace(/</g,'&lt;')+'</pre>' } }
+      const mmid='mm'+Math.random().toString(36).slice(2);
+      const {svg}=await mermaid.render(mmid,b.body.trim()); el.innerHTML=svg }
+    catch(e){ el.innerHTML='<pre>'+b.body.replace(/</g,'&lt;')+'</pre>';
+      /* mermaid leaves its error diagram and temp container behind on a parse failure */
+      for(const stray of document.querySelectorAll('body>div[id^="dmm"],body>svg[id^="mm"]')) stray.remove() } }
   if(d.closest('#chat')) $('#chat').scrollTop=$('#chat').scrollHeight;
 }
 function addMsg(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;$('#chat').appendChild(d);$('#chat').scrollTop=$('#chat').scrollHeight;return d}
