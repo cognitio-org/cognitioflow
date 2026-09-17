@@ -12,6 +12,7 @@ if (!window.__cfGrabber) {
   const handlers = {
     courses: async () => {
       const r = await fetch("/api/courses", { credentials: "same-origin", headers: { accept: "application/json" } });
+      if (r.status === 401) throw new Error("sign in to CognitioFlow first");
       if (!r.ok) throw new Error(`${r.status} from /api/courses`);
       return r.json();
     },
@@ -20,6 +21,7 @@ if (!window.__cfGrabber) {
       form.append("file", toBlob(base64, type), name);
       form.append("week", week || "");
       const r = await fetch(`/api/courses/${encodeURIComponent(cid)}/files`, { method: "POST", credentials: "same-origin", body: form });
+      if (r.status === 401) throw new Error("sign in to CognitioFlow first");
       if (!r.ok) throw new Error(`${r.status} uploading ${name}`);
       return r.json();
     },

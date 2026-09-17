@@ -14,10 +14,19 @@ async function text(url) {
   return r.text();
 }
 
+// The file has to travel as a base64 message (tab -> background -> tab); chrome.runtime/chrome.tabs
+// messaging has an undocumented size ceiling well under what a lecture-recording-sized file needs, so a
+// big enough attachment fails as a truncated/garbled message far past the point of a useful error. Refuse
+// clearly instead. 40MB covers slide decks and PDFs with room to spare.
+const MAX_GRAB_BYTES = 40 * 1024 * 1024;
+
 async function bytes(url) {
   const r = await fetch(url, { credentials: "same-origin" });
   if (!r.ok) throw new Error(`${r.status} on ${url}`);
   const buf = new Uint8Array(await r.arrayBuffer());
+  if (buf.length > MAX_GRAB_BYTES) {
+    throw new Error(`too big to grab here (${(buf.length / 1048576).toFixed(0)}MB) — download it from Brightspace and add it in CognitioFlow directly`);
+  }
   let s = "";
   for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
   return { base64: btoa(s), type: r.headers.get("content-type") || "application/octet-stream", size: buf.length };

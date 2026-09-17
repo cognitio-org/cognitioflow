@@ -1,6 +1,6 @@
 /* Orchestrates: read the course list from a Brightspace tab, work out what is new, and (once you say yes)
    hand the bytes to a CognitioFlow tab, which uploads them as you. Nothing is stored but a list of ids. */
-import { documents, pages, moduleIds, linksIn, enforcedFolder, unseen } from "./lib.js";
+import { documents, pages, moduleIds, linksIn, enforcedFolder, unseen, dedupe } from "./lib.js";
 
 const SCAN_MINUTES = 60;
 const conf = () => chrome.storage.sync.get({ appUrl: "", courses: [] });
@@ -49,7 +49,7 @@ async function collect(tabId, org) {
       items.push(...linksIn(html, folder, m));
     } catch {}
   }
-  return items;
+  return dedupe(items);
 }
 
 async function scan({ notify = true } = {}) {
