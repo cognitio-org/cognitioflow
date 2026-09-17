@@ -174,8 +174,8 @@
 
   /* library */
   .drop{border:1.5px dashed var(--rule);border-radius:var(--r);padding:1.1rem 1.2rem;text-align:center;color:var(--graphite);margin-bottom:1rem;transition:border-color .15s,background .15s} .drop::before{content:"";display:block;width:18px;height:18px;margin:0 auto .45rem;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 16V4M6 10l6-6 6 6M4 20h16'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 16V4M6 10l6-6 6 6M4 20h16'/%3E%3C/svg%3E") center/contain no-repeat} .drop.over{border-color:var(--accent);border-style:solid;background:var(--faint);color:var(--ink)} .drop.over::after{content:"Release to add these files";display:block;margin-top:.3rem;font-weight:500} .drop label:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
-  /* tutor */
-  .tutor{display:grid;grid-template-columns:230px minmax(0,1fr);gap:1rem;height:calc(100vh - 8rem)}
+  /* tutor — scoped to the screen: `tutor` is also a chat-bubble class (`advb tutor`, written by advBubble/courtSay) */
+  #tutor .tutor{display:grid;grid-template-columns:230px minmax(0,1fr);gap:1rem;height:calc(100vh - 8rem)}
   .col{border:1px solid var(--rule);border-radius:var(--r);padding:.8rem;display:flex;flex-direction:column;min-height:0}
   .ctx li{display:flex;gap:.5rem;align-items:flex-start;padding:.35rem 0;border-bottom:1px solid var(--rule);font-size:.86rem} .ctx li:last-child{border:none}
   .chat{flex:1;overflow:auto;display:flex;flex-direction:column;gap:.7rem;padding:.2rem 0}
@@ -316,13 +316,13 @@
     .g4{grid-template-columns:repeat(4,1fr);gap:.5rem} .stat{padding:.5rem .7rem;display:flex;align-items:baseline;gap:.4rem} .stat .n{font-size:1.25rem} .stat .l{margin:0;font-size:.78rem}
     .hero{padding:var(--s4) var(--s5);gap:var(--s4)} .hero h2{font-size:1.35rem} .hero .k{font-size:2.1rem}
     .g2{grid-template-columns:1fr} .panel{padding:.75rem .9rem}
-    .tutor,.notes{grid-template-columns:1fr;height:calc(100vh - 9.25rem)} .tutor{grid-template-rows:auto 1fr} .tutor aside.col{max-height:7.5rem;overflow:auto;padding:.45rem .7rem;flex-direction:row;align-items:baseline;gap:.5rem;flex-wrap:wrap;flex:0 0 auto} .tutor aside.col h3{font-size:.8rem;margin:0;color:var(--graphite);white-space:nowrap}
-    .tutor .ctx{display:flex;flex-wrap:wrap;gap:.3rem;flex:1} .tutor .ctx li{border:1px solid var(--rule);border-radius:999px;padding:.05rem .55rem;font-size:.78rem;color:var(--graphite)} .tutor .ctx li:last-child{border:1px solid var(--rule)} .tutor #ctxSize{margin:0!important;white-space:nowrap}
+    #tutor .tutor,.notes{grid-template-columns:1fr;height:calc(100vh - 9.25rem)} #tutor .tutor{grid-template-rows:auto 1fr} #tutor aside.col{max-height:7.5rem;overflow:auto;padding:.45rem .7rem;flex-direction:row;align-items:baseline;gap:.5rem;flex-wrap:wrap;flex:0 0 auto} #tutor aside.col h3{font-size:.8rem;margin:0;color:var(--graphite);white-space:nowrap}
+    #tutor .ctx{display:flex;flex-wrap:wrap;gap:.3rem;flex:1} #tutor .ctx li{border:1px solid var(--rule);border-radius:999px;padding:.05rem .55rem;font-size:.78rem;color:var(--graphite)} #tutor .ctx li:last-child{border:1px solid var(--rule)} #tutor #ctxSize{margin:0!important;white-space:nowrap}
     .modes{flex-wrap:wrap;row-gap:.3rem} .msg{max-width:94%}
   }
   /* focus mode: current screen only, nothing else */
-  body.focus aside.side, body.focus .head, body.focus .tutor aside.col, body.focus .notes>aside.col{display:none}
-  body.focus .app{grid-template-columns:1fr} body.focus .tutor,body.focus .notes{grid-template-columns:1fr;height:calc(100vh - 4.4rem)} body.focus main{padding:.8rem 1rem}
+  body.focus aside.side, body.focus .head, body.focus #tutor aside.col, body.focus .notes>aside.col{display:none}
+  body.focus .app{grid-template-columns:1fr} body.focus #tutor .tutor,body.focus .notes{grid-template-columns:1fr;height:calc(100vh - 4.4rem)} body.focus main{padding:.8rem 1rem}
   #focusBtn{position:fixed;right:.7rem;top:.5rem;z-index:40;opacity:.55;font-size:.74rem;padding:.12rem .45rem;border-color:transparent} #focusBtn:hover{opacity:1}
 </style>
 <script src="/static/marked.min.js"></script>
@@ -796,7 +796,11 @@ async function render(d,raw){
   for(const el of d.querySelectorAll('.viz')){ const b=blocks[+el.dataset.viz]; if(!b) continue;
     if(b.k==='svg'){ el.innerHTML=b.body; continue }
     try{ if(!mmInit){ mermaid.initialize({startOnLoad:false,theme:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'neutral',fontFamily:'inherit',flowchart:{useMaxWidth:true,nodeSpacing:28,rankSpacing:34,padding:8}}); mmInit=true }
-      const {svg}=await mermaid.render('mm'+Math.random().toString(36).slice(2),b.body.trim()); el.innerHTML=svg }
+      const id='mm'+Math.random().toString(36).slice(2);
+      // mermaid 10.9.8 renders into a throwaway #d<id> under <body> and only removes it when the render succeeds:
+      // a syntax error leaves its bomb graphic sitting on the page. This build has no suppressErrorRendering, so clean up here.
+      try{ const {svg}=await mermaid.render(id,b.body.trim()); el.innerHTML=svg }
+      finally{ for(const n of [document.getElementById('d'+id),document.getElementById(id)]) if(n&&!el.contains(n)) n.remove() } }
     catch(e){ el.innerHTML='<pre>'+b.body.replace(/</g,'&lt;')+'</pre>' } }
   if(d.closest('#chat')) $('#chat').scrollTop=$('#chat').scrollHeight;
 }
