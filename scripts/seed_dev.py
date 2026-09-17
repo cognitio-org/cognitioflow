@@ -17,8 +17,9 @@ What it writes, for both shipped courses:
   files      per week, some ticked and some not, written through storage.py like any other upload
 
 LOCAL ONLY. This is fabricated study content. CLAUDE.md forbids fabricated user content on Neon
-branches, so the script refuses to run against anything that does not look like a local database,
-and says why. Every row it writes has an id beginning `fix-`, so --clear can take them out again
+branches, so seed() and clear() both refuse to run against anything that does not look like a local
+database, and say why. The check is on the functions, not just on the command line, because CI runs
+the suite against a Neon branch of production and a test calls seed() directly. Every row it writes has an id beginning `fix-`, so --clear can take them out again
 without touching anything you wrote yourself.
 
 Idempotent: running it twice leaves exactly the state of running it once.
@@ -231,10 +232,22 @@ COURSES = {
 
 # ------------------------------------------------------------------------------------ the writing
 
+def guard_target() -> str:
+    """Refuse unless the database run.py actually connected to is local.
+
+    main() checks the environment, but the check has to live here too: a test or any other caller
+    reaches seed() directly, and CI runs the suite against a Neon branch of production. run.py
+    loads .env.local with override=True, so the environment alone is not what it connected with.
+    """
+    import run
+    return assert_local(run._DATABASE_URL or "")
+
+
 def seed(quiet: bool = False) -> dict:
     """Write every fixture row. Safe to run repeatedly — each row is upserted on its own id."""
     import run                    # the db() / rows() seam, and the pool it owns
     import storage
+    guard_target()
     run.init()                    # migrate and seed the shipped courses, so this works on an empty DB
     now, counts = datetime.now().timestamp(), {"notes": 0, "cards": 0, "sessions": 0, "files": 0}
 
@@ -290,6 +303,7 @@ def seed(quiet: bool = False) -> dict:
 def clear(quiet: bool = False) -> dict:
     """Remove every row this script wrote. Rows you made yourself have no `fix-` prefix."""
     import run
+    guard_target()
     counts = {}
     with run.db() as d:
         for table in ("note_versions", "notes", "cards", "sessions", "files"):

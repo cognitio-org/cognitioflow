@@ -4,6 +4,11 @@ Tests: the local development fixture (scripts/seed_dev.py).
 Two things have to hold. It must run and be idempotent, so `make seed` is safe to repeat. And it
 must refuse to run anywhere that is not a local database — CLAUDE.md forbids fabricated user
 content on a Neon branch, and a seed script pointed at the wrong DATABASE_URL is how that happens.
+
+Which is also why the tests that actually write are skipped unless this run's database is local.
+CI runs the suite twice: the `fast` job against a Postgres service container, where they run and
+exercise the whole thing, and the `test` job against a Neon branch of production, where writing
+twelve fabricated notes is precisely what must never happen. The guard tests run everywhere.
 """
 import importlib.util
 import pathlib
@@ -16,6 +21,20 @@ seed_dev = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(seed_dev)
 
 COUNTS = "SELECT (SELECT COUNT(*) FROM notes), (SELECT COUNT(*) FROM cards), (SELECT COUNT(*) FROM sessions), (SELECT COUNT(*) FROM files)"
+
+
+def _target_is_local() -> bool:
+    import run
+    try:
+        seed_dev.assert_local(run._DATABASE_URL or "")
+        return True
+    except seed_dev.NotLocal:
+        return False
+
+
+local_db_only = pytest.mark.skipif(
+    not _target_is_local(),
+    reason="this run's database is not local; the seed refuses to write fixture content to it")
 
 
 @pytest.mark.parametrize("url, reason", [
@@ -47,6 +66,7 @@ def test_production_is_refused_even_on_a_local_url(monkeypatch):
     assert "production" in str(e.value)
 
 
+@local_db_only
 def test_the_seed_runs_and_is_idempotent(client, pg):
     """Twice must leave exactly what once left, or `make seed` is not safe to repeat."""
     seed_dev.seed(quiet=True)
@@ -57,6 +77,7 @@ def test_the_seed_runs_and_is_idempotent(client, pg):
     assert pg.execute(COUNTS).fetchone() == first
 
 
+@local_db_only
 def test_the_seed_fills_every_screen_that_was_empty(client, pg):
     seed_dev.seed(quiet=True)
 
@@ -95,6 +116,7 @@ def test_the_seed_fills_every_screen_that_was_empty(client, pg):
                           (course,)).fetchone()[0], f"{course} has no fixture notes"
 
 
+@local_db_only
 def test_clear_removes_the_fixture_and_leaves_real_rows(client, pg):
     seed_dev.seed(quiet=True)
     pg.execute("INSERT INTO notes(id,course_id,title,body,updated) VALUES('mine','eu','Mine','Written by hand',1)")
@@ -104,3 +126,15 @@ def test_clear_removes_the_fixture_and_leaves_real_rows(client, pg):
     assert pg.execute("SELECT COUNT(*) FROM notes WHERE id LIKE 'fix-%'").fetchone()[0] == 0
     assert pg.execute("SELECT COUNT(*) FROM cards WHERE id LIKE 'fix-%'").fetchone()[0] == 0
     assert pg.execute("SELECT title FROM notes WHERE id='mine'").fetchone()[0] == "Mine"
+
+
+def test_seed_and_clear_refuse_a_non_local_database_whatever_calls_them(monkeypatch):
+    """The command line is not the only way in. A test calls seed() directly, and CI's `test` job
+    runs against a Neon branch of production — so the refusal has to live on the functions."""
+    import run
+    monkeypatch.setattr(run, "_DATABASE_URL",
+                        "postgresql://u:p@ep-cool-123.eu-central-1.aws.neon.tech/cognitioflow?sslmode=require")
+    for fn in (seed_dev.seed, seed_dev.clear):
+        with pytest.raises(seed_dev.NotLocal) as e:
+            fn(quiet=True)
+        assert "neon.tech" in str(e.value)
