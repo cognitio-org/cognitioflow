@@ -703,7 +703,7 @@ function initVoice(){
   }
   if(cfg.voice?.gemini){ $('#micMode').hidden=false; document.querySelectorAll('#micMode [data-mic]').forEach(b=>b.onclick=()=>setMicMode(b.dataset.mic)); setMicMode(currentMicMode()); }
   $('#speakBtn').setAttribute('aria-pressed',speakOn?'true':'false'); $('#speakBtn').classList.toggle('primary',speakOn);
-  if(!('speechSynthesis' in window)){$('#speakBtn').disabled=true}
+  if(!('speechSynthesis' in window) && !cfg.voice?.server){$('#speakBtn').disabled=true}
 }
 /* ---- Gemini dictation (Phase 8): mic → 16 kHz PCM → this app's relay → Vertex AI; only text comes back ---- */
 let gem=null;
@@ -724,7 +724,7 @@ async function startGemini(){
     if(recog && !gotText){ listening=true; btn.setAttribute('aria-pressed','true'); btn.textContent='● Listening'; $('#q').value=''; recog.start(); } };
   const finish=()=>{ if(finished) return; finished=true; cleanup(); if($('#q').value.trim()) send(); };
   try{
-    window.speechSynthesis?.cancel();
+    advQuiet();
     stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
     ctx=new AudioContext();
     await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([PCM_WORKLET],{type:'application/javascript'})));
@@ -750,16 +750,13 @@ async function startGemini(){
 $('#micBtn').onclick=()=>{ if(listening && !gem){ recog?.stop(); return }  // the browser mic is on (chosen, or a Gemini fallback): stop it
   if(cfg.voice?.gemini && currentMicMode()==='gemini'){ return gem ? gem.stop() : startGemini(); }
   if(!recog) return; if(listening){recog.stop();return}
-  window.speechSynthesis?.cancel(); listening=true; $('#micBtn').setAttribute('aria-pressed','true'); $('#micBtn').textContent='● Listening'; $('#q').value=''; recog.start(); };
+  advQuiet(); listening=true; $('#micBtn').setAttribute('aria-pressed','true'); $('#micBtn').textContent='● Listening'; $('#q').value=''; recog.start(); };
 $('#costState').onclick=()=>{ sessionCost=0; localStorage.setItem('cf.cost',0); showCost() }; showCost();
 $('#speakBtn').onclick=()=>{ speakOn=!speakOn; localStorage.setItem('cf.speak',speakOn?'1':'0');
   $('#speakBtn').setAttribute('aria-pressed',speakOn?'true':'false'); $('#speakBtn').classList.toggle('primary',speakOn);
-  if(!speakOn) window.speechSynthesis.cancel(); else { if(lastSpeech) speak(lastSpeech); else toast('Replies will be read aloud — the tutor now writes a spoken version of each answer'); } };
-function speak(text){ if(!speakOn||!text||!text.trim()) return; const u=new SpeechSynthesisUtterance(
-    text.replace(/\[(LECTURE|WG|SLIDES|READER|SCHUTZE|SCRIPTUM|DCFR|NATIONAL|ADDED|OUTSIDE FILES)[^\]]*\]/g,'').replace(/[*_`#>|]/g,'').replace(/\s{2,}/g,' '));
-  u.lang='en-GB'; u.rate=1.05;
-  const v=speechSynthesis.getVoices().find(v=>/Daniel|Serena|Kate|en-GB/.test(v.name+v.lang)); if(v) u.voice=v;
-  window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); }
+  if(!speakOn) advQuiet(); else { if(lastSpeech) speak(lastSpeech); else toast('Replies will be read aloud — the tutor now writes a spoken version of each answer'); } };
+function speak(text){ if(!speakOn||!text||!text.trim()) return;  /* one voice across the app: same path as Advocate */
+  advSpeak(text.replace(/\[(LECTURE|WG|SLIDES|READER|SCHUTZE|SCRIPTUM|DCFR|NATIONAL|ADDED|OUTSIDE FILES)[^\]]*\]/g,'').replace(/[*_`#>|]/g,'').replace(/\s{2,}/g,' ')); }
 
 const DOWN=["define","definition","what is","list","summarise","summarize","recap","translate","when did","who is","how many"];
 const UP=["compare","contrast","irac","critique","conflict","diverge","exam answer","argue","reconcile","distinguish","apply to the facts","which outranks","is this caught","step by step","walk me through"];
@@ -839,23 +836,26 @@ $('#histRestore').onclick=async()=>{ if(!histVid) return; if(!confirm('Replace t
 $('#cardsFromMap').onclick=async()=>{ if(!nid) return; const r=await post(`/notes/${nid}/cards-from-tables`); toast(r.made?`${r.made} card(s) added to Recall`:'No case-map table found (needs a table with a Case column)') };
 /* ---- Advocate: oral revision. The engine lives on the server; this is the mouth and ears. ---- */
 const adv={mastery:{},cooldown:{},misses:{},notes:[],asked:0,q:null,busy:false};
-let advRecog=null, advListening=false, advAudio=null;
+let advRecog=null, advListening=false, advAudio=null, advVoiceGen=0;
 
 async function advSpeak(text){
   if(!text||!text.trim()) return;
-  const v=window.CFVOICE||{};
+  advQuiet(); const gen=advVoiceGen;
+  const v=cfg.voice||window.CFVOICE||{};
   if(v.server){   // every sentence is requested at once, then played in order: the first words start while the rest arrive
     const parts=(text.match(/[^.!?]+[.!?]*/g)||[text]).map(s=>s.trim()).filter(Boolean);
     const pending=parts.map(s=>fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:s})})
       .then(r=>r.status===204?null:r.blob()).catch(()=>null));
-    for(const job of pending){ const b=await job; if(!b) break;
+    for(const job of pending){ const b=await job; if(!b||gen!==advVoiceGen) break;
       await new Promise(done=>{ advAudio=new Audio(URL.createObjectURL(b)); advAudio.onended=done; advAudio.onerror=done; advAudio.play().catch(done) }); }
     return;
   }
   if('speechSynthesis' in window){ const u=new SpeechSynthesisUtterance(text); u.lang='en-GB'; u.rate=1.05;
-    window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); }
+    const bv=speechSynthesis.getVoices().find(x=>/Daniel|Serena|Kate|en-GB/.test(x.name+x.lang)); if(bv) u.voice=bv;
+    window.speechSynthesis.speak(u); }
 }
-function advQuiet(){ window.speechSynthesis?.cancel(); if(advAudio){ try{advAudio.pause()}catch(e){} } }
+function advQuiet(){ advVoiceGen++; window.speechSynthesis?.cancel();
+  if(advAudio){ try{advAudio.pause()}catch(e){} advAudio.onended?.(); advAudio=null; } }
 
 function advBubble(who,text){ const d=document.createElement('div'); d.className='advb '+who; d.textContent=text;
   const c=$('#advConvo'); c.appendChild(d); c.scrollTop=c.scrollHeight; return d; }

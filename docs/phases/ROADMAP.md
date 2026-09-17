@@ -13,6 +13,9 @@ Nine phases, one PR each, in order. Each phase leaves the app fully working. Eac
 | 7 | Cutover, backups, retire the laptop build | ops | all |
 | 8 | Voice: Gemini dictation option for the tutor, Gemini batch option for lectures | tutor mic, `transcribe/` | 3, 5 |
 | 9 | LLM provider seam: Anthropic direct or OpenRouter, usage/cost readout | `llm.py`, `llm_usage` | 1 (5 for the cloud secret) |
+| 10 | Course-first retrieval and adaptive recall | `retrieval.py`, `schedule.py` | 1 |
+| 11 | Arena: oral tutor, application mode, two games | `oral.py`, `tts.py` | 8, 10 |
+| 12 | Voice agent: `/api/speech` grading, Kokoro TTS, one voice across the app | `tts.py`, oral routes | 11 |
 
 Phases 4 and 6 don't depend on 2–3 and run in parallel branches — separate git worktrees, each with its own local database (a separate database in `cf-db`, `DATABASE_URL` exported in that worktree).
 

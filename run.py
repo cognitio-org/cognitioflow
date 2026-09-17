@@ -181,6 +181,7 @@ class ReviewIn(BaseModel): rating: int  # 0 again, 1 hard, 2 good, 3 easy
 class SessionIn(BaseModel): day: str; topic: str; minutes: int = 60
 class ChatIn(BaseModel): message: str; mode: str = "drill"; model: Optional[str] = None  # model="auto" or explicit
 class GenIn(BaseModel): file_id: Optional[str] = None; count: int = 8; model: Optional[str] = None
+class SpeechIn(BaseModel): question: str; answer: str; notes: str = ""; model_answer: str = ""
 
 def rows(q, *a):
     with db() as c:
@@ -509,6 +510,34 @@ def chat(cid: str, body: ChatIn):
             with db() as d: d.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uuid.uuid4().hex, cid, "assistant", full, time.time()))
         yield "data: [DONE]\n\n"
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+# ---------------------------------------------------------------- voice (Phase 12)
+@app.post("/api/speech")
+def speech(body: SpeechIn):
+    """
+    Grade a spoken answer outside any course's card queue — a quick "did I get that right?" rather than a
+    scheduled review. Same rules, contract and cached system prompt as the in-course oral grader, and the
+    same normalised shape back. No card is rescheduled: this call was never told about one.
+    """
+    if not body.question.strip() or not body.answer.strip():
+        raise HTTPException(400, "question and answer are required")
+    sys = [{"type": "text", "text": GRADER_RULES},
+           {"type": "text", "text": GRADER_CONTRACT, "cache_control": {"type": "ephemeral"}}]
+    usr = f"QUESTION: {body.question.strip()[:600]}\n"
+    if body.model_answer.strip():
+        usr += f"MODEL ANSWER: {body.model_answer.strip()[:2000]}\n"
+    if body.notes.strip():
+        usr += f"THE STUDENT'S NOTES (the standard to grade against):\n{body.notes.strip()[:8000]}\n"
+    usr += f"STUDENT'S SPOKEN ANSWER: \"{body.answer.strip()[:2000]}\""
+    try:
+        m = client().messages.create(model=pick_model("drill", None), max_tokens=700,
+                                     system=sys, messages=[{"role": "user", "content": usr}])
+        graded = _model_json(m)
+    except Exception as e:
+        print("speech:", type(e).__name__, e)
+        raise HTTPException(502, "Could not reach the grader — say that answer again.")
+    return oral.normalise(graded)
+
 
 # ---------------------------------------------------------------- notes
 @app.get("/api/courses/{cid}/notes")
