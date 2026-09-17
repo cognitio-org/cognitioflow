@@ -108,6 +108,9 @@
   .caselist button:hover{border-color:var(--rule);background:var(--faint)}
   .caselist b{font-family:var(--serif);font-weight:500}
   .holding{border-left:3px solid var(--ok);background:var(--faint);padding:.6rem .8rem;border-radius:var(--r);margin-top:.6rem}
+  .kept{display:block;margin-top:.45rem;padding-top:.35rem;border-top:1px solid var(--rule);font:.74rem/1.35 var(--sans);letter-spacing:.03em;color:var(--graphite)}
+  .kept b{font-weight:500;color:var(--accent)}
+  .kepttally{margin-top:.6rem}
   /* Advocate — oral revision */
   .advgrid{display:grid;grid-template-columns:1.4fr .9fr;gap:var(--s5)}
   @media(max-width:1000px){.advgrid{grid-template-columns:1fr}}
@@ -1261,7 +1264,20 @@ $('#lifeSkip').onclick=()=>{
 };
 
 /* ---- Courtroom ---- */
-const court={case:null,hearing:null,qi:0,busy:false};
+const court={case:null,hearing:null,qi:0,busy:false,kept:0};
+
+/* The server turns a missed bench question into a card and returns when it falls due. Until now the
+   page dropped that, so a hearing could tell you that you were wrong without ever telling you it had
+   done anything about it. Phrased the way the rest of the app talks about a due card. */
+function dueWord(iso){
+  if(!iso) return '';
+  const d=new Date(iso+'T00:00:00'); if(isNaN(d)) return '';
+  const t=new Date(); t.setHours(0,0,0,0);
+  const days=Math.round((d-t)/864e5);
+  if(days<=0) return 'due today';
+  if(days===1) return 'due tomorrow';
+  return 'due '+d.toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+}
 
 async function loadCourtCases(){
   const el=$('#courtCases');
@@ -1274,7 +1290,7 @@ async function loadCourtCases(){
 }
 
 async function openCase(name){
-  court.case=name; court.qi=0; court.hearing=null;
+  court.case=name; court.qi=0; court.hearing=null; court.kept=0;
   $('#courtLog').innerHTML=''; $('#courtHolding').innerHTML='';
   $('#courtWho').textContent='Preparing the hearing…'; $('#benchQ').textContent='…';
   try{ court.hearing=await post(`/courses/${cid}/court`,{case:name}); }
@@ -1296,6 +1312,8 @@ function benchAsk(){
   const q=h.bench[court.qi];
   if(!q){ $('#benchQ').textContent='The bench has heard enough.';
     if(h.holding) $('#courtHolding').innerHTML=`<div class="holding"><b>What the court actually held</b><div>${esc(h.holding)}</div></div>`;
+    if(court.kept) $('#courtHolding').insertAdjacentHTML('beforeend',
+      `<div class="kepttally small muted">${court.kept===1?'One gap is':court.kept+' gaps are'} waiting in <a href="#recall" data-nav="recall">Recall</a>.</div>`);
     return; }
   $('#benchQ').textContent=q;
   advSpeak && advSpeak(q);
@@ -1312,6 +1330,9 @@ async function courtReply(text){
     think.remove();
     const b=courtSay('tutor','');
     b.innerHTML=`<div class="verdict v-${g.mastery}">${esc(g.verdict)}</div>${esc(g.spoken)}`;
+    // g.due is present only when the grader found a gap worth carrying: the card is already written.
+    if(g.due){ court.kept++;
+      b.insertAdjacentHTML('beforeend',`<span class="kept">Kept as a card — <b>${esc(dueWord(g.due))}</b></span>`); }
     if(advSpeak) await advSpeak(g.spoken);   // the verdict finishes before the bench moves on
     court.qi++; setTimeout(benchAsk,700);
   }catch(e){ think.remove(); toast('The bench did not respond — say that again'); }
