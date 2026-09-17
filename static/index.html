@@ -178,15 +178,17 @@
   /* library */
   .drop{border:1.5px dashed var(--rule);border-radius:var(--r);padding:1.1rem 1.2rem;text-align:center;color:var(--graphite);margin-bottom:1rem;transition:border-color .15s,background .15s} .drop::before{content:"";display:block;width:18px;height:18px;margin:0 auto .45rem;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 16V4M6 10l6-6 6 6M4 20h16'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 16V4M6 10l6-6 6 6M4 20h16'/%3E%3C/svg%3E") center/contain no-repeat} .drop.over{border-color:var(--accent);border-style:solid;background:var(--faint);color:var(--ink)} .drop.over::after{content:"Release to add these files";display:block;margin-top:.3rem;font-weight:500} .drop label:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
   /* tutor */
-  .tutor{display:grid;grid-template-columns:230px minmax(0,1fr);gap:1rem;height:calc(100vh - 8rem)}
+  /* `>` matters: chat bubbles are built in JS as `advb tutor`, so an unscoped `.tutor` laid every
+     bubble out as the Tutor SCREEN's two-column grid. The layout div is a direct child of .screen. */
+  .screen>.tutor{display:grid;grid-template-columns:230px minmax(0,1fr);gap:1rem;height:calc(100vh - 8rem)}
   .col{border:1px solid var(--rule);border-radius:var(--r);padding:.8rem;display:flex;flex-direction:column;min-height:0}
   .ctx li{display:flex;gap:.5rem;align-items:flex-start;padding:.35rem 0;border-bottom:1px solid var(--rule);font-size:.86rem} .ctx li:last-child{border:none}
   .chat{flex:1;overflow:auto;display:flex;flex-direction:column;gap:.7rem;padding:.2rem 0}
-  .msg{max-width:88%;padding:.6rem .85rem;border-radius:var(--r);font-size:.94rem;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5} .msg.user{align-self:flex-end;background:var(--ink);color:#fff} .msg.assistant{align-self:flex-start;background:var(--faint);border-left:3px solid var(--accent)} .msg.assistant.md{white-space:normal;max-width:100%;width:100%} .msg.md p{margin:0 0 .5rem} .msg.md ul,.msg.md ol{margin:0 0 .5rem 1.2rem;padding:0} .msg.md h1,.msg.md h2,.msg.md h3{font-size:1rem;margin:.6rem 0 .3rem} .msg.md code{background:var(--paper);padding:0 .25rem;border-radius:3px;font-size:.88em} .msg.md pre{background:var(--paper);padding:.6rem;border-radius:var(--r);overflow:auto} .msg.md table{font-size:.88rem;margin:.4rem 0} .msg .viz{background:var(--paper);border:1px solid var(--rule);border-radius:var(--r);padding:.5rem;margin:.5rem 0;overflow:auto} .msg .viz svg,.noteview .viz svg{max-width:100%;height:auto;max-height:440px}
+  .msg{max-width:88%;padding:.6rem .85rem;border-radius:var(--r);font-size:.94rem;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5} .msg.user{align-self:flex-end;background:var(--ink);color:#fff} .msg.assistant{align-self:flex-start;background:var(--faint);border-left:3px solid var(--accent)} .msg.assistant.md{white-space:normal;max-width:100%;width:100%} .msg.md p{margin:0 0 .5rem} .msg.md ul,.msg.md ol{margin:0 0 .5rem 1.2rem;padding:0} .msg.md h1,.msg.md h2,.msg.md h3{font-size:1rem;margin:.6rem 0 .3rem} .msg.md code{background:var(--paper);padding:0 .25rem;border-radius:3px;font-size:.88em} .msg.md pre{background:var(--paper);padding:.6rem;border-radius:var(--r);overflow:auto} .msg.md table{font-size:.88rem;margin:.4rem 0} .msg .viz{background:var(--paper);border:1px solid var(--rule);border-radius:var(--r);padding:.5rem;margin:.5rem 0;overflow:auto} .msg .viz svg,.noteview .viz svg{max-width:100%;height:auto;max-height:440px} .viz svg,.viz svg text,.viz svg .nodeLabel,.viz svg foreignObject div,.viz svg foreignObject span{font-family:var(--sans)}
   .composer{display:flex;gap:.5rem;margin-top:.6rem;align-items:flex-end} .composer textarea{flex:1;min-height:56px;resize:vertical}
   .modes{display:flex;gap:.3rem;margin-bottom:.5rem} .modes .btn.active{background:var(--ink);color:#fff}
   /* notes */
-  .notes{display:grid;grid-template-columns:230px minmax(0,1fr);gap:1rem;height:calc(100vh - 8rem)}
+  .screen>.notes{display:grid;grid-template-columns:230px minmax(0,1fr);gap:1rem;height:calc(100vh - 8rem)}
   .notes .list li{padding:.45rem .5rem;border-bottom:1px solid var(--rule);cursor:pointer;font-size:.9rem} .notes .list li.active{background:var(--faint);border-left:3px solid var(--accent)}
   .editor{display:flex;flex-direction:column;gap:.5rem;min-height:0} .editor textarea{flex:1;font-family:var(--serif);font-size:1.02rem;line-height:1.6;padding:1rem;resize:none}
   .editor input{font-family:var(--serif);font-size:1.2rem}
@@ -319,13 +321,13 @@
     .g4{grid-template-columns:repeat(4,1fr);gap:.5rem} .stat{padding:.5rem .7rem;display:flex;align-items:baseline;gap:.4rem} .stat .n{font-size:1.25rem} .stat .l{margin:0;font-size:.78rem}
     .hero{padding:var(--s4) var(--s5);gap:var(--s4)} .hero h2{font-size:1.35rem} .hero .k{font-size:2.1rem}
     .g2{grid-template-columns:1fr} .panel{padding:.75rem .9rem}
-    .tutor,.notes{grid-template-columns:1fr;height:calc(100vh - 9.25rem)} .tutor{grid-template-rows:auto 1fr} .tutor aside.col{max-height:7.5rem;overflow:auto;padding:.45rem .7rem;flex-direction:row;align-items:baseline;gap:.5rem;flex-wrap:wrap;flex:0 0 auto} .tutor aside.col h3{font-size:.8rem;margin:0;color:var(--graphite);white-space:nowrap}
+    .screen>.tutor,.screen>.notes{grid-template-columns:1fr;height:calc(100vh - 9.25rem)} .screen>.tutor{grid-template-rows:auto 1fr} .tutor aside.col{max-height:7.5rem;overflow:auto;padding:.45rem .7rem;flex-direction:row;align-items:baseline;gap:.5rem;flex-wrap:wrap;flex:0 0 auto} .tutor aside.col h3{font-size:.8rem;margin:0;color:var(--graphite);white-space:nowrap}
     .tutor .ctx{display:flex;flex-wrap:wrap;gap:.3rem;flex:1} .tutor .ctx li{border:1px solid var(--rule);border-radius:999px;padding:.05rem .55rem;font-size:.78rem;color:var(--graphite)} .tutor .ctx li:last-child{border:1px solid var(--rule)} .tutor #ctxSize{margin:0!important;white-space:nowrap}
     .modes{flex-wrap:wrap;row-gap:.3rem} .msg{max-width:94%}
   }
   /* focus mode: current screen only, nothing else */
   body.focus aside.side, body.focus .head, body.focus .tutor aside.col, body.focus .notes>aside.col{display:none}
-  body.focus .app{grid-template-columns:1fr} body.focus .tutor,body.focus .notes{grid-template-columns:1fr;height:calc(100vh - 4.4rem)} body.focus main{padding:.8rem 1rem}
+  body.focus .app{grid-template-columns:1fr} body.focus .screen>.tutor,body.focus .screen>.notes{grid-template-columns:1fr;height:calc(100vh - 4.4rem)} body.focus main{padding:.8rem 1rem}
   #focusBtn{position:fixed;right:.7rem;top:.5rem;z-index:40;opacity:.55;font-size:.74rem;padding:.12rem .45rem;border-color:transparent} #focusBtn:hover{opacity:1}
 </style>
 <script src="/static/marked.min.js"></script>
@@ -646,7 +648,7 @@ const put=(p,b)=>api(p,{method:'PUT',headers:{'Content-Type':'application/json'}
 const del=p=>api(p,{method:'DELETE'});
 /* ---- ⌘K palette + search ---- */
 let palItems=[], palSel=0, palT=null;
-const PAL_SCREENS=[['home','Overview'],['library','Files'],['tutor','Tutor'],['notes','Notes'],['recall','Recall'],['planner','Planner'],['progress','Progress']];
+const PAL_SCREENS=[['home','Overview'],['library','Files'],['tutor','Tutor'],['notes','Notes'],['recall','Recall'],['advocate','Advocate'],['arena','Arena'],['planner','Planner'],['progress','Progress']];
 function openPal(){ $('#pal').hidden=false; $('#palQ').value=''; $('#palQ').placeholder='Search notes, files, chats, cards — or type a screen name'; palRender([]); setTimeout(()=>$('#palQ').focus(),0) }
 function closePal(){ $('#pal').hidden=true }
 function palRender(items){ palItems=items; palSel=0; $('#palList').innerHTML=items.length?items.map((it,i)=>`<li class="${i===0?'sel':''}" data-i="${i}"><span class="k">${it.kind}</span><span class="t">${esc(it.title)}</span>${it.snippet?`<span class="s">${esc(it.snippet)}</span>`:''}</li>`).join(''):'<li class="muted small" style="display:block">Type to search this course.</li>';
@@ -676,8 +678,8 @@ function show(id){ if(!SCREENS.includes(id)) id='home'; document.querySelectorAl
 document.addEventListener('click',e=>{const a=e.target.closest('a[data-nav]'); if(a){e.preventDefault(); show(a.dataset.nav)}});
 
 /* courses */
-async function loadCourses(){ courses=await api('/courses'); if(!courses.find(c=>c.id===cid)) cid=courses[0].id; const s=$('#course'); s.innerHTML=courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')+'<option value="__new">New course…</option>'; s.value=cid; document.documentElement.style.setProperty('--accent',C().accent); }
-$('#course').addEventListener('change',e=>{if(e.target.value==='__new'){e.target.value=cid;openCourseDlg(null);return} cid=e.target.value;localStorage.setItem('cf.course',cid);document.documentElement.style.setProperty('--accent',C().accent);show(localStorage.getItem('cf.screen')||'home')});
+async function loadCourses(){ courses=await api('/courses'); if(!courses.find(c=>c.id===cid)) cid=courses[0].id; const s=$('#course'); s.innerHTML=courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')+'<option value="__new">New course…</option>'; s.value=cid; document.documentElement.style.setProperty('--course',C().accent); }
+$('#course').addEventListener('change',e=>{if(e.target.value==='__new'){e.target.value=cid;openCourseDlg(null);return} cid=e.target.value;localStorage.setItem('cf.course',cid);document.documentElement.style.setProperty('--course',C().accent);show(localStorage.getItem('cf.screen')||'home')});
 $('#addCourse').addEventListener('click',()=>openCourseDlg(null));
 
 /* course dialog: "New course" in the switcher, "Course settings" on Overview */
@@ -791,16 +793,33 @@ async function loadTutor(){ const fs=await api(`/courses/${cid}/files`); const s
   const chars=sel.reduce((a,f)=>a+(f.chars||0),0); $('#ctxSize').textContent=chars?`≈ ${Math.round(chars/4/1000)}k tokens of text per message${chars>180000?' — over budget, later files will be truncated':''}`:'';
   const ms=await api(`/courses/${cid}/messages`); const ch=$('#chat'); ch.innerHTML=''; ms.forEach(m=>{const d=addMsg(m.role,m.content); if(m.role==='assistant') render(d,m.content)}); if(!ms.length) addMsg('assistant',`Tutor for ${C().name}. Tick files in Files, then ask — or say "drill me on ${sel[0]?sel[0].name.replace(/\.\w+$/,''):'this week'}".`); ch.scrollTop=ch.scrollHeight;
 }
-let mmInit=false;
+let mmTheme=null;   // the scheme mermaid was last initialised for, so a theme switch re-inits rather than latching
+function mmSetup(){
+  /* fontFamily was 'inherit'. Mermaid measures every node in a sandbox it appends to <body> — which
+     inherits the chrome sans — and the finished SVG then lands in .noteview, which is serif. Same
+     size, wider glyphs, so labels overflowed the diamonds mermaid had sized for them. Naming the
+     sans explicitly makes measurement and paint agree; .viz svg pins the paint side to match. A
+     flowchart label is diagram furniture, not prose, so sans is also the right call. */
+  const scheme=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'neutral';
+  if(mmTheme===scheme) return;
+  const sans=getComputedStyle(document.documentElement).getPropertyValue('--sans').trim()||'sans-serif';
+  mermaid.initialize({startOnLoad:false,theme:scheme,fontFamily:sans,
+                      flowchart:{useMaxWidth:true,nodeSpacing:28,rankSpacing:34,padding:8}});
+  mmTheme=scheme;
+}
 async function render(d,raw){
   d.dataset.raw=raw; if(!window.marked){d.textContent=raw;return}
   const blocks=[]; let txt=raw.replace(/```(mermaid|svg)\n([\s\S]*?)```/g,(m,k,body)=>{blocks.push({k,body});return `\n<div class="viz" data-viz="${blocks.length-1}"></div>\n`});
   d.classList.add('md'); d.innerHTML=marked.parse(txt,{breaks:true});
   for(const el of d.querySelectorAll('.viz')){ const b=blocks[+el.dataset.viz]; if(!b) continue;
     if(b.k==='svg'){ el.innerHTML=b.body; continue }
-    try{ if(!mmInit){ mermaid.initialize({startOnLoad:false,theme:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'neutral',fontFamily:'inherit',flowchart:{useMaxWidth:true,nodeSpacing:28,rankSpacing:34,padding:8}}); mmInit=true }
-      const {svg}=await mermaid.render('mm'+Math.random().toString(36).slice(2),b.body.trim()); el.innerHTML=svg }
-    catch(e){ el.innerHTML='<pre>'+b.body.replace(/</g,'&lt;')+'</pre>' } }
+    const mid='mm'+Math.random().toString(36).slice(2);
+    try{ mmSetup(); const {svg}=await mermaid.render(mid,b.body.trim()); el.innerHTML=svg }
+    catch(e){ el.innerHTML='<pre>'+b.body.replace(/</g,'&lt;')+'</pre>' }
+    // Mermaid measures in a sandbox div it appends to <body> as 'd'+id, and on a parse error it leaves
+    // it there — that is the bomb graphic the user sees stuck at the foot of an unrelated screen. The
+    // catch above cannot reach it, because it is not inside the element we are rendering into.
+    finally{ document.getElementById('d'+mid)?.remove() } }
   if(d.closest('#chat')) $('#chat').scrollTop=$('#chat').scrollHeight;
 }
 function addMsg(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;$('#chat').appendChild(d);$('#chat').scrollTop=$('#chat').scrollHeight;return d}
@@ -1379,7 +1398,8 @@ $('#courtMic').onclick=()=>{
   try{ advRecog.start(); advListening=true; $('#courtMic').setAttribute('aria-pressed','true'); $('#courtMic').textContent='● Listening'; }catch(e){}
 };
 
-function loadArena(){ arTab(localStorage.getItem('cf.arena')||'law'); ladder(); document.querySelectorAll('.p3course').forEach(e=>e.textContent=C().name); }
+function loadArena(){ arTab(localStorage.getItem('cf.arena')||'law'); ladder();
+  const c=C(); if(c) document.querySelectorAll('.p3course').forEach(e=>e.textContent=c.name); }   // C() is undefined until a course exists
 
 /* ---- Arena in 3D: the player (/play/, signed-in only) in a full-screen frame. Back to Arena, Escape and browser Back all close it. ---- */
 const P3={law:['Who Wants to Be a Lawyer — 3D','lawyer','#play3dLaw'],court:['Courtroom — 3D','','#play3dCourt']};
