@@ -1,11 +1,18 @@
-# Every 30 minutes, GitHub-side (no laptop): assess open PRs whose latest commit has no verdict yet — PRs opened before
-# the checker existed, or whose tests finished outside a normal run — post the short verdict comment and approve the
-# ones that pass. It approves; it never merges. The checker runs from main, so a PR cannot change its own reviewer.
+# After each test run, and hourly as a backstop, GitHub-side (no laptop): assess open PRs whose latest commit has no
+# verdict yet — PRs opened before the checker existed, or whose tests finished outside a normal run — post the short
+# verdict comment and approve the ones that pass. It approves; it never merges. The checker runs from main, so a PR
+# cannot change its own reviewer.
 name: pr sweep
 
 on:
+  # "*/30" asked for 48 runs a day and GitHub delivered 10 in 37 hours — gaps of 3-5 hours, one run queued 1h49m
+  # before it started. Frequent cron on shared runners is a request, not a promise. So the verdict now follows the
+  # event that makes a verdict possible, and the clock is only a backstop. :17 stays out of the on-the-hour rush.
+  workflow_run:
+    workflows: ["test and deploy"]
+    types: [completed]
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:
