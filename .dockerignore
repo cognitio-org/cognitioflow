@@ -14,3 +14,10 @@ __pycache__/
 *.db
 .DS_Store
 Start CognitioFlow.command
+# Arena 3D player: Blender sources, renders and dev fixtures never ship
+play/**/_src/
+play/**/*.blend
+play/**/*.blend1
+play/**/*.md
+play/**/fixtures/
+play/**/screenshots/
