@@ -66,6 +66,7 @@ export function documents(toc, org) {
         week,
         module: mod.Title || "",
         url: downloadUrl(org, t.TopicId),
+        path: decodeSafe(t.Url || ""),
       });
     }
   }
@@ -100,7 +101,30 @@ export function linksIn(html, folder, context = {}) {
     const url = encodePath(path);
     if (seen.has(url)) continue;
     seen.add(url);
-    out.push({ key: `f:${decodeSafe(path)}`, kind: "link", title: basename(path), name: basename(path), week: context.week || "", module: context.module || "", url });
+    out.push({ key: `f:${decodeSafe(path)}`, kind: "link", title: basename(path), name: basename(path), week: context.week || "", module: context.module || "", url, path: decodeSafe(path) });
+  }
+  return out;
+}
+
+/** A File topic and a link inside a page or module description can point at the same file (same
+    /content/enforced/… path) with different keys ("t:" vs "f:"), so `unseen`'s key-based dedup never
+    catches them and both would be uploaded. Collapse those to one entry, preferring the topic (a
+    stable TopicId beats a path that can be re-pointed by editing the page). Order is stable. */
+export function dedupe(items) {
+  const winner = new Map();  // path -> the item that should represent it
+  for (const it of items) {
+    if (!it.path) continue;
+    const cur = winner.get(it.path);
+    if (!cur || (cur.kind !== "topic" && it.kind === "topic")) winner.set(it.path, it);
+  }
+  const out = [];
+  const used = new Set();
+  for (const it of items) {
+    if (!it.path) { out.push(it); continue; }
+    if (winner.get(it.path) !== it) continue;   // a duplicate that lost to the winner
+    if (used.has(it.path)) continue;             // the winner itself, but seen twice (e.g. same topic twice)
+    used.add(it.path);
+    out.push(it);
   }
   return out;
 }
