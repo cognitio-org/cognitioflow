@@ -231,11 +231,6 @@ def _checked(fn, *a):
     try: return fn(*a)
     except cb.BriefError as e: raise HTTPException(422, str(e))
 
-def _owner_id(d) -> str:
-    # Phase 4: replace with current_user(request).id — until then every course belongs to the MATEJ_EMAIL user (or nobody).
-    r = d.execute("SELECT id FROM users WHERE email=?", (os.environ.get("MATEJ_EMAIL", ""),)).fetchone()
-    return r["id"] if r else ""
-
 @app.get("/api/course-meta")
 def course_meta(): return {"palette": cb.PALETTE, "fields": [{"key": k, "label": l, "kind": kind} for k, l, kind in cb.BRIEF_FIELDS]}
 
@@ -248,19 +243,21 @@ def brief_preview(p: BriefPreviewIn):
     return {"prompt": "" if cb.brief_is_empty(brief) else cb.compile_prompt(brief, p.name), "fallback": False}
 
 @app.post("/api/courses")
-def add_course(c: CourseIn):
+def add_course(c: CourseIn, user: dict = Depends(current_user)):
     name = c.name.strip()
     if not name: raise HTTPException(422, "Course name is required.")
     brief = _checked(cb.normalise_brief, c.brief)
     accent = _checked(cb.valid_accent, c.accent) if c.accent else None
     cid = uuid.uuid4().hex[:8]
     with db() as d:
-        owner = _owner_id(d)
+        # Phase 4 landed while this branch was open: the course belongs to whoever is signed in, and the
+        # slug and accent are unique per that person, not per the one MATEJ_EMAIL row this used to assume.
+        owner = user["id"]
         mine = d.execute("SELECT slug,accent FROM courses WHERE COALESCE(user_id,'')=?", (owner,)).fetchall()
         slug = cb.unique_slug(cb.slugify(c.slug or name), {r["slug"] for r in mine})
         accent = accent or cb.pick_accent([r["accent"] for r in mine])
         d.execute("INSERT INTO courses(id,name,accent,tutor_prompt,brief,slug,user_id,created) VALUES(?,?,?,?,?,?,?,?)",
-                  (cid, name, accent, cb.course_prompt(brief, name, c.tutor_prompt), Jsonb(brief), slug, owner or None, time.time()))
+                  (cid, name, accent, cb.course_prompt(brief, name, c.tutor_prompt), Jsonb(brief), slug, owner, time.time()))
     return {"id": cid, "slug": slug, "accent": accent}
 
 @app.put("/api/courses/{cid}")
