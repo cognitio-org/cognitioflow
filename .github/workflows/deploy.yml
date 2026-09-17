@@ -36,7 +36,7 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35   # make test against a Neon branch took 19m47s on 2026-09-17; 20 left no headroom
     env:
       NEON_DATABASE: ${{ vars.NEON_DATABASE || 'cognitioflow' }}
       NEON_ROLE: ${{ vars.NEON_ROLE || 'neondb_owner' }}
@@ -85,15 +85,21 @@ jobs:
           ALLOWED_EMAILS: matej@mgms.eu
           ANTHROPIC_API_KEY: sk-ant-test-key
           STORAGE: local
+          PYTEST_ADDOPTS: --durations=15   # the slowest tests, so the next speed-up is aimed, not guessed
         run: make test
 
+      # A direct API call: neondatabase/delete-branch-action (v3.2.1 included) still pins setup-node v4,
+      # which runs on the deprecated Node 20.
       - name: Delete Neon branch
         if: always() && steps.neon.outputs.branch_id != ''
-        uses: neondatabase/delete-branch-action@v3
-        with:
-          project_id: ${{ vars.NEON_PROJECT_ID }}
-          branch: ${{ steps.neon.outputs.branch_id }}
-          api_key: ${{ secrets.NEON_API_KEY }}
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          BRANCH_ID: ${{ steps.neon.outputs.branch_id }}
+        run: |
+          curl -fsS -o /dev/null -X DELETE -H "Authorization: Bearer $NEON_API_KEY" -H "Accept: application/json" \
+            "https://console.neon.tech/api/v2/projects/$PROJECT_ID/branches/$BRANCH_ID"
+          echo "Deleted Neon branch $BRANCH_ID"
 
   # PR worthiness: one short comment on every PR — Approve/Hold, one-line explanation, security %.
   # The checker is taken from main (base sha), so a PR cannot rewrite its own reviewer; it never runs PR code.

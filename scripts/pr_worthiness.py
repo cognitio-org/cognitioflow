@@ -60,7 +60,7 @@ DB_URL = re.compile(r"postgres(?:ql)?://[^:/\s@'\"]+:([^@\s'\"]+)@([^/\s:'\"?]+)
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "host.docker.internal", "db", "postgres"}
 
 AREAS = [  # (path pattern, penalty, what it touches)
-    (re.compile(r"^(scripts/pr_worthiness\.py|\.github/workflows/pr-sweep\.yml)$"), 20, CHECKER),
+    (re.compile(r"^(scripts/pr_worthiness\.py|\.github/workflows/(pr-sweep|deploy)\.yml)$"), 20, CHECKER),
     (re.compile(r"^auth\.py$"), 12, "sign-in and sessions"),
     (re.compile(r"^\.github/workflows/"), 8, "the deploy workflow"),
     (re.compile(r"^infra/"), 8, "cloud infrastructure"),

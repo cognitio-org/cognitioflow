@@ -64,16 +64,30 @@ def pinned_storage(apply_migrations):
     shutil.rmtree(_TEST_LOCAL_ROOT, ignore_errors=True)
 
 
+_TRUNCATE = ("TRUNCATE courses, files, messages, notes, cards, reviews, "
+             "note_versions, recordings, sessions, users, jobs CASCADE")
+
+
+@pytest.fixture(scope="session")
+def _truncate_conn(apply_migrations):
+    """One connection for the per-test cleanup. In CI the database is a Neon branch across the Atlantic,
+    and opening a fresh TLS connection after every test is slow. Holder list so a dropped connection
+    can be replaced for the rest of the session."""
+    holder = [psycopg.connect(_pg_url(), autocommit=True)]
+    yield holder
+    holder[0].close()
+
+
 @pytest.fixture(autouse=True)
-def clean_tables(apply_migrations):
-    """Truncate all user-data tables before each test."""
+def clean_tables(_truncate_conn):
+    """Truncate all user-data tables after each test."""
     yield
-    with psycopg.connect(_pg_url()) as conn:
-        conn.execute(
-            "TRUNCATE courses, files, messages, notes, cards, reviews, "
-            "note_versions, recordings, sessions, users, jobs CASCADE"
-        )
-        conn.commit()
+    try:
+        _truncate_conn[0].execute(_TRUNCATE)
+    except psycopg.OperationalError:  # the server dropped the connection (idle timeout, compute restart)
+        _truncate_conn[0].close()
+        _truncate_conn[0] = psycopg.connect(_pg_url(), autocommit=True)
+        _truncate_conn[0].execute(_TRUNCATE)
 
 
 @pytest.fixture
