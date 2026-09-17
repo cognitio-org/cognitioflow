@@ -34,7 +34,49 @@ env:
   BACKUP_SA: cognitioflow-backup@vigilant-axis-483119-r8.iam.gserviceaccount.com
 
 jobs:
+  # Fail fast. The same suite against a Postgres beside the runner finishes in about a minute; against
+  # a Neon branch it takes eighteen, because every query in every test crosses to Frankfurt and back.
+  # A pull request that is simply broken should not spend a Neon branch and eighteen minutes to find
+  # that out. Nothing is given up: the Neon job below still runs on every green PR, still gates the
+  # deploy, and is still what proves a migration applies to real production data.
+  fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16   # Phase 10's embeddings need the vector extension; the stock image has none
+        env:
+          POSTGRES_USER: cf
+          POSTGRES_PASSWORD: cf
+          POSTGRES_DB: cognitioflow
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U cf -d cognitioflow"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: make test
+        env:
+          DATABASE_URL: postgresql://cf:cf@localhost:5432/cognitioflow
+          AUTH: "off"
+          ALLOWED_EMAILS: matej@mgms.eu
+          ANTHROPIC_API_KEY: sk-ant-test-key
+          STORAGE: local
+          PYTEST_ADDOPTS: --durations=15
+        run: make test
+
   test:
+    needs: fast          # a broken PR has already failed, a minute in, without touching Neon
     runs-on: ubuntu-latest
     timeout-minutes: 35   # make test against a Neon branch took 19m47s on 2026-09-17; 20 left no headroom
     env:
@@ -105,7 +147,7 @@ jobs:
   # The checker is taken from main (base sha), so a PR cannot rewrite its own reviewer; it never runs PR code.
   # Optional repo secret ANTHROPIC_API_KEY adds a Claude review on top of the rules.
   worthiness:
-    needs: test
+    needs: [fast, test]
     if: always() && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -132,7 +174,9 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           PR_CHECK_MODEL: ${{ vars.PR_CHECK_MODEL }}
-          TESTS: ${{ needs.test.result }}
+          # When fast fails, test is skipped — report the failure that actually happened rather than
+          # telling the author their tests "did not run".
+          TESTS: ${{ needs.test.result == 'skipped' && needs.fast.result || needs.test.result }}
           PR: ${{ github.event.pull_request.number }}
           # The commit TESTS actually belongs to. If the head has moved on since, this run's verdict
           # is about a commit that is no longer the head, so it stands down for that commit's own run.
