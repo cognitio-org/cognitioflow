@@ -1204,6 +1204,113 @@ def quiz(cid: str, qz: QuizIn):
         out.append({"id": c["id"], "question": c["front"], "options": opts, "correct": c["back"]})
     return out
 
+
+# ---------------------------------------------------------------- the arena in 3D (Phase 11f)
+LAWYER_RUNGS = 15
+LAWYER_POOL = 20            # a few spare cards, so the ones the model cannot give three wrong answers don't shorten the ladder
+_WORD = re.compile(r"[A-Za-zÀ-ÿ0-9]{4,}")
+_SENTENCE = re.compile(r"(?<=[.!?;])\s+|\n+")
+_SLIDE = re.compile(r"^--- slide (\d+) ---$", re.M)
+
+def _own_course(cid: str, user: dict) -> dict:
+    """The course, if the signed-in user may see it. Courses seeded before sign-in existed have no owner."""
+    c = rows("SELECT id,name,accent,user_id FROM courses WHERE id=?", cid)
+    if not c or (c[0]["user_id"] and c[0]["user_id"] != user["id"]): raise HTTPException(404, "No such course.")
+    return c[0]
+
+def _card_level(c: dict) -> int:
+    """1 easy … 3 hard, from the scheduler's own view of the card. FSRS difficulty runs 1–10; SM-2 ease drops on misses."""
+    if c.get("difficulty") is not None:
+        return 1 if c["difficulty"] < 4 else 2 if c["difficulty"] < 7 else 3
+    if not c.get("reps"): return 2
+    return 1 if (c.get("ease") or 2.5) >= 2.5 else 2 if c["ease"] >= WEAK_EASE else 3
+
+def _quote_and_cite(c: dict, files: dict) -> tuple:
+    """The sentence of the card's source file that shares most words with the card, with its slide number where the
+    extraction kept one. Nothing outside the student's own material: without a good match the quote is the card itself."""
+    source = (c.get("source") or "").strip()
+    text = files.get(source) or ""
+    want = {w.casefold() for w in _WORD.findall(f"{c['front']} {c['back']}")}
+    best, best_score, best_at = "", 0, 0
+    if text and want:
+        pos = 0
+        for s in _SENTENCE.split(text):
+            at = text.find(s, pos); pos = max(pos, at)
+            s = s.strip()
+            if not 20 <= len(s) <= 400 or s.startswith("--- slide"): continue
+            score = len(want & {w.casefold() for w in _WORD.findall(s)})
+            if score > best_score: best, best_score, best_at = s, score, at
+    cite = {"source": source or "Your cards"}
+    if best_score >= 2:
+        slides = [m for m in _SLIDE.finditer(text) if m.start() <= best_at]
+        if slides: cite["page"] = int(slides[-1].group(1))
+        return best, [cite]
+    return c["back"].strip(), [cite]
+
+@app.get("/api/courses/{cid}/lawyer-pack")
+def lawyer_pack(cid: str, user: dict = Depends(current_user)):
+    """
+    The 3D show's question pack (games/SPEC_lawyer_tutor.md schema), from this course's own cards. It is /quiz's
+    output — same cards, same cheap-model distractors — reshaped: options keyed A–D, a level from the card's scheduling,
+    and a quote from the card's source file. `card_id` rides along so a miss can rate the card Again, as the 2D ladder does.
+    """
+    import hashlib
+    course = _own_course(cid, user)
+    made = quiz(cid, QuizIn(count=LAWYER_POOL))[:LAWYER_RUNGS]
+    cards_by_id = {c["id"]: c for c in rows("SELECT * FROM cards WHERE course_id=? AND id = ANY(?)", cid, [m["id"] for m in made])} if made else {}
+    names = {c["source"] for c in cards_by_id.values() if c.get("source")}
+    files = {f["name"]: f["text"] or "" for f in rows("SELECT name,text FROM files WHERE course_id=?", cid) if f["name"] in names}
+    questions = []
+    for m in made:
+        c = cards_by_id.get(m["id"])
+        if not c: continue
+        opts = m["options"]
+        keyed = [{"key": k, "text": str(o)} for k, o in zip("ABCD", opts)]
+        quote, cites = _quote_and_cite(c, files)
+        week = int(c["week"]) if str(c.get("week") or "").isdigit() else None
+        questions.append({
+            "id": "q-" + hashlib.sha1(c["front"].encode()).hexdigest()[:8], "card_id": c["id"],
+            "level": _card_level(c), "topic": (c.get("concept") or "")[:80], "week": week,
+            "question": c["front"], "options": keyed,
+            "answer": next(o["key"] for o in keyed if o["text"] == m["correct"]),
+            "explanation": c["back"], "quote": quote, "cites": cites})
+    return {"mode": "lawyer", "id": f"lawyer-{cid}", "course": course["name"], "course_id": cid,
+            "title": f"Who Wants to Be a Lawyer? {course['name']}",
+            "logline": f"{len(questions)} questions from your {course['name']} cards stand between you and the bar.",
+            "tutor": cid, "generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "questions": questions}
+
+
+# Case Docket story games: play/games/index.json lists them, play/games/courses.json says which app course each
+# game course code belongs to (data, not code). Served only here, behind sign-in, and only for the course asked for.
+PLAY_DIR = ROOT / "play"
+GAMES_DIR = PLAY_DIR / "games"
+
+def _docket_for(course: dict) -> list:
+    try:
+        index = json.loads((GAMES_DIR / "index.json").read_text(encoding="utf-8"))
+        aliases = json.loads((GAMES_DIR / "courses.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    mine = {course["id"].casefold(), (course["name"] or "").casefold()}
+    def belongs(code: str) -> bool:
+        names = {code.casefold()} | {str(a).casefold() for a in aliases.get(code, [])}
+        return bool(names & mine)
+    return [g for g in index if isinstance(g, dict) and g.get("id") and g.get("path") and belongs(str(g.get("course", "")))]
+
+@app.get("/api/courses/{cid}/docket")
+def docket(cid: str, user: dict = Depends(current_user)):
+    course = _own_course(cid, user)
+    return [{"id": g["id"], "course": g.get("course", ""), "title": g.get("title", ""), "path": f"/api/courses/{cid}/docket/{g['id']}"}
+            for g in _docket_for(course)]
+
+@app.get("/api/courses/{cid}/docket/{gid}")
+def docket_game(cid: str, gid: str, user: dict = Depends(current_user)):
+    course = _own_course(cid, user)
+    g = next((g for g in _docket_for(course) if g["id"] == gid), None)
+    path = (GAMES_DIR / g["path"]).resolve() if g else None
+    if not path or not path.is_relative_to(GAMES_DIR.resolve()) or not path.is_file(): raise HTTPException(404)
+    return Response(content=path.read_text(encoding="utf-8"), media_type="application/json", headers={"Cache-Control": "private, no-cache"})
+
 # ---------------------------------------------------------------- search
 @app.get("/api/courses/{cid}/search")
 def search(cid: str, q: str, limit: int = 20):
@@ -1688,6 +1795,20 @@ def stats(cid: str):
             "streak": streak, "files": files_n["n"], "file_chars": files_n["total_chars"], "study_minutes": minutes, "questions_asked": msgs}
 
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
+class PlayerFiles(StaticFiles):
+    """The 3D player: not under /static (public), so AuthMiddleware holds it behind sign-in. Game JSON is not served here.
+    Folders named with their version (vendor-r170/, fonts-v1/: three.js and fonts, nothing course-related) never change
+    under that name, so browsers keep them for a year — rename the folder when the content changes. Everything else
+    (index.html, the player's own modules) revalidates by ETag on every load, so a deploy is never served stale."""
+    VERSIONED = re.compile(r"^(?:vendor|fonts)-[A-Za-z0-9.]+/")
+
+    def file_response(self, full_path, stat_result, scope, status_code=200):
+        resp = super().file_response(full_path, stat_result, scope, status_code)
+        rel = self.get_path(scope).replace(os.sep, "/")
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable" if self.VERSIONED.match(rel) else "no-cache"
+        return resp
+
+app.mount("/play/player", PlayerFiles(directory=PLAY_DIR / "player"), name="play")
 
 
 if __name__ == "__main__":

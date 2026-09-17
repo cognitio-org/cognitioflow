@@ -81,6 +81,36 @@ a hearing from one. The room is CSS 3D: bench, two counsel tables, a gallery. Ma
 the tutor argues the other and the bench interrupts with questions drawn from the file's own reasoning.
 It closes with the real outcome and what the court actually held, quoted from the materials.
 
+### 11f — The Arena in 3D (decision, 2026-09-17)
+Asked for on 2026-09-17: the two games "in the same 3D style" as the Case Docket player (the three.js
+story games built outside the app). **Decision:** the Arena gets a 3D mode on vendored three.js r170.
+This is the exception the Decisions block above reserves, written down before the code:
+
+- **Why CSS 3D cannot carry it.** The courtroom and the show need lit sets, shadows, fog, posed
+  characters and camera moves between shots. CSS 3D has no lighting and no depth buffer (faces sort
+  wrongly once a room has furniture), and it cannot pose a character. The CSS room in 11e stays a shallow
+  stage; the player needs a scene graph.
+- **How it stays inside the rules.** three.js is vendored as plain ES modules (`play/player/vendor/`) and
+  loaded with an import map. No npm, no bundler, no build step, no framework. The player is its own page in
+  an iframe overlay, so `static/index.html` gains only a button per tab and the overlay.
+- **Behind sign-in.** The player lives in `play/`, mounted at `/play/`, *not* under `/static/`: the middleware
+  treats `/static/*` as public, and the Case Docket games contain lecture quotes. Game JSON is served only
+  through `/api/courses/{cid}/docket…`, and only the games that belong to that course.
+- **No new generation path.** The show's question pack (`GET /api/courses/{cid}/lawyer-pack`) uses the same
+  cards and the same cheap-model distractors as `/quiz`, reshaped to the player's pack schema. Ask the Tutor
+  calls `/hint`. A wrong answer rates the card `Again` through `/api/cards/{kid}/review`, as the 2D game does.
+- **The 2D Arena stays** as the fallback. Without WebGL, the player itself switches to a 2D stage.
+  Reduced motion and a low-quality switch carry through.
+
+Acceptance (11f):
+- [ ] Signed out, `/play/player/index.html`, `/api/courses/{cid}/lawyer-pack` and `/api/courses/{cid}/docket` are refused (redirect / 401).
+- [ ] The pack has exactly four distinct options A–D per question, an answer among them, level 1–3, a non-empty quote and a cite; only the selected course's cards are used.
+- [ ] Arena → "Play in 3D" opens the player full-screen for the selected course; the course name and "Back to Arena" are always visible; Escape and browser Back return to Arena.
+- [ ] The show: up to 15 rungs (as many as the cards fill), 50:50, Poll the Jury, Ask the Tutor (a hint, never the answer); a wrong answer makes that card due again.
+- [ ] Courtroom → "Play in 3D" lists only the Case Docket games for the selected course; an empty list says so.
+- [ ] Reduced motion is respected; the Low quality switch reloads the player in low quality.
+- [ ] The Docker image ships `play/` without `.blend`/`_src` files.
+
 ## Acceptance
 - [ ] Book: opens, tabs turn to a leaf, tilt is calm, still fine at 1190px and with reduced motion.
 - [ ] Apply mode: names an article and a case from ticked files for each step; `[OUTSIDE FILES]` when it strays.

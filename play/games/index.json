@@ -1,0 +1,23 @@
+[
+  {
+    "course": "IIEL",
+    "id": "il-sources-of-international-law",
+    "title": "The Gillyweed Accord",
+    "path": "IIEL/il-sources-of-international-law.json",
+    "mode": "case"
+  },
+  {
+    "course": "IIEL",
+    "id": "w1-direct-effect-supremacy",
+    "title": "The Bicycle Duty",
+    "path": "IIEL/w1-direct-effect-supremacy.json",
+    "mode": "case"
+  },
+  {
+    "course": "IIEL",
+    "id": "w2-legislative-procedures-horizontal-effect",
+    "title": "The Joint Programme",
+    "path": "IIEL/w2-legislative-procedures-horizontal-effect.json",
+    "mode": "case"
+  }
+]
