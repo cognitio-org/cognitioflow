@@ -108,6 +108,18 @@
   .caselist button:hover{border-color:var(--rule);background:var(--faint)}
   .caselist b{font-family:var(--serif);font-weight:500}
   .holding{border-left:3px solid var(--ok);background:var(--faint);padding:.6rem .8rem;border-radius:var(--r);margin-top:.6rem}
+  /* Arena in 3D — the entry strip and the full-screen player frame (the player keeps its own look inside) */
+  .play3d{display:flex;align-items:center;justify-content:space-between;gap:var(--s4);margin-bottom:var(--s3)}
+  .play3d h3{margin:0 0 .15rem} .play3d .btn{min-height:40px;white-space:nowrap}
+  .or2d{margin:0 0 var(--s2)}
+  @media(max-width:700px){.play3d{flex-direction:column;align-items:stretch}}
+  .p3{position:fixed;inset:0;z-index:200;display:flex;flex-direction:column;background:#0c0b0a}
+  .p3bar{display:flex;align-items:center;gap:var(--s4);padding:var(--s2) var(--s4);min-height:52px;background:var(--paper);color:var(--ink);border-bottom:3px solid var(--accent)}
+  .p3bar .btn{min-height:36px;white-space:nowrap}
+  .p3title{flex:1;min-width:0;font-family:var(--serif);font-size:1.02rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .p3bar label{display:flex;align-items:center;gap:.35rem;min-height:32px;cursor:pointer;white-space:nowrap}
+  .p3stage{flex:1;display:flex;min-height:0} .p3stage iframe{flex:1;width:100%;border:0;display:block;background:#0c0b0a}
+  @media(max-width:700px){.p3keys{display:none}}
   /* Advocate — oral revision */
   .advgrid{display:grid;grid-template-columns:1.4fr .9fr;gap:var(--s5)}
   @media(max-width:1000px){.advgrid{grid-template-columns:1fr}}
@@ -479,9 +491,14 @@
 
 <section id="arena" class="screen">
   <div class="head"><div><h1>Arena</h1><div class="small muted" id="arSub">Play it out — from your own cards and your own notes.</div></div>
-    <span><button class="btn small" id="lawStart">Start</button> <span class="seg" role="group"><button class="btn small" id="arTabLaw" aria-pressed="true">Who Wants to Be a Lawyer</button><button class="btn small" id="arTabCourt" aria-pressed="false">Courtroom</button></span></span></div>
+    <span><button class="btn small" id="lawStart">Start in 2D</button> <span class="seg" role="group"><button class="btn small" id="arTabLaw" aria-pressed="true">Who Wants to Be a Lawyer</button><button class="btn small" id="arTabCourt" aria-pressed="false">Courtroom</button></span></span></div>
 
   <div id="arLawyer">
+    <div class="panel bar play3d">
+      <div><h3>Play the show in 3D</h3><div class="small muted">A full-screen studio with questions from your <b class="p3course"></b> cards. <kbd>Esc</kbd> brings you back here.</div></div>
+      <button class="btn primary" id="play3dLaw" type="button">Play in 3D</button>
+    </div>
+    <div class="small muted or2d">Or play here in 2D:</div>
     <div class="arwrap">
       <div class="panel">
         <div class="small muted" id="lawState">Questions from your own cards — clear every rung to win.</div>
@@ -499,6 +516,11 @@
   </div>
 
   <div id="arCourt" hidden>
+    <div class="panel bar play3d">
+      <div><h3>Take a case in 3D</h3><div class="small muted">Walk into the court and argue a Case Docket case for <b class="p3course"></b>. <kbd>Esc</kbd> brings you back here.</div></div>
+      <button class="btn primary" id="play3dCourt" type="button">Play in 3D</button>
+    </div>
+    <div class="small muted or2d">Or hold a hearing here in 2D, from a case in your notes:</div>
     <div class="arwrap">
       <div class="panel">
         <div class="room" id="courtRoom" aria-hidden="true">
@@ -544,6 +566,15 @@
 </main>
 </div>
 <div class="toast" id="toast" role="status"></div>
+<div id="play3d" class="p3" hidden role="dialog" aria-modal="true" aria-labelledby="play3dTitle">
+  <div class="p3bar">
+    <button class="btn small" id="play3dBack" type="button">← Back to Arena</button>
+    <div class="p3title" id="play3dTitle"><span id="play3dMode"></span> · <b id="play3dCourse"></b></div>
+    <label class="small" title="Fewer lights and effects, for a smoother frame rate"><input type="checkbox" id="play3dLow"> Low quality</label>
+    <span class="small muted p3keys"><kbd>Esc</kbd> back to Arena</span>
+  </div>
+  <div class="p3stage" id="play3dStage"></div>
+</div>
 <div id="pal" class="pal" hidden role="dialog" aria-label="Search and jump"><div class="palbox">
   <input type="text" id="palQ" placeholder="Search notes, files, chats, cards — or type a screen name" autocomplete="off">
   <ul class="clean" id="palList"></ul>
@@ -1238,7 +1269,46 @@ $('#courtMic').onclick=()=>{
   try{ advRecog.start(); advListening=true; $('#courtMic').setAttribute('aria-pressed','true'); $('#courtMic').textContent='● Listening'; }catch(e){}
 };
 
-function loadArena(){ arTab(localStorage.getItem('cf.arena')||'law'); ladder(); }
+function loadArena(){ arTab(localStorage.getItem('cf.arena')||'law'); ladder(); document.querySelectorAll('.p3course').forEach(e=>e.textContent=C().name); }
+
+/* ---- Arena in 3D: the player (/play/, signed-in only) in a full-screen frame. Back to Arena, Escape and browser Back all close it. ---- */
+const P3={law:['Who Wants to Be a Lawyer — 3D','lawyer','#play3dLaw'],court:['Courtroom — 3D','','#play3dCourt']};
+let p3Open=false, p3Which='law';
+function p3Src(){
+  const q=new URLSearchParams({course:cid});
+  if(P3[p3Which][1]) q.set('mode',P3[p3Which][1]);
+  if($('#play3dLow').checked) q.set('quality','low');
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches) q.set('reduced','1');
+  return '/play/player/index.html?'+q;
+}
+// A fresh frame per visit, removed on close: changing an iframe's src would add entries to this page's Back history.
+function p3Frame(){
+  const f=document.createElement('iframe'); f.id='play3dFrame'; f.title='Arena in 3D'; f.allow='autoplay; fullscreen'; f.src=p3Src();
+  $('#play3dStage').replaceChildren(f); f.focus();
+}
+const p3Behind=on=>['.app','#focusBtn','#timer'].forEach(s=>{ const el=document.querySelector(s); if(el) el.inert=on; });
+function open3d(which){
+  p3Which=which;
+  $('#play3dMode').textContent=P3[which][0]; $('#play3dCourse').textContent=C().name;
+  $('#play3d').hidden=false; p3Behind(true);
+  if(!p3Open){ p3Open=true; history.pushState({cf3d:1},'','#arena-3d'); }
+  p3Frame();
+}
+function close3d(fromHistory){
+  if(!p3Open) return;
+  p3Open=false;
+  if(!fromHistory && history.state && history.state.cf3d) history.back();
+  $('#play3dStage').replaceChildren(); $('#play3d').hidden=true; p3Behind(false);
+  const b=$(P3[p3Which][2]); if(b) b.focus();
+}
+$('#play3dLaw').onclick=()=>open3d('law'); $('#play3dCourt').onclick=()=>open3d('court');
+$('#play3dBack').onclick=()=>close3d(false);
+$('#play3dLow').checked=localStorage.getItem('cf.play3d.low')==='1';
+$('#play3dLow').onchange=e=>{ localStorage.setItem('cf.play3d.low',e.target.checked?'1':'0'); if(p3Open) p3Frame(); };
+window.addEventListener('popstate',()=>close3d(true));
+window.addEventListener('message',e=>{ if(e.origin===location.origin && e.data && e.data.type==='cf-play-exit') close3d(false); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape' && p3Open){ e.preventDefault(); close3d(false); } });
+if(location.hash==='#arena-3d') history.replaceState(null,'',location.pathname+location.search);
 
 /* ---- recorder ---- */
 let rec=null, recId=null, recStart=0, recChunks=[], recTimer=null;
