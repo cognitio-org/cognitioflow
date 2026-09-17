@@ -283,3 +283,46 @@ def test_an_openrouter_key_in_the_diff_blocks_the_pr():
         [f("run.py")], diff_for("run.py", ["OPENROUTER_API_KEY = 'sk-or-v1-" + "a1b2c3d4" * 8 + "'"]))
     assert blocking, "a committed OpenRouter key must block"
     assert "OpenRouter" in blocking[0]
+
+
+# --- a run must not stamp its tests result onto a commit that never saw those tests ---------------
+
+def _pr_view_gh(head_sha, calls):
+    """gh stub: `pr view` returns a PR at head_sha; everything else is recorded."""
+    import json as _json
+
+    def fake(*args):
+        calls.append(args)
+        if args[:2] == ("pr", "view"):
+            return _json.dumps({"title": "t", "body": "", "headRefOid": head_sha, "files": [f("README.md")]})
+        if args[:2] == ("pr", "diff"):
+            return diff_for("README.md", ["x"])
+        return "{}"
+    return fake
+
+
+def test_a_run_whose_commit_is_no_longer_the_head_stands_down(monkeypatch):
+    calls = []
+    monkeypatch.setattr(pw, "gh", _pr_view_gh("bbbbbbbb", calls))
+    monkeypatch.setenv("HEAD_SHA", "aaaaaaaa")  # this run tested aaaaaaaa; the head moved to bbbbbbbb
+    out = pw.assess_pr("o/r", 7, "success", use_model=False, do_post=True, do_approve=True)
+    assert out is None, "a stale run must not produce a verdict"
+    assert not any(c[:2] == ("pr", "diff") for c in calls), "it should stop before doing any work"
+    assert not any("event=APPROVE" in " ".join(c) for c in calls), "and must never approve"
+
+
+def test_a_run_on_the_current_head_still_assesses(monkeypatch):
+    calls = []
+    monkeypatch.setattr(pw, "gh", _pr_view_gh("aaaaaaaa", calls))
+    monkeypatch.setenv("HEAD_SHA", "aaaaaaaa")
+    out = pw.assess_pr("o/r", 7, "success", use_model=False, do_post=False, do_approve=False)
+    assert out is not None and out.verdict == "approve"
+
+
+def test_the_sweep_is_unaffected_because_it_sets_no_head_sha(monkeypatch):
+    """The sweep reads the tests result from the current head's own checks, so it is already consistent."""
+    calls = []
+    monkeypatch.setattr(pw, "gh", _pr_view_gh("bbbbbbbb", calls))
+    monkeypatch.delenv("HEAD_SHA", raising=False)
+    out = pw.assess_pr("o/r", 7, "success", use_model=False, do_post=False, do_approve=False)
+    assert out is not None and out.verdict == "approve"

@@ -134,6 +134,9 @@ jobs:
           PR_CHECK_MODEL: ${{ vars.PR_CHECK_MODEL }}
           TESTS: ${{ needs.test.result }}
           PR: ${{ github.event.pull_request.number }}
+          # The commit TESTS actually belongs to. If the head has moved on since, this run's verdict
+          # is about a commit that is no longer the head, so it stands down for that commit's own run.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           if [ ! -f scripts/pr_worthiness.py ]; then
             echo "::notice::scripts/pr_worthiness.py is not on main yet; the check starts on PRs opened after it merges"; exit 0

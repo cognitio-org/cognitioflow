@@ -27,6 +27,11 @@ Model
 Verdict
   Approve only when the tests passed, security >= 75, nothing blocking was found, and the model (if used) agrees.
 
+Stale runs
+  HEAD_SHA, set by the per-PR CI job to the commit that run was started for. If the head has moved on since,
+  the run stands down rather than stamping its own tests result onto a commit that never saw those tests.
+  The sweep does not set it: there, the tests result is read from the current head's own checks.
+
 The diff is untrusted input: the script never runs PR code, and CI runs this file from main, not from the PR.
 It never merges and does not block merging. Never prints ANTHROPIC_API_KEY.
 """
@@ -356,6 +361,16 @@ def plan(prs: list, tests_by_pr: dict, assessed: dict, force: bool = False):
 
 def assess_pr(repo: str, number: int, tests: str, use_model: bool, do_post: bool, do_approve: bool) -> Assessment:
     pr = json.loads(gh("pr", "view", str(number), "--repo", repo, "--json", "title,body,headRefOid,files"))
+    # The tests result belongs to the commit this run was started for; the head is read live. Those are
+    # the same commit until someone pushes mid-run, and then they are not: the verdict would carry one
+    # commit's tests under another commit's sha. Harmless when it reads "cancelled"; not harmless when it
+    # reads "success", because approve() stamps the approval onto the head sha, and a PR would be approved
+    # on tests that never ran against it. The newer commit has its own run; leave the verdict to that.
+    started_for = os.environ.get("HEAD_SHA")
+    if started_for and started_for != pr["headRefOid"]:
+        print(f"#{number}: this run tested {started_for[:7]}, but the head is now {pr['headRefOid'][:7]}; "
+              "leaving the verdict to that commit's own run")
+        return None
     files = pr["files"]
     diff = gh("pr", "diff", str(number), "--repo", repo)
     tests = tests_from_checks(repo, number) if tests == "auto" else tests
