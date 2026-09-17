@@ -57,3 +57,11 @@ def test_a_grader_outage_is_a_502_not_a_crash(client):
     with mock.patch.object(run, "client", return_value=fake):
         r = client.post("/api/speech", json={"question": "Q", "answer": "A"})
     assert r.status_code == 502
+
+
+def test_the_spec_path_and_the_api_path_are_the_same_grader(client):
+    fake = _grader({"mastery": "solid", "verdict": "Solid", "spoken": "Nailed it.", "note": ""})
+    with mock.patch.object(run, "client", return_value=fake):
+        a = client.post("/speech", json={"question": "Q", "answer": "A"}).json()
+        b = client.post("/api/speech", json={"question": "Q", "answer": "A"}).json()
+    assert a == b and a["mastery"] == "solid"

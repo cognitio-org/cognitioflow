@@ -12,7 +12,7 @@ Asked for on 2026-09-17.
 
 ## Decisions
 
-- **The endpoint is `POST /api/speech`, not `/speech`.** Under `AuthMiddleware`, a signed-out request to
+- **The endpoint answers on both `POST /speech` (the spec's name) and `POST /api/speech`.** The UI and other JSON callers should use `/api/speech`, because under `AuthMiddleware`, a signed-out request to
   a non-`/api/` path gets a 302 to the login page. A 401 is the right answer for a JSON call.
 - **One grader, not two.** `/api/speech` sends the same `GRADER_RULES` + cached `GRADER_CONTRACT` system
   blocks as `/oral/grade`, and returns the same `oral.normalise()` shape. The difference is that there is

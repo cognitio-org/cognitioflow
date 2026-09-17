@@ -512,7 +512,8 @@ def chat(cid: str, body: ChatIn):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 # ---------------------------------------------------------------- voice (Phase 12)
-@app.post("/api/speech")
+@app.post("/speech")      # the name the Phase 12 spec uses
+@app.post("/api/speech")  # same handler; a signed-out call gets a 401 here instead of a login redirect
 def speech(body: SpeechIn):
     """
     Grade a spoken answer outside any course's card queue — a quick "did I get that right?" rather than a
