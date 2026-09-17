@@ -19,6 +19,11 @@ Scoring
 Model
   PR_CHECK_MODEL, default claude-haiku-4-5 (needs ANTHROPIC_API_KEY). An id with a slash is served by OpenRouter's
   Anthropic-compatible endpoint (needs OPENROUTER_API_KEY) — e.g. z-ai/glm-5.3-flash, the cheapest capable option.
+  PR_CHECK_FALLBACK_MODEL, default z-ai/glm-5.3-flash, takes over when the primary is out of capacity rather than
+  out of sense: a rate limit, spent credit, a revoked key, an overloaded or unreachable endpoint. A 400 is not that
+  — the request itself is wrong and the fallback would fail identically — so it is not retried elsewhere. Only models
+  whose key is actually set are tried, so one key alone is a working configuration either way, and the comment
+  footer names the model that answered, never the one that was asked first.
 Verdict
   Approve only when the tests passed, security >= 75, nothing blocking was found, and the model (if used) agrees.
 
@@ -37,6 +42,7 @@ MARKER = "<!-- pr-worthiness -->"
 BOT = "github-actions[bot]"
 CHECKER = "the PR checker itself"
 MODEL = os.environ.get("PR_CHECK_MODEL") or "claude-haiku-4-5"
+FALLBACK_MODEL = os.environ.get("PR_CHECK_FALLBACK_MODEL") or "z-ai/glm-5.3-flash"
 APPROVE_AT = 75
 MAX_DIFF_CHARS = 60_000
 
@@ -44,6 +50,7 @@ SECRETS = [
     ("a private key", re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----")),
     ("an AWS access key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
     ("an Anthropic API key", re.compile(r"\bsk-ant-(?:api|admin)\d{2}-[A-Za-z0-9_-]{20,}")),
+    ("an OpenRouter API key", re.compile(r"\bsk-or-v1-[A-Za-z0-9]{32,}\b")),
     ("a Neon password", re.compile(r"\bnpg_[A-Za-z0-9]{10,}\b")),
     ("a GitHub token", re.compile(r"\b(?:ghp|gho|ghs|ghu|github_pat)_[A-Za-z0-9_]{30,}")),
     ("a Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
@@ -110,8 +117,36 @@ def _prose_or_test(path: str) -> bool:
     return path.endswith((".md", ".txt")) or path.startswith("tests/") or "/test/" in path
 
 
+def key_env_for(model: str) -> str:
+    """An id with a slash is an OpenRouter id; a bare id is Anthropic's own."""
+    return "OPENROUTER_API_KEY" if "/" in model else "ANTHROPIC_API_KEY"
+
+
+def model_chain() -> list:
+    """The primary, then the fallback — keeping only models whose key is actually set.
+
+    So one key alone is a working configuration: with just OPENROUTER_API_KEY the chain is the
+    fallback, and the review still happens. A fallback equal to the primary is not a fallback.
+    """
+    chain = [m for m in (MODEL, FALLBACK_MODEL) if m and os.environ.get(key_env_for(m))]
+    return list(dict.fromkeys(chain))
+
+
 def model_key_present() -> bool:
-    return bool(os.environ.get("OPENROUTER_API_KEY" if "/" in MODEL else "ANTHROPIC_API_KEY"))
+    return bool(model_chain())
+
+
+def out_of_capacity(e: Exception) -> bool:
+    """Out of capacity, not out of sense.
+
+    A rate limit, spent credit, a revoked key, an overloaded or unreachable endpoint — another
+    provider can answer those. A 400 means the request itself is malformed and the fallback would
+    fail the same way, so it is raised rather than retried elsewhere.
+    """
+    import anthropic
+    if isinstance(e, (anthropic.RateLimitError, anthropic.APIConnectionError)):
+        return True
+    return getattr(e, "status_code", None) in {401, 402, 403, 408, 429, 500, 502, 503, 504, 529}
 
 
 def rules(files: list, diff: str):
@@ -166,21 +201,35 @@ def parse_model(text: str) -> dict:
             "explanation": _short(" ".join(str(data.get("explanation", "")).split()))}
 
 
-def model_review(title: str, body: str, files: list, diff: str, findings: list) -> dict:
+def model_review(title: str, body: str, files: list, diff: str, findings: list) -> tuple:
+    """Returns (review, model_that_answered) — the second is not always the one asked first."""
     import anthropic
     listing = "\n".join(f"{f['path']} (+{f.get('additions', 0)} -{f.get('deletions', 0)})" for f in files)
     rule_notes = "; ".join(label for _, label in findings) or "none"
     clipped = diff if len(diff) <= MAX_DIFF_CHARS else diff[:MAX_DIFF_CHARS] + "\n[diff truncated]"
     prompt = (f"Title: {title}\n\nDescription:\n{(body or '')[:3000]}\n\nFiles:\n{listing}\n\n"
               f"Rule-based findings: {rule_notes}\n\n<diff>\n{clipped}\n</diff>")
-    if "/" in MODEL:  # OpenRouter speaks the Anthropic Messages protocol
-        client = anthropic.Anthropic(base_url="https://openrouter.ai/api", auth_token=os.environ["OPENROUTER_API_KEY"],
-                                     default_headers={"HTTP-Referer": "https://github.com/cognitio-org/cognitioflow",
-                                                      "X-Title": "CognitioFlow PR check"})
-    else:
-        client = anthropic.Anthropic()
-    msg = client.messages.create(model=MODEL, max_tokens=400, system=SYSTEM, messages=[{"role": "user", "content": prompt}])
-    return parse_model("".join(getattr(b, "text", "") for b in msg.content))
+    def client_for(model: str):
+        if "/" in model:  # OpenRouter speaks the Anthropic Messages protocol
+            return anthropic.Anthropic(base_url="https://openrouter.ai/api", auth_token=os.environ["OPENROUTER_API_KEY"],
+                                       default_headers={"HTTP-Referer": "https://github.com/cognitio-org/cognitioflow",
+                                                        "X-Title": "CognitioFlow PR check"})
+        return anthropic.Anthropic()
+
+    chain = model_chain()
+    if not chain:
+        raise RuntimeError("no model key is set")
+    for i, model in enumerate(chain):
+        try:
+            msg = client_for(model).messages.create(model=model, max_tokens=400, system=SYSTEM,
+                                                    messages=[{"role": "user", "content": prompt}])
+            return parse_model("".join(getattr(b, "text", "") for b in msg.content)), model
+        except Exception as e:
+            if i + 1 < len(chain) and out_of_capacity(e):
+                # Never print the exception itself: a client can put the key in its message.
+                print(f"{model} is out of capacity ({type(e).__name__}); falling back to {chain[i + 1]}")
+                continue
+            raise
 
 
 @dataclass
@@ -194,7 +243,8 @@ class Assessment:
     reviewer: str = "rules"
 
 
-def decide(tests: str, rule_score: int, findings: list, blocking: list, model=None, model_note: str = "") -> Assessment:
+def decide(tests: str, rule_score: int, findings: list, blocking: list, model=None, model_note: str = "",
+           model_name: str = "") -> Assessment:
     security = min(rule_score, model["security"]) if model else rule_score
     areas = [label for _, label in findings]
     if blocking:
@@ -213,7 +263,7 @@ def decide(tests: str, rule_score: int, findings: list, blocking: list, model=No
         why = (model["explanation"] if model else "") or (
             "Tests passed; touches " + (", ".join(areas) if areas else "no sensitive areas") + ".")
     return Assessment(verdict, security, why, tests, findings, blocking,
-                      f"rules + {MODEL}" if model else ("rules" + (f" ({model_note})" if model_note else "")))
+                      f"rules + {model_name or MODEL}" if model else ("rules" + (f" ({model_note})" if model_note else "")))
 
 
 def render(a: Assessment, sha: str, files: list) -> str:
@@ -310,13 +360,13 @@ def assess_pr(repo: str, number: int, tests: str, use_model: bool, do_post: bool
     diff = gh("pr", "diff", str(number), "--repo", repo)
     tests = tests_from_checks(repo, number) if tests == "auto" else tests
     score, findings, blocking = rules(files, diff)
-    model, note = None, ""
+    model, note, model_name = None, "", ""
     if use_model and model_key_present() and not blocking:
         try:
-            model = model_review(pr["title"], pr["body"], files, diff, findings)
-        except Exception as e:  # the rules verdict still stands
+            model, model_name = model_review(pr["title"], pr["body"], files, diff, findings)
+        except Exception as e:  # every model in the chain refused; the rules verdict still stands
             note = f"model review unavailable: {type(e).__name__}"
-    assessment = decide(tests, score, findings, blocking, model, note)
+    assessment = decide(tests, score, findings, blocking, model, note, model_name)
     body = render(assessment, pr["headRefOid"], files)
     print(f"--- #{number}\n{body}")
     if os.environ.get("GITHUB_STEP_SUMMARY"):

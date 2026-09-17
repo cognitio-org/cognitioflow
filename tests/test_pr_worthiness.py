@@ -155,11 +155,12 @@ def test_model_ids_with_a_slash_go_through_openrouter(monkeypatch):
     monkeypatch.setattr(pw, "MODEL", "z-ai/glm-5.3-flash")
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
     assert pw.model_key_present()
-    out = pw.model_review("Docs", "", [f("README.md")], diff_for("README.md", ["x"]), [])
+    out, used = pw.model_review("Docs", "", [f("README.md")], diff_for("README.md", ["x"]), [])
     assert out["verdict"] == "approve" and seen["base_url"] == "https://openrouter.ai/api" and seen["auth_token"] == "or-test"
-    assert seen["create"]["model"] == "z-ai/glm-5.3-flash"
+    assert seen["create"]["model"] == "z-ai/glm-5.3-flash" and used == "z-ai/glm-5.3-flash"
     monkeypatch.setattr(pw, "MODEL", "claude-haiku-4-5")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     assert not pw.model_key_present()
 
 
@@ -173,3 +174,110 @@ def test_using_the_public_helper_is_not_a_change_to_public_routes():
     use = pw.rules([f("auth.py")], diff_for("auth.py", ['        if user is None and not _public(scope["path"]):']))
     define = pw.rules([f("auth.py")], diff_for("auth.py", ["def _public(path: str) -> bool:"]))
     assert use[0] == 100 - 12 and define[0] == 100 - 12 - 8
+
+
+# --- the fallback: when the Anthropic models are used up, another provider finishes the job -------
+
+def _fake_anthropic(monkeypatch, answers):
+    """answers: {model_id: Exception to raise | text to return}. Records the order models were tried."""
+    import types as pytypes
+    tried = []
+
+    class Rate(Exception):
+        pass
+
+    class Conn(Exception):
+        pass
+
+    def create(**kw):
+        model = kw["model"]
+        tried.append(model)
+        got = answers[model]
+        if isinstance(got, BaseException):
+            raise got
+        return pytypes.SimpleNamespace(content=[pytypes.SimpleNamespace(text=got)])
+
+    class FakeAnthropic:
+        def __init__(self, **kw):
+            self.messages = pytypes.SimpleNamespace(create=create)
+
+    monkeypatch.setitem(sys.modules, "anthropic", pytypes.SimpleNamespace(
+        Anthropic=FakeAnthropic, RateLimitError=Rate, APIConnectionError=Conn))
+    return tried, Rate, Conn
+
+
+APPROVED = '{"verdict": "approve", "security": 90, "explanation": "Docs only."}'
+
+
+def _both_keys(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    monkeypatch.setattr(pw, "MODEL", "claude-haiku-4-5")
+    monkeypatch.setattr(pw, "FALLBACK_MODEL", "z-ai/glm-5.3-flash")
+
+
+def test_the_chain_is_the_primary_then_the_fallback(monkeypatch):
+    _both_keys(monkeypatch)
+    assert pw.model_chain() == ["claude-haiku-4-5", "z-ai/glm-5.3-flash"]
+
+
+def test_a_model_without_its_key_is_not_in_the_chain(monkeypatch):
+    _both_keys(monkeypatch)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert pw.model_chain() == ["z-ai/glm-5.3-flash"], "an OpenRouter key alone must still work"
+    assert pw.model_key_present()
+    _both_keys(monkeypatch)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    assert pw.model_chain() == ["claude-haiku-4-5"], "an Anthropic key alone must still work"
+
+
+def test_a_fallback_equal_to_the_primary_is_not_tried_twice(monkeypatch):
+    _both_keys(monkeypatch)
+    monkeypatch.setattr(pw, "FALLBACK_MODEL", "claude-haiku-4-5")
+    assert pw.model_chain() == ["claude-haiku-4-5"]
+
+
+def test_a_used_up_anthropic_model_hands_over_to_openrouter(monkeypatch):
+    _both_keys(monkeypatch)
+    answers = {}
+    tried, Rate, _ = _fake_anthropic(monkeypatch, answers)
+    answers.update({"claude-haiku-4-5": Rate("429 rate limited"), "z-ai/glm-5.3-flash": APPROVED})
+    out, used = pw.model_review("Docs", "", [f("README.md")], diff_for("README.md", ["x"]), [])
+    assert tried == ["claude-haiku-4-5", "z-ai/glm-5.3-flash"], "the primary must be tried first"
+    assert out["verdict"] == "approve"
+    assert used == "z-ai/glm-5.3-flash", "the footer must name the model that answered"
+
+
+def test_the_footer_names_the_model_that_answered(monkeypatch):
+    a = pw.decide("success", 90, [], [], {"verdict": "approve", "security": 90, "explanation": "ok"},
+                  model_name="z-ai/glm-5.3-flash")
+    assert a.reviewer == "rules + z-ai/glm-5.3-flash"
+
+
+def test_a_malformed_request_is_not_retried_on_the_fallback(monkeypatch):
+    """A 400 means our own prompt is wrong; the fallback would fail identically."""
+    _both_keys(monkeypatch)
+    bad = Exception("bad request")
+    bad.status_code = 400
+    tried, _, _ = _fake_anthropic(monkeypatch, {"claude-haiku-4-5": bad, "z-ai/glm-5.3-flash": APPROVED})
+    with pytest.raises(Exception):
+        pw.model_review("Docs", "", [f("README.md")], diff_for("README.md", ["x"]), [])
+    assert tried == ["claude-haiku-4-5"], "a 400 must not spend the fallback"
+
+
+def test_out_of_capacity_covers_exhaustion_and_not_bad_input(monkeypatch):
+    _, Rate, Conn = _fake_anthropic(monkeypatch, {})
+    assert pw.out_of_capacity(Rate("429"))
+    assert pw.out_of_capacity(Conn("unreachable"))
+    for status, expected in [(429, True), (402, True), (401, True), (529, True), (503, True),
+                             (400, False), (404, False), (422, False)]:
+        e = Exception("x")
+        e.status_code = status
+        assert pw.out_of_capacity(e) is expected, f"status {status}"
+
+
+def test_an_openrouter_key_in_the_diff_blocks_the_pr():
+    score, findings, blocking = pw.rules(
+        [f("run.py")], diff_for("run.py", ["OPENROUTER_API_KEY = 'sk-or-v1-" + "a1b2c3d4" * 8 + "'"]))
+    assert blocking, "a committed OpenRouter key must block"
+    assert "OpenRouter" in blocking[0]
