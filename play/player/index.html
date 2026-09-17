@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0c0b0a">
+  <title>Case Docket</title>
+  <meta name="description" content="Cinematic law case games: walk in, take the case, argue it, win on the law.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%231c1d1f'/%3E%3Cpath d='M32 12v38M18 50h28M14 22h36M20 22l-7 14h14zM44 22l-7 14h14z' stroke='%23d99a3e' stroke-width='3' fill='none' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./fonts-v1/fonts.css">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor-r170/three.module.js",
+      "three/addons/": "./vendor-r170/addons/"
+    }
+  }
+  </script>
+  <link rel="modulepreload" href="./vendor-r170/three.module.js">
+</head>
+<body>
+<div id="app" class="app" data-screen="boot">
+  <div id="stage" class="stage"></div>
+  <div id="media" class="media-backdrop" hidden></div>
+  <div class="letterbox" aria-hidden="true"><div class="bar bar-top"></div><div class="bar bar-bottom"></div></div>
+
+  <header id="hud" class="hud" hidden>
+    <div class="hud-left">
+      <span id="hudCourse" class="hud-course"></span>
+      <span id="hudTitle" class="hud-title"></span>
+      <span id="hudPhase" class="hud-phase" aria-live="polite"></span>
+    </div>
+    <nav class="hud-right" aria-label="Game controls">
+      <button id="casefileBtn" class="hud-btn hud-case" type="button" aria-controls="casefile" aria-expanded="false" aria-keyshortcuts="C">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M9.5 7h5M9.5 10.5h5M9.5 14h3"/></svg>
+        <span class="hud-lbl">Case file</span><span id="cfBadge" class="badge" aria-label="facts">0</span>
+      </button>
+      <button id="voiceBtn" class="hud-btn" type="button" aria-pressed="false">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h3l5-4v14l-5-4H4z"/><path d="M16 9c1.3 1.6 1.3 4.4 0 6M18.5 6.5c2.7 3 2.7 8 0 11"/></svg>
+        <span class="hud-lbl">Read aloud</span><span class="hud-val">Off</span>
+      </button>
+      <div class="hud-pop">
+        <button id="soundBtn" class="hud-btn" type="button" aria-controls="soundPanel" aria-expanded="false">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg>
+          <span class="hud-lbl">Sound</span><span class="hud-val">On</span>
+        </button>
+        <div id="soundPanel" class="sound-panel glass" hidden>
+          <label>Music <input id="musicVol" type="range" min="0" max="100" step="5"></label>
+          <label>Effects <input id="sfxVol" type="range" min="0" max="100" step="5"></label>
+          <label class="chk"><input id="muteChk" type="checkbox"> Mute all <kbd>M</kbd></label>
+        </div>
+      </div>
+      <button id="qualityBtn" class="hud-btn" type="button">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="1.5"/><path d="M8 21h8M12 17v4"/></svg>
+        <span class="hud-lbl">Quality</span><span class="hud-val">High</span>
+      </button>
+      <button id="skipBtn" class="hud-btn" type="button">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l9 7-9 7zM17 5v14"/></svg>
+        <span class="hud-lbl">Skip scene</span>
+      </button>
+      <button id="exitBtn" class="hud-btn" type="button">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+        <span class="hud-lbl">Docket</span>
+      </button>
+    </nav>
+  </header>
+
+  <main id="library" class="library" hidden>
+    <div class="lib-inner">
+      <header class="lib-head">
+        <p class="lib-kicker">University of Groningen · Law</p>
+        <h1 tabindex="-1">Case Docket</h1>
+        <p class="lib-sub">Walk in. Take the brief. Argue it on the law. Every claim is tied to your course materials.</p>
+      </header>
+      <div id="libraryGrid" class="lib-grid" aria-live="polite">
+        <p class="lib-empty">Loading cases…</p>
+      </div>
+      <footer class="lib-foot">
+        <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk</span>
+        <span><kbd>Space</kbd> next line</span>
+        <span><kbd>A</kbd>–<kbd>D</kbd> argue</span>
+        <span><kbd>C</kbd> case file</span>
+        <span><kbd>M</kbd> mute</span>
+      </footer>
+    </div>
+  </main>
+
+  <div id="titlecard" class="titlecard" aria-live="polite"></div>
+  <div id="captions" class="captions" aria-live="polite"></div>
+
+  <div id="arrivalHud" class="arrival-hud" hidden>
+    <div class="ah-card glass">
+      <p id="arrivalDest" class="ah-dest">Objective: reach the lit entrance</p>
+      <div id="arrivalBar" class="ah-bar" role="presentation"><span></span></div>
+      <p class="ah-keys"><span class="only-kb"><kbd>W</kbd>/<kbd>↑</kbd> walk · <kbd>A</kbd><kbd>D</kbd> turn · <kbd>Shift</kbd> hurry</span><span class="only-touch">Tap the street to walk</span></p>
+      <div class="ah-actions">
+        <button id="arrivalAuto" class="btn btn-small" type="button">Walk me there</button>
+        <button id="arrivalSkip" class="btn btn-small btn-ghost" type="button">Skip</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="subtitle" class="subtitle" hidden>
+    <div class="sub-box">
+      <div id="subSpeaker" class="sub-speaker"></div>
+      <p id="subLine" class="sub-line" aria-live="polite"></p>
+      <div class="sub-foot">
+        <div id="subCites" class="sub-cites"></div>
+        <div id="subHint" class="sub-hint" aria-hidden="true"><kbd>Space</kbd> continue <span class="caret">▸</span></div>
+      </div>
+    </div>
+  </div>
+
+  <aside id="casefile" class="casefile" hidden aria-labelledby="cfCaseTitle">
+    <div class="cf-device">
+      <div class="cf-status" aria-hidden="true"><span>CASE FILE</span><span class="cf-dots"><i></i><i></i><i></i></span></div>
+      <header class="cf-head">
+        <div>
+          <p id="cfCourse" class="cf-course"></p>
+          <h2 id="cfCaseTitle" class="cf-title"></h2>
+        </div>
+        <button id="casefileClose" class="icon-btn" type="button" aria-label="Close case file">✕</button>
+      </header>
+      <div class="cf-tabs" role="tablist" aria-label="Case file sections">
+        <button class="cf-tab" role="tab" data-tab="facts" aria-controls="cfPanelFacts" type="button">Facts</button>
+        <button class="cf-tab" role="tab" data-tab="goal" aria-controls="cfPanelGoal" type="button">Brief</button>
+        <button class="cf-tab" role="tab" data-tab="sources" aria-controls="cfPanelSources" type="button">Sources</button>
+      </div>
+      <div class="cf-body">
+        <section id="cfPanelFacts" class="cf-panel" data-panel="facts" role="tabpanel"><ol id="cfFacts" class="cf-facts"></ol></section>
+        <section id="cfPanelGoal" class="cf-panel" data-panel="goal" role="tabpanel" hidden><div id="cfGoal" class="cf-goal"></div></section>
+        <section id="cfPanelSources" class="cf-panel" data-panel="sources" role="tabpanel" hidden><ul id="cfSources" class="cf-sources"></ul></section>
+      </div>
+    </div>
+  </aside>
+
+  <section id="exam" class="exam" hidden aria-live="polite"></section>
+  <section id="verdict" class="verdict" hidden aria-live="polite"></section>
+
+  <div id="loading" class="loading" hidden role="status"><span class="spinner" aria-hidden="true"></span><span id="loadingLabel">Loading set</span></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <noscript><p class="noscript">This player needs JavaScript.</p></noscript>
+</div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

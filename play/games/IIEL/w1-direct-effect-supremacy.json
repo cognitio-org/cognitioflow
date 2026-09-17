@@ -1,0 +1,943 @@
+{
+  "id": "w1-direct-effect-supremacy",
+  "course": "IIEL",
+  "title": "The Bicycle Duty",
+  "logline": "You are Maren Vos's lawyer. At dawn, a truck of her bicycles from Germania was stopped at the border of Nederlanda: a brand-new national statute has brought back a customs duty on imports. Her small import firm, Kade Freight, will go under if she pays. Tonight, at the District Court of Nederlanda, you have one night to show that a single phrase of the TFEU gives her a right the court must protect, even against a newer statute.",
+  "learning_goal": "By the end, the player can: 1. Identify the precise Treaty provision, not just the Article, and cite it as \"Article X(y)(z) TFEU\" [L1 p.7], [L1 p.28], [T1 p.10]. 2. Apply the three Van Gend & Loos requirements one at a time: clear, unconditional, and adapted to produce direct effects in the legal relationship between Member States and their subjects [L1 p.25], [L1 p.29], [WA1 p.1]. 3. Only after direct effect is established, apply supremacy: a later national law cannot prevail (Costa v ENEL) [L1 p.26], [L1 p.27]. The national court must disapply it of its own motion, without waiting for the legislator or the constitutional court (Simmenthal II) [L4 p.21], [L4 p.24], [L4 p.30]. 4. Avoid the \"typical error\" of jumping straight to supremacy without testing direct effect [L1 p.30], [T1 p.9].",
+  "sources": {
+    "L1": {
+      "file": "EU_Lecture_W1_Direct_Effect_Supremacy.pdf",
+      "kind": "lecture / 1",
+      "note": "Colombi Ciacchi, Week 1 slides. Primary authority."
+    },
+    "T1": {
+      "file": "European Law Week 1.pdf",
+      "kind": "lecture / 1",
+      "note": "Lecture 1 transcript (auto-transcribed)"
+    },
+    "WS1": {
+      "file": "EU_Worksheet_W1.docx",
+      "kind": "wg / 1",
+      "note": "Week 1 worksheet (1 page)"
+    },
+    "WA1": {
+      "file": "EU_Worksheet_W1_ANSWERS.docx",
+      "kind": "wg_answers / 1",
+      "note": "Week 1 model answers (1 page)"
+    },
+    "WG1": {
+      "file": "European Law WG Week 1.pdf",
+      "kind": "wg / 1",
+      "note": "Week 1 WG answer write-up"
+    },
+    "L4": {
+      "file": "COLOMBI CIACCHI IIEL 2026_Lecture Week 4_DIRECT EFFECT OF PROVISIONS OF REGULATIONS AND DIRECTIVES - Copy (1).pdf",
+      "kind": "lecture / 1",
+      "note": "Where IIEL teaches Simmenthal II"
+    },
+    "WA4": {
+      "file": "SOME ANSWERS_EUROPEAN LAW 2026 Worksheet Week 4.docx",
+      "kind": "wg_answers / 1",
+      "note": "Week 4 model answers (1 page)"
+    },
+    "L5": {
+      "file": "COLOMBI CIACCHI IIEL 2026_Lecture Week 5_EFFECTS EU LAW - Copy.pdf",
+      "kind": "lecture / 1",
+      "note": "Simmenthal restated"
+    },
+    "SA": {
+      "file": "Standard Answers IIEL resit exam 25 June 2026 - Copy.pdf",
+      "kind": "wg_answers / 1",
+      "note": "Grading matrix (knowledge + application)"
+    },
+    "V1A": {
+      "file": "W1 Lecture 1A slides.txt",
+      "kind": "lecture / 1",
+      "note": "Different course (\"Law of the European Union 2026-27\", Villanueva). Used only for the word \"IRAC\"."
+    },
+    "AS1": {
+      "file": "W1 Assignment.txt",
+      "kind": "wg / 1",
+      "note": "Same other course. Used only for the fictional state names \"Nederlanda\" and \"Germania\"."
+    }
+  },
+  "bible": {
+    "palette": [
+      "#b3372f"
+    ],
+    "mood": "",
+    "notes": [
+      "Arrival location: The Nederlanda–Germania frontier customs post, a fictional yard on a wet concrete apron at dawn: fog low over the ground, one bank of sodium lamps just switching off as the sky pales, a white \"KADE FREIGHT\" box truck idling with its rear doors open on stacked bicycle boxes marked \"MADE IN GERMANIA\". The lit entrance is the customs booth's glass door, its window lit from inside.",
+      "Interior (briefing): The customs booth: a cramped clerk's office off the yard, one desk, a tablet dock, the duty notice already printing. Officer Dijk's tablet shows the case-file HUD its first exhibit: \"IMPORT DUTY ACT 2026 — NEDERLANDA\", a duty figure in the bible's verdict red #b3372f, since it is money actually owed, not a procedural stamp.",
+      "Interior (examination): District Court of Nederlanda, Courtroom 2: pale oak panelling, a raised bench, counsel tables left (the State) and right (Kade Freight). The player's case-file PDA carries forward from the yard: client name, the truck, the duty notice, and the Treaty provision once it is found.",
+      "Cast: | Name | Role | Look | Wardrobe | |---|---|---|---| | THE LAWYER (player) | Maren's counsel | 1.75, gender-neutral, dark hair tied back; face rarely shown (OTS/POV) — per bible | Dark suit, briefcase — per bible | | MAREN VOS | Client, 40s, MD of Kade Freight, importer | 1.70, short dark-blond bob, tired eyes | Navy wool coat over grey jumper, black jeans, lanyard with key | | OFFICER DIJK | Nederlanda customs officer | 1.85, broad, clean-shaven | Hi-vis vest over dark-blue uniform, cap, tablet in hand | | MR. HAAN | Counsel for the Nederlanda customs authority | 1.80, 50s, silver hair, rimless glasses | Black lawyer's gown, white bands | | JUDGE DE WIT | Presiding judge | 1.65, 60s, grey hair in a bun | Black gown with a velvet trim |",
+      "Hero props / exhibits: - Exhibit A: the TFEU book — dark blue cover, many coloured tabs, a sodium-amber ribbon marking \"the rule\" (the bible's accent standing in for the old EU-gold flavour colour). Only text on the tabs is table-of-contents wording; do not render readable text beyond \"TFEU\". - Exhibit B: the printed judgment pages — an A4 stack, top sheet headed \"Case 26/62 – Van Gend & Loos – pp. 11-13\" with sodium-amber highlighter strokes. Printed and highlighted pages are what the course tells students to bring [L1 p.4], [T1 p.3], [WS1 p.1]. - Duty notice: an A4 sheet on the officer's tablet, header \"IMPORT DUTY ACT 2026 – NEDERLANDA\", big verdict-red figure \"€ 4 800\". - Truck: 12 m box trailer, white, side text \"KADE FREIGHT\" in dark blue; rear doors open, showing boxed bicycles."
+    ]
+  },
+  "scenes": [
+    {
+      "id": "s1",
+      "title": "Arrival + Briefing",
+      "phase": "arrival",
+      "slug": {
+        "int_ext": "EXT",
+        "place": "NEDERLANDA–GERMANIA FRONTIER CUSTOMS POST",
+        "time": "DAWN, WET"
+      },
+      "set": "customs_yard",
+      "action": [
+        "Third-person, over-the-shoulder, fog low over the wet concrete yard, sodium lamps fading out as dawn breaks, the idling Kade Freight truck lit against the haze. The player walks the lawyer across the yard to the customs booth's lit glass door. A Skip button is available throughout. Reaching the door triggers the scene-change sting and cuts to the interior.",
+        "OFFICER DIJK holds a tablet up to MAREN VOS as the lawyer arrives."
+      ],
+      "dialogue": [
+        {
+          "speaker": "DIJK",
+          "line": "New statute, in force since Monday. Import duty on goods from Germania. Four thousand eight hundred, or the load stays here.",
+          "cites": []
+        },
+        {
+          "speaker": "MAREN",
+          "line": "A customs duty? Between two Member States?",
+          "cites": []
+        },
+        {
+          "speaker": "DIJK",
+          "line": "Parliament passed it. It's national law. Newer than anything in Brussels.",
+          "cites": []
+        },
+        {
+          "speaker": "",
+          "line": "MAREN (turning as the lawyer walks in): There you are. They want a duty at the border. I'm not paying it.",
+          "cites": []
+        },
+        {
+          "speaker": "LAWYER",
+          "line": "Walk me through it — for the file.",
+          "cites": []
+        },
+        {
+          "speaker": "MAREN",
+          "line": "It's the Dutch one. The customs one. Nineteen sixty-three. I need you to tell me I have a right. Not a hope. A right.",
+          "cites": []
+        },
+        {
+          "speaker": "LAWYER",
+          "line": "(taking the TFEU book from a briefcase) Then we don't start with \"EU law beats national law.\" We start with finding the phrase. Let's get you in front of the judge.",
+          "cites": []
+        }
+      ],
+      "shots": [
+        {
+          "n": 1,
+          "size": "Wide, third-person follow",
+          "angle": "Slightly behind and above the lawyer's shoulder",
+          "movement": "Player-driven walk, camera lag + sway (per bible)",
+          "lens": "28 mm, f/4",
+          "lighting": "Sodium key #d99a3e from the fading lamp bank; smog haze #6b6a62 in the volumetrics",
+          "subject": "Wet concrete yard, truck lit far side, booth window glowing ahead",
+          "duration_s": null
+        },
+        {
+          "n": 2,
+          "size": "Insert",
+          "angle": "Top-down",
+          "movement": "Static",
+          "lens": "50 mm",
+          "lighting": "Neutral, tablet emission",
+          "subject": "Trailer interior: bicycle boxes \"MADE IN GERMANIA\"",
+          "duration_s": 3
+        },
+        {
+          "n": 3,
+          "size": "Close, OTS",
+          "angle": "Low, 10° up",
+          "movement": "Static, then door swings on approach",
+          "lens": "35 mm, f/2.8",
+          "lighting": "Warm booth spill through the glass vs. cool exterior",
+          "subject": "Booth door; scene-change sting on the cut",
+          "duration_s": 4
+        },
+        {
+          "n": 4,
+          "size": "Medium",
+          "angle": "Eye level, handheld drift (per bible)",
+          "movement": "Slight sway",
+          "lens": "40 mm, f/2.8",
+          "lighting": "Tablet glow, cool booth fluorescent",
+          "subject": "Dijk holding the tablet toward Maren; Lawyer entering frame",
+          "duration_s": 6
+        },
+        {
+          "n": 5,
+          "size": "Insert",
+          "angle": "Slightly high, 20° down",
+          "movement": "Static, rack focus to the figure",
+          "lens": "100 mm macro feel, f/2",
+          "lighting": "Tablet emission lights the glass",
+          "subject": "Duty notice, verdict-red \"€ 4 800\"",
+          "duration_s": 3
+        },
+        {
+          "n": 6,
+          "size": "Close-up",
+          "angle": "Eye level",
+          "movement": "Slow 8 cm push-in",
+          "lens": "65 mm, f/2",
+          "lighting": "Warm practical",
+          "subject": "Maren: \"I need you to tell me I have a right. Not a hope.\"",
+          "duration_s": 6
+        },
+        {
+          "n": 7,
+          "size": "Insert",
+          "angle": "Top-down, slow slide",
+          "movement": "Static",
+          "lens": "100 mm macro",
+          "lighting": "Desk-lamp pool",
+          "subject": "TFEU book coming out of the briefcase, sodium-amber ribbon catching light",
+          "duration_s": 4
+        },
+        {
+          "n": 8,
+          "size": "Two-shot",
+          "angle": "Eye level",
+          "movement": "Static; freeze on last line",
+          "lens": "35 mm, f/4",
+          "lighting": "As 1.4",
+          "subject": "Lawyer: \"Let's get you in front of the judge.\" → cut to Examination I",
+          "duration_s": 5
+        }
+      ],
+      "quiz": null
+    },
+    {
+      "id": "s2",
+      "title": "The Provision",
+      "phase": "examination",
+      "slug": {
+        "int_ext": "INT",
+        "place": "DISTRICT COURT OF NEDERLANDA, COURTROOM 2",
+        "time": "DAY"
+      },
+      "set": "courtroom",
+      "action": [
+        "Pale oak panelling, a raised bench. JUDGE DE WIT presides. MR. HAAN stands for the customs authority. The lawyer stands beside MAREN, the TFEU book open, printed judgment pages striped with sodium-amber highlighter beside it."
+      ],
+      "dialogue": [
+        {
+          "speaker": "JUDGE DE WIT",
+          "line": "Counsel for the claimant. Tell me your client has a right. Not a hope. A right.",
+          "cites": []
+        },
+        {
+          "speaker": "LAWYER",
+          "line": "Then we don't start with \"EU law beats national law.\" We start with one phrase. (finger on page) Article 30, first phrase, TFEU. \"Customs duties on imports and exports ... shall be prohibited between Member States.\"",
+          "cites": []
+        },
+        {
+          "speaker": "HAAN",
+          "line": "Your Honour, that Article speaks to Member States. My client's officers were only enforcing a statute passed by Parliament.",
+          "cites": []
+        },
+        {
+          "speaker": "LAWYER",
+          "line": "Before sixty-three, most lawyers thought so too. The Court said the Treaty is more than mutual obligations between States. It's a new legal order, and its subjects include their nationals.",
+          "cites": []
+        },
+        {
+          "speaker": "HAAN",
+          "line": "And that covers a company?",
+          "cites": []
+        },
+        {
+          "speaker": "LAWYER",
+          "line": "In the Court's language, \"individuals\" means everyone who isn't a public authority. Businesses included.",
+          "cites": []
+        },
+        {
+          "speaker": "HAAN",
+          "line": "So every article of the Treaty is a right for your client?",
+          "cites": []
+        },
+        {
+          "speaker": "JUDGE DE WIT",
+          "line": "No — and Counsel knows it. It has to pass three tests. Run them for me now.",
+          "cites": []
+        }
+      ],
+      "shots": [
+        {
+          "n": 1,
+          "size": "Extreme wide, symmetrical",
+          "angle": "Eye level from the back wall",
+          "movement": "Static, then slow 1.5 m push-in",
+          "lens": "21 mm, f/8",
+          "lighting": "Overcast window light, smog-tinted haze even indoors (per bible)",
+          "subject": "Bench raised at far wall, counsel tables left (State) and right (Kade Freight)",
+          "duration_s": 8
+        },
+        {
+          "n": 2,
+          "size": "Low angle on the judge (per bible)",
+          "angle": "Low, 20° up",
+          "movement": "Static",
+          "lens": "50 mm, f/2.8",
+          "lighting": "Hard top light, deep eye shadows",
+          "subject": "Judge De Wit: \"Tell me your client has a right.\"",
+          "duration_s": 6
+        },
+        {
+          "n": 3,
+          "size": "Close-up insert",
+          "angle": "Top-down, then hand enters",
+          "movement": "Static",
+          "lens": "50 mm, f/2.8",
+          "lighting": "Desk-lamp pool, hard shadows",
+          "subject": "TFEU book open, sodium-amber ribbon across the page; highlighted printout alongside",
+          "duration_s": 5
+        },
+        {
+          "n": 4,
+          "size": "Medium",
+          "angle": "Eye level",
+          "movement": "Handheld drift",
+          "lens": "40 mm, f/4",
+          "lighting": "Practical desk lamp warm key",
+          "subject": "Haan: \"My client's officers were only enforcing a statute.\"",
+          "duration_s": 5
+        },
+        {
+          "n": 5,
+          "size": "Stylised flashback",
+          "angle": "Eye level",
+          "movement": "Static, desaturated further + grain boost",
+          "lens": "35 mm, f/5.6",
+          "lighting": "Flat period daylight",
+          "subject": "1963 courtroom silhouette; caption: \"Case 26/62 – Van Gend & Loos – 5 February 1963\" [L1 p.21]",
+          "duration_s": 6
+        },
+        {
+          "n": 6,
+          "size": "Extreme close-up",
+          "angle": "Top-down, 15° tilt",
+          "movement": "Slow 5 cm slide following fingertip",
+          "lens": "100 mm macro, f/2",
+          "lighting": "Desk-lamp pool",
+          "subject": "Fingertip under the phrase; sodium-amber highlighter stroke catches light",
+          "duration_s": 5
+        },
+        {
+          "n": 7,
+          "size": "Two-shot",
+          "angle": "Eye level, 90° profile",
+          "movement": "Static",
+          "lens": "35 mm, f/4",
+          "lighting": "Mixed practicals",
+          "subject": "Dialogue: \"individuals\" / \"every article?\"",
+          "duration_s": 12
+        },
+        {
+          "n": 8,
+          "size": "Low angle on the judge; freeze on last frame",
+          "angle": "Low, 20° up",
+          "movement": "Static",
+          "lens": "50 mm, f/2",
+          "lighting": "As 2.2, with UI-sodium rim from the case-file HUD",
+          "subject": "Judge De Wit: \"Run them for me now.\" → EXAMINATION I",
+          "duration_s": 6
+        }
+      ],
+      "quiz": {
+        "id": "q1",
+        "question": "Nederlanda's 2026 statute imposes a customs duty on bicycles imported from Germania. Does Kade Freight have a right under EU law that the national court must protect? Choose the answer that would score on the exam.",
+        "options": [
+          {
+            "key": "A",
+            "text": "Yes. Article 30, first phrase, TFEU prohibits customs duties on imports between Member States. Applying Van Gend & Loos: the provision is clear, it is unconditional, and it is by nature adapted to operate between the State and its subjects. It therefore has direct effect, and Kade Freight has a right.",
+            "correct": true,
+            "outcome_title": "",
+            "story": "",
+            "teaching": "",
+            "cites": [],
+            "stamp": "SUSTAINED"
+          },
+          {
+            "key": "B",
+            "text": "Yes. EU law is supreme over national law (Costa v ENEL), so the national duty simply falls away. No need to test direct effect.",
+            "correct": false,
+            "outcome_title": "Straight to Supremacy.",
+            "story": "the lawyer pitches \"Costa v ENEL, solved!\" Mr. Haan doesn't even need to rise. \"Counsel hasn't shown this provision gives her client anything at all,\" he says, and the duty notice on the case-file HUD stamps \"UPHELD\" in verdict red.",
+            "teaching": "This is the typical exam error the lecture warns about. Supremacy cannot be used to get around a provision's lack of clarity or unconditionality. If a provision does not meet all the requirements for direct effect, the court cannot disapply national law. Jumping to supremacy scores zero [L1 p.30], [T1 p.9], [WG1 p.4].",
+            "cites": [
+              "L1 p.30",
+              "T1 p.9",
+              "WG1 p.4"
+            ],
+            "stamp": "OVERRULED"
+          },
+          {
+            "key": "C",
+            "text": "No. The Treaty only creates obligations between the States. A private company can't claim rights from it; only the Commission or another State can act.",
+            "correct": false,
+            "outcome_title": "Mutual Obligations Only.",
+            "story": "Judge De Wit looks past the lawyer to Maren. \"Then this court has nothing for you tonight.\" The case-file HUD flags the € 4 800 figure as due.",
+            "teaching": "This was the pre-1963 view, and Van Gend & Loos rejected it. The Treaty is \"more than an agreement which merely creates mutual obligations between the contracting states\". Its subjects include nationals, and the State being the one bound \"does not imply that their nationals cannot benefit\" [L1 p.22], [L1 p.23], [L1 p.24], [WA1 p.1].",
+            "cites": [
+              "L1 p.22",
+              "L1 p.23",
+              "L1 p.24",
+              "WA1 p.1"
+            ],
+            "stamp": "OVERRULED"
+          },
+          {
+            "key": "D",
+            "text": "Yes. The Treaty is binding, so every Treaty Article gives rights to individuals. Article 28 TFEU covers customs, so Kade Freight can rely on it.",
+            "correct": false,
+            "outcome_title": "Every Article Is a Right.",
+            "story": "Judge De Wit flips through the TFEU: \"Which phrase, counsel? Article 28 has more than one.\" The tab slips from the book.",
+            "teaching": "Only some Treaty provisions have direct effect, and only if they pass all three tests. Many clear, unconditional provisions still don't concern the State–individual relationship [L1 p.23], [L1 p.25], [WA1 p.1]. An Article can contain several provisions, and you must name the exact phrase, with paragraph and \"TFEU\", or lose points [L1 p.7], [L1 p.28], [T1 p.10].",
+            "cites": [
+              "L1 p.23",
+              "L1 p.25",
+              "WA1 p.1",
+              "L1 p.7",
+              "L1 p.28",
+              "T1 p.10"
+            ],
+            "stamp": "OVERRULED"
+          }
+        ],
+        "irac": {
+          "issue": "Can Kade Freight, a private company and so an \"individual\" in the Court's terms [L1 p.22], rely on a Treaty provision against a customs duty imposed by Nederlanda? The exam frames this as \"Does X have a right under EU law?\", which is a question of direct effect [L1 p.29], [T1 p.9-10].",
+          "rule": "Article 30, first phrase, TFEU: customs duties on imports and exports between Member States are prohibited [L1 p.20]. Following Van Gend & Loos, a Treaty provision creates rights for individuals that national courts must protect only if it is (1) clear, (2) unconditional, meaning it needs no further implementation by EU or national rules, and (3) by its nature \"adapted to produce direct effects in the legal relationship between Member States and their subjects\" [L1 p.25], [WA1 p.1], [WG1 p.5-6]. Cite the provision precisely: Article, paragraph or phrase, and \"TFEU\" [L1 p.28], [T1 p.10].",
+          "application": "Base each requirement on how the provision is worded [L1 p.29]. Clear: it names exactly what is banned (customs duties on imports and exports) and between whom (Member States). Unconditional: nothing in the phrase makes the ban depend on a further EU or national measure. This mirrors the Court's reading of its predecessor, Article 12 EEC, as a \"clear and unconditional prohibition\" not qualified by any reservation requiring national legislation [L1 p.24]. Adapted: it is a negative obligation on the State that operates at the national level, at the border between the State and the importer. That the Member States are the addressees \"does not imply that their nationals cannot benefit\" [L1 p.24].",
+          "conclusion": "Article 30, first phrase, TFEU has direct effect. Kade Freight has a right under EU law that the national court must protect [L1 p.21], [L1 p.25]."
+        },
+        "cites": [
+          "L1 p.30",
+          "T1 p.9",
+          "WG1 p.4",
+          "L1 p.22",
+          "L1 p.23",
+          "L1 p.24",
+          "WA1 p.1",
+          "L1 p.25",
+          "L1 p.7",
+          "L1 p.28",
+          "T1 p.10",
+          "L1 p.29",
+          "T1 p.9-10",
+          "L1 p.20",
+          "WG1 p.5-6",
+          "L1 p.21"
+        ]
+      }
+    },
+    {
+      "id": "s3",
+      "title": "Newer Than the Treaty",
+      "phase": "examination",
+      "slug": {
+        "int_ext": "INT",
+        "place": "DISTRICT COURT OF NEDERLANDA, COURTROOM 2",
+        "time": "CONTINUOUS"
+      },
+      "set": "courtroom",
+      "action": [
+        "Same courtroom, moments later, the gold \"SUSTAINED\" card still fading from the case-file HUD. Mr. Haan rises again for the customs authority."
+      ],
+      "dialogue": [
+        {
+          "speaker": "HAAN",
+          "line": "Your Honour, the Import Duty Act dates from 2026. The Treaty is decades older. The later law prevails.",
+          "cites": []
+        },
+        {
+          "speaker": "LAWYER",
+          "line": "The Court of Justice rejected that argument in 1964. Treaty law can't be overridden by domestic provisions, \"however framed\".",
+          "cites": []
+        },
+        {
+          "speaker": "HAAN",
+          "line": "Then let Parliament repeal the Act, or let the Constitutional Court strike it down. This court cannot simply ignore a statute.",
+          "cites": []
+        },
+        {
+          "speaker": "JUDGE DE WIT",
+          "line": "(to the lawyer) Counsel. Suppose I accept that Article 30, first phrase, has direct effect. What exactly am I obliged to do with this statute, and when?",
+          "cites": []
+        }
+      ],
+      "shots": [
+        {
+          "n": 1,
+          "size": "Medium",
+          "angle": "Low, 1.1 m, 10° up",
+          "movement": "Static",
+          "lens": "50 mm, f/2.8",
+          "lighting": "Window key, hard; gown absorbs light",
+          "subject": "Haan rising, hand on table: \"later law prevails\"",
+          "duration_s": 8
+        },
+        {
+          "n": 2,
+          "size": "Medium close-up",
+          "angle": "Eye level (seated)",
+          "movement": "Slow 10 cm push-in",
+          "lens": "65 mm, f/2",
+          "lighting": "Warmer; practical desk lamp on counsel table",
+          "subject": "Lawyer rising; TFEU book in foreground, soft",
+          "duration_s": 8
+        },
+        {
+          "n": 3,
+          "size": "Insert",
+          "angle": "Top-down",
+          "movement": "Static",
+          "lens": "50 mm macro",
+          "lighting": "Neutral",
+          "subject": "Printout headed \"Case 6/64 – Costa v ENEL – pp. 593-594\", sodium-amber strokes over \"however framed\" [WS1 p.1]",
+          "duration_s": 3
+        },
+        {
+          "n": 4,
+          "size": "Over-the-shoulder",
+          "angle": "Behind the lawyer toward Haan",
+          "movement": "Static",
+          "lens": "85 mm, f/2",
+          "lighting": "As 3.1",
+          "subject": "Haan: \"let Parliament repeal ... Constitutional Court\"",
+          "duration_s": 9
+        },
+        {
+          "n": 5,
+          "size": "Wide reverse",
+          "angle": "High, 3 m, from behind the bench",
+          "movement": "Static",
+          "lens": "28 mm, f/5.6",
+          "lighting": "Back of judge's head as dark silhouette; room bright beyond",
+          "subject": "Both counsel tables small in frame; power sits with the bench",
+          "duration_s": 5
+        },
+        {
+          "n": 6,
+          "size": "Close-up",
+          "angle": "Low, from counsel height, 15° up",
+          "movement": "Very slow 5 cm dolly in",
+          "lens": "100 mm, f/2",
+          "lighting": "Top light plus a narrow sodium-amber edge from the window",
+          "subject": "Judge De Wit: \"What exactly am I obliged to do ... and when?\"",
+          "duration_s": 10
+        },
+        {
+          "n": 7,
+          "size": "Close-up",
+          "angle": "Eye level",
+          "movement": "Static; freeze",
+          "lens": "85 mm, f/1.8",
+          "lighting": "Sodium-amber UI rim as in 2.8",
+          "subject": "Lawyer's face; freeze → EXAMINATION II",
+          "duration_s": 4
+        },
+        {
+          "n": 8,
+          "size": "(after correct answer) Wide",
+          "angle": "Eye level, side",
+          "movement": "Slow 2 m lateral track",
+          "lens": "35 mm, f/4",
+          "lighting": "Sun breaks through the courtroom windows",
+          "subject": "Judge speaks the ruling; Maren exhales → cut to Verdict",
+          "duration_s": 14
+        }
+      ],
+      "quiz": {
+        "id": "q2",
+        "question": "Article 30, first phrase, TFEU has been shown to have direct effect. The conflicting national statute is later than the Treaty, and the State says only Parliament or the Constitutional Court can remove it. What must the District Court do?",
+        "options": [
+          {
+            "key": "A",
+            "text": "Of its own motion, refuse to apply the conflicting duty right away, without waiting for Parliament or the Constitutional Court. It does not matter that the statute is later, because the EU provision meets all the requirements for direct effect.",
+            "correct": true,
+            "outcome_title": "",
+            "story": "",
+            "teaching": "",
+            "cites": [],
+            "stamp": "SUSTAINED"
+          },
+          {
+            "key": "B",
+            "text": "Apply the 2026 statute. Under lex posterior, a later national law prevails over an older Treaty.",
+            "correct": false,
+            "outcome_title": "Lex Posterior.",
+            "story": "the judge nods to Haan, and the gavel falls. Cut to the customs yard: a clamp locks onto the truck's wheel.",
+            "teaching": "Before 1964 the view was that the rank of Community law depended on national rules, so a later national law could prevail. Costa v ENEL ended that: a national rule can never prevail over EU law, \"however framed\" [L1 p.26], [L1 p.27], [WA1 p.1]. Simmenthal II confirms that national law must be set aside \"whether prior or subsequent\" [L4 p.22].",
+            "cites": [
+              "L1 p.26",
+              "L1 p.27",
+              "WA1 p.1",
+              "L4 p.22"
+            ],
+            "stamp": "OVERRULED"
+          },
+          {
+            "key": "C",
+            "text": "Stay the case until Parliament repeals the Act or the Constitutional Court declares it unconstitutional. Only those bodies can remove a statute.",
+            "correct": false,
+            "outcome_title": "Wait for Parliament.",
+            "story": "a calendar on the courtroom wall flips through months. The bicycle boxes gather dust in the warehouse, and Maren locks the office for the last time.",
+            "teaching": "This was the Italian Constitutional Court's position before Simmenthal II: only repeal by the legislator or a declaration of unconstitutionality [L4 p.18]. The ECJ rejected it. The court must act of its own motion, without requesting or awaiting setting aside \"by legislative or other constitutional means\" [L4 p.21], [L4 p.24], [WA4 p.1].",
+            "cites": [
+              "L4 p.18",
+              "L4 p.21",
+              "L4 p.24",
+              "WA4 p.1"
+            ],
+            "stamp": "OVERRULED"
+          },
+          {
+            "key": "D",
+            "text": "Refuse to apply the statute, because supremacy is absolute. Whether Article 30 has direct effect is irrelevant to this question.",
+            "correct": false,
+            "outcome_title": "Right Result, Wrong Reason.",
+            "story": "the judge's pen stops. \"Counsel, if supremacy alone were enough, I could disapply any statute I disliked.\" The gold card stays grey: no points.",
+            "teaching": "Supremacy looks absolute but is limited by direct effect. Disapplying national law without checking the requirements would be arbitrary and against the rule of law [T1 p.9]. Neither Costa v ENEL nor Simmenthal II can be used to get around a lack of clarity or unconditionality. First establish direct effect, then apply Simmenthal II [L1 p.30], [L4 p.21], [L4 p.23], [WG1 p.4].",
+            "cites": [
+              "T1 p.9",
+              "L1 p.30",
+              "L4 p.21",
+              "L4 p.23",
+              "WG1 p.4"
+            ],
+            "stamp": "OVERRULED"
+          }
+        ],
+        "irac": {
+          "issue": "Must a national court wait for the legislator or the constitutional court before it refuses to apply a later national statute that conflicts with a directly effective Treaty provision? [L4 p.19]",
+          "rule": "Costa v ENEL: the Treaty created its own legal system, which became an integral part of the national legal systems. Law stemming from the Treaty \"could not ... be overridden by domestic legal provisions, however framed\", so a later national rule cannot prevail [L1 p.26], [L1 p.27], [WA1 p.1]. Simmenthal II (Case 106/77): directly applicable EU provisions \"render automatically inapplicable any conflicting provision of current national law\" (para 17). Every national court must \"set aside any provision of national law which may conflict with it, whether prior or subsequent\" (para 21). It must refuse \"of its own motion\" to apply it, and need not \"request or await the prior setting aside of such provision by legislative or other constitutional means\" (para 24) [L4 p.20], [L4 p.21], [L4 p.22], [L4 p.24], [WA4 p.1]. These duties exist only if the EU provision meets all the requirements for direct effect [L4 p.21], [L4 p.23], [L1 p.30]. In the exam, Simmenthal II must be applied where a party argues that the court has to wait for the constitutional court or the legislator [L4 p.30].",
+          "application": "Examination I established that Article 30, first phrase, TFEU is clear, unconditional and adapted, so it has direct effect. The duty imposed by the 2026 Act conflicts with it. That the Act is later than the Treaty makes no difference (\"prior or subsequent\"). Mr. Haan's argument that Parliament or the Constitutional Court must act first is the argument Simmenthal II rejects [L4 p.18], [L4 p.21].",
+          "conclusion": "The District Court must, of its own motion and immediately, refuse to apply the duty to Kade Freight. The conflicting rule is automatically inapplicable, and the court does not wait for any national measure [L5 p.21], [L4 p.24]."
+        },
+        "cites": [
+          "L1 p.26",
+          "L1 p.27",
+          "WA1 p.1",
+          "L4 p.22",
+          "L4 p.18",
+          "L4 p.21",
+          "L4 p.24",
+          "WA4 p.1",
+          "T1 p.9",
+          "L1 p.30",
+          "L4 p.23",
+          "WG1 p.4",
+          "L4 p.19",
+          "L4 p.20",
+          "L4 p.30",
+          "L5 p.21"
+        ]
+      }
+    },
+    {
+      "id": "s4",
+      "title": "Verdict",
+      "phase": "verdict",
+      "slug": {
+        "int_ext": "INT",
+        "place": "DISTRICT COURT OF NEDERLANDA, COURTROOM 2",
+        "time": "MOMENTS LATER"
+      },
+      "set": "courtroom",
+      "action": [],
+      "dialogue": [
+        {
+          "speaker": "JUDGE DE WIT",
+          "line": "On the claim before me tonight: the Import Duty Act 2026, as applied to Kade Freight's shipment, is set aside, with immediate effect, of this court's own motion. The customs authority will release the load. (beat) Counsel — well argued.",
+          "cites": []
+        }
+      ],
+      "shots": [],
+      "quiz": null
+    },
+    {
+      "id": "s5",
+      "title": "Epilogue card",
+      "phase": "epilogue",
+      "slug": {
+        "int_ext": "",
+        "place": "",
+        "time": ""
+      },
+      "set": "generic",
+      "action": [],
+      "dialogue": [
+        {
+          "speaker": "",
+          "line": "\"A clear, unconditional Treaty phrase creates a right the moment it applies — check the three tests before you ever mention supremacy. And once direct effect is established, a national court must set aside a conflicting statute right away, however new it is, and however framed.\"",
+          "cites": []
+        },
+        {
+          "speaker": "",
+          "line": "Next case: Week 2 — legislative procedures and horizontal effect.",
+          "cites": []
+        }
+      ],
+      "shots": [],
+      "quiz": null
+    }
+  ],
+  "case_file": [
+    "Claimant: Maren Vos, MD, Kade Freight (import firm).",
+    "Claim: a right against the Import Duty Act 2026 (Nederlanda), a customs duty on goods from Germania.",
+    "Exhibit flagged: duty notice, € 4 800, statute in force since Monday."
+  ],
+  "verdict": {
+    "outcome": "WON",
+    "irac": [
+      {
+        "issue": "Does Kade Freight have a right under EU law against the Import Duty Act 2026?",
+        "rule": "Van Gend & Loos: a Treaty provision has direct effect if it is clear, unconditional, and adapted to produce direct effects between Member States and their subjects [L1 p.25], [WA1 p.1].",
+        "application": "Article 30, first phrase, TFEU is clear, unconditional and adapted; the State being the named addressee does not stop Kade Freight, an \"individual\", from benefiting [L1 p.22], [L1 p.24].",
+        "conclusion": "Article 30, first phrase, TFEU has direct effect. Kade Freight has a right under EU law [L1 p.21], [L1 p.25]."
+      },
+      {
+        "issue": "What must the District Court do about the conflicting 2026 statute, and when?",
+        "rule": "Costa v ENEL + Simmenthal II: a later national rule cannot prevail; the court must set it aside of its own motion, without waiting for the legislator or the constitutional court [L1 p.26], [L1 p.27], [L4 p.21], [L4 p.24].",
+        "application": "The duty conflicts with a directly effective Treaty provision; that the statute is newer makes no difference [L4 p.18], [L4 p.21].",
+        "conclusion": "The District Court must refuse to apply the duty immediately, of its own motion [L5 p.21], [L4 p.24]."
+      }
+    ],
+    "takeaway": "\"A clear, unconditional Treaty phrase creates a right the moment it applies — check the three tests before you ever mention supremacy. And once direct effect is established, a national court must set aside a conflicting statute right away, however new it is, and however framed.\""
+  },
+  "checks": [
+    {
+      "n": 1,
+      "claim": "A Treaty provision is not necessarily a whole Article or paragraph; each phrase can be a provision",
+      "cites": [
+        "L1 p.7",
+        "T1 p.4-5",
+        "WA1 p.1"
+      ]
+    },
+    {
+      "n": 2,
+      "claim": "Cite as Article X(y)(z) followed by TEU/TFEU; missing the paragraph or TEU/TFEU loses points",
+      "cites": [
+        "L1 p.28",
+        "T1 p.10"
+      ]
+    },
+    {
+      "n": 3,
+      "claim": "Students should print and highlight judgment pages",
+      "cites": [
+        "L1 p.4",
+        "T1 p.3"
+      ]
+    },
+    {
+      "n": 4,
+      "claim": "Week 1 readings: Van Gend & Loos pp. 11-13; Costa v ENEL pp. 593-594",
+      "cites": [
+        "WS1 p.1"
+      ]
+    },
+    {
+      "n": 5,
+      "claim": "Article 12 EEC is now found in Articles 28(1) and 30 TFEU; text of Article 30 TFEU",
+      "cites": [
+        "L1 p.20",
+        "WA1 p.1"
+      ]
+    },
+    {
+      "n": 6,
+      "claim": "Van Gend & Loos: Case 26/62, 5 Feb 1963; Dutch company; customs duty on goods imported from Germany; preliminary ruling",
+      "cites": [
+        "L1 p.21",
+        "T1 p.8"
+      ]
+    },
+    {
+      "n": 7,
+      "claim": "\"Individuals\" = all parties other than public authorities, including businesses",
+      "cites": [
+        "L1 p.22",
+        "T1 p.9"
+      ]
+    },
+    {
+      "n": 8,
+      "claim": "Before 1963, it was debated whether the Treaty only indirectly gave rights through obligations on States",
+      "cites": [
+        "L1 p.22"
+      ]
+    },
+    {
+      "n": 9,
+      "claim": "Treaty is \"more than an agreement which merely creates mutual obligations\"; \"new order of international law\"; subjects include nationals",
+      "cites": [
+        "L1 p.23",
+        "WA1 p.1",
+        "WG1 p.3"
+      ]
+    },
+    {
+      "n": 10,
+      "claim": "Only some Treaty provisions create individual rights",
+      "cites": [
+        "L1 p.23",
+        "L1 p.25",
+        "WA1 p.1"
+      ]
+    },
+    {
+      "n": 11,
+      "claim": "Art 12 EEC is a \"clear and unconditional prohibition\", not qualified by a reservation requiring national legislation; the State being addressee does not stop nationals benefiting",
+      "cites": [
+        "L1 p.24"
+      ]
+    },
+    {
+      "n": 12,
+      "claim": "Three requirements: clear; unconditional (no further implementation by EU or national rules); adapted to produce direct effects between Member States and their subjects",
+      "cites": [
+        "L1 p.25",
+        "WA1 p.1",
+        "WG1 p.5-6",
+        "T1 p.9"
+      ]
+    },
+    {
+      "n": 13,
+      "claim": "Clear, unconditional provisions can still lack direct effect if they don't concern the State–individual relationship",
+      "cites": [
+        "L1 p.25",
+        "WA1 p.1"
+      ]
+    },
+    {
+      "n": 14,
+      "claim": "Exam method: \"Does X have a right under EU law?\" → identify the provision, test each requirement with arguments from its wording, conclude",
+      "cites": [
+        "L1 p.29",
+        "T1 p.10"
+      ]
+    },
+    {
+      "n": 15,
+      "claim": "Typical error: applying Costa v ENEL instead of the direct-effect requirements; it scores zero",
+      "cites": [
+        "L1 p.30",
+        "T1 p.9",
+        "WG1 p.4"
+      ]
+    },
+    {
+      "n": 16,
+      "claim": "Without direct effect, the national court cannot disapply contrary national law; doing so would be arbitrary and against the rule of law",
+      "cites": [
+        "L1 p.30",
+        "T1 p.9"
+      ]
+    },
+    {
+      "n": 17,
+      "claim": "Before Costa v ENEL, the rank of Community law was thought to depend on national law (lex posterior question)",
+      "cites": [
+        "L1 p.26",
+        "WG1 p.3"
+      ]
+    },
+    {
+      "n": 18,
+      "claim": "Costa v ENEL (Case 6/64, 15 July 1964): own legal system, integral part of national systems; cannot be overridden by domestic provisions \"however framed\"",
+      "cites": [
+        "L1 p.27",
+        "WA1 p.1"
+      ]
+    },
+    {
+      "n": 19,
+      "claim": "Pre-Simmenthal Italian Constitutional Court view: only legislative repeal or unconstitutionality ruling",
+      "cites": [
+        "L4 p.18"
+      ]
+    },
+    {
+      "n": 20,
+      "claim": "Simmenthal II is Case 106/77 (9 March 1978); the question was whether conflicting national rules must be disapplied immediately",
+      "cites": [
+        "L4 p.19"
+      ]
+    },
+    {
+      "n": 21,
+      "claim": "Simmenthal II paras 17, 21, 24: automatic inapplicability; set aside prior or subsequent national law; court acts of its own motion without awaiting legislative or constitutional means",
+      "cites": [
+        "L4 p.20",
+        "L4 p.21",
+        "L4 p.22",
+        "L4 p.24",
+        "WA4 p.1"
+      ]
+    },
+    {
+      "n": 22,
+      "claim": "Simmenthal II duties apply only if all direct-effect requirements are met",
+      "cites": [
+        "L4 p.21",
+        "L4 p.23",
+        "WA4 p.1"
+      ]
+    },
+    {
+      "n": 23,
+      "claim": "Simmenthal II must be applied when a party argues the court must wait for the constitutional court or legislator",
+      "cites": [
+        "L4 p.30"
+      ]
+    },
+    {
+      "n": 24,
+      "claim": "If direct effect is met, the conflicting national rule is automatically inapplicable; the court does not wait for a national measure",
+      "cites": [
+        "L5 p.21",
+        "L4 p.24"
+      ]
+    },
+    {
+      "n": 25,
+      "claim": "Exam answers are graded on knowledge (rule) plus application",
+      "cites": [
+        "SA p.4-5"
+      ]
+    },
+    {
+      "n": 26,
+      "claim": "The case-question method is called IRAC",
+      "cites": [
+        "V1A p.1"
+      ]
+    },
+    {
+      "n": 27,
+      "claim": "Fictional Member State names \"Nederlanda\" / \"Germania\"",
+      "cites": [
+        "AS1 p.1"
+      ]
+    }
+  ],
+  "removed": [
+    "a line having the judge refer the case to the ECJ under Article 267 TFEU (not needed, and the slides don't tie it to these facts)",
+    "a definition of \"charges having equivalent effect\" (the lecture quotes the phrase but never defines it, so the scenario uses a plain customs duty)",
+    "any mention of the German Federal Constitutional Court's reservations (the transcript [T1 p.9] defers this to Week 6, so it is left out of this game)."
+  ],
+  "coordinator_notes": [
+    "N1: Simmenthal is not a Week 1 case in IIEL. The IIEL Week 1 lecture teaches supremacy through Costa v ENEL only and says how to apply it comes in Week 6 [L1 p.30], [T1 p.10]. The IIEL lecture that teaches Simmenthal II is Week 4 [L4 p.17-30], and Week 5 restates it [L5 p.15], [L5 p.21]. The only \"W1\" file that mentions Simmenthal is W1 Lecture 1B slides.txt, which belongs to a different course (\"Law of the European Union\", Villanueva, 2026-27), even though the database tags it IIEL. Examination II uses the IIEL Week 4 slides as its authority.",
+    "N2: Course mix-up in the database. W1 Lecture 1A slides.txt, W1 Lecture 1B slides.txt and W1 Assignment.txt are tagged IIEL/rank 1 but come from \"Law of the European Union 2026-27\". The word \"IRAC\" appears only there [V1A p.1]. The IIEL sources teach the same method without the label [L1 p.29], and the resit grading splits marks into knowledge and application [SA p.4-5].",
+    "N3: Inconsistency in the Week 1 model answers. EU_Worksheet_W1_ANSWERS.docx p.1 says both \"Article 108(2), third sentence\" and \"the third sentence of Article 108(3) TFEU\" for the one directly effective provision. The quoted text is paragraph 3. This game avoids the Article 108 example because of this.",
+    "N4: Minor slide typo. [L1 p.8] headed \"ARTICLE 13 TFEU\", but [L1 p.7], [T1 p.5] and [WG1 p.5] say Article 13 TEU. Not used in the game.",
+    "N5: European Law WG Week 1.pdf is a written answer set that says it draws partly on \"supporting course notes\". It was used only where it matches L1 or WA1. - Lower-ranked sources: none relied on. Rank 1 covered every claim."
+  ]
+}
