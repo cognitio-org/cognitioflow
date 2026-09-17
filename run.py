@@ -77,19 +77,32 @@ def db():
         yield _Conn(conn)
 
 
+import logging
+from psycopg.types.json import Jsonb
+import course_brief as cb
+
+log = logging.getLogger("cognitioflow")
+if os.environ.get("CF_LOG_LEVEL"):   # e.g. CF_LOG_LEVEL=DEBUG logs each tutor system prompt (never the API key)
+    _h = logging.StreamHandler(); _h.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    log.addHandler(_h); log.setLevel(os.environ["CF_LOG_LEVEL"].upper()); log.propagate = False
+
 def init():
     import migrate as _migrate
     _migrate.run(_DATABASE_URL)
     with db() as d:
         if not d.execute("SELECT 1 FROM courses LIMIT 1").fetchone():
-            d.execute("INSERT INTO courses(id,name,accent,tutor_prompt,created) VALUES(?,?,?,?,?)",
-                      ("eu", "European Law", "#24467a", EU_PROMPT, time.time()))
-            d.execute("INSERT INTO courses(id,name,accent,tutor_prompt,created) VALUES(?,?,?,?,?)",
-                      ("prop", "Property Law", "#2e6b4a", PROP_PROMPT, time.time()))
-        # existing installs: fill an empty Property Law prompt from prompts/property_law.md once
-        if PROP_PROMPT:
-            d.execute("UPDATE courses SET tutor_prompt=? WHERE id='prop' AND (tutor_prompt IS NULL OR tutor_prompt='')",
-                      (PROP_PROMPT,))
+            for cid, name, accent, seed in cb.SEED_COURSES:
+                brief = cb.load_seed_brief(seed)
+                d.execute("INSERT INTO courses(id,name,accent,tutor_prompt,brief,slug,created) VALUES(?,?,?,?,?,?,?)",
+                          (cid, name, accent, cb.compile_prompt(brief, name), Jsonb(brief), cid, time.time()))
+        # existing installs: a seed course with no brief whose prompt is empty or still the shipped text gets its seed brief once
+        legacy = {"eu": EU_PROMPT, "prop": PROP_PROMPT}
+        for cid, _, _, seed in cb.SEED_COURSES:
+            r = d.execute("SELECT name,tutor_prompt,brief FROM courses WHERE id=?", (cid,)).fetchone()
+            if r and cb.brief_is_empty(r["brief"]) and (r["tutor_prompt"] or "").strip() in ("", legacy[cid].strip()):
+                brief = cb.load_seed_brief(seed)
+                d.execute("UPDATE courses SET brief=?, tutor_prompt=? WHERE id=?", (Jsonb(brief), cb.compile_prompt(brief, r["name"]), cid))
+        d.execute("UPDATE courses SET slug=id WHERE slug IS NULL")   # rows copied in by migrate_sqlite.py after 005
 
 BASE_PROMPT = """You are the study tutor inside CognitioFlow, a private local workspace for Matej, a law student at the University of Groningen.
 Working method (standing instructions):
@@ -102,12 +115,12 @@ Working method (standing instructions):
 - Matej's input often comes from garbled voice transcription; decode charitably before responding.
 """
 
+# Seed data only (Phase 6): the original hand-written course prompts. Courses now run on briefs compiled from
+# prompts/*.json; these are kept to recognise un-edited legacy rows in init() and for the equivalence test.
 _pp = ROOT / "prompts" / "property_law.md"
 PROP_PROMPT = _pp.read_text(encoding="utf-8") if _pp.exists() else ""
-
-EU_PROMPT = """Course specifics — European Law (Villanueva; WG tutor Phoebe; Schütze 3rd ed.). Exam: two cases plus compare-and-contrast, IRAC.
-Known traps to police every time: contra legem belongs ONLY to indirect effect (Adeneler), never horizontal direct effect or 'sufficiently serious breach'; Dassonville is the Art 34 scope test and Cassis the justification/mutual-recognition step — sequential moves, not opposing integration models; Brasserie du Pêcheur = Factortame (same joined cases); Van Gend concerns Art 30, not Art 34; Chernobyl is C-62/88, never C-70/88.
-Every free-movement problem is three moves: (1) catch, (2) justify — Treaty list or open list, (3) proportionality."""
+_ep = ROOT / "prompts" / "eu_law.md"
+EU_PROMPT = _ep.read_text(encoding="utf-8").strip() if _ep.exists() else ""
 
 # ---------------------------------------------------------------- text extraction
 def extract(path: Path, kind: str) -> str:
@@ -175,7 +188,9 @@ app = FastAPI(title="CognitioFlow")
 auth.install(app, db)  # session middleware + /auth/* routes; everything else needs a signed-in user
 init()
 
-class CourseIn(BaseModel): name: str; accent: str = "#24467a"; tutor_prompt: str = ""
+class CourseIn(BaseModel): name: str; accent: Optional[str] = None; tutor_prompt: str = ""; brief: Optional[dict] = None; slug: Optional[str] = None
+class CourseEdit(BaseModel): name: Optional[str] = None; accent: Optional[str] = None; tutor_prompt: Optional[str] = None; brief: Optional[dict] = None; slug: Optional[str] = None
+class BriefPreviewIn(BaseModel): name: str = ""; brief: Optional[dict] = None; cid: Optional[str] = None
 class NoteIn(BaseModel): title: str = "Untitled"; body: str = ""
 class CardIn(BaseModel): front: str; back: str; source: str = ""; week: str = ""
 class ReviewIn(BaseModel): rating: int  # 0 again, 1 hard, 2 good, 3 easy
@@ -212,16 +227,89 @@ async def voice_live(websocket: WebSocket, course: str = ""):
 @app.get("/api/courses")
 def courses(): return rows("SELECT * FROM courses ORDER BY created")
 
+def _checked(fn, *a):
+    try: return fn(*a)
+    except cb.BriefError as e: raise HTTPException(422, str(e))
+
+@app.get("/api/course-meta")
+def course_meta(): return {"palette": cb.PALETTE, "fields": [{"key": k, "label": l, "kind": kind} for k, l, kind in cb.BRIEF_FIELDS]}
+
+@app.post("/api/course-brief/preview")
+def brief_preview(p: BriefPreviewIn):
+    brief = _checked(cb.normalise_brief, p.brief)
+    if cb.brief_is_empty(brief) and p.cid:
+        stored = rows("SELECT tutor_prompt FROM courses WHERE id=?", p.cid)
+        return {"prompt": stored[0]["tutor_prompt"] if stored else "", "fallback": True}
+    return {"prompt": "" if cb.brief_is_empty(brief) else cb.compile_prompt(brief, p.name), "fallback": False}
+
 @app.post("/api/courses")
 def add_course(c: CourseIn, user: dict = Depends(current_user)):
+    name = c.name.strip()
+    if not name: raise HTTPException(422, "Course name is required.")
+    brief = _checked(cb.normalise_brief, c.brief)
+    accent = _checked(cb.valid_accent, c.accent) if c.accent else None
     cid = uuid.uuid4().hex[:8]
-    with db() as d: d.execute("INSERT INTO courses(id,name,accent,tutor_prompt,created,user_id) VALUES(?,?,?,?,?,?)", (cid, c.name, c.accent, c.tutor_prompt, time.time(), user["id"]))
-    return {"id": cid}
+    with db() as d:
+        # Phase 4 landed while this branch was open: the course belongs to whoever is signed in, and the
+        # slug and accent are unique per that person, not per the one MATEJ_EMAIL row this used to assume.
+        owner = user["id"]
+        mine = d.execute("SELECT slug,accent FROM courses WHERE COALESCE(user_id,'')=?", (owner,)).fetchall()
+        slug = cb.unique_slug(cb.slugify(c.slug or name), {r["slug"] for r in mine})
+        accent = accent or cb.pick_accent([r["accent"] for r in mine])
+        d.execute("INSERT INTO courses(id,name,accent,tutor_prompt,brief,slug,user_id,created) VALUES(?,?,?,?,?,?,?,?)",
+                  (cid, name, accent, cb.course_prompt(brief, name, c.tutor_prompt), Jsonb(brief), slug, owner, time.time()))
+    return {"id": cid, "slug": slug, "accent": accent}
 
 @app.put("/api/courses/{cid}")
-def edit_course(cid: str, c: CourseIn):
-    with db() as d: d.execute("UPDATE courses SET name=?,accent=?,tutor_prompt=? WHERE id=?", (c.name, c.accent, c.tutor_prompt, cid))
-    return {"ok": True}
+def edit_course(cid: str, c: CourseEdit):
+    """Partial update. A brief recompiles tutor_prompt; an empty brief keeps the stored prompt."""
+    with db() as d:
+        cur = d.execute("SELECT * FROM courses WHERE id=?", (cid,)).fetchone()
+        if not cur: raise HTTPException(404)
+        name = cur["name"] if c.name is None else c.name.strip()
+        if not name: raise HTTPException(422, "Course name is required.")
+        accent = cur["accent"] if c.accent is None else _checked(cb.valid_accent, c.accent)
+        slug = cur["slug"]
+        if c.slug is not None and cb.slugify(c.slug) != slug:
+            slug = cb.slugify(c.slug)
+            if d.execute("SELECT 1 FROM courses WHERE COALESCE(user_id,'')=? AND slug=? AND id<>?", (cur["user_id"] or "", slug, cid)).fetchone():
+                raise HTTPException(409, f"Another course already uses the slug '{slug}'.")
+        brief = cur["brief"] if c.brief is None else _checked(cb.normalise_brief, c.brief)
+        stored = cur["tutor_prompt"] if c.tutor_prompt is None else c.tutor_prompt
+        prompt = cb.course_prompt(brief, name, stored)
+        d.execute("UPDATE courses SET name=?,accent=?,slug=?,brief=?,tutor_prompt=? WHERE id=?", (name, accent, slug, Jsonb(brief or {}), prompt, cid))
+    return {"ok": True, "slug": slug, "tutor_prompt": prompt}
+
+def _course_usage(cid: str) -> dict:
+    with db() as d:
+        n = lambda q: d.execute(q, (cid,)).fetchone()["n"]
+        return {"files": n("SELECT COUNT(*) AS n FROM files WHERE course_id=?"), "notes": n("SELECT COUNT(*) AS n FROM notes WHERE course_id=?"),
+                "cards": n("SELECT COUNT(*) AS n FROM cards WHERE course_id=?"), "messages": n("SELECT COUNT(*) AS n FROM messages WHERE course_id=?"),
+                "sessions": n("SELECT COUNT(*) AS n FROM sessions WHERE course_id=?")}
+
+@app.get("/api/courses/{cid}/usage")
+def course_usage(cid: str):
+    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    return _course_usage(cid)
+
+@app.delete("/api/courses/{cid}")
+def delete_course(cid: str, force: int = 0):
+    """Refuses while the course has files, notes or cards unless force=1 (the UI asks first). Force cascades to every dependent row."""
+    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    if rows("SELECT COUNT(*) AS n FROM courses")[0]["n"] <= 1: raise HTTPException(409, "Can't delete the only course.")
+    u = _course_usage(cid)
+    if (u["files"] or u["notes"] or u["cards"]) and not force:
+        raise HTTPException(409, f"This course has {u['files']} file(s), {u['notes']} note(s) and {u['cards']} card(s). Confirm to delete them too.")
+    for f in rows("SELECT id FROM files WHERE course_id=?", cid): delete_file(f["id"])   # also removes the stored upload
+    for r in rows("SELECT r.id FROM recordings r JOIN notes n ON n.id=r.note_id WHERE n.course_id=?", cid): rec_del(r["id"])   # and the audio
+    with db() as d:
+        d.execute("DELETE FROM reviews WHERE card_id IN (SELECT id FROM cards WHERE course_id=?)", (cid,))
+        d.execute("DELETE FROM note_versions WHERE note_id IN (SELECT id FROM notes WHERE course_id=?)", (cid,))
+        d.execute("DELETE FROM recordings WHERE note_id IN (SELECT id FROM notes WHERE course_id=?)", (cid,))
+        for t in ("cards", "notes", "messages", "sessions", "files"):
+            d.execute(f"DELETE FROM {t} WHERE course_id=?", (cid,))
+        d.execute("DELETE FROM courses WHERE id=?", (cid,))
+    return {"ok": True, "deleted": u}
 
 # files
 @app.get("/api/courses/{cid}/files")
@@ -482,6 +570,7 @@ def chat(cid: str, body: ChatIn):
     course = course[0]
     text_parts, images, narrowed = build_context(cid, body.message)
     system = [{"type": "text", "text": BASE_PROMPT + "\n" + (course["tutor_prompt"] or "") + "\n" + MODES.get(body.mode, MODES["drill"])}]
+    log.debug("tutor system prompt (course %s, mode %s):\n%s", cid, body.mode, system[0]["text"])
     if text_parts:
         heading = "COURSE PASSAGES (from the files you ticked; quote them):" if narrowed else "COURSE FILES:"
         trimmed = f"\n\n[Not included for this question: {', '.join(narrowed['trimmed'])}. Ask to read everything if you need them.]" if (narrowed and narrowed["trimmed"]) else ""

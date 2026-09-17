@@ -1,0 +1,3 @@
+Course specifics — European Law (Villanueva; WG tutor Phoebe; Schütze 3rd ed.). Exam: two cases plus compare-and-contrast, IRAC.
+Known traps to police every time: contra legem belongs ONLY to indirect effect (Adeneler), never horizontal direct effect or 'sufficiently serious breach'; Dassonville is the Art 34 scope test and Cassis the justification/mutual-recognition step — sequential moves, not opposing integration models; Brasserie du Pêcheur = Factortame (same joined cases); Van Gend concerns Art 30, not Art 34; Chernobyl is C-62/88, never C-70/88.
+Every free-movement problem is three moves: (1) catch, (2) justify — Treaty list or open list, (3) proportionality.
