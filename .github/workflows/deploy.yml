@@ -16,8 +16,11 @@ on:
 permissions:
   contents: read
 
+# Keyed on the sha for pushes, not on the ref: GitHub holds only one queued run per group, so a
+# burst of merges to main used to evict each other. On 16 Sep five merges (#23, #26, #27, #28, #29)
+# were cancelled that way and reached main untested. Deploys keep their own group, below.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -100,6 +103,9 @@ jobs:
     if: always() && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Advisory: it posts a comment, it does not judge the code. Run #42 passed every test and was
+    # still marked red because this job died at start-up, so a failure here must not gate the run.
+    continue-on-error: true
     permissions:
       contents: read
       pull-requests: write
@@ -134,6 +140,11 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Every merge now gets its own test run; deploys still take turns here, and a deploy still
+    # waiting when a newer one arrives gives way to it, so the newest commit is what goes live.
+    concurrency:
+      group: ${{ github.workflow }}-deploy-main
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
