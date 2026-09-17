@@ -90,3 +90,27 @@ It closes with the real outcome and what the court actually held, quoted from th
 - [ ] Millionaire: fifteen questions, three lifelines, wrong answer rates `Again`, win state at fifteen.
 - [ ] Courtroom: a case detected from a real ticked file; every quoted holding traceable to that file.
 - [ ] Every screen checked light and dark, 1440px and 1190px, keyboard reachable, 32px hit areas.
+
+### 11g — Backend result caching for quiz and hint
+
+`POST /api/courses/{cid}/quiz` and `POST /api/courses/{cid}/hint` both called `CHEAP_MODEL` on
+every request. Neither prompt is long enough for Anthropic prompt caching to help, so the results
+are stored instead (migration `010_quiz_hint_cache.sql`):
+
+- `card_distractors` — one row per card, keyed on the card id, storing the three wrong options
+  written for it and a hash of the card's back. `quiz()` only calls the model for cards whose stored
+  set is missing, invalid, or stale (the back was edited since it was cached); the call is skipped
+  entirely when every picked card already has a valid set. Options are still shuffled fresh on every
+  request, cached or not, and a card never surfaces with fewer than four options.
+- `hint_cache` — one row per `(course, normalised question, sorted options)`, reused for 30 days.
+  The "no hint available" fallback is never written to the cache, so a transient model failure
+  doesn't haunt that question for a month.
+
+Both routes now 404 on an unknown course id, matching the existing `if not course: raise
+HTTPException(404)` check already used by `/chat`, `/plan` and `/notes/draft` — the closest existing
+"course routes check ownership" pattern in this codebase. Note for the record: true per-user course
+ownership (one signed-in user 403'ing on another's course) does not exist anywhere in `run.py` yet —
+`current_user` is explicitly "not a data filter yet (single tenant)" (see `auth.py`), and CLAUDE.md
+defers multi-user to a later phase. Adding real cross-user enforcement to only these two endpoints
+would be inconsistent with every other course route and would pull that later phase's work forward,
+so this slice matches the existing pattern instead of inventing a new one.
