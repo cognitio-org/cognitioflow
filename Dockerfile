@@ -14,6 +14,8 @@ COPY run.py auth.py storage.py migrate.py embed.py retrieval.py schedule.py oral
 COPY transcribe/ transcribe/
 COPY scripts/check_env.py scripts/start.sh scripts/
 COPY static/ static/
+# The Arena's 3D player and its games (served at /play/player and via /api/courses/{cid}/docket, both behind sign-in)
+COPY play/ play/
 COPY prompts/ prompts/
 COPY migrations/ migrations/
 

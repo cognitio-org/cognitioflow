@@ -1,0 +1,1053 @@
+{
+  "id": "il-sources-of-international-law",
+  "course": "IIEL",
+  "title": "The Gillyweed Accord",
+  "logline": "You are Counsel, retained by the Cetus River Commission. Three neighbouring States around the Cetus river basin are fighting over Gillyweed, a medicinal algae running dry in their shared rivers. Two of them signed a Convention to save it; the third never did, and keeps extracting. Tonight the Tribunal sits. Opposing counsel for the third State has one letter and three arguments. You have the file, three rounds of examination, and the sources of international law to win the river back.",
+  "learning_goal": "By the end, the player can: 1. State the classical list of sources in Article 38(1) ICJ Statute — treaties, custom, general principles, and (as subsidiary means) judicial decisions and teachings — and separate PRIMARY, law-creating sources from SECONDARY, law-identifying ones [L2 p.10], [T2 p.3]. 2. Apply the VCLT's rules on consent to be bound (signature, ratification, accession — the \"wheel of consent\"), entry into force, and third-State non-binding (pacta tertiis) to decide who is actually a party to a treaty [L2 p.12-15], [WA2 p.5-8]. 3. Apply the two-element test for customary international law — state practice (consistency, duration, generality) plus opinio juris — independently of any treaty, since custom binds all States including non-parties [L2 p.17-24], [T2 p.5-6], [WA2 p.10-11]. 4. Correctly state and correctly LIMIT the persistent objector rule: it only ever blocks an emerging rule that a State has consistently and openly opposed from the outset; it cannot be raised against an already-settled rule, cannot be claimed by new States against pre-existing custom, and never works against jus cogens [T2 p.6], [WD2 p.1]. 5. Avoid the \"typical error\" of collapsing the different sources into one another — e.g. using the CIL \"specially affected States\" test to decide whether a treaty has entered into force, or treating a judicial decision as itself a freestanding source rather than subsidiary evidence [L2 p.25], [L2 p.30], [T2 p.3], [WA2 p.2].",
+  "sources": {
+    "L2": {
+      "file": "IL_Lecture_W2_Sources.pdf",
+      "kind": "lecture / 1",
+      "note": "Week 2 slide deck. Header names Dr. Marlies Hesselman. Primary authority."
+    },
+    "T2": {
+      "file": "International Law Lecture Week 2.pdf",
+      "kind": "lecture / 1",
+      "note": "Week 2 lecture notes/transcript, same header and course; contains the persistent-objector, Eastern Greenland, Chagos and exam-checklist material that the slide deck (L2) does not spell out."
+    },
+    "WS2": {
+      "file": "IL_Seminar_W2.pdf",
+      "kind": "wg / 1",
+      "note": "Week 2 seminar assignment sheet — source of the Gillyweed Convention (CPG) fictional scenario used as this case's spine."
+    },
+    "WA2": {
+      "file": "International Law WG Week 2.pdf",
+      "kind": "wg / 1",
+      "note": "Week 2 WG model-answer sheet, IRAC format."
+    },
+    "WA2b": {
+      "file": "International and European Law WG Week 2.pdf",
+      "kind": "wg / 1",
+      "note": "Same Week 2 model answers, reformatted with explicit IRAC labels; used interchangeably with WA2."
+    },
+    "WD2": {
+      "file": "International Law WG Week 2.docx",
+      "kind": "wg / 1",
+      "note": "Comprehensive Week 2 study notes + model answers. Header names \"Dr. Nina Muleva\" as International Law lecturer (see N1)."
+    },
+    "EX1": {
+      "file": "2026_IIEL_Exam_Information.pdf",
+      "kind": "exam / 3",
+      "note": "Not rank 1. Used only, per the task brief, to confirm the exam's answer method (MCQ + hypothetical case), never as a source of a legal rule."
+    },
+    "RS1": {
+      "file": "Standard Answers IIEL resit exam 25 June 2026 - Copy.pdf",
+      "kind": "wg_answers / 1",
+      "note": "Real resit exam paper; confirms the 4-option (a–d) MCQ format used for International Law questions."
+    }
+  },
+  "bible": {
+    "palette": [
+      "#1c1d1f",
+      "#6b6a62",
+      "#d99a3e",
+      "#3fb6b0",
+      "#b3372f",
+      "#e8e1cf"
+    ],
+    "mood": "Desaturated, warm grey-brown / sodium-amber tint; lifted blacks, soft highlights, saturation ≈0.6, slight green-yellow cast in shadows. Strong vignette, fine film grain, generous soft bloom on every practical light.",
+    "notes": [
+      "Atmosphere: Overcast city night around the Tribunal; wet asphalt with bright reflections; sodium streetlights and one flickering neon sign; steam from a grate outside the entrance; distant city glow through the haze. Indoors: dry, dusty air, flickering fluorescent tubes, radiator tick.",
+      "Render: Cycles or EEVEE Next, 2.39:1 letterbox (1920×804 inside 1920×1080, black bars), 24 fps. Filmic/AgX pushed toward the bible's low-saturation, lifted-black grade; compositor vignette (radius 0.85, strength 0.35) and a fine grain overlay (2% opacity, animated). Volumetric haze outside (Volume Scatter density 0.02, anisotropy 0.25); dry interior, no haze.",
+      "Camera: Third-person follow, slight lag and sway, in the Arrival walk. Handheld drift (Noise modifier on camera location, strength 0.02 m, scale 15) inside the building. Slow push-ins on every examination question. Low angles (10-20° up) on the Arbitrator's bench.",
+      "Type / UI: Headings in Oswald (condensed grotesque), body copy in IBM Plex Sans. Subtitles: clean sans-serif on a dark, semi-transparent box, bottom-third. Case file: a PDA/phone-style panel the player can reopen at any time (small folder icon, bottom-left, pulses neon teal when new facts are added). Question cards: four stacked cards A–D, paper-coloured, neon-teal outline, that slide up from the bottom third on freeze (all animation holds, 20% desaturation, slow 2% push-in). Correct pick: card locks and a SUSTAINED stamp (neon teal, Oswald, slight camera-shutter snap) crosses the frame. Wrong pick: the card cracks with a red hairline and an OVERRULED stamp (verdict red) crosses the frame, then the consequence plays. Characters (all heights in metres; mid-poly, mid-2000s fidelity, realistic proportions, never cartoonish). | Name | Role | Build / look | Wardrobe | |---|---|---|---| | COUNSEL (player) | Lawyer for the Cetus River Commission | 1.75, gender-neutral, dark hair tied back; face rarely shown (third-person follow / OTS / POV) | Dark charcoal suit, no tie, worn leather briefcase — the bible's default lawyer silhouette | | ADA KOVAČ | Client — field liaison, Uras's Ministry of Rivers | 1.68, dark hair in a practical braid, sun-weathered, tired eyes | Olive field jacket over a collared shirt, a scuffed aluminium case always at her feet | | REGISTRAR HALVORSEN | Tribunal Registrar / clerk | 1.90, thin, silver wire-rim glasses, ink-stained cuffs | Pale grey cardigan over a white shirt, white cotton gloves for handling instruments | | AMBASSADOR TAVITA | Opposing counsel, for Gont | 1.78, 50s, close-cropped grey hair, composed, unhurried | Dark formal suit, small Gont lapel pin | | ARBITRATOR NNAMDI | Presiding arbitrator, Cetus River Tribunal | 1.72, 60s, half-moon glasses, greying locs pinned back | Plain black arbitrator's robe, no wig |",
+      "Hero props: - Case file panel (UI, described above). - Convention folder: A4 paper-coloured hard folder embossed \"CONVENTION FOR THE PRESERVATION OF GILLYWEED,\" neon-teal ribbon bookmark, tabs reading only \"ART. 8,\" \"ART. 10,\" \"ART. 11.\" - Depositary ledger: leather-bound register, one column per State, ink entries for \"SIGNATURE,\" \"RATIFICATION,\" \"ACCESSION.\" - Gont's letter: single cream-paper sheet, letterhead \"EMBASSY OF GONT,\" dated January 2024, one short paragraph, a small wax seal — visibly NOT an instrument of ratification or accession. - Evidence case: aluminium field case, foam-cut slots holding sealed glass vials of river water and wilted Gillyweed fronds, a laminated card of the Stockholm/Rio Declaration excerpts clipped to the lid; entered as Exhibit B in Round 2. - Arbitrator's gavel-mic: a small brass-finished microphone on an articulated arm at the bench, its ring light switching to neon teal when a party is recognised to speak.",
+      "Sound (8-bit courtroom score, original, per bible): - Arrival: brooding minor bass ostinato, ~90 bpm, sparse pulse lead, filtered rain/traffic noise. - Briefing: a sustained pad arpeggio under Halvorsen's and Ada's dialogue. - Examination (each round): a ticking hi-hat and rising tension loop from the moment the question card appears. - Sustained: a bright 3-note major sting, teal flash synced to the stamp. - Overruled: a low descending 2-note sting, red flash synced to the stamp. - Verdict: a short fanfare (case won) or a minor cadence (case lost). - Scene-change sting: a heavy two-hit chiptune \"clang\" on every title card (Arrival, Briefing, Round 1/2/3, Verdict, Epilogue)."
+    ]
+  },
+  "scenes": [
+    {
+      "id": "s1",
+      "title": "Arrival + Case Briefing",
+      "phase": "arrival",
+      "slug": {
+        "int_ext": "EXT",
+        "place": "CETUS RIVER TRIBUNAL",
+        "time": "REGISTRAR'S ANTECHAMBER"
+      },
+      "set": "courtroom",
+      "action": [
+        "Third-person, over-the-shoulder camera behind COUNSEL, briefcase in hand, crossing a rain-slicked plaza at dusk. Sodium streetlights bloom in the wet asphalt; steam lifts from a grate; a flickering neon sign over the entrance reads \"CETUS RIVER TRIBUNAL.\" The player walks (WASD / arrow keys; tap-to-move on phone) toward the lit brass doors. A Skip button is available throughout. Reaching the door starts the case.",
+        "Inside, a narrow antechamber: filing racks, a single broad desk under a desk lamp. REGISTRAR HALVORSEN, white-gloved, lays out the blue-ribboned Convention folder and the ledger. ADA KOVAČ waits with the evidence case at her feet."
+      ],
+      "dialogue": [
+        {
+          "speaker": "HALVORSEN",
+          "line": "Two ratifications on file, Counsel. Uras, first of May twenty-twenty-one. Anares, first of March last year. That's the Convention in force — thirty days after the second one.",
+          "cites": []
+        },
+        {
+          "speaker": "ADA",
+          "line": "And Gont keeps extracting like none of this exists.",
+          "cites": []
+        },
+        {
+          "speaker": "HALVORSEN",
+          "line": "(sliding over the cream letter) A note from Gont's embassy. January this year. Says Gont \"intends to sign.\" That's all it says.",
+          "cites": []
+        },
+        {
+          "speaker": "ADA",
+          "line": "So it's bound.",
+          "cites": []
+        },
+        {
+          "speaker": "COUNSEL",
+          "line": "An intention isn't a signature, and a signature isn't a ratification. Before we walk in there, we need every article Gont could still be bound under — and whether it's used any of them yet.",
+          "cites": []
+        },
+        {
+          "speaker": "ADA",
+          "line": "Six more months at Gont's rate and there's nothing left in the river to preserve.",
+          "cites": []
+        },
+        {
+          "speaker": "",
+          "line": "(A door buzzer sounds. HALVORSEN stands.)",
+          "cites": []
+        },
+        {
+          "speaker": "HALVORSEN",
+          "line": "They're calling the room, Counsel. Tribunal's in session.",
+          "cites": []
+        }
+      ],
+      "shots": [
+        {
+          "n": 1,
+          "size": "Wide, third-person follow",
+          "angle": "Behind and slightly above Counsel, 2 m back",
+          "movement": "Player-driven walk with camera lag/sway (Noise modifier, strength 0.4°)",
+          "lens": "28 mm, f/4",
+          "lighting": "Sodium streetlights (point lamps, 2000 K, 300 W) blooming into haze; smog-grey overcast fill",
+          "subject": "Plaza recedes to the lit brass doors; neon sign bloom top-frame",
+          "duration_s": 12
+        },
+        {
+          "n": 2,
+          "size": "Insert",
+          "angle": "Low, ground level",
+          "movement": "Static",
+          "lens": "35 mm, f/2.8",
+          "lighting": "Sodium key, wet reflection pass (screen-space reflections)",
+          "subject": "Boots stepping through a puddle, sign glow rippling in it",
+          "duration_s": 3
+        },
+        {
+          "n": 3,
+          "size": "Close-up",
+          "angle": "Eye level, from inside looking out",
+          "movement": "Slow push toward the door as Counsel reaches it",
+          "lens": "40 mm, f/2.8",
+          "lighting": "Interior warm fluorescent leaking through the glass vs. cold exterior",
+          "subject": "Brass door handle fills frame; title card \"THE GILLYWEED ACCORD\" fades in, Oswald, neon-teal",
+          "duration_s": 5
+        },
+        {
+          "n": 4,
+          "size": "Wide",
+          "angle": "Eye level, 5 m back",
+          "movement": "Slow 1 m push-in",
+          "lens": "28 mm, f/4",
+          "lighting": "Flickering fluorescent tube (irregular intensity keyframes, 4200 K); dust motes in the beam",
+          "subject": "Filing racks receding into shadow; desk lit centre-frame",
+          "duration_s": 7
+        },
+        {
+          "n": 5,
+          "size": "Insert / top-down",
+          "angle": "Directly above the ledger",
+          "movement": "Static",
+          "lens": "50 mm macro, f/2.8",
+          "lighting": "Desk-lamp pool (spot, 3000 K, 40 W)",
+          "subject": "Ledger open, ink columns \"SIGNATURE / RATIFICATION / ACCESSION,\" gloved hand tracing a row",
+          "duration_s": 5
+        },
+        {
+          "n": 6,
+          "size": "Medium",
+          "angle": "Eye level",
+          "movement": "Static",
+          "lens": "40 mm, f/2.8",
+          "lighting": "As B.1, warm fill from desk lamp",
+          "subject": "Halvorsen behind desk, folder and letter in frame",
+          "duration_s": 7
+        },
+        {
+          "n": 7,
+          "size": "Insert",
+          "angle": "Slight high angle",
+          "movement": "Slow 5 cm slide",
+          "lens": "85 mm macro, f/2",
+          "lighting": "Desk-lamp key",
+          "subject": "Cream letter, wax seal, \"intends to sign\" under a neon-teal highlighter line",
+          "duration_s": 5
+        },
+        {
+          "n": 8,
+          "size": "Close-up",
+          "angle": "Eye level",
+          "movement": "Slow 10 cm push-in",
+          "lens": "65 mm, f/2",
+          "lighting": "Flickering fluorescent, cool",
+          "subject": "Counsel (OTS on Ada): \"An intention isn't a signature...\"",
+          "duration_s": 8
+        },
+        {
+          "n": 9,
+          "size": "Medium close-up",
+          "angle": "Low, 10° up",
+          "movement": "Static",
+          "lens": "50 mm, f/2.8",
+          "lighting": "Warmer, from the desk lamp",
+          "subject": "Ada: \"Six more months at Gont's rate...\"",
+          "duration_s": 6
+        },
+        {
+          "n": 10,
+          "size": "Insert",
+          "angle": "Static",
+          "movement": "Buzzer light flash",
+          "lens": "50 mm, f/2.8",
+          "lighting": "Practical door-buzzer flash (red LED practical)",
+          "subject": "Door buzzer, Halvorsen rising",
+          "duration_s": 4
+        },
+        {
+          "n": 11,
+          "size": "Wide",
+          "angle": "Eye level",
+          "movement": "Slow track toward the door Halvorsen opens",
+          "lens": "35 mm, f/4",
+          "lighting": "Bright hearing-room light spilling in through the doorway",
+          "subject": "Case file panel icon pulses teal, bottom-left; cut on the flash of the hearing-room lights → EXAMINATION ROUND 1",
+          "duration_s": 6
+        }
+      ],
+      "quiz": null
+    },
+    {
+      "id": "s2",
+      "title": "The Letter From Gont",
+      "phase": "examination",
+      "slug": {
+        "int_ext": "INT",
+        "place": "CETUS RIVER TRIBUNAL",
+        "time": "NIGHT"
+      },
+      "set": "courtroom",
+      "action": [
+        "A plain, worn hearing room: dark wood panelling, a raised bench, brass fittings gone dull with age, paper stacks on both counsel tables. ARBITRATOR NNAMDI presides. AMBASSADOR TAVITA stands for Gont. COUNSEL sits beside Ada, the Convention folder open."
+      ],
+      "dialogue": [
+        {
+          "speaker": "TAVITA",
+          "line": "Gont has sent its letter, Your Honour. A note of good faith. Nothing more is required of a State that never sat at the negotiating table.",
+          "cites": []
+        },
+        {
+          "speaker": "ARBITRATOR NNAMDI",
+          "line": "Counsel for the Commission. Is Gont bound by this Convention today — and if not, could it still become bound?",
+          "cites": []
+        },
+        {
+          "speaker": "COUNSEL",
+          "line": "(rising, folder in hand) Your Honour, the question has two parts, and the Convention answers both.",
+          "cites": []
+        }
+      ],
+      "shots": [
+        {
+          "n": 1,
+          "size": "Extreme wide, symmetrical",
+          "angle": "Eye level from the back wall",
+          "movement": "Static 2 s, then slow 1.5 m push-in",
+          "lens": "21 mm, f/8",
+          "lighting": "Flickering fluorescent ceiling wash (irregular intensity, 4200 K); dust in the beams",
+          "subject": "Bench raised 0.5 m at far wall; counsel tables left (Gont) and right (Commission)",
+          "duration_s": 9
+        },
+        {
+          "n": 2,
+          "size": "Medium",
+          "angle": "Low, 1.1 m, 10° up",
+          "movement": "Static",
+          "lens": "50 mm, f/2.8",
+          "lighting": "Hard sodium-tinted practical from a side window",
+          "subject": "Tavita standing: \"Nothing more is required...\"",
+          "duration_s": 8
+        },
+        {
+          "n": 3,
+          "size": "Wide reverse",
+          "angle": "High, 3 m, from behind the bench",
+          "movement": "Static",
+          "lens": "28 mm, f/5.6",
+          "lighting": "Arbitrator as a near-silhouette against the bright room",
+          "subject": "Both counsel tables small in frame",
+          "duration_s": 5
+        },
+        {
+          "n": 4,
+          "size": "Close-up",
+          "angle": "Low, 15° up",
+          "movement": "Slow 5 cm push-in",
+          "lens": "100 mm, f/2",
+          "lighting": "Top light plus a narrow teal edge from the desk-mic ring light",
+          "subject": "Nnamdi: \"Is Gont bound today — and could it still become bound?\"",
+          "duration_s": 8
+        },
+        {
+          "n": 5,
+          "size": "Close-up",
+          "angle": "Eye level",
+          "movement": "Static; freeze",
+          "lens": "65 mm, f/1.8",
+          "lighting": "Neon-teal UI rim on freeze",
+          "subject": "Counsel rising, folder in hand → EXAMINATION CARD",
+          "duration_s": 5
+        }
+      ],
+      "quiz": {
+        "id": "q1",
+        "question": "Uras signed the CPG on 1 Nov 2020 and ratified on 1 May 2021. Anares signed the same day and ratified on 1 March 2022. Gont, which never negotiated or signed the CPG, sent a diplomatic note in January 2024 saying only that it \"intends to sign.\" Art. 11(1) CPG: the Convention enters into force 30 days after the second ratification. Art. 10 CPG: open for accession by any State described in Art. 8 (all Cetus-region States). Which argument do you make?",
+        "options": [
+          {
+            "key": "A",
+            "text": "The CPG entered into force for Uras and Anares on 31 March 2022, 30 days after Anares's ratification (Art. 11(1) CPG, Art. 24 VCLT). Gont is a third State: a mere notification of intention creates no obligation (Art. 34 VCLT, pacta tertiis). Gont could still become bound, either by signing and later ratifying (Arts. 8 CPG, 12 and 14 VCLT) or by acceding directly (Art. 10 CPG, Art. 15 VCLT), since accession is exactly the route by which a State that did not negotiate a treaty may join it.",
+            "correct": true,
+            "outcome_title": "",
+            "story": "",
+            "teaching": "",
+            "cites": [],
+            "stamp": "SUSTAINED"
+          },
+          {
+            "key": "B",
+            "text": "The CPG already binds Gont, because once a regional convention like the CPG is in force it binds every State in the region, whether or not that State ever consented.",
+            "correct": false,
+            "outcome_title": "Third State, First Bound.",
+            "story": "Tavita doesn't even rise. \"Counsel is citing a rule that doesn't exist.\" Nnamdi strikes the argument from the record.",
+            "teaching": "A treaty binds only States that consented to be bound; it creates no obligation for third States without their consent (Art. 34 VCLT, pacta tertiis) [WA2 p.7]. Regional scope is not a substitute for consent.",
+            "cites": [
+              "WA2 p.7"
+            ],
+            "stamp": "OVERRULED"
+          },
+          {
+            "key": "C",
+            "text": "Gont can never become a party to the CPG, because only the States that negotiated and signed the original text may be bound by it.",
+            "correct": false,
+            "outcome_title": "No Door Ever Opens.",
+            "story": "Tavita smiles for the first time: \"Then Gont will simply accede tomorrow morning, Your Honour — Counsel has just told this Tribunal it cannot stop us.\"",
+            "teaching": "Accession under Art. 15 VCLT (here, also Art. 10 CPG) exists exactly to let a State that never negotiated or signed a treaty join it later. Confusing \"not an original party\" with \"can never be a party\" is the error this rule is built to prevent [WA2 p.5], [WD2 p.1].",
+            "cites": [
+              "WA2 p.5",
+              "WD2 p.1"
+            ],
+            "stamp": "OVERRULED"
+          },
+          {
+            "key": "D",
+            "text": "The CPG has not entered into force at all, because Gont — clearly a \"specially affected State\" for Gillyweed — has not yet ratified it, and a treaty needs the specially affected States on board before it can take effect.",
+            "correct": false,
+            "outcome_title": "Wrong Test, Wrong Source.",
+            "story": "Nnamdi cuts in before Tavita can. \"Counsel, that test belongs to customary law. This is a ledger, not a State-practice survey.\" Halvorsen's ledger stays open to 31 March 2022 regardless.",
+            "teaching": "\"Specially affected States\" is part of the customary international law test (see Round 2) — it has nothing to do with when a treaty enters into force, which is governed solely by the treaty's own entry-into-force clause and Art. 24 VCLT [L2 p.20-21], [L2 p.25]. Mixing up the tests for different sources is exactly the \"typical error\" this unit warns against [L2 p.25], [T2 p.3].",
+            "cites": [
+              "L2 p.20-21",
+              "L2 p.25",
+              "T2 p.3"
+            ],
+            "stamp": "OVERRULED"
+          }
+        ],
+        "irac": {
+          "issue": "",
+          "rule": "a treaty enters into force as it itself provides (Art. 24 VCLT) and binds its parties under pacta sunt servanda (Art. 26 VCLT) [L2 p.12]; it creates no obligation for a third State without consent (Art. 34 VCLT) [WA2 p.7]; Gont's letter is only a notification of intention, so nothing binds it yet, but Arts. 8/10 CPG with Arts. 12, 14 and 15 VCLT leave signature-plus-ratification and accession both open to it precisely because it was not an original party [WA2 p.5], [WD2 p.1].",
+          "application": "a treaty enters into force as it itself provides (Art. 24 VCLT) and binds its parties under pacta sunt servanda (Art. 26 VCLT) [L2 p.12]; it creates no obligation for a third State without consent (Art. 34 VCLT) [WA2 p.7]; Gont's letter is only a notification of intention, so nothing binds it yet, but Arts. 8/10 CPG with Arts. 12, 14 and 15 VCLT leave signature-plus-ratification and accession both open to it precisely because it was not an original party [WA2 p.5], [WD2 p.1].",
+          "conclusion": "\"The Convention bound its two ratifying parties on 31 March 2022; it binds Gont in no respect, and Gont has walked through neither door that would change that.\""
+        },
+        "cites": [
+          "WA2 p.7",
+          "WA2 p.5",
+          "WD2 p.1",
+          "L2 p.20-21",
+          "L2 p.25",
+          "T2 p.3",
+          "L2 p.12"
+        ]
+      }
+    },
+    {
+      "id": "s3",
+      "title": "Two Elements",
+      "phase": "examination",
+      "slug": {
+        "int_ext": "INT",
+        "place": "CETUS RIVER TRIBUNAL",
+        "time": "NIGHT (continuous)"
+      },
+      "set": "courtroom",
+      "action": [
+        "Halvorsen carries in Ada's aluminium evidence case and sets it on the exhibit table: sealed vials, wilted Gillyweed fronds, a laminated card of declaration excerpts. Ada is sworn as a fact witness. A brief cutaway insert shows her, hours earlier, crouched at the riverbank field station in the haze, sealing the vials — then cuts back to the hearing room as she finishes her answer."
+      ],
+      "dialogue": [
+        {
+          "speaker": "TAVITA",
+          "line": "Gont owes nothing under the Convention it never joined. That should end the matter.",
+          "cites": []
+        },
+        {
+          "speaker": "ARBITRATOR NNAMDI",
+          "line": "Counsel for the Commission — does anything else bind Gont here, Convention or no Convention?",
+          "cites": []
+        },
+        {
+          "speaker": "COUNSEL",
+          "line": "Something older than the Convention, Your Honour. Not every rule needs a treaty. Some rules happen because States keep doing the same thing, and believe they have to.",
+          "cites": []
+        },
+        {
+          "speaker": "",
+          "line": "ADA (from the witness stand, laminated card raised): Stockholm, seventy-two. Rio, ninety-two. A hundred and seventy-two States signed the second one.",
+          "cites": []
+        },
+        {
+          "speaker": "TAVITA",
+          "line": "Declarations. Not law.",
+          "cites": []
+        },
+        {
+          "speaker": "COUNSEL",
+          "line": "Numbers alone don't make custom, Ambassador. It's what the numbers are made of.",
+          "cites": []
+        }
+      ],
+      "shots": [
+        {
+          "n": 1,
+          "size": "Medium",
+          "angle": "Eye level",
+          "movement": "Static",
+          "lens": "40 mm, f/2.8",
+          "lighting": "Flickering fluorescent, as Scene 2",
+          "subject": "Halvorsen setting the aluminium case on the exhibit table",
+          "duration_s": 5
+        },
+        {
+          "n": 2,
+          "size": "Insert",
+          "angle": "Top-down",
+          "movement": "Static",
+          "lens": "50 mm macro, f/2",
+          "lighting": "Neutral desk-lamp fill",
+          "subject": "Case interior: vials, wilted fronds, laminated card",
+          "duration_s": 4
+        },
+        {
+          "n": 3,
+          "size": "(cutaway insert) Extreme wide",
+          "angle": "Eye level, from mid-river",
+          "movement": "Slow 2 m drift",
+          "lens": "24 mm, f/5.6",
+          "lighting": "Low warm sun through haze (sun lamp, 4000 K, strength 1.5, elevation 12°; Volume Scatter 0.01) — the grade's one exterior daylight exception, played as memory",
+          "subject": "Ada crouched at the field station on stilts, sealing a vial",
+          "duration_s": 5
+        },
+        {
+          "n": 4,
+          "size": "Medium close-up",
+          "angle": "Low, 10° up",
+          "movement": "Slow 8 cm push-in",
+          "lens": "65 mm, f/2",
+          "lighting": "Hearing-room fluorescent, cool",
+          "subject": "Ada on the stand: \"A hundred and seventy-two States signed the second one.\"",
+          "duration_s": 7
+        },
+        {
+          "n": 5,
+          "size": "Medium",
+          "angle": "Low, 1.1 m",
+          "movement": "Static",
+          "lens": "50 mm, f/2.8",
+          "lighting": "As 1.2",
+          "subject": "Tavita: \"Declarations. Not law.\"",
+          "duration_s": 6
+        },
+        {
+          "n": 6,
+          "size": "Close-up",
+          "angle": "Eye level",
+          "movement": "Slow 10 cm push-in",
+          "lens": "65 mm, f/2",
+          "lighting": "Neon-teal desk-mic rim as Counsel is recognised",
+          "subject": "Counsel: \"It's what the numbers are made of.\"",
+          "duration_s": 7
+        },
+        {
+          "n": 7,
+          "size": "Close-up",
+          "angle": "Low, 15° up",
+          "movement": "Slow 5 cm dolly in",
+          "lens": "100 mm, f/2",
+          "lighting": "Top light, teal mic-ring accent",
+          "subject": "Nnamdi, waiting; freeze → EXAMINATION CARD",
+          "duration_s": 5
+        }
+      ],
+      "quiz": {
+        "id": "q2",
+        "question": "Gont has not signed, ratified, or acceded to the CPG. Independently of the Convention, is Gont bound by a customary rule requiring it not to cause transboundary harm to Uras's and Anares's shared rivers?",
+        "options": [
+          {
+            "key": "A",
+            "text": "Yes. The rule satisfies both elements of the customary-law test. State practice: consistently formulated for over 80 years since the 1941 Trail Smelter arbitration, restated in the Stockholm Declaration (1972, Principle 21) and the Rio Declaration (1992, Principles 14-15), and incorporated into near-universal treaties such as the UNFCCC (198 parties) — satisfying consistency, duration and generality. Opinio juris: the ICJ's 1996 Nuclear Weapons Advisory Opinion confirmed the obligation is \"part of the corpus of international law,\" and declarations adopted with broad support can themselves be evidence of that legal conviction. Because custom binds all States, not only treaty parties, it binds Gont regardless of the CPG.",
+            "correct": true,
+            "outcome_title": "",
+            "story": "",
+            "teaching": "",
+            "cites": [],
+            "stamp": "SUSTAINED"
+          },
+          {
+            "key": "B",
+            "text": "No. Gont has not signed the CPG, so it has no obligation of any kind concerning Gillyweed or the rivers until it does.",
+            "correct": false,
+            "outcome_title": "No Treaty, No Duty.",
+            "story": "Tavita spreads his hands: \"Then we are done, Your Honour — my client signed nothing.\" Ada's grip on the laminated card tightens.",
+            "teaching": "This treats the treaty as the only possible source of Gont's obligations. Customary international law arises independently of any treaty and binds all States, including non-parties [L2 p.17], [T2 p.5]. The CPG's silence about Gont says nothing about whether custom already binds it.",
+            "cites": [
+              "L2 p.17",
+              "T2 p.5"
+            ],
+            "stamp": "OVERRULED"
+          },
+          {
+            "key": "C",
+            "text": "No. The Stockholm and Rio Declarations are non-binding soft law, so they cannot support any legal obligation on Gont.",
+            "correct": false,
+            "outcome_title": "Soft Law, No Law.",
+            "story": "Counsel dismisses the declarations outright; Tavita seizes the opening: \"Counsel just conceded my client's entire defence.\"",
+            "teaching": "Correct that Stockholm and Rio are not binding in themselves — but wrong to conclude they are legally irrelevant. Soft law is admissible evidence of State practice and of opinio juris, and can help a rule \"crystallise\" into custom [L2 p.31], [WD2 p.1].",
+            "cites": [
+              "L2 p.31",
+              "WD2 p.1"
+            ],
+            "stamp": "OVERRULED"
+          },
+          {
+            "key": "D",
+            "text": "Yes, but only because the ICJ's Nuclear Weapons Advisory Opinion is itself a binding source of law under Article 38 that directly obliges Gont.",
+            "correct": false,
+            "outcome_title": "The Wrong Source Did It.",
+            "story": "Tavita: \"Since when does an advisory opinion in a case my client was never party to bind my client?\" Nnamdi's expression sours.",
+            "teaching": "Judicial decisions are a SECONDARY, subsidiary means for determining what the law is (Art. 38(1)(d) ICJ Statute); they identify or clarify existing law rather than creating it, and the ICJ is not even bound by its own past decisions [L2 p.30], [T2 p.3]. The Advisory Opinion is evidence of the customary rule, not itself the source binding Gont.",
+            "cites": [
+              "L2 p.30",
+              "T2 p.3"
+            ],
+            "stamp": "OVERRULED"
+          }
+        ],
+        "irac": {
+          "issue": "",
+          "rule": "Article 38(1)(b) ICJ Statute defines custom as \"evidence of a general practice accepted as law\" [T2 p.3]; it requires State practice (consistency, duration, generality — with specially affected States particularly relevant) plus opinio juris, a belief the practice is legally required, not mere courtesy [L2 p.17-21], [T2 p.5-6]; unlike a treaty, custom binds all States [L2 p.17]. Here, the Stockholm/Rio Declarations, the 1941 Trail Smelter arbitration, and the near-universal UNFCCC establish State practice, and the ICJ's 1996 Nuclear Weapons Advisory Opinion supplies direct evidence of opinio juris [WA2 p.10-11]. The rule therefore binds Gont regardless of the CPG.",
+          "application": "Article 38(1)(b) ICJ Statute defines custom as \"evidence of a general practice accepted as law\" [T2 p.3]; it requires State practice (consistency, duration, generality — with specially affected States particularly relevant) plus opinio juris, a belief the practice is legally required, not mere courtesy [L2 p.17-21], [T2 p.5-6]; unlike a treaty, custom binds all States [L2 p.17]. Here, the Stockholm/Rio Declarations, the 1941 Trail Smelter arbitration, and the near-universal UNFCCC establish State practice, and the ICJ's 1996 Nuclear Weapons Advisory Opinion supplies direct evidence of opinio juris [WA2 p.10-11]. The rule therefore binds Gont regardless of the CPG.",
+          "conclusion": "\"The Convention was never the only thing standing over that river.\""
+        },
+        "cites": [
+          "L2 p.17",
+          "T2 p.5",
+          "L2 p.31",
+          "WD2 p.1",
+          "L2 p.30",
+          "T2 p.3",
+          "L2 p.17-21",
+          "T2 p.5-6",
+          "WA2 p.10-11"
+        ]
+      }
+    },
+    {
+      "id": "s4",
+      "title": "The Objection That Came Too Late",
+      "phase": "examination",
+      "slug": {
+        "int_ext": "INT",
+        "place": "CETUS RIVER TRIBUNAL",
+        "time": "NIGHT (continuous)"
+      },
+      "set": "courtroom",
+      "action": [
+        "Tavita rises for a final argument, unhurried. The Convention folder and a single exhibit sheet headed \"CIL — PREVENTION OF TRANSBOUNDARY HARM\" sit side by side on Counsel's table, a neon-teal highlighter line under \"settled rule.\""
+      ],
+      "dialogue": [
+        {
+          "speaker": "TAVITA",
+          "line": "Gont has extracted Gillyweed since before this \"rule\" of theirs existed. We have never accepted it. We object — we have always objected, simply by continuing as we always have.",
+          "cites": []
+        },
+        {
+          "speaker": "COUNSEL",
+          "line": "Continuing as you always have is not the same as objecting, Ambassador.",
+          "cites": []
+        },
+        {
+          "speaker": "TAVITA",
+          "line": "Then let us try another door. The Convention is a specific arrangement between two States. Ours is the general law of the river. The specific must yield to the general only where it says so — otherwise the general rule cannot reach a State the specific treaty never bound.",
+          "cites": []
+        },
+        {
+          "speaker": "ARBITRATOR NNAMDI",
+          "line": "(to Counsel) Does either argument get Gont out of this obligation?",
+          "cites": []
+        }
+      ],
+      "shots": [
+        {
+          "n": 1,
+          "size": "Medium",
+          "angle": "Low, 1.1 m, 10° up",
+          "movement": "Static",
+          "lens": "50 mm, f/2.8",
+          "lighting": "Flickering fluorescent, hard side sodium accent",
+          "subject": "Tavita: \"We have never accepted it.\"",
+          "duration_s": 8
+        },
+        {
+          "n": 2,
+          "size": "Insert",
+          "angle": "Top-down",
+          "movement": "Static",
+          "lens": "50 mm macro",
+          "lighting": "Desk-lamp key",
+          "subject": "Exhibit sheet, \"CIL — prevention of transboundary harm,\" teal highlighter under \"settled rule\"",
+          "duration_s": 3
+        },
+        {
+          "n": 3,
+          "size": "Close-up",
+          "angle": "Eye level (seated)",
+          "movement": "Slow 8 cm push-in",
+          "lens": "65 mm, f/2",
+          "lighting": "Warm desk-lamp key",
+          "subject": "Counsel: \"Continuing as you always have is not the same as objecting.\"",
+          "duration_s": 6
+        },
+        {
+          "n": 4,
+          "size": "Over-the-shoulder",
+          "angle": "Behind Counsel toward Tavita",
+          "movement": "Static",
+          "lens": "85 mm, f/2",
+          "lighting": "As 3.1",
+          "subject": "Tavita: \"Then let us try another door...\"",
+          "duration_s": 9
+        },
+        {
+          "n": 5,
+          "size": "Wide reverse",
+          "angle": "High, 3 m, from behind the bench",
+          "movement": "Static",
+          "lens": "28 mm, f/5.6",
+          "lighting": "Arbitrator near-silhouette, room bright beyond",
+          "subject": "Both counsel tables small in frame",
+          "duration_s": 5
+        },
+        {
+          "n": 6,
+          "size": "Close-up",
+          "angle": "Low, from counsel height, 15° up",
+          "movement": "Very slow 5 cm dolly in",
+          "lens": "100 mm, f/2",
+          "lighting": "Top light plus a narrow teal edge from the desk-mic ring light",
+          "subject": "Nnamdi: \"Does either argument get Gont out of this obligation?\"",
+          "duration_s": 8
+        },
+        {
+          "n": 7,
+          "size": "Close-up",
+          "angle": "Eye level",
+          "movement": "Static; freeze",
+          "lens": "85 mm, f/1.8",
+          "lighting": "Neon-teal UI rim",
+          "subject": "Counsel's face; freeze → EXAMINATION CARD",
+          "duration_s": 4
+        },
+        {
+          "n": 8,
+          "size": "(after correct answer) Wide",
+          "angle": "Eye level, side",
+          "movement": "Slow 2 m lateral track",
+          "lens": "35 mm, f/4",
+          "lighting": "Fluorescents settle from flicker to steady (keyframe intensity 0.6 → 1.0 over 3 s)",
+          "subject": "Nnamdi delivers the ruling; Ada exhales; cut toward VERDICT",
+          "duration_s": 12
+        }
+      ],
+      "quiz": {
+        "id": "q3",
+        "question": "Round 2 established that prevention of transboundary harm is a settled rule of customary international law. Gont now argues (1) that it is a persistent objector because it has always extracted Gillyweed without restraint, and (2) that the CPG, as the more specific rule between Uras and Anares, means the general customary rule cannot reach Gont at all. Which argument do you make?",
+        "options": [
+          {
+            "key": "A",
+            "text": "Neither argument works. The persistent objector rule only ever blocks a rule that is still emerging, and only for a State that has consistently and openly objected to it from the outset — merely continuing pre-existing conduct without articulating an objection is not the same thing, and in any case the rule is already settled (Round 2), so there is nothing left to object to. The lex specialis argument fails for a different reason: lex specialis resolves a conflict between two rules that both apply to the same State; the CPG simply does not apply to Gont at all (it only binds its parties, Art. 34 VCLT), so there is no more specific rule of Gont's to prevail as lex specialis. Gont remains bound by the customary rule.",
+            "correct": true,
+            "outcome_title": "",
+            "story": "",
+            "teaching": "",
+            "cites": [],
+            "stamp": "SUSTAINED"
+          },
+          {
+            "key": "B",
+            "text": "Gont's persistent-objector argument succeeds: since it has always extracted Gillyweed freely, that ongoing conduct is itself the objection, and the customary rule never bound it.",
+            "correct": false,
+            "outcome_title": "Habit as Objection.",
+            "story": "Nnamdi's gavel-mic light dims for Gont's side. Cut to the riverbank, water level lower still.",
+            "teaching": "Merely continuing pre-existing behaviour is not the same as consistently and openly objecting to an emerging rule — and once a rule is established, it cannot be objected to at all [T2 p.6], [WD2 p.1].",
+            "cites": [
+              "T2 p.6",
+              "WD2 p.1"
+            ],
+            "stamp": "OVERRULED"
+          },
+          {
+            "key": "C",
+            "text": "Gont's persistent-objector argument succeeds for a different reason: as a State that only started being relevant to this dispute recently, Gont is automatically exempt from any customary rule that had already formed before then.",
+            "correct": false,
+            "outcome_title": "New to the Dispute, Not New to the Law.",
+            "story": "Nnamdi raises an eyebrow: \"The river has been there longer than Gont's objection.\"",
+            "teaching": "New States are bound by existing customary international law — there is no \"fresh start\" exception [T2 p.6], [WD2 p.1].",
+            "cites": [
+              "T2 p.6",
+              "WD2 p.1"
+            ],
+            "stamp": "OVERRULED"
+          },
+          {
+            "key": "D",
+            "text": "Neither argument matters, because prevention of transboundary harm is a jus cogens norm, so the Tribunal must rule against Gont regardless of anything Gont has argued about timing or objection.",
+            "correct": false,
+            "outcome_title": "Right Result, Wrong Label.",
+            "story": "Counsel wins the point but calls the rule jus cogens; Nnamdi corrects the record for the transcript: \"Let it be noted this Tribunal made no such finding.\"",
+            "teaching": "Jus cogens is reserved for peremptory norms such as the prohibitions of genocide, torture, slavery and aggression (Art. 53 VCLT) [L2 p.31], [T2 p.9]; nothing in this record supports labelling prevention of transboundary harm as jus cogens, and mislabelling an ordinary customary rule this way is itself a common exam error.",
+            "cites": [
+              "L2 p.31",
+              "T2 p.9"
+            ],
+            "stamp": "OVERRULED"
+          }
+        ],
+        "irac": {
+          "issue": "",
+          "rule": "a State may avoid an EMERGING customary rule only by persistently and openly objecting to it from the outset (illustrated by the Fisheries Case, where a proposed rule was held \"inapplicable as against Norway inasmuch as she has always opposed it\") [T2 p.6], [WD2 p.1] — but it only applies to a still-emerging rule, never once the rule is established, and new States get no fresh chance to object [T2 p.6], [WD2 p.1]. Lex specialis resolves conflicts between rules binding the same State; it cannot let one source exempt a State that a different source never bound in the first place [L2 p.25], [WA2 p.2-3].",
+          "application": "a State may avoid an EMERGING customary rule only by persistently and openly objecting to it from the outset (illustrated by the Fisheries Case, where a proposed rule was held \"inapplicable as against Norway inasmuch as she has always opposed it\") [T2 p.6], [WD2 p.1] — but it only applies to a still-emerging rule, never once the rule is established, and new States get no fresh chance to object [T2 p.6], [WD2 p.1]. Lex specialis resolves conflicts between rules binding the same State; it cannot let one source exempt a State that a different source never bound in the first place [L2 p.25], [WA2 p.2-3].",
+          "conclusion": "\"Silence dressed up as habit is not an objection, Ambassador, and a specific treaty cannot excuse a State it never bound.\""
+        },
+        "cites": [
+          "T2 p.6",
+          "WD2 p.1",
+          "L2 p.31",
+          "T2 p.9",
+          "L2 p.25",
+          "WA2 p.2-3"
+        ]
+      }
+    },
+    {
+      "id": "s5",
+      "title": "Verdict",
+      "phase": "verdict",
+      "slug": {
+        "int_ext": "INT",
+        "place": "CETUS RIVER TRIBUNAL",
+        "time": "NIGHT (continuous)"
+      },
+      "set": "courtroom",
+      "action": [],
+      "dialogue": [],
+      "shots": [],
+      "quiz": null
+    },
+    {
+      "id": "s6",
+      "title": "Epilogue card",
+      "phase": "epilogue",
+      "slug": {
+        "int_ext": "",
+        "place": "",
+        "time": ""
+      },
+      "set": "generic",
+      "action": [],
+      "dialogue": [],
+      "shots": [],
+      "quiz": null
+    }
+  ],
+  "case_file": [
+    "Parties: Uras, Anares (CPG parties) v. Gont (non-party, letter of intention only)",
+    "CPG: signed 1 Nov 2020 (Uras, Anares); ratified 1 May 2021 (Uras), 1 Mar 2022 (Anares)",
+    "Art. 8 CPG: open for signature by Cetus-region States · Art. 10 CPG: open for accession · Art. 11(1) CPG: enters into force 30 days after 2nd ratification/accession",
+    "Gont: letter of intention, Jan 2024 — no signature, no ratification, no accession"
+  ],
+  "verdict": {
+    "outcome": "",
+    "irac": [
+      {
+        "issue": "Is Gont bound, under any source of international law, to stop unrestrained Gillyweed extraction from the Cetus rivers? [WS2 p.2-4]",
+        "rule": "A treaty binds only States that consented to be bound (Arts. 24, 26, 34 VCLT); custom binds all States once its two elements — State practice and opinio juris — are shown (Art. 38(1)(b) ICJ Statute; North Sea Continental Shelf, para. 77) [L2 p.12], [WA2 p.7], [T2 p.3], [L2 p.19]. A State can escape only an emerging custom, and only by consistent, open objection from the outset; it cannot escape a settled rule this way, and a treaty that never bound it cannot displace a custom that does, since lex specialis only resolves conflicts between rules binding the same State [T2 p.6], [WD2 p.1], [L2 p.25], [WA2 p.2-3].",
+        "application": "Round 1: the CPG binds Uras and Anares from 31 March 2022; it does not bind Gont, whose letter is a mere notification of intention (Art. 34 VCLT), though accession or signature-plus-ratification remain open to it [WA2 p.5-7]. Round 2: independently of the CPG, the principle of prevention of transboundary harm satisfies both elements of the CIL test — consistent, long-standing, near-universal State practice (Trail Smelter, Stockholm, Rio, UNFCCC) and opinio juris confirmed by the ICJ's 1996 Nuclear Weapons Advisory Opinion — and therefore binds Gont regardless of the treaty [WA2 p.10-11]. Round 3: Gont's persistent-objector defence fails, because continuing pre-existing conduct is not an open objection and the rule is already settled; its lex specialis defence fails, because the CPG never bound Gont in the first place, leaving nothing for lex specialis to displace [T2 p.6], [WD2 p.1], [WA2 p.2-3].",
+        "conclusion": "Gont is bound by customary international law to prevent transboundary harm to the shared rivers, independently of and regardless of the CPG, and neither of its defences relieves it of that obligation [WA2 p.11], [T2 p.6]."
+      }
+    ],
+    "takeaway": "On the exam: a treaty only ever binds its parties — check custom before you assume a non-party walks free."
+  },
+  "checks": [
+    {
+      "n": 1,
+      "claim": "Article 38(1) ICJ Statute lists treaties, custom, general principles, and (as subsidiary means) judicial decisions and teachings",
+      "cites": [
+        "L2 p.10",
+        "T2 p.3"
+      ]
+    },
+    {
+      "n": 2,
+      "claim": "Primary sources (treaties, custom, general principles) create law; secondary/subsidiary sources (judicial decisions, teachings) identify or clarify it",
+      "cites": [
+        "T2 p.3",
+        "L2 p.29-30"
+      ]
+    },
+    {
+      "n": 3,
+      "claim": "Article 2(1)(a) VCLT: definition of a treaty (written, between States, governed by international law, one or more instruments)",
+      "cites": [
+        "L2 p.11",
+        "WA2 p.3",
+        "WD2 p.1"
+      ]
+    },
+    {
+      "n": 4,
+      "claim": "Full powers: Arts. 6-7 VCLT; Heads of State/Government/Foreign Ministers represent the State without full powers",
+      "cites": [
+        "L2 p.12",
+        "WA2 p.6",
+        "WD2 p.1"
+      ]
+    },
+    {
+      "n": 5,
+      "claim": "\"Wheel of consent\": signature (Art. 12 VCLT), signature + ratification (Art. 14 VCLT), accession (Art. 15 VCLT), other means (Art. 11 VCLT)",
+      "cites": [
+        "L2 p.13",
+        "T2 p.11"
+      ]
+    },
+    {
+      "n": 6,
+      "claim": "Art. 18 VCLT: interim obligation not to defeat a treaty's object and purpose, after signature or after consent pending entry into force",
+      "cites": [
+        "L2 p.14-15",
+        "WA2 p.7"
+      ]
+    },
+    {
+      "n": 7,
+      "claim": "Art. 24 VCLT: a treaty enters into force as it provides; Art. 26 VCLT: pacta sunt servanda",
+      "cites": [
+        "L2 p.12",
+        "WA2 p.7"
+      ]
+    },
+    {
+      "n": 8,
+      "claim": "Art. 34 VCLT: pacta tertiis — a treaty creates no obligation for a third State without its consent",
+      "cites": [
+        "WA2 p.7",
+        "WD2 p.1"
+      ]
+    },
+    {
+      "n": 9,
+      "claim": "Fictional case facts: Uras/Anares/Gont, CPG signature and ratification dates, Gont's January 2024 letter of intention, Arts. 8/10/11 CPG",
+      "cites": [
+        "WS2 p.2-3",
+        "WA2 p.5-7",
+        "WD2 p.1"
+      ]
+    },
+    {
+      "n": 10,
+      "claim": "CPG entry into force for Uras and Anares on 31 March 2022 (30 days after the second ratification)",
+      "cites": [
+        "WA2 p.7"
+      ]
+    },
+    {
+      "n": 11,
+      "claim": "Accession (Art. 15 VCLT / Art. 10 CPG) exists precisely to let a non-negotiating State later join a treaty",
+      "cites": [
+        "WA2 p.5",
+        "WD2 p.1"
+      ]
+    },
+    {
+      "n": 12,
+      "claim": "Art. 38(1)(b) ICJ Statute: custom is \"evidence of a general practice accepted as law\"",
+      "cites": [
+        "T2 p.3"
+      ]
+    },
+    {
+      "n": 13,
+      "claim": "Two-element test for CIL: state practice (objective) + opinio juris (subjective), both required (North Sea Continental Shelf, para. 77)",
+      "cites": [
+        "L2 p.17-19",
+        "T2 p.5"
+      ]
+    },
+    {
+      "n": 14,
+      "claim": "State practice sub-elements: consistency, duration, generality; \"specially affected States\" particularly relevant (North Sea, para. 74)",
+      "cites": [
+        "L2 p.19-21",
+        "T2 p.5"
+      ]
+    },
+    {
+      "n": 15,
+      "claim": "Opinio juris = belief the practice is legally required, distinguished from courtesy/political expediency (Lotus; Asylum case)",
+      "cites": [
+        "L2 p.17-18",
+        "T2 p.5-6"
+      ]
+    },
+    {
+      "n": 16,
+      "claim": "CIL binds all States, including non-parties to any treaty on the same subject — unlike a treaty, which binds only its parties",
+      "cites": [
+        "L2 p.17",
+        "T2 p.5"
+      ]
+    },
+    {
+      "n": 17,
+      "claim": "Stockholm Declaration 1972 (Principle 21) and Rio Declaration 1992 (Principles 14-15) as state-practice evidence; UNFCCC's 198 parties",
+      "cites": [
+        "WS2 p.4",
+        "WA2 p.10"
+      ]
+    },
+    {
+      "n": 18,
+      "claim": "ICJ Nuclear Weapons Advisory Opinion (1996): the prevention obligation is \"part of the corpus of international law\"",
+      "cites": [
+        "WA2 p.10-11"
+      ]
+    },
+    {
+      "n": 19,
+      "claim": "Soft law (e.g. UNGA-type declarations) is not itself binding but can be evidence of state practice or of crystallising opinio juris",
+      "cites": [
+        "L2 p.31",
+        "WD2 p.1"
+      ]
+    },
+    {
+      "n": 20,
+      "claim": "Judicial decisions are a subsidiary/secondary means of determining law, not themselves a freestanding source; the ICJ is not bound by its own precedent",
+      "cites": [
+        "L2 p.30",
+        "T2 p.3"
+      ]
+    },
+    {
+      "n": 21,
+      "claim": "Persistent objector rule: a State may avoid an emerging rule by persistently, openly objecting to it from the outset (Fisheries Case, Norway)",
+      "cites": [
+        "T2 p.6",
+        "WD2 p.1"
+      ]
+    },
+    {
+      "n": 22,
+      "claim": "Limits of the persistent objector rule: only for emerging rules, not once settled; new States are bound by existing CIL; never against jus cogens",
+      "cites": [
+        "T2 p.6",
+        "WD2 p.1"
+      ]
+    },
+    {
+      "n": 23,
+      "claim": "Lex specialis and lex posterior as conflict rules between sources of equal rank; jus cogens (Art. 53 VCLT) and Art. 103 UN Charter as the exceptions to the otherwise horizontal, non-hierarchical system",
+      "cites": [
+        "L2 p.25",
+        "L2 p.7",
+        "WA2 p.2-3"
+      ]
+    },
+    {
+      "n": 24,
+      "claim": "Lex specialis concerns specificity between rules binding the same State, not a hierarchy between source-types, and does not let a rule exempt a State a different source never bound",
+      "cites": [
+        "WA2 p.2-3"
+      ]
+    },
+    {
+      "n": 25,
+      "claim": "Jus cogens examples: prohibition of genocide, torture, slavery, aggression (Art. 53 VCLT)",
+      "cites": [
+        "L2 p.31",
+        "T2 p.9"
+      ]
+    },
+    {
+      "n": 26,
+      "claim": "Exam format: 8 multiple-choice questions (4 international law, 4 EU law) plus one hypothetical case per part, each with sub-questions",
+      "cites": [
+        "EX1 p.1"
+      ]
+    },
+    {
+      "n": 27,
+      "claim": "International Law MCQs use a 4-option (a-d) format",
+      "cites": [
+        "RS1 p.1"
+      ]
+    },
+    {
+      "n": 28,
+      "claim": "IRAC (issue, rule, application, conclusion) is the required format for WG assignments and, by extension, exam hypothetical-case answers",
+      "cites": [
+        "WA2 p.4"
+      ]
+    }
+  ],
+  "removed": [
+    "a line where Gont's ambassador cites the ICJ's Nuclear Tests Case for its own unilateral statements (the lecture material discusses that case only in connection with France, not with a scenario like Gont's, so it was left out)",
+    "a dedicated examination round on \"general principles of law\" (Art. 38(1)(c)) — the Week 2 material treats general principles only briefly as gap-fillers (equity, good faith, pacta sunt servanda) with no worked example comparable to the treaty and custom material, so it appears here only as a wrong-answer distractor rather than as a full round [L2 p.29], [T2 p.7]."
+  ],
+  "coordinator_notes": [
+    "N1: Two different names for the International Law lecturer. Every actual lecture file for Week 1 and Week 2 international law (IL_Lecture_W1_Intro_Subjects.pdf, IL_Lecture_W2_Sources.pdf, and the transcript-style International Law Lecture Week 2.pdf) names Dr. Marlies Hesselman, Department of Transboundary Legal Studies, as the lecturer. By contrast, the WG comprehensive-notes file International Law WG Week 2.docx headers itself \"International Law Lecturer: Dr. Nina Muleva,\" and the same name appears on International Law WG Week 5.pdf. No file in the database shows Dr. Muleva lecturing; she only appears as an attribution line inside student/WG-style comprehensive notes. Since the task named both lecturers, this game credits the course to \"Dr. Muleva and Dr. Hesselman\" in the header, but the underlying rank-1 lecture material is Dr. Hesselman's throughout, and this discrepancy should be checked against the actual course roster.",
+    "N2: Persistent objector, Eastern Greenland and Chagos are not in the slide deck. IL_Lecture_W2_Sources.pdf (the slides, L2) never mentions \"persistent objector,\" the Fisheries Case, Eastern Greenland, or Chagos. All of that material comes from International Law Lecture Week 2.pdf (T2) and International Law WG Week 2.docx (WD2), both rank 1 (lecture and wg respectively), so it is used here as authoritative per the brief's rank rule — but it is worth confirming these were actually taught, since they sit outside the slide deck itself.",
+    "N3: Duplicate WG answer sheets. International Law WG Week 2.pdf and International and European Law WG Week 2.pdf contain the same Week 2 model answers, one plain and one with explicit IRAC labels; both were treated as equally authoritative and cited interchangeably as WA2/WA2b.",
+    "N4: Exam-format sources are rank 3, used narrowly. 2026_IIEL_Exam_Information.pdf (EX1) is rank 3 (\"exam\" kind), not rank 1. Per the task instructions it was used only to confirm the exam's answer method (MCQ count and hypothetical-case structure), never to source a substantive rule. Standard Answers IIEL resit exam 25 June 2026 - Copy.pdf (RS1) is rank 1 (wg_answers) and was used only to confirm the 4-option MCQ format for international law questions.",
+    "N5: General principles of law (Art. 38(1)(c)) are only lightly covered. The Week 2 material gives them one short slide/paragraph each (equity, good faith, pacta sunt servanda, gap-fillers against non liquet) with no worked hypothetical. Rather than force a citation-thin examination round, this case uses general principles only as a wrong-answer distractor in Round 3 (mislabelling a settled custom as jus cogens touches the same \"don't collapse the sources\" lesson). If a dedicated general-principles round is wanted later, it will need a fresh worked example from the WG or lecture, since none currently exists in rank 1.",
+    "N6: Format update applied. This file was restructured after first being written, to match games/STYLE_BIBLE.md's \"you are the lawyer\" game flow (Arrival → Case Briefing → Examination rounds → Verdict → Epilogue) and its look/palette/sound spec, replacing an earlier draft's bespoke framing and colour scheme. All legal content and citations are unchanged from that draft; only the narrative frame, scene labels, UI/production details and closing structure changed. - Lower-ranked sources: none relied on for any rule. Rank 1 covered every claim; rank 3 (EX1, RS1) was used only for exam-format facts, as instructed."
+  ]
+}

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { weekOf, enforcedFolder, basename, isDocument, isPage, downloadUrl, encodePath, documents, pages, moduleIds, linksIn, unseen } from "../lib.js";
+import { weekOf, enforcedFolder, basename, isDocument, isPage, downloadUrl, encodePath, documents, pages, moduleIds, linksIn, unseen, dedupe } from "../lib.js";
 
 const TOC = {
   Modules: [
@@ -73,4 +73,25 @@ test("a second scan offers nothing that was already taken", () => {
   assert.equal(unseen(items, []).length, 2);
   assert.equal(unseen(items, ["t:5918043"]).length, 1);
   assert.equal(unseen([...items, ...items], []).length, 2, "the same file found twice is offered once");
+});
+
+test("a File topic and a link to the same path collapse to one entry, the topic wins", () => {
+  const topic = documents(TOC, 564706)[0]; // key "t:5918043", path ".../Syllabus 2026_2027__001.pdf"
+  const html = `<a href="Syllabus 2026_2027__001.pdf">Syllabus (again, as a link)</a>`;
+  const link = linksIn(html, "564706-RGBPR50305.2026-2027.1", { week: "", module: "Course information" })[0];
+  assert.equal(link.path, topic.path, "the link resolves to the same underlying file as the topic");
+  const out = dedupe([topic, link]);
+  assert.equal(out.length, 1, "only one of the two survives");
+  assert.equal(out[0].kind, "topic", "the topic (stable TopicId) wins over the link");
+
+  // order shouldn't matter
+  const out2 = dedupe([link, topic]);
+  assert.equal(out2.length, 1);
+  assert.equal(out2[0].kind, "topic");
+});
+
+test("dedupe leaves unrelated items and items without a path untouched", () => {
+  const items = documents(TOC, 564706);
+  assert.equal(dedupe(items).length, items.length);
+  assert.equal(dedupe([{ key: "x", kind: "link" }, { key: "y", kind: "link" }]).length, 2);
 });

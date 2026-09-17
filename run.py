@@ -4,7 +4,7 @@ Run:  python run.py   then open http://localhost:8000
 Everything lives in ./data (SQLite + uploaded files). Nothing leaves your Mac except tutor calls to the Claude API.
 """
 import re
-import asyncio, base64, io, json, mimetypes, os, random, tempfile, time, uuid
+import asyncio, base64, hashlib, io, json, mimetypes, os, random, tempfile, time, uuid
 from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
@@ -814,9 +814,25 @@ class HintIn(BaseModel):
     question: str
     options: list = []
 
+HINT_TTL_S = 30 * 24 * 3600  # Phase 11g: a stored hint is reused for 30 days, then regenerated
+HINT_FALLBACK = "No hint available just now — back yourself."
+
+def _hint_key(cid: str, question: str, options: list) -> str:
+    """sha256 of course id + normalised question + sorted options — same question asked two ways still hits the cache."""
+    norm_q = re.sub(r"\s+", " ", (question or "").strip().lower())
+    norm_opts = sorted(re.sub(r"\s+", " ", str(o).strip().lower()) for o in options)
+    return hashlib.sha256("\n".join([cid, norm_q, *norm_opts]).encode("utf-8")).hexdigest()
+
 @app.post("/api/courses/{cid}/hint")
 def hint(cid: str, h: HintIn):
-    """A lifeline: narrow the field without handing over the answer. Cheap model — this is a nudge, not teaching."""
+    """A lifeline: narrow the field without handing over the answer. Cheap model — this is a nudge, not teaching.
+    Phase 11g: a hint for the same question+options is stored and reused for 30 days instead of calling the model
+    every time (the prompt is too short for Anthropic prompt caching to help here)."""
+    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    key = _hint_key(cid, h.question, h.options)
+    hit = rows("SELECT hint, created FROM hint_cache WHERE key=?", key)
+    if hit and (time.time() - (hit[0]["created"] or 0)) < HINT_TTL_S:
+        return {"hint": hit[0]["hint"]}
     opts = "\n".join(f"- {str(o)[:200]}" for o in h.options[:4])
     prompt = ("A law student is stuck on this multiple-choice question and has asked for a hint. Give ONE sentence, under 30 "
               "words, that points at the rule, case or article that decides it, or rules out one wrong option by name. "
@@ -824,10 +840,15 @@ def hint(cid: str, h: HintIn):
               f"QUESTION: {h.question[:600]}\nOPTIONS:\n{opts}")
     try:
         m = client().messages.create(model=CHEAP_MODEL, max_tokens=120, messages=[{"role": "user", "content": prompt}])
-        return {"hint": "".join(b.text for b in m.content if b.type == "text").strip()[:300]}
+        text = "".join(b.text for b in m.content if b.type == "text").strip()[:300]
+        with db() as d:
+            d.execute("INSERT INTO hint_cache(key,course_id,hint,model,created) VALUES(?,?,?,?,?) "
+                      "ON CONFLICT(key) DO UPDATE SET hint=EXCLUDED.hint, model=EXCLUDED.model, created=EXCLUDED.created",
+                      (key, cid, text, CHEAP_MODEL, time.time()))
+        return {"hint": text}
     except Exception as e:
         print("hint:", type(e).__name__, e)
-        return {"hint": "No hint available just now — back yourself."}
+        return {"hint": HINT_FALLBACK}  # never cached: a transient failure shouldn't haunt this question for 30 days
 
 
 class CourtIn(BaseModel):
@@ -1111,35 +1132,184 @@ def recall_map(cid: str):
 
 class QuizIn(BaseModel): count: int = 8; week: str = ""; weak: int = 0
 
+def _distractor_hash(back: str) -> str:
+    """sha1 of a card's back — the cache key that ties a stored distractor set to the exact answer it was written for."""
+    return hashlib.sha1((back or "").strip().encode("utf-8")).hexdigest()
+
+def _valid_wrong(wrong, right: str) -> list:
+    """Exactly three distinct wrong options, none equal to the right answer — [] if the set doesn't qualify."""
+    seen = list(dict.fromkeys(str(v).strip() for v in (wrong or []) if str(v).strip() and str(v).strip() != right))
+    return seen[:3] if len(seen) >= 3 else []
+
 @app.post("/api/courses/{cid}/quiz")
 def quiz(cid: str, qz: QuizIn):
-    """Multiple choice built from the course's own cards: the card's back is the right answer, the cheap model writes three wrong ones."""
+    """Multiple choice built from the course's own cards: the card's back is the right answer, the cheap model writes three wrong ones.
+    Phase 11g: a card's distractors are stored (keyed on a hash of its back) and reused; only cards whose stored set is missing or
+    stale (the back changed) go to the model, and the call is skipped entirely when every picked card is already cached."""
+    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
     q, a = _card_scope(cid, 0, qz.week, qz.weak)
     picked = rows(q + " ORDER BY (CASE WHEN due IS NULL OR due<=? THEN 0 ELSE 1 END), ease, RANDOM() LIMIT ?",
                   *a, date.today().isoformat(), max(1, min(20, qz.count)))
     if not picked: return []
     ids = [c["id"] for c in picked]
-    others = [c["back"][:200] for c in rows("SELECT id,back FROM cards WHERE course_id=? ORDER BY RANDOM() LIMIT 60", cid) if c["id"] not in ids]
-    items = "\n".join(f"{i}. Q: {c['front']}\n   A: {c['back']}" for i, c in enumerate(picked))
-    prompt = ("Write multiple-choice distractors for a law exam quiz. For each numbered question, give exactly three wrong answers: plausible to a student "
-              "who half-knows the material, the same form and length as the right answer, clearly wrong on a careful reading, never a paraphrase of the "
-              "right answer. Borrow names, articles and rules from the course's other cards where they fit.\n"
-              'Return ONLY a JSON array of objects {"i": <question number>, "wrong": [three strings]}.\n\nQUESTIONS:\n' + items +
-              "\n\nOTHER CARDS IN THIS COURSE (answers only):\n" + ("\n".join("- " + o for o in others) or "(none)"))
-    got = _model_json(client().messages.create(model=CHEAP_MODEL, max_tokens=3000, messages=[{"role": "user", "content": prompt}]))
-    wrong_by_i = {}
-    for x in got if isinstance(got, list) else []:
-        if not (isinstance(x, dict) and isinstance(x.get("wrong"), list)): continue  # a string here would be iterated letter by letter
-        try: wrong_by_i[int(x["i"])] = x["wrong"]
-        except Exception: continue
+
+    cached_by_id = {}
+    if ids:
+        placeholders = ",".join("?" * len(ids))
+        for row in rows(f"SELECT card_id, back_hash, wrong FROM card_distractors WHERE card_id IN ({placeholders})", *ids):
+            cached_by_id[row["card_id"]] = row
+
+    wrong_by_id, need = {}, []
+    for c in picked:
+        hit = cached_by_id.get(c["id"])
+        if hit and hit["back_hash"] == _distractor_hash(c["back"]):
+            valid = _valid_wrong(hit["wrong"], c["back"].strip())
+            if valid:
+                wrong_by_id[c["id"]] = valid
+                continue
+        need.append(c)  # missing, stale (back edited since it was cached), or an invalid stored set
+
+    if need:  # only the cards without a valid stored set are sent to the model — zero calls when everything hit
+        others = [c["back"][:200] for c in rows("SELECT id,back FROM cards WHERE course_id=? ORDER BY RANDOM() LIMIT 60", cid) if c["id"] not in ids]
+        items = "\n".join(f"{i}. Q: {c['front']}\n   A: {c['back']}" for i, c in enumerate(need))
+        prompt = ("Write multiple-choice distractors for a law exam quiz. For each numbered question, give exactly three wrong answers: plausible to a student "
+                  "who half-knows the material, the same form and length as the right answer, clearly wrong on a careful reading, never a paraphrase of the "
+                  "right answer. Borrow names, articles and rules from the course's other cards where they fit.\n"
+                  'Return ONLY a JSON array of objects {"i": <question number>, "wrong": [three strings]}.\n\nQUESTIONS:\n' + items +
+                  "\n\nOTHER CARDS IN THIS COURSE (answers only):\n" + ("\n".join("- " + o for o in others) or "(none)"))
+        got = _model_json(client().messages.create(model=CHEAP_MODEL, max_tokens=3000, messages=[{"role": "user", "content": prompt}]))
+        wrong_by_i = {}
+        for x in got if isinstance(got, list) else []:
+            if not (isinstance(x, dict) and isinstance(x.get("wrong"), list)): continue  # a string here would be iterated letter by letter
+            try: wrong_by_i[int(x["i"])] = x["wrong"]
+            except Exception: continue
+        to_store = []
+        for i, c in enumerate(need):
+            valid = _valid_wrong(wrong_by_i.get(i), c["back"].strip())
+            if valid:
+                wrong_by_id[c["id"]] = valid
+                to_store.append((c["id"], _distractor_hash(c["back"]), valid))
+        if to_store:
+            with db() as d:
+                for card_id, back_hash, wrong in to_store:
+                    d.execute("INSERT INTO card_distractors(card_id,back_hash,wrong,model,created) VALUES(?,?,CAST(? AS jsonb),?,?) "
+                              "ON CONFLICT(card_id) DO UPDATE SET back_hash=EXCLUDED.back_hash, wrong=EXCLUDED.wrong, model=EXCLUDED.model, created=EXCLUDED.created",
+                              (card_id, back_hash, json.dumps(wrong), CHEAP_MODEL, time.time()))
+
     out = []
-    for i, c in enumerate(picked):
-        right = c["back"].strip()
-        wrong = list(dict.fromkeys(str(v).strip() for v in (wrong_by_i.get(i) or []) if str(v).strip() and str(v).strip() != right))[:3]
-        if len(wrong) < 3: continue  # never show a question with fewer than four options
-        opts = wrong + [c["back"]]; random.shuffle(opts)
+    for c in picked:
+        wrong = wrong_by_id.get(c["id"])
+        if not wrong: continue  # never show a question with fewer than four options
+        opts = wrong + [c["back"]]; random.shuffle(opts)  # shuffled fresh every request, cached or not
         out.append({"id": c["id"], "question": c["front"], "options": opts, "correct": c["back"]})
     return out
+
+
+# ---------------------------------------------------------------- the arena in 3D (Phase 11f)
+LAWYER_RUNGS = 15
+LAWYER_POOL = 20            # a few spare cards, so the ones the model cannot give three wrong answers don't shorten the ladder
+_WORD = re.compile(r"[A-Za-zÀ-ÿ0-9]{4,}")
+_SENTENCE = re.compile(r"(?<=[.!?;])\s+|\n+")
+_SLIDE = re.compile(r"^--- slide (\d+) ---$", re.M)
+
+def _own_course(cid: str, user: dict) -> dict:
+    """The course, if the signed-in user may see it. Courses seeded before sign-in existed have no owner."""
+    c = rows("SELECT id,name,accent,user_id FROM courses WHERE id=?", cid)
+    if not c or (c[0]["user_id"] and c[0]["user_id"] != user["id"]): raise HTTPException(404, "No such course.")
+    return c[0]
+
+def _card_level(c: dict) -> int:
+    """1 easy … 3 hard, from the scheduler's own view of the card. FSRS difficulty runs 1–10; SM-2 ease drops on misses."""
+    if c.get("difficulty") is not None:
+        return 1 if c["difficulty"] < 4 else 2 if c["difficulty"] < 7 else 3
+    if not c.get("reps"): return 2
+    return 1 if (c.get("ease") or 2.5) >= 2.5 else 2 if c["ease"] >= WEAK_EASE else 3
+
+def _quote_and_cite(c: dict, files: dict) -> tuple:
+    """The sentence of the card's source file that shares most words with the card, with its slide number where the
+    extraction kept one. Nothing outside the student's own material: without a good match the quote is the card itself."""
+    source = (c.get("source") or "").strip()
+    text = files.get(source) or ""
+    want = {w.casefold() for w in _WORD.findall(f"{c['front']} {c['back']}")}
+    best, best_score, best_at = "", 0, 0
+    if text and want:
+        pos = 0
+        for s in _SENTENCE.split(text):
+            at = text.find(s, pos); pos = max(pos, at)
+            s = s.strip()
+            if not 20 <= len(s) <= 400 or s.startswith("--- slide"): continue
+            score = len(want & {w.casefold() for w in _WORD.findall(s)})
+            if score > best_score: best, best_score, best_at = s, score, at
+    cite = {"source": source or "Your cards"}
+    if best_score >= 2:
+        slides = [m for m in _SLIDE.finditer(text) if m.start() <= best_at]
+        if slides: cite["page"] = int(slides[-1].group(1))
+        return best, [cite]
+    return c["back"].strip(), [cite]
+
+@app.get("/api/courses/{cid}/lawyer-pack")
+def lawyer_pack(cid: str, user: dict = Depends(current_user)):
+    """
+    The 3D show's question pack (games/SPEC_lawyer_tutor.md schema), from this course's own cards. It is /quiz's
+    output — same cards, same cheap-model distractors — reshaped: options keyed A–D, a level from the card's scheduling,
+    and a quote from the card's source file. `card_id` rides along so a miss can rate the card Again, as the 2D ladder does.
+    """
+    import hashlib
+    course = _own_course(cid, user)
+    made = quiz(cid, QuizIn(count=LAWYER_POOL))[:LAWYER_RUNGS]
+    cards_by_id = {c["id"]: c for c in rows("SELECT * FROM cards WHERE course_id=? AND id = ANY(?)", cid, [m["id"] for m in made])} if made else {}
+    names = {c["source"] for c in cards_by_id.values() if c.get("source")}
+    files = {f["name"]: f["text"] or "" for f in rows("SELECT name,text FROM files WHERE course_id=?", cid) if f["name"] in names}
+    questions = []
+    for m in made:
+        c = cards_by_id.get(m["id"])
+        if not c: continue
+        opts = m["options"]
+        keyed = [{"key": k, "text": str(o)} for k, o in zip("ABCD", opts)]
+        quote, cites = _quote_and_cite(c, files)
+        week = int(c["week"]) if str(c.get("week") or "").isdigit() else None
+        questions.append({
+            "id": "q-" + hashlib.sha1(c["front"].encode()).hexdigest()[:8], "card_id": c["id"],
+            "level": _card_level(c), "topic": (c.get("concept") or "")[:80], "week": week,
+            "question": c["front"], "options": keyed,
+            "answer": next(o["key"] for o in keyed if o["text"] == m["correct"]),
+            "explanation": c["back"], "quote": quote, "cites": cites})
+    return {"mode": "lawyer", "id": f"lawyer-{cid}", "course": course["name"], "course_id": cid,
+            "title": f"Who Wants to Be a Lawyer? {course['name']}",
+            "logline": f"{len(questions)} questions from your {course['name']} cards stand between you and the bar.",
+            "tutor": cid, "generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "questions": questions}
+
+
+# Case Docket story games: play/games/index.json lists them, play/games/courses.json says which app course each
+# game course code belongs to (data, not code). Served only here, behind sign-in, and only for the course asked for.
+PLAY_DIR = ROOT / "play"
+GAMES_DIR = PLAY_DIR / "games"
+
+def _docket_for(course: dict) -> list:
+    try:
+        index = json.loads((GAMES_DIR / "index.json").read_text(encoding="utf-8"))
+        aliases = json.loads((GAMES_DIR / "courses.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    mine = {course["id"].casefold(), (course["name"] or "").casefold()}
+    def belongs(code: str) -> bool:
+        names = {code.casefold()} | {str(a).casefold() for a in aliases.get(code, [])}
+        return bool(names & mine)
+    return [g for g in index if isinstance(g, dict) and g.get("id") and g.get("path") and belongs(str(g.get("course", "")))]
+
+@app.get("/api/courses/{cid}/docket")
+def docket(cid: str, user: dict = Depends(current_user)):
+    course = _own_course(cid, user)
+    return [{"id": g["id"], "course": g.get("course", ""), "title": g.get("title", ""), "path": f"/api/courses/{cid}/docket/{g['id']}"}
+            for g in _docket_for(course)]
+
+@app.get("/api/courses/{cid}/docket/{gid}")
+def docket_game(cid: str, gid: str, user: dict = Depends(current_user)):
+    course = _own_course(cid, user)
+    g = next((g for g in _docket_for(course) if g["id"] == gid), None)
+    path = (GAMES_DIR / g["path"]).resolve() if g else None
+    if not path or not path.is_relative_to(GAMES_DIR.resolve()) or not path.is_file(): raise HTTPException(404)
+    return Response(content=path.read_text(encoding="utf-8"), media_type="application/json", headers={"Cache-Control": "private, no-cache"})
 
 # ---------------------------------------------------------------- search
 @app.get("/api/courses/{cid}/search")
@@ -1625,6 +1795,20 @@ def stats(cid: str):
             "streak": streak, "files": files_n["n"], "file_chars": files_n["total_chars"], "study_minutes": minutes, "questions_asked": msgs}
 
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
+class PlayerFiles(StaticFiles):
+    """The 3D player: not under /static (public), so AuthMiddleware holds it behind sign-in. Game JSON is not served here.
+    Folders named with their version (vendor-r170/, fonts-v1/: three.js and fonts, nothing course-related) never change
+    under that name, so browsers keep them for a year — rename the folder when the content changes. Everything else
+    (index.html, the player's own modules) revalidates by ETag on every load, so a deploy is never served stale."""
+    VERSIONED = re.compile(r"^(?:vendor|fonts)-[A-Za-z0-9.]+/")
+
+    def file_response(self, full_path, stat_result, scope, status_code=200):
+        resp = super().file_response(full_path, stat_result, scope, status_code)
+        rel = self.get_path(scope).replace(os.sep, "/")
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable" if self.VERSIONED.match(rel) else "no-cache"
+        return resp
+
+app.mount("/play/player", PlayerFiles(directory=PLAY_DIR / "player"), name="play")
 
 
 if __name__ == "__main__":

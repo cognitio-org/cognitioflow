@@ -1,0 +1,891 @@
+{
+  "id": "w2-legislative-procedures-horizontal-effect",
+  "course": "IIEL",
+  "title": "The Joint Programme",
+  "logline": "You are Anna Kovač's lawyer. She's a young logistics coordinator at Kade Freight — the import firm from Week 1's case, grown into a small pan-EU carrier — who was refused a six-month exchange to the Malta office. She's found a line in the Treaties that seems to promise her a way through. Tonight the Groningen District Court's Employment & EU Law Chamber decides two things: whether that Treaty line can bind her employer at all, and whether the EU regulation that might have made it bite was ever legally taken off the table.",
+  "learning_goal": "By the end, the player can: 1. Apply the combined Van Gend & Loos + Defrenne II test for direct horizontal effect of a Treaty provision, and recognise that a provision must first pass the Van Gend & Loos requirements (clear, unconditional) before Defrenne II's extra requirement (mandatory in nature, suitable to operate between individuals) is even reached [L2 p.4], [L2 p.9], [L2 p.10], [WA2 p.1]. 2. State how legislative power is split between Parliament, Council, the European Council and the Commission, and why only the Commission normally has the legislative initiative [L2 p.13], [L2 p.14], [L2 p.16], [WA2 p.1]. 3. Distinguish the ordinary legislative procedure (OLP, Article 294 TFEU) from a special legislative procedure (SLP), and a legislative act from a non-legislative act, delegated act or implementing act [L2 p.18], [L2 p.19], [L2 p.20], [L2 p.23], [L2 p.28], [L2 p.29], [WA2 p.1]. 4. Apply the three requirements from Council v Commission (C-409/13) for a valid withdrawal of a Commission legislative proposal, in the right order [L2 p.39], [L2 p.41], [WG2b p.16]. 5. Avoid the \"typical errors\": omitting to apply the Van Gend & Loos requirements to the actual wording of the provision; omitting Defrenne II; reaching for the wrong Treaty article (e.g. free movement of workers) instead of the one actually in the hypothetical; and treating the Commission's power to withdraw as either an absolute veto or as something the Treaties simply forbid [WA2 p.1], [L2 p.35].",
+  "sources": {
+    "L2": {
+      "file": "COLOMBI CIACCHI IIEL 2026_Lecture Week 2_LEGISLATIVE PROCEDURES AND DIRECT HORIZONTAL EFFECT OF TREATY PROVISIONS - Copy (1).pdf",
+      "kind": "lecture / 1",
+      "note": "Colombi Ciacchi, Week 2 slides, 44 pp. Primary authority."
+    },
+    "T2": {
+      "file": "European Law Week 2.pdf",
+      "kind": "lecture / 1",
+      "note": "Week 2 lecture notes, \"compiled from lecture transcript & slides\""
+    },
+    "WS2": {
+      "file": "EU_Worksheet_W2.docx",
+      "kind": "wg / 1",
+      "note": "Week 2 worksheet (reading list, discussion Qs, the Anna case)"
+    },
+    "WA2": {
+      "file": "EU_Worksheet_W2_ANSWERS.docx",
+      "kind": "wg_answers / 1",
+      "note": "Week 2 model answers, incl. the Anna case model solution and the list of typical student errors"
+    },
+    "WG2": {
+      "file": "European Law WG Week 2.pdf",
+      "kind": "wg / 1",
+      "note": "Week 2 \"comprehensive revision guide\" — used only for the parts consistent with L2 (see N1 below)"
+    },
+    "WG2b": {
+      "file": "International and European Law WG Week 2.pdf",
+      "kind": "wg / 1",
+      "note": "Alternate Week 2 WG answer sheet, IRAC format"
+    },
+    "SA": {
+      "file": "Standard Answers IIEL resit exam 25 June 2026 - Copy.pdf",
+      "kind": "wg_answers / 1",
+      "note": "Grading matrix format (knowledge + application)"
+    },
+    "L1": {
+      "file": "EU_Lecture_W1_Direct_Effect_Supremacy.pdf",
+      "kind": "lecture / 1",
+      "note": "Week 1 slides — cross-reference only, for the Van Gend & Loos three requirements"
+    }
+  },
+  "bible": {
+    "palette": [
+      "#3fb6b0"
+    ],
+    "mood": "",
+    "notes": [
+      "Arrival location: Groningen District Court, a fictional annex on a wet backstreet near the Grote Markt: wet cobbles, one working sodium streetlamp, a flickering \"DISTRICT COURT — NIGHT SESSIONS\" sign in the bible's neon teal #3fb6b0, steam rising from a grate. The lit entrance is a heavy brass-handled door under a stone lintel.",
+      "Interior: Employment & EU Law Chamber: worn oak panelling (as in Week 1), fluorescent tubes that flicker on the corridor ceiling, a case-file trolley stacked with paper. The player's case-file PDA shows: client name, employer, the Treaty provision Anna is relying on, and a running \"Exhibits\" list.",
+      "Cast: | Name | Role | Look | Wardrobe | |---|---|---|---| | THE LAWYER (player) | Anna's counsel | Low-poly, realistic proportions, face rarely shown (OTS/POV) | Dark suit, briefcase — per bible | | ANNA KOVAČ | Client, 24, logistics coordinator at Kade Freight | 1.68, black bob, restless energy | Kade Freight polo under a borrowed coat | | MAREN VOS | Kade Freight's Head of People & Compliance, seated with the defence | 1.70, short dark-blond bob, sharper suit than Week 1 | Navy blazer, Kade Freight pin | | MR. HAAN | Counsel for Kade Freight (recast from Week 1's customs counsel) | 1.80, 50s, silver hair, rimless glasses | Black gown, white bands | | JUDGE DE WIT | Presiding judge (recast from Week 1) | 1.65, 60s, grey hair in a bun | Black gown, velvet trim |",
+      "Hero props / exhibits: - Exhibit A: the TFEU, open to Article 47, a gold tab already placed. - Exhibit B: a slim EU-blue folder stamped \"WITHDRAWN — COM(2025) 000 final\" in the bible's sodium-amber, not verdict red — this is a procedural dispute, not a crime. - Case-file PDA: shows Anna's org-chart snippet (NL/IE/MT/CY offices, MT circled) once the briefing lands it."
+    ]
+  },
+  "scenes": [
+    {
+      "id": "s1",
+      "title": "Arrival + Briefing",
+      "phase": "arrival",
+      "slug": {
+        "int_ext": "EXT",
+        "place": "BACKSTREET NEAR THE GRONINGEN DISTRICT COURT",
+        "time": "NIGHT SESSION, WET"
+      },
+      "set": "street",
+      "action": [
+        "Third-person, over-the-shoulder, wet cobbles glowing under one sodium lamp, steam drifting from a grate, the court's neon sign flickering teal through the haze. The player walks the lawyer to the brass-handled door. A Skip button is available throughout. Reaching the door triggers the scene-change sting and cuts to the interior.",
+        "ANNA sits with a case file already open. A clerk drops a second folder on the table as the lawyer arrives."
+      ],
+      "dialogue": [
+        {
+          "speaker": "CLERK",
+          "line": "Kovač v. Kade Freight Logistics B.V. Employment & EU Law Chamber, Judge De Wit presiding. You're on in five.",
+          "cites": []
+        },
+        {
+          "speaker": "ANNA",
+          "line": "Six months. Malta. I asked three weeks ago. Kade Freight said no.",
+          "cites": []
+        },
+        {
+          "speaker": "LAWYER",
+          "line": "Walk me through it again — for the file.",
+          "cites": []
+        },
+        {
+          "speaker": "ANNA",
+          "line": "I found a line in the Treaties. Member States have to encourage exactly this — young workers, exchanges between offices. If it binds a government, why not the company that employs me?",
+          "cites": []
+        },
+        {
+          "speaker": "",
+          "line": "CLERK (sliding the second folder across): Kade Freight's counsel filed an exhibit an hour ago. Something about Brussels withdrawing a proposal. Might come up.",
+          "cites": []
+        },
+        {
+          "speaker": "LAWYER",
+          "line": "Then we're arguing two things tonight, not one. (opening the TFEU) Let's find the article first.",
+          "cites": []
+        }
+      ],
+      "shots": [
+        {
+          "n": 1,
+          "size": "Wide, third-person follow",
+          "angle": "Slightly behind and above the lawyer's shoulder",
+          "movement": "Player-driven walk, camera lag + sway (per bible)",
+          "lens": "28 mm, f/4",
+          "lighting": "Sodium key #d99a3e from the one working streetlamp; smog haze #6b6a62 in the volumetrics",
+          "subject": "Cobbled backstreet, wet reflections, court entrance lit at the far end",
+          "duration_s": null
+        },
+        {
+          "n": 2,
+          "size": "Insert",
+          "angle": "Eye level",
+          "movement": "Static",
+          "lens": "50 mm",
+          "lighting": "Neon teal #3fb6b0 sign light with bloom",
+          "subject": "Flickering \"DISTRICT COURT — NIGHT SESSIONS\" sign",
+          "duration_s": 3
+        },
+        {
+          "n": 3,
+          "size": "Close, OTS",
+          "angle": "Low, 10° up",
+          "movement": "Static, then door swings on approach",
+          "lens": "35 mm, f/2.8",
+          "lighting": "Warm interior spill through the door crack vs. cool exterior",
+          "subject": "Brass handle, stone lintel; scene-change sting on the cut",
+          "duration_s": 4
+        },
+        {
+          "n": 4,
+          "size": "Medium",
+          "angle": "Eye level, handheld drift (per bible)",
+          "movement": "Slight sway",
+          "lens": "40 mm, f/2.8",
+          "lighting": "Flickering fluorescent tube, warm folder-light fill",
+          "subject": "Anna seated, case file open; Lawyer entering frame",
+          "duration_s": 6
+        },
+        {
+          "n": 5,
+          "size": "Insert",
+          "angle": "Top-down",
+          "movement": "Static",
+          "lens": "50 mm",
+          "lighting": "Fluorescent",
+          "subject": "Second folder landing on the table, stamped \"EXHIBIT — PENDING\"",
+          "duration_s": 3
+        },
+        {
+          "n": 6,
+          "size": "Close-up",
+          "angle": "Eye level",
+          "movement": "Slow 8 cm push-in",
+          "lens": "65 mm, f/2",
+          "lighting": "Warm practical",
+          "subject": "Anna: \"If it binds a government, why not the company?\"",
+          "duration_s": 6
+        },
+        {
+          "n": 7,
+          "size": "Insert",
+          "angle": "Top-down, slow slide",
+          "movement": "Static",
+          "lens": "100 mm macro",
+          "lighting": "Desk-lamp pool",
+          "subject": "TFEU book, Article 47, gold tab",
+          "duration_s": 4
+        },
+        {
+          "n": 8,
+          "size": "Two-shot",
+          "angle": "Eye level",
+          "movement": "Static; freeze on last line",
+          "lens": "35 mm, f/4",
+          "lighting": "As 1.4",
+          "subject": "Lawyer: \"Let's find the article first.\" → cut to Examination",
+          "duration_s": 5
+        }
+      ],
+      "quiz": null
+    },
+    {
+      "id": "s2",
+      "title": "The Joint Programme",
+      "phase": "examination",
+      "slug": {
+        "int_ext": "INT",
+        "place": "GRONINGEN DISTRICT COURT, EMPLOYMENT & EU LAW CHAMBER",
+        "time": "NIGHT"
+      },
+      "set": "courtroom",
+      "action": [
+        "Oak-panelled courtroom, fluorescent tubes flickering overhead, Judge De Wit raised at the bench. Mr. Haan stands for Kade Freight, Maren Vos seated behind him. The lawyer stands with Anna, TFEU book open to Article 47."
+      ],
+      "dialogue": [
+        {
+          "speaker": "JUDGE DE WIT",
+          "line": "Counsel for the claimant. Your client relies on Article 47 TFEU against a private company. Convince me a Treaty article can do that at all.",
+          "cites": []
+        },
+        {
+          "speaker": "HAAN",
+          "line": "Your Honour, this Article speaks to Member States. My client is not a Member State.",
+          "cites": []
+        },
+        {
+          "speaker": "LAWYER",
+          "line": "Since 1976 that objection hasn't been the end of the story. A Belgian air hostess, Gabrielle Defrenne, was paid less than the men doing her job — and she won, not against the State, against her own airline.",
+          "cites": []
+        },
+        {
+          "speaker": "HAAN",
+          "line": "A different provision, on equal pay. Read carefully what Article 47 actually says.",
+          "cites": []
+        },
+        {
+          "speaker": "JUDGE DE WIT",
+          "line": "He's right to press you there, Counsel. Read it back to me — all of it.",
+          "cites": []
+        },
+        {
+          "speaker": "LAWYER",
+          "line": "(reading) \"Member States shall, within the framework of a joint programme, encourage the exchange of young workers.\" (beat) Your Honour — is there a joint programme?",
+          "cites": []
+        },
+        {
+          "speaker": "JUDGE DE WIT",
+          "line": "That is precisely the question before this chamber. Counsel, does Ms Kovač have a right under EU law that this court must protect?",
+          "cites": []
+        }
+      ],
+      "shots": [
+        {
+          "n": 1,
+          "size": "Extreme wide, symmetrical",
+          "angle": "Eye level from the back wall",
+          "movement": "Static, then slow 1.5 m push-in",
+          "lens": "21 mm, f/8",
+          "lighting": "Top fluorescent flicker (mismatched colour temp per bible, 4200 K vs practicals at 3200 K); smog-tinted haze even indoors",
+          "subject": "Bench raised at far wall, counsel tables left/right",
+          "duration_s": 8
+        },
+        {
+          "n": 2,
+          "size": "Low angle on the judge (per bible)",
+          "angle": "Low, 20° up",
+          "movement": "Static",
+          "lens": "50 mm, f/2.8",
+          "lighting": "Hard top light, deep eye shadows",
+          "subject": "Judge De Wit: \"Convince me a Treaty article can do that at all.\"",
+          "duration_s": 6
+        },
+        {
+          "n": 3,
+          "size": "Medium",
+          "angle": "Eye level",
+          "movement": "Handheld drift",
+          "lens": "40 mm, f/4",
+          "lighting": "Practical desk lamp warm key",
+          "subject": "Haan: \"My client is not a Member State.\"",
+          "duration_s": 5
+        },
+        {
+          "n": 4,
+          "size": "Stylised flashback",
+          "angle": "Eye level",
+          "movement": "Static, desaturated further + grain boost",
+          "lens": "35 mm, f/5.6",
+          "lighting": "Flat period daylight",
+          "subject": "Silhouette of an air hostess on a tarmac; caption \"Case 43/75 — Defrenne v Sabena — 8 April 1976\" [L2 p.6]",
+          "duration_s": 5
+        },
+        {
+          "n": 5,
+          "size": "Insert",
+          "angle": "Top-down, slow push",
+          "movement": "Static",
+          "lens": "100 mm macro, f/2",
+          "lighting": "Desk-lamp pool",
+          "subject": "TFEU page, finger under \"joint programme\", gold tab catching light",
+          "duration_s": 5
+        },
+        {
+          "n": 6,
+          "size": "Close-up",
+          "angle": "Eye level, slow push-in on the question (per bible)",
+          "movement": "Slow 8 cm push-in",
+          "lens": "65 mm, f/2",
+          "lighting": "Sodium-amber rim from the corridor's practicals bleeding through the door glass",
+          "subject": "Lawyer: \"Your Honour — is there a joint programme?\"",
+          "duration_s": 6
+        },
+        {
+          "n": 7,
+          "size": "Low angle on the judge",
+          "angle": "Low, 20° up; freeze on last frame",
+          "movement": "Static",
+          "lens": "50 mm, f/2",
+          "lighting": "As 2.2, with UI-gold rim substituted per the case-file HUD's teal accent",
+          "subject": "Judge De Wit: \"Does Ms Kovač have a right...?\" → EXAMINATION I",
+          "duration_s": 6
+        }
+      ],
+      "quiz": {
+        "id": "q1",
+        "question": "Anna relies on Article 47 TFEU (\"Member States shall, within the framework of a joint programme, encourage the exchange of young workers\") against her employer, Kade Freight. No such joint programme currently exists. Does Anna have a right under EU law that this court must protect?",
+        "options": [
+          {
+            "key": "A",
+            "text": "No. Article 47 TFEU is not sufficiently clear and precise, and it is conditional on a joint programme that does not yet exist, so it needs further implementation by EU or national law. It fails the Van Gend & Loos requirements for direct effect, so the Defrenne II question of horizontal effect never has to be reached.",
+            "correct": true,
+            "outcome_title": "",
+            "story": "",
+            "teaching": "",
+            "cites": [],
+            "stamp": "SUSTAINED"
+          },
+          {
+            "key": "B",
+            "text": "Yes. Article 119 EEC (now Article 157 TFEU) shows that Treaty provisions can bind private employers, and Defrenne II is exactly this kind of case: an individual against a private company.",
+            "correct": false,
+            "outcome_title": "Straight to Defrenne.",
+            "story": "the lawyer sketches Sabena's logo next to Kade Freight's on a legal pad. Haan doesn't even stand to object. \"Counsel, you've shown me a horizontal-effect case. You haven't shown me a direct-effect one.\"",
+            "teaching": "Defrenne II's extra requirement only matters once Van Gend & Loos's clarity and unconditionality are already satisfied. Citing Defrenne II without first testing the provision's own wording is a typical error the model answer specifically warns against [WA2 p.1], [L2 p.10].",
+            "cites": [
+              "WA2 p.1",
+              "L2 p.10"
+            ],
+            "stamp": "OVERRULED"
+          },
+          {
+            "key": "C",
+            "text": "Yes. Article 45 TFEU on free movement of workers requires Member States to remove obstacles to workers moving between Member States, and Kade Freight's refusal is such an obstacle.",
+            "correct": false,
+            "outcome_title": "Wrong Article.",
+            "story": "Haan slides the TFEU's table of contents across the bench. \"Counsel, there's more than one article on workers.\"",
+            "teaching": "Article 45 TFEU concerns free movement of workers generally; Anna's claim is built on Article 47 TFEU specifically, the exchange-of-young-workers provision. Reaching for a different, more familiar Treaty article instead of the one the hypothetical actually gives you is a typical student error, especially for provisions students already studied elsewhere [WA2 p.1].",
+            "cites": [
+              "WA2 p.1"
+            ],
+            "stamp": "OVERRULED"
+          },
+          {
+            "key": "D",
+            "text": "No. Article 47 TFEU addresses only \"Member States\", so it can never bind Kade Freight, a private company.",
+            "correct": false,
+            "outcome_title": "Right Result, Wrong Reason.",
+            "story": "Judge De Wit almost nods — then stops. \"That's not why it fails, Counsel.\"",
+            "teaching": "That a provision names \"Member States\" as the addressee does not by itself rule out horizontal effect — Defrenne II shows the opposite is possible. Article 47 TFEU fails because it is conditional on a joint programme that does not exist, not because of who it names. Reaching the right conclusion by skipping the actual Van Gend & Loos test scores no application credit [WA2 p.1], [SA p.5].",
+            "cites": [
+              "WA2 p.1",
+              "SA p.5"
+            ],
+            "stamp": "OVERRULED"
+          }
+        ],
+        "irac": {
+          "issue": "Does Article 47 TFEU create a right for Anna, enforceable against Kade Freight, a private employer? Because the claim runs against a private party, this is a question of direct horizontal effect [L2 p.4], [WA2 p.1].",
+          "rule": "A Treaty provision has direct effect only if it is (1) clear and (2) unconditional, i.e. it needs no further implementation by EU or national law (Van Gend & Loos). Only if both are met does the further question arise whether the provision is (3) mandatory in nature and suitable, content-wise, to operate between private parties (Defrenne II) [L2 p.9], [L2 p.10], [WA2 p.1].",
+          "application": "Article 47 TFEU obliges Member States to encourage the exchange of young workers \"within the framework of a joint programme\". Whether the wording is clear enough is arguable either way, but its unconditionality is not: the provision expressly depends on a \"joint programme\", and no such programme exists yet. Without it, neither the age limits for \"young\" workers nor the specific conduct required of anyone is determined. The provision therefore needs further implementation and is conditional [WA2 p.1], [WG2 p.3]. Because Van Gend & Loos's requirements are not met, it is not necessary to go on and ask whether the obligation is also suitable to bind a private employer under Defrenne II [WA2 p.1].",
+          "conclusion": "Article 47 TFEU does not have direct effect. Anna has no right against Kade Freight under this provision [WA2 p.1]."
+        },
+        "cites": [
+          "WA2 p.1",
+          "L2 p.10",
+          "SA p.5",
+          "L2 p.4",
+          "L2 p.9",
+          "WG2 p.3"
+        ]
+      }
+    },
+    {
+      "id": "s3",
+      "title": "The Withdrawn File",
+      "phase": "examination",
+      "slug": {
+        "int_ext": "INT",
+        "place": "GRONINGEN DISTRICT COURT, EMPLOYMENT & EU LAW CHAMBER",
+        "time": "CONTINUOUS"
+      },
+      "set": "courtroom",
+      "action": [
+        "Same courtroom, moments later. Haan rises with Exhibit B, the blue \"WITHDRAWN\" folder."
+      ],
+      "dialogue": [
+        {
+          "speaker": "HAAN",
+          "line": "Your Honour, even if Article 47 could one day bite, it never will. Exhibit B: the Commission's own \"Youth Bridge\" proposal — the joint programme my learned friend needs — was withdrawn.",
+          "cites": []
+        },
+        {
+          "speaker": "JUDGE DE WIT",
+          "line": "Withdrawn when, and by whom?",
+          "cites": []
+        },
+        {
+          "speaker": "HAAN",
+          "line": "By the Commission, last month. The proposal was amended by Council and Parliament in a way the Commission says distorted it. It gave written reasons. It withdrew.",
+          "cites": []
+        },
+        {
+          "speaker": "LAWYER",
+          "line": "Your Honour, may I see the timeline? (reading the exhibit) The Council adopted its position on the amendment on a Tuesday. The Commission withdrew on the Wednesday.",
+          "cites": []
+        },
+        {
+          "speaker": "HAAN",
+          "line": "Immaterial. The Commission stated cogent grounds. That is all Council v Commission requires.",
+          "cites": []
+        },
+        {
+          "speaker": "JUDGE DE WIT",
+          "line": "Is it, Counsel? Was this withdrawal even valid?",
+          "cites": []
+        }
+      ],
+      "shots": [
+        {
+          "n": 1,
+          "size": "Medium",
+          "angle": "Eye level",
+          "movement": "Handheld drift",
+          "lens": "40 mm, f/2.8",
+          "lighting": "Practical desk lamp warm key, fluorescent flicker overhead",
+          "subject": "Haan rising, folder raised, sodium-amber \"WITHDRAWN\" stamp catching the light",
+          "duration_s": 6
+        },
+        {
+          "n": 2,
+          "size": "Insert",
+          "angle": "Top-down",
+          "movement": "Static",
+          "lens": "50 mm macro",
+          "lighting": "Neutral",
+          "subject": "Folder cover: \"WITHDRAWN — COM(2025) 000 final\"",
+          "duration_s": 3
+        },
+        {
+          "n": 3,
+          "size": "Low angle on the judge",
+          "angle": "Low, 20° up",
+          "movement": "Static",
+          "lens": "50 mm, f/2.8",
+          "lighting": "As Scene 2",
+          "subject": "Judge De Wit: \"Withdrawn when, and by whom?\"",
+          "duration_s": 5
+        },
+        {
+          "n": 4,
+          "size": "Close-up",
+          "angle": "Eye level",
+          "movement": "Slow 8 cm push-in",
+          "lens": "65 mm, f/2",
+          "lighting": "Warm key",
+          "subject": "Lawyer reading the exhibit, tracing the dates with a finger",
+          "duration_s": 7
+        },
+        {
+          "n": 5,
+          "size": "Insert",
+          "angle": "Top-down, slow slide",
+          "movement": "Static",
+          "lens": "100 mm macro",
+          "lighting": "Desk-lamp pool",
+          "subject": "Exhibit timeline: \"TUESDAY — Council adopts position\" / \"WEDNESDAY — Commission withdraws\"",
+          "duration_s": 4
+        },
+        {
+          "n": 6,
+          "size": "Medium two-shot",
+          "angle": "Eye level",
+          "movement": "Static",
+          "lens": "35 mm, f/4",
+          "lighting": "Mixed practicals",
+          "subject": "Haan: \"Immaterial. The Commission stated cogent grounds.\"",
+          "duration_s": 6
+        },
+        {
+          "n": 7,
+          "size": "Low angle on the judge; freeze on last frame",
+          "angle": "Low, 20° up",
+          "movement": "Static",
+          "lens": "50 mm, f/2",
+          "lighting": "As 2.7",
+          "subject": "Judge De Wit: \"Was this withdrawal even valid?\" → EXAMINATION II",
+          "duration_s": 5
+        }
+      ],
+      "quiz": {
+        "id": "q2",
+        "question": "The Commission proposed the \"Youth Bridge\" Regulation. The Council formally adopted its position accepting Parliament's amendment on Tuesday. On Wednesday, the Commission withdrew the proposal, stating in writing that the amendment (requiring unanimous Council sign-off for every national quota) distorted the proposal's purpose. Was the withdrawal valid?",
+        "options": [
+          {
+            "key": "A",
+            "text": "Yes, because the Commission always has an unconditional right to withdraw its own legislative proposal — the proposal belongs to the institution that wrote it.",
+            "correct": false,
+            "outcome_title": "Right of Veto.",
+            "story": "Haan smiles, folder still raised — then the case-file HUD flags the claim in sodium-amber and freezes.",
+            "teaching": "The CJEU expressly rejected this: a power of withdrawal that could be exercised at will \"would confer... a right of veto in the conduct of the legislative process,\" contrary to the principles of conferral of powers and institutional balance [L2 p.35]. The Commission's power is conditional on all three requirements, not unconditional.",
+            "cites": [
+              "L2 p.35"
+            ],
+            "stamp": "OVERRULED"
+          },
+          {
+            "key": "B",
+            "text": "Yes, because the Commission stated detailed, written grounds, supported by evidence, for the withdrawal.",
+            "correct": false,
+            "outcome_title": "Right Requirement, Wrong Order.",
+            "story": "the lawyer starts to nod along with Haan's written grounds — then stops, re-reading the exhibit's dates. \"Tuesday. You withdrew on Wednesday.\"",
+            "teaching": "Stating cogent grounds is the second requirement, but it never gets reached if the first requirement — that the Council has not yet acted — already fails. The three requirements must be checked in the order the Court gave them; good grounds cannot rescue a withdrawal that came too late [L2 p.39], [L2 p.41].",
+            "cites": [
+              "L2 p.39",
+              "L2 p.41"
+            ],
+            "stamp": "OVERRULED"
+          },
+          {
+            "key": "C",
+            "text": "No, because the Council had already acted — it had formally adopted its position — before the Commission withdrew the proposal.",
+            "correct": true,
+            "outcome_title": "",
+            "story": "",
+            "teaching": "",
+            "cites": [],
+            "stamp": "SUSTAINED"
+          },
+          {
+            "key": "D",
+            "text": "No, because the Treaties never mention a power to withdraw a proposal at all, only a power to alter it.",
+            "correct": false,
+            "outcome_title": "Silence Means Prohibited.",
+            "story": "Judge De Wit tilts her head: \"So the Commission never had the power at all?\"",
+            "teaching": "Article 293(2) TFEU is silent on withdrawal, mentioning only alteration — but the CJEU read Article 17(2) TEU together with Articles 289 TFEU and 293 TFEU to establish a new rule: the Commission does have a power to withdraw, subject to the three requirements. Treaty silence on withdrawal does not mean withdrawal is always unlawful; it means the CJEU had to work out the conditions under which it is lawful [L2 p.34], [L2 p.39]. In this hypothetical the withdrawal is invalid regardless — but for the timing reason (C), not because the power doesn't exist.",
+            "cites": [
+              "L2 p.34",
+              "L2 p.39"
+            ],
+            "stamp": "OVERRULED"
+          }
+        ],
+        "irac": {
+          "issue": "Did the Commission validly withdraw the \"Youth Bridge\" proposal, given that the Council had already adopted its position accepting Parliament's amendment? [L2 p.41]",
+          "rule": "Council v Commission (C-409/13): the Commission's power to withdraw a legislative proposal is not a veto and is subject to three requirements, which must be checked in order: (1) the Council must not yet have acted; (2) the Commission must state to Parliament and Council the grounds for withdrawal, supported by cogent evidence or arguments; (3) the Commission may withdraw only after having due regard to the concerns of Parliament and Council, in the spirit of sincere cooperation [L2 p.39], [L2 p.41], [WG2b p.16]. Article 293(2) TFEU expressly allows the Commission to alter its proposal \"as long as the Council has not acted\" — the same time limit governs withdrawal [L2 p.32], [L2 p.34].",
+          "application": "Here the Council formally adopted its position on Tuesday, before the Commission withdrew the proposal on Wednesday. The first requirement — that the Council must not yet have acted — is not met. It therefore makes no difference that the Commission's stated grounds might otherwise have been cogent (the second requirement) or that it had considered Parliament's and Council's concerns (the third requirement): the first requirement fails, and that is decisive [L2 p.41], [WG2b p.16].",
+          "conclusion": "The withdrawal of the \"Youth Bridge\" proposal was invalid. The Council had already acted."
+        },
+        "cites": [
+          "L2 p.35",
+          "L2 p.39",
+          "L2 p.41",
+          "L2 p.34",
+          "WG2b p.16",
+          "L2 p.32"
+        ]
+      }
+    },
+    {
+      "id": "s4",
+      "title": "Verdict",
+      "phase": "verdict",
+      "slug": {
+        "int_ext": "INT",
+        "place": "GRONINGEN DISTRICT COURT, EMPLOYMENT & EU LAW CHAMBER",
+        "time": "LATER"
+      },
+      "set": "courtroom",
+      "action": [],
+      "dialogue": [
+        {
+          "speaker": "JUDGE DE WIT",
+          "line": "On the claim before me tonight: dismissed. Article 47 TFEU gives Ms Kovač no right this court can protect, for want of a joint programme. (beat) But Counsel — on the record, and for whatever it is worth to your client's next case — I am not satisfied the Commission's withdrawal was valid. That question does not belong to this chamber.",
+          "cites": []
+        }
+      ],
+      "shots": [],
+      "quiz": null
+    },
+    {
+      "id": "s5",
+      "title": "Epilogue card",
+      "phase": "epilogue",
+      "slug": {
+        "int_ext": "",
+        "place": "",
+        "time": ""
+      },
+      "set": "generic",
+      "action": [],
+      "dialogue": [
+        {
+          "speaker": "",
+          "line": "\"A Treaty provision that depends on a programme that doesn't exist yet has no direct effect — vertical or horizontal — until that programme is adopted. And a withdrawn EU proposal isn't dead just because someone says it is: check whether the Council had already acted.\"",
+          "cites": []
+        },
+        {
+          "speaker": "",
+          "line": "Next case: Week 3 — competences and legal bases.",
+          "cites": []
+        }
+      ],
+      "shots": [],
+      "quiz": null
+    }
+  ],
+  "case_file": [
+    "Claimant: Anna Kovač, logistics coordinator, Kade Freight Logistics B.V.",
+    "Claim: a right to a 6-month exchange to Kade Freight's Malta office under a Treaty provision on the exchange of young workers.",
+    "Respondent's exhibit flagged: an EU Commission withdrawal of a related legislative proposal."
+  ],
+  "verdict": {
+    "outcome": "LOST",
+    "irac": [
+      {
+        "issue": "Does Anna Kovač have a right against Kade Freight under Article 47 TFEU?",
+        "rule": "Van Gend & Loos (clear, unconditional) + Defrenne II (mandatory in nature, suitable between private parties) [L2 p.9], [L2 p.10].",
+        "application": "Article 47 TFEU is conditional on a \"joint programme\" that does not exist; unconditionality fails; Defrenne II is not reached [WA2 p.1].",
+        "conclusion": "No direct effect. Anna has no right against Kade Freight today [WA2 p.1]."
+      },
+      {
+        "issue": "Was the Commission's withdrawal of the \"Youth Bridge\" proposal valid?",
+        "rule": "Council v Commission (C-409/13): three requirements, checked in order — Council not yet acted; grounds stated with cogent evidence; due regard to Parliament's and Council's concerns [L2 p.39], [L2 p.41].",
+        "application": "The Council had already adopted its position before the Commission withdrew; the first requirement fails [L2 p.41].",
+        "conclusion": "The withdrawal was invalid — the \"Youth Bridge\" file is, on this record, still legally pending."
+      }
+    ],
+    "takeaway": "\"A Treaty provision that depends on a programme that doesn't exist yet has no direct effect — vertical or horizontal — until that programme is adopted. And a withdrawn EU proposal isn't dead just because someone says it is: check whether the Council had already acted.\""
+  },
+  "checks": [
+    {
+      "n": 1,
+      "claim": "Van Gend & Loos only answered whether a Treaty provision creates rights against the State (vertical); it left open whether a provision can bind another individual (horizontal)",
+      "cites": [
+        "L2 p.4",
+        "T2 p.3"
+      ]
+    },
+    {
+      "n": 2,
+      "claim": "In 1976, Defrenne II established that a clear and unconditional Treaty provision may create rights enforceable against another individual — \"direct horizontal effect\"; \"individuals\" covers all private parties",
+      "cites": [
+        "L2 p.4"
+      ]
+    },
+    {
+      "n": 3,
+      "claim": "Article 119 EEC (equal pay) is now Article 157 TFEU",
+      "cites": [
+        "L2 p.5"
+      ]
+    },
+    {
+      "n": 4,
+      "claim": "Defrenne facts: Sabena air hostess, automatic dismissal at 40, no anti-discrimination Directives at the time; Defrenne I (1971, pension excluded from \"pay\"); Defrenne II, Case 43/75, 8 April 1976",
+      "cites": [
+        "L2 p.6",
+        "T2 p.4"
+      ]
+    },
+    {
+      "n": 5,
+      "claim": "Article 119 is unconditional for direct/overt discrimination (identifiable from the article alone) but conditional for indirect/disguised discrimination (needs implementing provisions) — paras 18, 21, 22",
+      "cites": [
+        "L2 p.8"
+      ]
+    },
+    {
+      "n": 6,
+      "claim": "Para 39: Article 119 is mandatory in nature and extends to collective agreements and contracts between individuals; para 40: it may be relied on before national courts, which must protect it",
+      "cites": [
+        "L2 p.9"
+      ]
+    },
+    {
+      "n": 7,
+      "claim": "Exam method: first apply Van Gend & Loos (clear, unconditional), then Defrenne II (mandatory in nature, suitable to operate between individuals)",
+      "cites": [
+        "L2 p.10",
+        "L2 p.42"
+      ]
+    },
+    {
+      "n": 8,
+      "claim": "The Commission has no legislative power but has the legislative initiative; Article 17(2) TEU; Article 289(4) TFEU (other initiators in specific cases)",
+      "cites": [
+        "L2 p.16"
+      ]
+    },
+    {
+      "n": 9,
+      "claim": "Parliament, Council, or one million citizens may request the Commission to submit a proposal: Articles 225, 241 TFEU, Article 11(4) TEU",
+      "cites": [
+        "L2 p.17"
+      ]
+    },
+    {
+      "n": 10,
+      "claim": "Article 289 TFEU: OLP = joint adoption by Parliament + Council on a Commission proposal (Art. 294); SLP = adoption by one with the participation of the other, in specific cases",
+      "cites": [
+        "L2 p.18",
+        "WA2 p.1"
+      ]
+    },
+    {
+      "n": 11,
+      "claim": "Article 294 TFEU steps: proposal, first reading (no deadline), second reading (3 months), conciliation (6 weeks), third reading (6 weeks)",
+      "cites": [
+        "L2 p.19",
+        "L2 p.20",
+        "T2 p.9"
+      ]
+    },
+    {
+      "n": 12,
+      "claim": "Example SLP: Article 21(3) TFEU (Council unanimity after consulting Parliament)",
+      "cites": [
+        "L2 p.21"
+      ]
+    },
+    {
+      "n": 13,
+      "claim": "Article 288 TFEU: regulations (general, binding entirely, directly applicable), directives (binding as to result, form/methods left to MS), decisions (binding entirely, may specify addressees)",
+      "cites": [
+        "L2 p.23",
+        "WA2 p.1"
+      ]
+    },
+    {
+      "n": 14,
+      "claim": "Article 289(3) TFEU: it is the procedure, not the type of act, that makes an act legislative or non-legislative",
+      "cites": [
+        "L2 p.23"
+      ]
+    },
+    {
+      "n": 15,
+      "claim": "Non-legislative procedure example for executive-type measures: Article 43(3) TFEU (fixing prices); historical-reasons example: Article 103(1) TFEU",
+      "cites": [
+        "L2 p.24",
+        "L2 p.25"
+      ]
+    },
+    {
+      "n": 16,
+      "claim": "Article 297 TFEU: legislative acts published in the OJ, enter into force on the date specified or the 20th day after publication; some directives/decisions instead take effect on notification",
+      "cites": [
+        "L2 p.26",
+        "L2 p.27"
+      ]
+    },
+    {
+      "n": 17,
+      "claim": "Delegated acts: Article 290 TFEU — Commission may supplement/amend non-essential elements of a legislative act; conditions must be explicit; Parliament/Council may revoke or object",
+      "cites": [
+        "L2 p.28"
+      ]
+    },
+    {
+      "n": 18,
+      "claim": "Implementing acts: Article 291 TFEU — uniform conditions for implementing binding Union acts, powers conferred on the Commission (or, in specific cases, the Council)",
+      "cites": [
+        "L2 p.29"
+      ]
+    },
+    {
+      "n": 19,
+      "claim": "Council v Commission (C-409/13) facts: 2011 Commission proposal on macro-financial assistance under Articles 209/212 TFEU; Article 7 conferred implementing powers on the Commission; Council + Parliament wanted OLP for each MFA decision instead; Commission withdrew",
+      "cites": [
+        "L2 p.31",
+        "L2 p.32"
+      ]
+    },
+    {
+      "n": 20,
+      "claim": "Article 293(2) TFEU allows the Commission to alter its proposal \"as long as the Council has not acted\"; alteration is not the same as withdrawal",
+      "cites": [
+        "L2 p.32"
+      ]
+    },
+    {
+      "n": 21,
+      "claim": "Council's action for annulment (Articles 263-264 TFEU); three pleas: conferral/institutional balance, sincere cooperation (Art. 13(2) TEU), obligation to state reasons (Art. 296(2) TFEU)",
+      "cites": [
+        "L2 p.33"
+      ]
+    },
+    {
+      "n": 22,
+      "claim": "Para 64: institutional balance (not new); para 74: Article 17(2) TEU with Articles 289 + 293 TFEU gives the Commission power to alter or withdraw",
+      "cites": [
+        "L2 p.34"
+      ]
+    },
+    {
+      "n": 23,
+      "claim": "Para 75: the power of withdrawal cannot amount to a right of veto — contrary to conferral of powers and institutional balance",
+      "cites": [
+        "L2 p.35"
+      ]
+    },
+    {
+      "n": 24,
+      "claim": "The three requirements for valid withdrawal: (1) Council has not acted (para 74); (2) grounds stated with cogent evidence (para 76); (3) due regard to Parliament's/Council's concerns, in sincere cooperation (para 83) — and confirmed independently",
+      "cites": [
+        "L2 p.39",
+        "L2 p.41",
+        "WG2b p.16"
+      ]
+    },
+    {
+      "n": 25,
+      "claim": "All three of the Council's pleas were rejected as unfounded (para 108); the withdrawal in the real case was lawful because all three requirements were met",
+      "cites": [
+        "L2 p.37"
+      ]
+    },
+    {
+      "n": 26,
+      "claim": "2016 Interinstitutional Agreement on Better Law-Making — a non-legislative act, Article 295 TFEU",
+      "cites": [
+        "L2 p.38"
+      ]
+    },
+    {
+      "n": 27,
+      "claim": "IRAC method: Issue / Rule / Application / Conclusion, applied one requirement at a time",
+      "cites": [
+        "L2 p.43"
+      ]
+    },
+    {
+      "n": 28,
+      "claim": "Article 4(3) TEU (sincere cooperation) and Article 13(2) TEU (institutional balance)",
+      "cites": [
+        "L2 p.12"
+      ]
+    },
+    {
+      "n": 29,
+      "claim": "Article 47 TFEU text: \"Member States shall, within the framework of a joint programme, encourage the exchange of young workers\"",
+      "cites": [
+        "WG2 p.2",
+        "WG2b p.11"
+      ]
+    },
+    {
+      "n": 30,
+      "claim": "The Anna case: young worker, employer refuses an exchange, provision fails clarity/unconditionality because the \"joint programme\" does not exist, so direct effect (and therefore horizontal effect) is not established",
+      "cites": [
+        "WA2 p.1",
+        "WG2 p.3"
+      ]
+    },
+    {
+      "n": 31,
+      "claim": "Typical student errors: omitting to apply the requirements to the provision's wording; omitting to cite Van Gend & Loos; omitting to cite Defrenne II; wrongly reaching for free movement of workers (Article 45 TFEU) instead of the provision actually given",
+      "cites": [
+        "WA2 p.1"
+      ]
+    },
+    {
+      "n": 32,
+      "claim": "Exam grading splits marks into knowledge and application",
+      "cites": [
+        "SA p.5"
+      ]
+    }
+  ],
+  "removed": [
+    "a line giving Article 47 TFEU a specific paragraph number — European Law WG Week 2.pdf cites \"Article 47(1)\" and International and European Law WG Week 2.pdf cites \"Article 47(2)\" for the identical quoted text, and neither the worksheet nor its official answers commit to a paragraph number",
+    "the game therefore never numbers the paragraph (see N2 below). A line describing Council v Commission as a case about the boundary between delegated and implementing acts was removed for the same reason (see N1)."
+  ],
+  "coordinator_notes": [
+    "N1: One rank-1 WG file misstates the holding of Council v Commission. European Law WG Week 2.pdf, discussion answer \"D6\" (pages 9-10 and again in the case table on page 12), describes C-409/13 as a case about the objective criteria distinguishing delegated acts (Art. 290) from implementing acts (Art. 291). This does not match the lecture, which is unambiguous that C-409/13 is about the Commission's power to withdraw a legislative proposal [L2 p.31-p.41], and it does not match the alternate WG file, International and European Law WG Week 2.pdf p.16, which gives the correct withdrawal-power account. This game follows the lecture and the correctly-aligned WG file, and does not use European Law WG Week 2.pdf pages 9, 10 or 12 for anything about this case. The rest of that file (the Anna case, institutional roles, OLP/SLP, legislative/non-legislative acts, Regulation/Directive/Decision) is consistent with the lecture and was used.",
+    "N2: Paragraph-number conflict on Article 47 TFEU. European Law WG Week 2.pdf p.2 cites \"Art. 47(1) TFEU\"; International and European Law WG Week 2.pdf p.11 cites \"Art. 47(2) TFEU\" — for the identical quoted sentence. The worksheet (EU_Worksheet_W2.docx) and its official answers (EU_Worksheet_W2_ANSWERS.docx) both refer only to \"Article 47 TFEU\", with no paragraph number. The game quotes the provision but never assigns it a paragraph.",
+    "N3: Two near-identical lecture PDFs. EU_Lecture_W2_Legislative_Procedures.pdf (38 pp.) contains the same slides as COLOMBI CIACCHI IIEL 2026_Lecture Week 2_...pdf (44 pp., used here as L2), minus six section-divider slides (\"STRUCTURE OF THE LECTURE\" and the \"PART n\" headers). No content differs between them; only L2 was cited, for consistent page numbers.",
+    "N4: A course-mislabelled working group file. EU Law Week 2 WG .pdf is tagged IIEL/rank 1 but its content (\"Law of the European Union 2026-2027\", a case about a Slovenian civil engineer, Ivana) belongs to the different course seen in Week 1's AS1/V1A mix-up. EU Law Week 2 Lecture Slides B .pdf is the same other course's Lecture 4 on free movement of workers (Viktor Szép). Neither was used.",
+    "N5: European. Law Week 2 Reading.pdf is the full text of Parliament v Council (C-70/88), a case the lecture cites only in passing, inside a quoted paragraph of Council v Commission, as an older precedent for institutional balance [L2 p.34]. It was not needed as an independent citation and was not otherwise used. - Lower-ranked sources: none relied on. Rank 1 covered every claim."
+  ]
+}

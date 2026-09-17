@@ -1,0 +1,13 @@
+/* app.css: CognitioFlow-only layering for the show mode. lawyer.css stays as shipped by the games project;
+   this file only lets the 3D studio show through behind the question card. */
+
+.lw-root { position: absolute; inset: 0; z-index: 40; }
+
+.lw-show {
+  background:
+    linear-gradient(180deg, rgba(10, 9, 8, 0.55) 0%, rgba(10, 9, 8, 0.1) 28%, rgba(10, 9, 8, 0.35) 55%, rgba(10, 9, 8, 0.88) 100%);
+}
+.lw-show[data-lowq="true"] { background: rgba(10, 9, 8, 0.72); }
+
+/* the loading chip sits above the show while the pack is written */
+.app[data-screen="show"] .loading { z-index: 60; }
