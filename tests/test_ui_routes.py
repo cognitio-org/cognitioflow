@@ -332,3 +332,116 @@ def test_quiz_ignores_distractors_that_are_not_a_list(client, fake):
     _card(client, cid, "Which article?", "Article 34 TFEU")
     fake((json.dumps([{"i": 0, "wrong": "Art 30; Art 36; Art 45"}]), None))
     assert client.post(f"/api/courses/{cid}/quiz", json={}).json() == []
+
+
+# ---------------------------------------------------------------- spoken answer to your own question (Phase 12)
+GRADE_SHAKY = json.dumps({"mastery": "shaky", "verdict": "Right mode, missed the theft rule",
+                          "spoken": "You named production. But Fruity took the apples knowingly, so what does 5:201(2) do?",
+                          "note": "Missed VIII.-5:201(2): a producer who knowingly takes the material does not become owner."})
+NOTE = ("## Production\nVIII.-5:201: the producer becomes owner.<!--r:abc123:12--> "
+        "Not where the producer knowingly acts without consent (5:201(2)).")
+
+
+def _speech(client, **body):
+    return client.post("/api/speech", json={"question": "Who owns juice made from stolen apples?",
+                                            "answer": "Fruity, because it produced the juice.", "notes": NOTE, **body})
+
+
+def test_speech_needs_a_question_and_an_answer_before_any_model_call(client, fake):
+    fc = fake()
+    assert _speech(client, answer="   ").status_code == 400
+    assert _speech(client, question="  ").status_code == 400
+    assert client.post("/api/speech", json={"question": "Q", "notes": NOTE}).status_code == 422
+    assert client.post("/api/speech", json={"answer": "A", "notes": NOTE}).status_code == 422
+    assert fc.calls == []
+
+
+def test_speech_without_a_reference_is_labelled_outside_the_files(client, fake):
+    fc = fake((GRADE_SHAKY, None))
+    assert _speech(client, notes="  <!--r:only-an-anchor:1-->  ").status_code == 200  # an anchor alone is no reference
+    msg = fc.calls[0]["messages"][0]["content"]
+    assert "REFERENCE: none supplied" in msg and "[OUTSIDE FILES]" in msg
+    assert "THE STUDENT'S OWN NOTE" not in msg and "MODEL ANSWER" not in msg
+
+
+def test_speech_can_grade_against_a_model_answer(client, fake):
+    fc = fake((GRADE_SHAKY, None))
+    assert _speech(client, notes="", model_answer="The material owners, under VIII.-5:201(2).").status_code == 200
+    msg = fc.calls[0]["messages"][0]["content"]
+    assert "MODEL ANSWER: The material owners" in msg and "REFERENCE: none supplied" not in msg
+    assert msg.index("QUESTION:") < msg.index("MODEL ANSWER:") < msg.index("STUDENT'S SPOKEN ANSWER")
+
+
+def test_speech_grades_against_the_note_with_the_shared_cached_grader(client, fake):
+    import run
+    fc = fake((GRADE_SHAKY, None))
+    r = _speech(client)
+    assert r.status_code == 200
+    want = json.loads(GRADE_SHAKY)
+    assert r.json() == {"mastery": "shaky", "verdict": want["verdict"], "spoken": want["spoken"], "note": want["note"], "rating": 1}
+    call = fc.calls[0]
+    assert call["system"] == run._grader_system()
+    assert call["system"][-1]["cache_control"] == {"type": "ephemeral"}
+    msg = call["messages"][0]["content"]
+    assert msg.index("Who owns juice") < msg.index("THE STUDENT'S OWN NOTE") < msg.index("Fruity, because")
+    assert "VIII.-5:201" in msg and "<!--" not in msg        # recording anchors are not course content
+    assert "COMMON TRAPS" not in msg and "MODEL ANSWER" not in msg and "REFERENCE: none" not in msg
+    assert call["model"] == run.pick_model("drill", None)    # auto-routed; the caller cannot choose
+
+
+def test_speech_caps_what_it_sends(client, fake):
+    import run
+    fc = fake((GRADE_SHAKY, None))
+    assert _speech(client, question="µ" * 5000, answer="¶" * 9000, notes="§" * 50000, model_answer="¤" * 9000).status_code == 200
+    msg = fc.calls[0]["messages"][0]["content"]
+    assert (msg.count("µ"), msg.count("¶"), msg.count("§"), msg.count("¤")) == (
+        run.SPEECH_QUESTION_CHARS, run.SPEECH_ANSWER_CHARS, run.SPEECH_NOTES_CHARS, run.SPEECH_ANSWER_CHARS)
+
+
+def test_speech_never_trusts_an_unexpected_grade(client, fake):
+    fake((json.dumps({"mastery": "brilliant", "verdict": "Top marks"}), None))
+    r = _speech(client)
+    assert r.status_code == 200 and (r.json()["mastery"], r.json()["rating"]) == ("missed", 0)
+
+
+def test_speech_reports_grader_failures(client, fake):
+    fake(("not json at all", None))
+    assert _speech(client).status_code == 502
+    fake()  # nothing queued: the fake raises, the way a network failure would
+    assert _speech(client).status_code == 502
+
+
+def test_speech_without_an_api_key_says_so(client, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    r = _speech(client)
+    assert r.status_code == 400 and "ANTHROPIC_API_KEY" in r.json()["detail"]
+
+
+def test_speech_writes_nothing(client, fake, pg):
+    cid = _cid(client)
+    kid = _card(client, cid, "Who owns juice made from stolen apples?", "The material owners (VIII.-5:201(2)).")
+    snapshot = lambda: pg.execute("SELECT due, reps, interval, (SELECT count(*) FROM reviews) FROM cards WHERE id=%s", (kid,)).fetchone()
+    before = snapshot()
+    fake((GRADE_SHAKY, None))
+    assert _speech(client).status_code == 200
+    assert snapshot() == before  # no card behind the question, so nothing is reviewed or rescheduled
+
+
+def test_speech_and_card_grading_share_one_cached_prompt(client, fake):
+    cid = _cid(client)
+    kid = _card(client, cid, "Who owns juice made from stolen apples?", "The material owners (VIII.-5:201(2)).")
+    fc = fake((GRADE_SHAKY, None), (GRADE_SHAKY, None))
+    assert client.post(f"/api/courses/{cid}/oral/grade", json={"card_id": kid, "answer": "Fruity."}).status_code == 200
+    assert _speech(client).status_code == 200
+    card_call, own_call = fc.calls
+    assert card_call["system"] == own_call["system"] and card_call["model"] == own_call["model"]
+
+
+def test_speak_returns_audio_or_tells_the_page_to_speak_itself(client, monkeypatch):
+    import tts
+    monkeypatch.setattr(tts, "say", lambda text: None)
+    assert client.post("/api/speak", json={"text": "Hello."}).status_code == 204
+    monkeypatch.setattr(tts, "say", lambda text: (b"ID3fake-mp3", "audio/mpeg"))
+    r = client.post("/api/speak", json={"text": "Hello."})
+    assert r.status_code == 200 and r.content == b"ID3fake-mp3"
+    assert r.headers["content-type"] == "audio/mpeg" and r.headers["cache-control"] == "no-store"

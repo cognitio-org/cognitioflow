@@ -89,6 +89,14 @@ def test_api_without_cookie_is_401_json(web):
     assert r.json() == {"detail": "Not authenticated"}
 
 
+def test_speech_grading_signed_out_is_401_json_not_a_redirect(web):
+    r = web.post("/api/speech", json={"question": "q", "answer": "x"}, follow_redirects=False)
+    assert r.status_code == 401 and r.json() == {"detail": "Not authenticated"}
+    # The spec's /speech is signed-in too, but answers with a login redirect a fetch() cannot read: the page uses /api/speech.
+    r = web.post("/speech", json={"question": "q", "answer": "x"}, follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == "/auth/login"
+
+
 def test_ui_redirects_to_login(web):
     r = web.get("/", follow_redirects=False)
     assert r.status_code == 302 and r.headers["location"] == "/auth/login"
