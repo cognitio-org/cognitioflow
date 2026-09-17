@@ -792,9 +792,34 @@ class CourtReplyIn(BaseModel):
     question: str
     answer: str
 
+
+def _remember_miss(cid: str, case: str, question: str, note: str, rating: int) -> str:
+    """A bench question that went badly becomes a card, so the gap comes back on its own.
+
+    The grader already writes the gap and its authority; until now that was returned to the page and
+    dropped, so the courtroom could tell you that you were wrong but never help you stop being wrong.
+
+    The same hearing played twice must not leave two cards: a question already asked is rated again
+    through the app's existing review path, the one place recurrence is decided. That is also what
+    keeps this bounded — ten hearings on one case leave one card per question, not ten.
+    """
+    source = f"court:{case}"[:200]
+    same = rows("SELECT id FROM cards WHERE course_id=? AND front=? AND source=?", cid, question, source)
+    if same:
+        return review(same[0]["id"], ReviewIn(rating=rating))["due"]
+    kid, due = uuid.uuid4().hex[:10], date.today().isoformat()
+    with db() as d:
+        d.execute("INSERT INTO cards(id,course_id,front,back,source,concept,due,created) VALUES(?,?,?,?,?,?,?,?)",
+                  (kid, cid, question, note, source, case[:80], due, time.time()))
+    return due
+
+
 @app.post("/api/courses/{cid}/court/reply")
 def court_reply(cid: str, r: CourtReplyIn):
-    """The bench presses counsel. Graded on the same contract as the oral tutor, against the notes only."""
+    """The bench presses counsel. Graded on the same contract as the oral tutor, against the notes only.
+
+    A miss does not stay in the transcript: it becomes a card in the ordinary queue.
+    """
     context = _case_context(cid, r.case, 4000)
     sys = ("You are a judge pressing counsel in a moot, and also marking them. Judge the legal substance against the "
            "supplied notes only. Return ONLY valid JSON: "
@@ -805,10 +830,16 @@ def court_reply(cid: str, r: CourtReplyIn):
     try:
         m = client().messages.create(model=pick_model("drill", None), max_tokens=600, system=sys,
                                      messages=[{"role": "user", "content": usr}])
-        return oral.normalise(_model_json(m))
+        graded = oral.normalise(_model_json(m))
     except Exception as e:
         print("court reply:", type(e).__name__, e)
         raise HTTPException(502, "The bench did not respond — say that again.")
+    # Outside the try on purpose: a database fault here is not the bench failing to answer, and
+    # must not be reported as one. normalise() clears the note when the answer was solid, so an
+    # empty note is exactly "nothing to carry forward".
+    if graded["note"]:
+        graded["due"] = _remember_miss(cid, r.case, r.question, graded["note"], graded["rating"])
+    return graded
 
 
 # ---------------------------------------------------------------- oral revision (Phase 11c)
