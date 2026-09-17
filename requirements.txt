@@ -7,6 +7,7 @@ python-docx
 python-multipart
 python-dotenv
 google-cloud-speech
+google-genai>=2.23,<3
 psycopg[binary,pool]
 google-cloud-storage
 pytest
@@ -15,3 +16,4 @@ authlib>=1.8,<2
 itsdangerous
 fsrs>=6,<7
 fastembed>=0.8,<1
+edge-tts>=7.2,<8

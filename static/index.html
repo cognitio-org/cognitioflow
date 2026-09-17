@@ -123,8 +123,11 @@
   .v-solid{color:var(--ok)} .v-shaky{color:var(--warn)} .v-missed{color:#c0563c}
   .advctrl{display:flex;gap:.5rem;align-items:center;border-top:1px solid var(--rule);padding-top:.7rem}
   .advctrl input{flex:1}
-  #advMic{min-height:36px;white-space:nowrap}
-  #advMic[aria-pressed=true]{background:#b3261e;color:#fff;border-color:#b3261e}
+  #advMic,#advOwnMic{min-height:36px;white-space:nowrap}
+  #advMic[aria-pressed=true],#advOwnMic[aria-pressed=true]{background:#b3261e;color:#fff;border-color:#b3261e}
+  .advown{display:flex;flex-direction:column;gap:var(--s2)} .advown h3{margin:0}
+  .advownrow{display:flex;gap:var(--s2);align-items:center} .advownrow input{flex:1;min-width:0}
+  .advown select{width:100%;min-height:36px} .advown .btn{min-height:36px}
   .advside{display:flex;flex-direction:column;gap:var(--s4)}
   .statrow2{display:flex;gap:1.4rem;margin-top:.3rem}
   .statrow2 b{display:block;font-family:var(--serif);font-size:1.5rem}
@@ -456,6 +459,14 @@
       <div class="small muted" id="advHint">Answer in full sentences — it grades what you actually say, not what you meant.</div>
     </div>
     <aside class="advside">
+      <div class="panel advown" id="advOwn"><h3>Your own question</h3>
+        <div class="small muted">Ask anything, answer out loud, and it is graded only against the note you pick. Nothing is rescheduled.</div>
+        <div class="advownrow"><input type="text" id="advOwnQ" placeholder="Type or dictate a question" aria-label="Your question" autocomplete="off">
+          <button class="btn" id="advOwnMic" type="button" aria-pressed="false" aria-label="Dictate your question" title="Dictate your question">🎙</button></div>
+        <select id="advOwnRef" aria-label="Note to grade against"></select>
+        <div class="advownrow"><button class="btn primary" id="advOwnGo" type="button" aria-describedby="advOwnHint" disabled>Ask it</button>
+          <button class="btn ghost" id="advOwnOff" type="button" hidden>Back to my cards</button></div>
+        <div class="small muted" id="advOwnHint"></div></div>
       <div class="panel"><h3>This session</h3>
         <div class="statrow2"><div><b id="advAsked">0</b><span>answered</span></div><div><b id="advSolid">0</b><span>solid</span></div><div><b id="advWeak">0</b><span>to revisit</span></div></div></div>
       <div class="panel"><h3>Mastery</h3><div class="small muted">Missed ideas jump the queue and come back until they hold.</div><div id="advMap"></div></div>
@@ -680,6 +691,53 @@ document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{setMode(b.dat
 setMode(localStorage.getItem('cf.mode')||'drill');
 /* ---- voice: browser speech, no API cost ---- */
 let recog=null, listening=false, speakOn=localStorage.getItem('cf.speak')==='1', voiceUtter=null, lastSpeech='', sessionCost=+(localStorage.getItem('cf.cost')||0);
+/* ---- one voice for the whole page (Phase 12): the server's (Kokoro / Google / ElevenLabs) when it is configured,
+   the browser's otherwise — and the browser's for the rest of a reply whenever a server sentence fails ---- */
+let cfRun=0, cfAudio=null, cfWake=null;
+const TUTOR_SERVER_CHARS=1500;   // longer tutor replies are read by the browser: the server voice is for short spoken turns
+const cfClean=t=>String(t||'').replace(/\[(?:LECTURE|WG|SLIDES|READER|SCHUTZE|SCRIPTUM|DCFR|NATIONAL|ADDED|OUTSIDE FILES)[^\]]*\]/g,'').replace(/[*_`#>|]/g,'').replace(/\s{2,}/g,' ').trim();
+function cfChunks(t){   // sentences, merged to at least 40 characters ("Art." is not a sentence) and kept under the server's cap
+  const out=[]; let cur='';
+  for(const s of t.match(/[^.!?]+[.!?]*/g)||[]){
+    cur=(cur+' '+s.trim()).trim(); if(cur.length<40) continue;
+    while(cur.length>400){ const k=cur.lastIndexOf(' ',400), cut=k>0?k:400; out.push(cur.slice(0,cut)); cur=cur.slice(cut).trim(); }
+    if(cur) out.push(cur); cur=''; }
+  if(cur) out.push(cur);
+  return out.filter(s=>/[\p{L}\p{N}]/u.test(s)); }   // a chunk of punctuation alone would come back empty and trip the fallback
+function cfHush(){ cfRun++; window.speechSynthesis?.cancel();
+  if(cfAudio){ try{ cfAudio.pause() }catch(e){} cfAudio=null; }
+  const w=cfWake; cfWake=null; if(w) w(false); }   // whatever was waiting on the old voice finishes now, so nothing stays locked
+function cfWait(start,ms){ return new Promise(done=>{ let t;
+  const fin=ok=>{ clearTimeout(t); if(cfWake===fin) cfWake=null; done(ok); };
+  t=setTimeout(()=>fin(true),ms); cfWake=fin; start(fin); }); }
+function cfBrowser(parts,run){
+  if(!('speechSynthesis' in window)||run!==cfRun||!parts.length) return Promise.resolve(false);
+  const v=speechSynthesis.getVoices().find(v=>/Daniel|Serena|Kate|en-GB/.test(v.name+v.lang));
+  return cfWait(fin=>parts.forEach((p,i)=>{
+    const u=new SpeechSynthesisUtterance(p); u.lang=(window.CFVOICE||{}).language||'en-GB'; u.rate=1.05; if(v) u.voice=v;
+    u.onerror=()=>fin(false);
+    if(i===parts.length-1){ voiceUtter=u; u.onend=()=>fin(true); }   // keep the last one referenced until it ends
+    speechSynthesis.speak(u); }), 3000+parts.join(' ').length*120); }
+const cfFetch=s=>fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:s})})
+  .then(r=>r.ok&&r.status!==204&&/^audio\//.test(r.headers.get('content-type')||'')?r.blob():null).catch(()=>null);
+async function cfSpeak(text,{serverMax=Infinity}={}){   // resolves true when fully spoken, false when stopped or failed
+  cfHush(); const run=cfRun, clean=cfClean(text), parts=cfChunks(clean);
+  if(!parts.length) return true;
+  if(!(window.CFVOICE||{}).server||clean.length>serverMax) return cfBrowser(parts,run);
+  let next=cfFetch(parts[0]);
+  for(let i=0;i<parts.length;i++){
+    const blob=await next; if(run!==cfRun) return false;
+    if(!blob) return cfBrowser(parts.slice(i),run);          // 204, an error, or not audio: the browser reads the rest
+    next=i+1<parts.length?cfFetch(parts[i+1]):null;          // one sentence ahead, never a burst of calls
+    const src=URL.createObjectURL(blob);
+    const ok=await cfWait(fin=>{ cfAudio=new Audio(src); cfAudio.onended=()=>fin(true); cfAudio.onerror=()=>fin(false);
+      cfAudio.play().catch(()=>fin(false)); }, 60000);
+    URL.revokeObjectURL(src);
+    if(run!==cfRun) return false;
+    cfAudio=null;
+    if(!ok) return cfBrowser(parts.slice(i),run);             // playback refused (autoplay rules): same rule
+  }
+  return true; }
 function showReading(r){
   /* Which of your own materials answered the last question, and what did not fit. */
   const box=$('#ctxAnswer'); if(!box) return;
@@ -703,7 +761,7 @@ function initVoice(){
   }
   if(cfg.voice?.gemini){ $('#micMode').hidden=false; document.querySelectorAll('#micMode [data-mic]').forEach(b=>b.onclick=()=>setMicMode(b.dataset.mic)); setMicMode(currentMicMode()); }
   $('#speakBtn').setAttribute('aria-pressed',speakOn?'true':'false'); $('#speakBtn').classList.toggle('primary',speakOn);
-  if(!('speechSynthesis' in window)){$('#speakBtn').disabled=true}
+  if(!('speechSynthesis' in window) && !(window.CFVOICE||{}).server){$('#speakBtn').disabled=true}
 }
 /* ---- Gemini dictation (Phase 8): mic → 16 kHz PCM → this app's relay → Vertex AI; only text comes back ---- */
 let gem=null;
@@ -724,7 +782,7 @@ async function startGemini(){
     if(recog && !gotText){ listening=true; btn.setAttribute('aria-pressed','true'); btn.textContent='● Listening'; $('#q').value=''; recog.start(); } };
   const finish=()=>{ if(finished) return; finished=true; cleanup(); if($('#q').value.trim()) send(); };
   try{
-    window.speechSynthesis?.cancel();
+    cfHush();
     stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
     ctx=new AudioContext();
     await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([PCM_WORKLET],{type:'application/javascript'})));
@@ -750,16 +808,12 @@ async function startGemini(){
 $('#micBtn').onclick=()=>{ if(listening && !gem){ recog?.stop(); return }  // the browser mic is on (chosen, or a Gemini fallback): stop it
   if(cfg.voice?.gemini && currentMicMode()==='gemini'){ return gem ? gem.stop() : startGemini(); }
   if(!recog) return; if(listening){recog.stop();return}
-  window.speechSynthesis?.cancel(); listening=true; $('#micBtn').setAttribute('aria-pressed','true'); $('#micBtn').textContent='● Listening'; $('#q').value=''; recog.start(); };
+  cfHush(); listening=true; $('#micBtn').setAttribute('aria-pressed','true'); $('#micBtn').textContent='● Listening'; $('#q').value=''; recog.start(); };
 $('#costState').onclick=()=>{ sessionCost=0; localStorage.setItem('cf.cost',0); showCost() }; showCost();
 $('#speakBtn').onclick=()=>{ speakOn=!speakOn; localStorage.setItem('cf.speak',speakOn?'1':'0');
   $('#speakBtn').setAttribute('aria-pressed',speakOn?'true':'false'); $('#speakBtn').classList.toggle('primary',speakOn);
-  if(!speakOn) window.speechSynthesis.cancel(); else { if(lastSpeech) speak(lastSpeech); else toast('Replies will be read aloud — the tutor now writes a spoken version of each answer'); } };
-function speak(text){ if(!speakOn||!text||!text.trim()) return; const u=new SpeechSynthesisUtterance(
-    text.replace(/\[(LECTURE|WG|SLIDES|READER|SCHUTZE|SCRIPTUM|DCFR|NATIONAL|ADDED|OUTSIDE FILES)[^\]]*\]/g,'').replace(/[*_`#>|]/g,'').replace(/\s{2,}/g,' '));
-  u.lang='en-GB'; u.rate=1.05;
-  const v=speechSynthesis.getVoices().find(v=>/Daniel|Serena|Kate|en-GB/.test(v.name+v.lang)); if(v) u.voice=v;
-  window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); }
+  if(!speakOn) cfHush(); else { if(lastSpeech) speak(lastSpeech); else toast('Replies will be read aloud — the tutor now writes a spoken version of each answer'); } };
+function speak(text){ if(!speakOn||!text||!text.trim()) return; cfSpeak(text,{serverMax:TUTOR_SERVER_CHARS}); }
 
 const DOWN=["define","definition","what is","list","summarise","summarize","recap","translate","when did","who is","how many"];
 const UP=["compare","contrast","irac","critique","conflict","diverge","exam answer","argue","reconcile","distinguish","apply to the facts","which outranks","is this caught","step by step","walk me through"];
@@ -839,23 +893,10 @@ $('#histRestore').onclick=async()=>{ if(!histVid) return; if(!confirm('Replace t
 $('#cardsFromMap').onclick=async()=>{ if(!nid) return; const r=await post(`/notes/${nid}/cards-from-tables`); toast(r.made?`${r.made} card(s) added to Recall`:'No case-map table found (needs a table with a Case column)') };
 /* ---- Advocate: oral revision. The engine lives on the server; this is the mouth and ears. ---- */
 const adv={mastery:{},cooldown:{},misses:{},notes:[],asked:0,q:null,busy:false};
-let advRecog=null, advListening=false, advAudio=null;
+let advRecog=null, advListening=false;
 
-async function advSpeak(text){
-  if(!text||!text.trim()) return;
-  const v=window.CFVOICE||{};
-  if(v.server){   // every sentence is requested at once, then played in order: the first words start while the rest arrive
-    const parts=(text.match(/[^.!?]+[.!?]*/g)||[text]).map(s=>s.trim()).filter(Boolean);
-    const pending=parts.map(s=>fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:s})})
-      .then(r=>r.status===204?null:r.blob()).catch(()=>null));
-    for(const job of pending){ const b=await job; if(!b) break;
-      await new Promise(done=>{ advAudio=new Audio(URL.createObjectURL(b)); advAudio.onended=done; advAudio.onerror=done; advAudio.play().catch(done) }); }
-    return;
-  }
-  if('speechSynthesis' in window){ const u=new SpeechSynthesisUtterance(text); u.lang='en-GB'; u.rate=1.05;
-    window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); }
-}
-function advQuiet(){ window.speechSynthesis?.cancel(); if(advAudio){ try{advAudio.pause()}catch(e){} } }
+function advSpeak(text){ return cfSpeak(text); }   // resolves once the whole line has been heard (false if interrupted)
+function advQuiet(){ cfHush(); }
 
 function advBubble(who,text){ const d=document.createElement('div'); d.className='advb '+who; d.textContent=text;
   const c=$('#advConvo'); c.appendChild(d); c.scrollTop=c.scrollHeight; return d; }
@@ -875,6 +916,7 @@ function advRender(){
 }
 
 async function advNext(){
+  advOwnOff();
   try{
     const r=await post(`/courses/${cid}/oral/next`,{mastery:adv.mastery,cooldown:adv.cooldown});
     if(!r.question){ adv.q=null; $('#advQ').textContent='No questions yet — press "Build questions from my files".'; $('#advTags').innerHTML=''; return; }
@@ -889,27 +931,32 @@ async function advNext(){
 async function advSubmit(text){
   text=(text||'').trim();
   if(!text||adv.busy) return;
-  if(!adv.q){ toast('Press Start first'); return; }
+  const own=adv.own, q=adv.q;   // pinned: grading takes a few seconds and the stage can change meanwhile
+  if(!own&&!q){ toast('Press Start, or ask your own question'); return; }
   adv.busy=true; advQuiet();
   advBubble('me',text); $('#advType').value='';
   const think=advBubble('tutor','…');
+  let g;
   try{
-    const teach=(adv.misses[adv.q.concept]||0)>=2;
-    const g=await post(`/courses/${cid}/oral/grade`,{card_id:adv.q.id,answer:text,teach});
-    think.remove();
-    adv.asked++; adv.mastery[g.concept]=g.mastery;
+    g = own
+      ? {...await post('/speech',{question:own.question,answer:text,notes:own.text}), concept:own.concept}
+      : await post(`/courses/${cid}/oral/grade`,{card_id:q.id,answer:text,teach:(adv.misses[q.concept]||0)>=2});
+  }catch(e){ think.remove(); adv.busy=false; toast('Could not grade that — '+(e.message||'say it again')); return; }
+  think.remove();
+  adv.asked++; adv.mastery[g.concept]=g.mastery;
+  if(!own){   // only cards have a queue to cool down
     adv.cooldown=Object.fromEntries(Object.entries(adv.cooldown).map(([k,v])=>[k,v-1]).filter(([,v])=>v>0));
-    adv.cooldown[adv.q.id]=g.mastery==='solid'?6:(g.mastery==='shaky'?2:1);
-    if(g.mastery==='missed') adv.misses[g.concept]=(adv.misses[g.concept]||0)+1;
-    else if(g.mastery==='solid') adv.misses[g.concept]=0;
-    if(g.note) adv.notes.unshift({concept:g.concept,text:g.note});
-    const b=advBubble('tutor','');
-    b.innerHTML=`<div class="verdict v-${g.mastery}">${esc(g.verdict)}</div>${esc(g.spoken)}`;
-    advRender();
-    await advSpeak(g.spoken);
-    setTimeout(advNext, g.mastery==='missed'?1400:700);
-  }catch(e){ think.remove(); toast('Could not grade that — say it again'); }
-  adv.busy=false;
+    adv.cooldown[q.id]=g.mastery==='solid'?6:(g.mastery==='shaky'?2:1);
+  }
+  if(g.mastery==='missed') adv.misses[g.concept]=(adv.misses[g.concept]||0)+1;
+  else if(g.mastery==='solid') adv.misses[g.concept]=0;
+  if(g.note) adv.notes.unshift({concept:g.concept,text:g.note});
+  const b=advBubble('tutor','');
+  b.innerHTML=`<div class="verdict v-${g.mastery}">${esc(g.verdict)}</div>${esc(g.spoken)}`;
+  advRender();
+  adv.busy=false;   // answering again interrupts the verdict; it never locks the screen
+  const heard=await advSpeak(g.spoken);
+  if(heard && !own) setTimeout(()=>{ if(!adv.own&&!adv.busy&&!advListening) advNext(); }, g.mastery==='missed'?1400:700);
 }
 
 const ASR=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -935,7 +982,7 @@ $('#advStart').onclick=()=>{ $('#advConvo').innerHTML=''; advNext(); };
 $('#advBank').onclick=async()=>{
   const b=$('#advBank'); b.disabled=true; b.textContent='Writing questions…';
   try{ const r=await post(`/courses/${cid}/oral/bank`,{count:10});
-       toast(r.made?`${r.made} spoken question(s) added`:'Nothing made — tick some files first'); if(r.made) advNext(); }
+       toast(r.made?`${r.made} spoken question(s) added`:'Nothing made — tick some files first'); if(r.made && !adv.own) advNext(); }
   catch(e){ toast('Could not build questions: '+e.message); }
   b.disabled=false; b.textContent='Build questions from my files';
 };
@@ -950,8 +997,10 @@ async function loadAdvocate(){
   $('#advSub').textContent = (window.CFVOICE||{}).server
     ? 'Oral revision — it asks, you answer out loud.'
     : 'Oral revision — using the browser voice for now.';
-  $('#advCourse').textContent=C().name;
+  if(adv.own && adv.own.cid!==cid) advOwnOff();   // a question graded against another course's note stays with that course
+  if(!adv.own) $('#advCourse').textContent=C().name;
   advRender();
+  advOwnNotes();
 }
 
 /* Two screens share one recogniser; whoever starts it owns it until it stops. */
@@ -963,6 +1012,60 @@ function micOwner(btn,box,label,send){
   advRecog.onend=()=>{ stopped(); if(buf.trim()) send(buf); buf=''; };
   advRecog.onerror=()=>{ stopped(); toast('Mic problem — type it instead'); };
 }
+
+/* ---- Your own question (Phase 12): any question, graded only against a note you pick; nothing is rescheduled ---- */
+async function advOwnNotes(){
+  const sel=$('#advOwnRef'), keep=sel.value;
+  let list=[]; try{ list=await api(`/courses/${cid}/notes`); }catch(e){}
+  sel.innerHTML = list.length
+    ? '<option value="">Pick a note to grade against…</option>'+list.map(n=>`<option value="${esc(n.id)}">${esc(n.title||'Untitled')}</option>`).join('')
+    : '<option value="">No notes in this course yet</option>';
+  sel.disabled=!list.length;
+  if(keep && list.some(n=>n.id===keep)) sel.value=keep;
+  $('#advOwnHint').textContent = list.length ? '' : 'Write or import a note first — the grader only uses your own material.';
+  advOwnReady();
+}
+function advOwnReady(){ $('#advOwnGo').disabled = !($('#advOwnQ').value.trim() && $('#advOwnRef').value); }
+async function advOwnStart(){
+  const question=$('#advOwnQ').value.trim(), id=$('#advOwnRef').value;
+  if(!question||!id){ advOwnReady(); return; }
+  $('#advOwnGo').disabled=true;
+  let note;
+  try{ note=await api(`/notes/${encodeURIComponent(id)}`); }
+  catch(e){ toast('Could not open that note: '+e.message); advOwnReady(); return; }
+  let text=String(note.body||'').replace(/<!--[\s\S]*?-->/g,'').trim();
+  if(!text){ toast('That note is empty — pick another'); advOwnReady(); return; }
+  if(text.length>12000){ text=text.slice(0,12000); toast('Long note — only its first part is used for grading'); }
+  advQuiet();
+  adv.own={question, concept:question.slice(0,80), cid, text, title:note.title||'Untitled'};
+  $('#advCourse').textContent=`Your question · graded against “${adv.own.title}”`;
+  $('#advQ').textContent=question;
+  $('#advTags').innerHTML='<span class="tag">your question</span>';
+  $('#advOwn').classList.add('bar'); $('#advOwnOff').hidden=false;
+  if(!(adv.own.concept in adv.mastery)) adv.mastery[adv.own.concept]='untested';
+  advRender(); advOwnReady();
+  $('#advType').focus();
+  advSpeak(question);
+}
+function advOwnOff(){
+  if(!adv.own) return;
+  adv.own=null; adv.q=null;
+  $('#advOwn').classList.remove('bar'); $('#advOwnOff').hidden=true;
+  $('#advTags').innerHTML=''; $('#advCourse').textContent=C().name;
+  $('#advQ').textContent='Press Start and it will ask you the first question.';
+}
+$('#advOwnQ').addEventListener('input',advOwnReady);
+$('#advOwnQ').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); advOwnStart(); } });
+$('#advOwnRef').addEventListener('change',advOwnReady);
+$('#advOwnGo').onclick=advOwnStart;
+$('#advOwnOff').onclick=()=>advNext();
+$('#advOwnMic').onclick=()=>{
+  if(!ASR){ toast('Dictation needs Chrome — type your question instead'); return; }
+  if(advListening){ advRecog.stop(); return; }
+  advQuiet();
+  micOwner('#advOwnMic','#advOwnQ','🎙',()=>advOwnReady());
+  try{ advRecog.start(); advListening=true; $('#advOwnMic').setAttribute('aria-pressed','true'); $('#advOwnMic').textContent='●'; }catch(e){}
+};
 /* ---- Arena: the ladder and the courtroom. Both feed the same cards as everything else. ---- */
 const RUNGS=15;   // asked for; the ladder is drawn from what the course can actually supply
 const safeRungs=n=>n<6?[] :[...new Set([Math.ceil(n/3),Math.ceil(2*n/3),n])].filter(x=>x>0);
@@ -1120,7 +1223,7 @@ async function courtReply(text){
     think.remove();
     const b=courtSay('tutor','');
     b.innerHTML=`<div class="verdict v-${g.mastery}">${esc(g.verdict)}</div>${esc(g.spoken)}`;
-    advSpeak && advSpeak(g.spoken);
+    if(advSpeak) await advSpeak(g.spoken);   // the verdict finishes before the bench moves on
     court.qi++; setTimeout(benchAsk,700);
   }catch(e){ think.remove(); toast('The bench did not respond — say that again'); }
   court.busy=false;
@@ -1326,6 +1429,7 @@ async function loadProgress(){ loadCaseIndex(); const s=await api(`/courses/${ci
   $('#who').textContent=cfg.email||''; $('#who').title=$('#signOut').title=cfg.email?`Signed in as ${cfg.email}`:'';
   $('#modelSel').innerHTML='<option value="auto">Auto model</option>'+cfg.models.map(m=>`<option value="${m}">${m.replace('claude-','')}</option>`).join('');
   window.CFCHEAP=cfg.cheap_model; window.CFMODEL=cfg.model;
+  window.CFVOICE=cfg.voice||{};   // every screen speaks with the same voice, not only the Advocate
   initVoice(); if('speechSynthesis' in window) speechSynthesis.onvoiceschanged=()=>{}; await loadCourses(); show(location.hash.slice(1)||localStorage.getItem('cf.screen')||'home'); })();
 </script>
 </body>

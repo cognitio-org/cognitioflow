@@ -4,7 +4,7 @@ Run:  python run.py   then open http://localhost:8000
 Everything lives in ./data (SQLite + uploaded files). Nothing leaves your Mac except tutor calls to the Claude API.
 """
 import re
-import base64, io, json, mimetypes, os, random, tempfile, time, uuid
+import asyncio, base64, io, json, mimetypes, os, random, tempfile, time, uuid
 from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
@@ -12,19 +12,23 @@ from typing import Optional
 from urllib.parse import quote, unquote
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket
 from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import embed
+import oral
 import retrieval
 import schedule
 import storage
 import transcribe as stt
+from transcribe import live as voice
 
 load_dotenv(".env.local", override=True)
 load_dotenv()
+
+import tts  # noqa: E402  (after the env files: tts reads TTS/TTS_LANGUAGE once, at import)
 
 ROOT = Path(__file__).parent
 
@@ -192,7 +196,17 @@ def healthz(): return {"ok": True}
 
 @app.get("/api/config")
 def config(user: dict = Depends(current_user)): return {"email": user["email"], "model": MODEL, "cheap_model": CHEAP_MODEL, "strong_model": STRONG_MODEL, "models": MODELS,
-                      "has_key": bool(os.environ.get("ANTHROPIC_API_KEY"))}
+                      "has_key": bool(os.environ.get("ANTHROPIC_API_KEY")), "voice": {"gemini": voice.available(), **tts.describe()}}
+
+@app.websocket("/api/voice/live")
+async def voice_live(websocket: WebSocket, course: str = ""):
+    """Tutor dictation through Vertex AI (Phase 8). AuthMiddleware has already refused signed-out and cross-origin sockets;
+    only transcript text goes back to the browser."""
+    if not voice.available():
+        return await websocket.close(code=4404)
+    await websocket.accept()
+    terms = await asyncio.to_thread(_glossary, course) if course else []
+    await voice.relay(websocket, terms)
 
 # courses
 @app.get("/api/courses")
@@ -417,7 +431,7 @@ def _model_json(m):
     raise HTTPException(502, "Model returned non-JSON; try again.")
 
 # Which model each task deserves. Cheap for bulk/recall work, strong where correction quality matters.
-ROUTE = {"drill": MODEL, "explain": MODEL, "notes": CHEAP_MODEL, "cards": CHEAP_MODEL, "summarise": CHEAP_MODEL}
+ROUTE = {"drill": MODEL, "explain": MODEL, "apply": MODEL, "notes": CHEAP_MODEL, "cards": CHEAP_MODEL, "summarise": CHEAP_MODEL}
 
 def pick_model(mode: str, requested: Optional[str], text: str = "") -> str:
     if requested and requested in MODELS: return requested
@@ -446,6 +460,11 @@ MODES = {
     "drill": "Mode: Socratic drill. Ask one question, wait, then correct firmly and specifically.",
     "explain": "Mode: explain. Give a tight, structured explanation with references to the files (file name, slide/page where visible).",
     "notes": "Mode: build notes. Reconcile the supplied files into master notes with provenance tags; flag conflicts and gaps.\n" + NOTE_STYLE,
+    "apply": ("Mode: application. The student gives you facts — a WG question, an exam problem, a scenario. Work the exam method in IRAC: "
+              "applicability, then restriction or scope, then justification and proportionality. At every step name the article and the case "
+              "from the ticked files that decides it, quote the few words that bite, and say in one line why those words catch these facts. "
+              "Where a step turns on one fact, say which fact would flip it. Never state a rule without the authority next to it, and label "
+              "anything outside the ticked files [OUTSIDE FILES]. Finish with a 'Bottom line' of two sentences."),
 }
 
 @app.get("/api/courses/{cid}/messages")
@@ -615,6 +634,343 @@ def generate_cards(cid: str, g: GenIn):
             if it.get("front") and it.get("back"):
                 d.execute("INSERT INTO cards(id,course_id,front,back,source,week,due,created) VALUES(?,?,?,?,?,?,?,?)",
                           (uuid.uuid4().hex[:10], cid, it["front"], it["back"], src, week, date.today().isoformat(), time.time())); made += 1
+    return {"made": made}
+
+
+# ---------------------------------------------------------------- oral grading (constant, cached)
+# This prompt is identical on every spoken answer, so it is sent as cached blocks: a cache read costs
+# a tenth of a normal input token, and the break-even is two calls. Caching only engages above roughly
+# 1024 tokens, so the calibration below is not padding — it is what makes the marking consistent AND
+# what makes it cacheable. Nothing that varies per question may appear here.
+GRADER_RULES = """You are a sharp, warm Socratic law tutor examining a Groningen LLB student out loud.
+
+You are grading a SPOKEN answer. Tolerate filler, false starts, self-correction and loose word order;
+a student thinking aloud is not the same as a student who does not know. Judge only the legal substance.
+
+How to weigh an answer:
+- The RULE and its AUTHORITY carry the most weight. An answer that states the correct test but cites the
+  wrong case is not "mostly right" — the citation is half the mark in a law exam.
+- Naming the right case with the wrong test is worse still: it looks like recall without understanding.
+- Conditions are cumulative. If a test has three limbs and two are given, that is incomplete, not close.
+- Reward an answer that volunteers the limits of a rule, the exception, or the case that qualifies it.
+- Do not reward fluency. A confident, well-phrased answer that is legally thin is thin.
+- Do not penalise an answer for using different words than the model answer if the law is the same.
+- If the student self-corrects mid-answer, mark the corrected version.
+
+What each grade means:
+- "solid"  — substantially complete: the rule, its authority, and any limb that matters are all present.
+             A tiny omission that would not cost a mark in an exam is still solid.
+- "shaky"  — partly right: the direction is correct but a limb, a qualification or the authority is missing
+             or wrong; or the right idea is attached to the wrong case.
+- "missed" — a core element or the key authority is absent, or the answer states the law incorrectly.
+
+How to speak back:
+- Say what was right first, in their own terms, so they know what to keep.
+- Then name precisely what was missing — the limb, the case, the article — never a vague "be more precise".
+- If the answer was not solid, end with ONE pointed follow-up question. One. Never a list.
+- Never read out a model answer. This is an examination, not a lecture.
+- Under 45 spoken words. You are talking, not writing."""
+
+GRADER_CONTRACT = """Return ONLY valid JSON. No markdown, no code fence, no prose before or after it.
+
+{"mastery":"solid|shaky|missed",
+ "verdict":"<=6 words naming what happened",
+ "spoken":"<=45 words, conversational, what you would say out loud",
+ "note":"<=25 words: the gap plus the authority they should have cited; empty string when solid"}
+
+Calibration — grade these the same way every time:
+
+Q: Conditions for direct effect of a Treaty provision, and the case?
+A: "Clear and precise, unconditional, no further implementing measures. Van Gend en Loos."
+-> solid. All three limbs and the correct authority.
+
+A: "Clear and precise, and unconditional I think. It's Van Gend en Loos."
+-> shaky. Two of three limbs; authority correct. note: "Dropped the 'no further implementing
+   measures' limb; otherwise Van Gend en Loos is right."
+
+A: "It has to be clear and precise, and the case is Costa v ENEL."
+-> missed. Costa is primacy, not direct effect, and two limbs are absent. The wrong authority on a
+   named doctrine is a miss even when part of the test is recited correctly.
+
+Q: Can a directive be relied on against another private party?
+A: "No, no horizontal direct effect — Marshall and Faccini Dori. You'd go for consistent
+   interpretation under Von Colson, or Francovich damages."
+-> solid. Correct answer, authority, and both fallback routes volunteered.
+
+A: "No, directives only bind the state."
+-> shaky. Right conclusion, no authority, no fallback. note: "Correct, but cite Marshall/Faccini Dori
+   and offer Von Colson or Francovich."
+
+A: "Yes, if the state never implemented it the directive applies anyway."
+-> missed. States the law incorrectly.
+
+Q: What did Costa v ENEL establish?
+A: "EU law takes primacy over national law, including later national law, and Simmenthal says national
+   courts disapply it themselves."
+-> solid.
+
+The word "solid" is earned, not given. When an answer sits between two grades, choose the lower one
+and say in 'spoken' exactly what would have lifted it."""
+
+
+def _grader_system():
+    """Both spoken graders (a card, or the student's own question) send exactly these bytes, so they
+    share one cache entry and one marking standard."""
+    return [{"type": "text", "text": GRADER_RULES},
+            {"type": "text", "text": GRADER_CONTRACT, "cache_control": {"type": "ephemeral"}}]
+
+
+# ---------------------------------------------------------------- the arena (Phase 11d/11e)
+class HintIn(BaseModel):
+    question: str
+    options: list = []
+
+@app.post("/api/courses/{cid}/hint")
+def hint(cid: str, h: HintIn):
+    """A lifeline: narrow the field without handing over the answer. Cheap model — this is a nudge, not teaching."""
+    opts = "\n".join(f"- {str(o)[:200]}" for o in h.options[:4])
+    prompt = ("A law student is stuck on this multiple-choice question and has asked for a hint. Give ONE sentence, under 30 "
+              "words, that points at the rule, case or article that decides it, or rules out one wrong option by name. "
+              "Do NOT say which option is correct and do NOT restate the correct answer.\n\n"
+              f"QUESTION: {h.question[:600]}\nOPTIONS:\n{opts}")
+    try:
+        m = client().messages.create(model=CHEAP_MODEL, max_tokens=120, messages=[{"role": "user", "content": prompt}])
+        return {"hint": "".join(b.text for b in m.content if b.type == "text").strip()[:300]}
+    except Exception as e:
+        print("hint:", type(e).__name__, e)
+        return {"hint": "No hint available just now — back yourself."}
+
+
+class CourtIn(BaseModel):
+    case: str
+
+def _case_context(cid: str, name: str, limit: int = 6000) -> str:
+    """Everything the student's own notes say about this case. The hearing is built from this and nothing else."""
+    out, needle = [], name.casefold()
+    for n in rows("SELECT title,body FROM notes WHERE course_id=? ORDER BY updated DESC", cid):
+        body = n["body"] or ""
+        low = body.casefold()
+        i = low.find(needle)
+        while i >= 0 and sum(len(x) for x in out) < limit:
+            out.append(f"[{n['title']}] …{body[max(0, i - 400):i + 900]}…")
+            i = low.find(needle, i + 900)
+    return "\n\n".join(out)[:limit]
+
+
+@app.post("/api/courses/{cid}/court")
+def court(cid: str, c: CourtIn):
+    """
+    Build a hearing from a case the student's own notes already discuss. Everything the bench says has to
+    come from those notes — an invented holding would teach the wrong law, which is worse than no hearing.
+    """
+    context = _case_context(cid, c.case)
+    if not context.strip():
+        raise HTTPException(400, f"Your notes do not discuss {c.case} yet.")
+    prompt = ("From the student's own notes below, set up a moot hearing on this case. Use ONLY what the notes contain; "
+              "if the notes do not say something, leave that field empty rather than inventing it.\n"
+              'Return ONLY JSON: {"case":"","court":"","year":"","parties":"","issue":"one sentence, the question the '
+              'court had to answer","for":"the argument for the applicant, one sentence","against":"the argument for the '
+              'other side, one sentence","bench":["three questions the bench would put to counsel, each answerable from '
+              'the notes"],"holding":"what the court actually held, in the notes\' own terms"}\n\n'
+              f"CASE: {c.case}\n\nNOTES:\n{context}")
+    try:
+        m = client().messages.create(model=CHEAP_MODEL, max_tokens=1400, messages=[{"role": "user", "content": prompt}])
+        got = _model_json(m)
+    except Exception as e:
+        print("court:", type(e).__name__, e)
+        raise HTTPException(502, "Could not build the hearing — try again.")
+    if not isinstance(got, dict): raise HTTPException(502, "Could not build the hearing — try again.")
+    bench = [str(q) for q in (got.get("bench") or []) if str(q).strip()][:3]
+    return {"case": str(got.get("case") or c.case), "court": str(got.get("court") or ""), "year": str(got.get("year") or ""),
+            "parties": str(got.get("parties") or ""), "issue": str(got.get("issue") or ""),
+            "for": str(got.get("for") or ""), "against": str(got.get("against") or ""),
+            "bench": bench, "holding": str(got.get("holding") or "")}
+
+
+class CourtReplyIn(BaseModel):
+    case: str
+    question: str
+    answer: str
+
+@app.post("/api/courses/{cid}/court/reply")
+def court_reply(cid: str, r: CourtReplyIn):
+    """The bench presses counsel. Graded on the same contract as the oral tutor, against the notes only."""
+    context = _case_context(cid, r.case, 4000)
+    sys = ("You are a judge pressing counsel in a moot, and also marking them. Judge the legal substance against the "
+           "supplied notes only. Return ONLY valid JSON: "
+           '{"mastery":"solid|shaky|missed","verdict":"<=6 words","spoken":"<=45 words, what the bench says back: '
+           'acknowledge what was sound, name what was missing, press once more if it was not solid",'
+           '"note":"<=25 words: the gap plus the authority; empty string if solid"}')
+    usr = f"CASE: {r.case}\nTHE BENCH ASKED: {r.question}\nCOUNSEL ANSWERED: \"{r.answer.strip()[:1500]}\"\n\nNOTES:\n{context}"
+    try:
+        m = client().messages.create(model=pick_model("drill", None), max_tokens=600, system=sys,
+                                     messages=[{"role": "user", "content": usr}])
+        return oral.normalise(_model_json(m))
+    except Exception as e:
+        print("court reply:", type(e).__name__, e)
+        raise HTTPException(502, "The bench did not respond — say that again.")
+
+
+# ---------------------------------------------------------------- oral revision (Phase 11c)
+class SpeakIn(BaseModel): text: str
+
+@app.post("/api/speak")
+def speak(s: SpeakIn):
+    """One spoken line. 204 means 'no server voice configured' — the page then speaks for itself."""
+    out = tts.say(s.text)
+    if not out: return Response(status_code=204)
+    audio, media = out
+    return Response(content=audio, media_type=media, headers={"Cache-Control": "no-store"})
+
+
+class OralNextIn(BaseModel):
+    week: str = ""
+    mastery: dict = {}
+    cooldown: dict = {}
+
+
+def _oral_bank(cid: str, week: str = ""):
+    """The question bank is the course's own cards — nothing is invented for the student to be tested on."""
+    q, a = _card_scope(cid, 0, week, 0)
+    return [{"id": c["id"], "question": c["front"], "model": c["back"], "course": cid,
+             "concept": (c["concept"] or c["front"])[:80], "traps": [x for x in (c["traps"] or "").split("|") if x]}
+            for c in rows(q + " ORDER BY created", *a)]
+
+
+@app.post("/api/courses/{cid}/oral/next")
+def oral_next(cid: str, n: OralNextIn):
+    bank = [q for q in _oral_bank(cid, n.week) if oral.valid_question(q)]
+    if not bank: return {"question": None, "left": 0}
+    pick = oral.choose(bank, n.mastery, n.cooldown, roll=random.random())
+    return {"question": pick, "left": len(bank)}
+
+
+class OralGradeIn(BaseModel):
+    card_id: str
+    answer: str
+    teach: bool = False
+
+
+@app.post("/api/courses/{cid}/oral/grade")
+def oral_grade(cid: str, g: OralGradeIn):
+    """
+    Grade a spoken answer, then let the existing scheduler decide when the card comes back. The grade
+    is normalised before it is acted on: a grader that returns something unexpected must not be able
+    to mark a wrong answer as solid.
+    """
+    c = rows("SELECT * FROM cards WHERE id=? AND course_id=?", g.card_id, cid)
+    if not c: raise HTTPException(404)
+    card = dict(c[0])
+    traps = " ; ".join(x for x in (card.get("traps") or "").split("|") if x) or "(none recorded)"
+    sys = _grader_system()
+    usr = (f"QUESTION: {card['front']}\nMODEL ANSWER: {card['back']}\nCOMMON TRAPS: {traps}\n"
+           f"STUDENT'S SPOKEN ANSWER: \"{g.answer.strip()[:2000]}\"")
+    if g.teach:
+        usr += ("\n\nThey have now missed this twice. Instead of testing again, explain it in under 45 spoken words, "
+                "then set 'mastery' to 'missed' and ask nothing.")
+    try:
+        m = client().messages.create(model=pick_model("drill", None), max_tokens=700,
+                                     system=sys, messages=[{"role": "user", "content": usr}])
+        u = getattr(m, "usage", None)
+        if u is not None:  # first call writes the cache, later calls in the window read it
+            print(f"oral grade cache: write={getattr(u, 'cache_creation_input_tokens', 0)} "
+                  f"read={getattr(u, 'cache_read_input_tokens', 0)} in={getattr(u, 'input_tokens', 0)}")
+        graded = _model_json(m)
+    except Exception as e:
+        print("oral grade:", type(e).__name__, e)
+        raise HTTPException(502, "Could not reach the grader — say that answer again.")
+    out = oral.normalise(graded)
+
+    # Recurrence is decided in exactly one place: the app's existing review path, which also logs it.
+    out["due"] = review(g.card_id, ReviewIn(rating=out["rating"]))["due"]
+    out["concept"] = (card.get("concept") or card["front"])[:80]
+    return out
+
+
+# ---------------------------------------------------------------- spoken answer to your own question (Phase 12)
+SPEECH_QUESTION_CHARS, SPEECH_ANSWER_CHARS, SPEECH_NOTES_CHARS = 600, 2000, 12000
+_HIDDEN = re.compile(r"<!--.*?-->", re.S)  # recording anchors and continue markers are not course content
+
+
+class SpeechGradeIn(BaseModel):
+    question: str
+    answer: str
+    notes: str = ""
+    model_answer: str = ""
+
+
+@app.post("/speech")      # the name the Phase 12 spec uses; signed out, this path redirects to sign-in
+@app.post("/api/speech")  # same handler; the page calls this one, where signed out is a clean 401
+def speech_grade(s: SpeechGradeIn):
+    """
+    Grade a spoken answer outside any card queue — a quick "did I get that right?" against the
+    student's own note or model answer. Same cached grader and result shape as oral_grade, but
+    stateless: no card, so nothing is reviewed, rescheduled or written. The model is auto-routed, as for
+    every oral route; a caller cannot choose one.
+    """
+    question = s.question.strip()[:SPEECH_QUESTION_CHARS]
+    answer = s.answer.strip()[:SPEECH_ANSWER_CHARS]
+    if not question or not answer:
+        raise HTTPException(400, "A question and a spoken answer are both needed.")
+    notes = _HIDDEN.sub("", s.notes).strip()[:SPEECH_NOTES_CHARS]
+    model_answer = s.model_answer.strip()[:SPEECH_ANSWER_CHARS]
+    usr = f"QUESTION: {question}\n"
+    if model_answer:
+        usr += f"MODEL ANSWER: {model_answer}\n"
+    if notes:
+        usr += f"THE STUDENT'S OWN NOTE (the standard to grade against):\n{notes}\n"
+    if not (notes or model_answer):
+        # The course's rule: anything not from the student's own material is labelled as such.
+        usr += "REFERENCE: none supplied. If the answer is not solid, begin 'note' with [OUTSIDE FILES].\n"
+    usr += f"STUDENT'S SPOKEN ANSWER: \"{answer}\""
+    try:
+        m = client().messages.create(model=pick_model("drill", None), max_tokens=700,
+                                     system=_grader_system(), messages=[{"role": "user", "content": usr}])
+        u = getattr(m, "usage", None)
+        if u is not None:
+            print(f"speech grade cache: write={getattr(u, 'cache_creation_input_tokens', 0)} "
+                  f"read={getattr(u, 'cache_read_input_tokens', 0)} in={getattr(u, 'input_tokens', 0)}")
+        return oral.normalise(_model_json(m))
+    except HTTPException:
+        raise  # a missing key (400) or a non-JSON reply (502) already says what went wrong
+    except Exception as e:
+        print("speech grade:", type(e).__name__, e)
+        raise HTTPException(502, "Could not reach the grader — say that answer again.")
+
+
+class OralBankIn(BaseModel):
+    count: int = 10
+    file_id: str = ""
+    week: str = ""
+    model: Optional[str] = None
+
+
+@app.post("/api/courses/{cid}/oral/bank")
+def oral_bank(cid: str, g: OralBankIn):
+    """Turn the student's own ticked material into spoken-exam questions: concept, question, model answer, traps."""
+    if g.file_id:
+        f = rows("SELECT name,text,week FROM files WHERE id=?", g.file_id)
+        if not f: raise HTTPException(404)
+        src, week, txt = f[0]["name"], f[0]["week"] or "", (f[0]["text"] or "")[:60000]
+    else:
+        parts, _ = build_context(cid); src, week, txt = "selected files", g.week, "\n\n".join(parts)[:60000]
+    if not txt.strip(): raise HTTPException(400, "No ticked files to build questions from.")
+    prompt = (f"From the material below, write {max(1, min(30, g.count))} questions an examiner would ask OUT LOUD in a viva "
+              "for this course. Each must be answerable in under a minute of speech and must turn on a rule, a case or an "
+              "article that appears in the material. Return ONLY a JSON array of objects with keys: 'concept' (3-6 words "
+              "naming the idea tested), 'question', 'model' (the answer, with the case name or article number), and 'traps' "
+              "(2-3 short strings: the wrong turns a student actually takes).\n\n" + txt)
+    m = client().messages.create(model=pick_model("cards", g.model), max_tokens=4000, messages=[{"role": "user", "content": prompt}])
+    items = _model_json(m)
+    made = 0
+    with db() as d:
+        for it in items if isinstance(items, list) else []:
+            if not (isinstance(it, dict) and it.get("question") and it.get("model")): continue
+            traps = it.get("traps") or []
+            d.execute("INSERT INTO cards(id,course_id,front,back,source,week,concept,traps,due,created) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                      (uuid.uuid4().hex[:10], cid, str(it["question"]), str(it["model"]), src, week,
+                       str(it.get("concept") or "")[:80], "|".join(str(x) for x in traps if str(x).strip())[:500],
+                       date.today().isoformat(), time.time())); made += 1
     return {"made": made}
 
 
