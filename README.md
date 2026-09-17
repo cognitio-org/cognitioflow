@@ -218,12 +218,26 @@ docker compose up -d                 # Postgres on :5432 (add --profile gcs for 
 python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 cp .env.local.example .env.local     # then fill it in; AUTH=off signs you in as the first ALLOWED_EMAILS address
 make dev                             # → http://localhost:8000
+make seed                            # fill the local database with fixture content (see below)
 make test                            # pytest against docker Postgres; add STORAGE_EMULATOR_HOST=http://localhost:4443
                                      # to also run the storage and backup tests
 make db-branch NAME=pr-123           # a Neon branch of production for an isolated database (needs neonctl)
 ```
 `run.py` reads `.env.local` and it wins over variables set in the shell. Work on a branch and open a pull request; the
 PR worthiness check comments on it after the tests.
+
+A fresh local database is empty, so every screen renders its empty state and nothing about typography, spacing, table
+density or how a list behaves at scale can be judged. `make seed` (`scripts/seed_dev.py`) fixes that: it writes twelve
+notes for the two shipped courses — one of them 16k characters, between them covering headings, nested lists,
+multi-column tables, a `mermaid` diagram, italicised case names, every provenance tag, priority marks and callouts —
+plus cards spread across new, due, overdue, far-future and weak-ease states, five weeks of planner sessions either side
+of today, and per-week files with some ticked and some not. The note bodies live as plain Markdown in
+`scripts/fixtures/notes/`, so they can be edited without touching the script. It is idempotent, it writes files through
+`storage.py` like any other upload, and `make seed-clear` removes it again — every row it writes has an id beginning
+`fix-`, so clearing never touches anything you wrote yourself. The content is fabricated study material, plainly
+labelled as such, and the script **refuses to run against anything that is not a local database**: a managed host, a
+non-local hostname or `ENV=production` each abort it with the reason, because `CLAUDE.md` forbids seeding fabricated
+user content into a Neon branch.
 
 ## The old laptop build
 Until 12 September 2026 CognitioFlow ran on the Mac (`~/Desktop/cognitioflow`: SQLite in `data/`, local Whisper, a
