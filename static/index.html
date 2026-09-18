@@ -4,14 +4,14 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CognitioFlow</title>
 <style>
-  :root{--ink:#1c1c1a;--graphite:#5c5b55;--rule:#dcdad3;--faint:#f3f2ee;--paper:#fbfbf9;--raised:#ffffff;--accent:var(--course,#24467a);--ok:#2e6b4a;--warn:#a4541f;
+  :root{--ink:#1c1c1a;--graphite:#5c5b55;--rule:#dcdad3;--faint:#f3f2ee;--paper:#fbfbf9;--raised:#ffffff;--accent:var(--course,#24467a);--ok:#2e6b4a;--warn:#a4541f;--tap:32px;
     --s1:.25rem;--s2:.5rem;--s3:.75rem;--s4:1rem;--s5:1.5rem;--s6:2.25rem;
     --serif:Charter,"Iowan Old Style","Palatino Linotype",Georgia,serif;--sans:"Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;--r:4px}
   *{box-sizing:border-box} [hidden]{display:none!important} html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;height:100%}
   h1,h2,h3{font-family:var(--serif);font-weight:500;margin:0 0 .4rem;line-height:1.2;letter-spacing:-.005em} h1{font-size:1.75rem} h2{font-size:1.3rem} h3{font-size:1.05rem}
   p{margin:0 0 .7rem} button{font:inherit;cursor:pointer} input,select,textarea{font:inherit}
   .btn{border:1px solid var(--ink);background:var(--paper);color:var(--ink);padding:.45rem .9rem;border-radius:var(--r);line-height:1.2} .btn:hover{background:var(--faint)}
-  .btn.primary{background:var(--ink);color:#fff} .btn.primary:hover{background:#333} .btn.small{padding:.3rem .6rem;font-size:.82rem} .btn.ghost{border-color:var(--rule);color:var(--graphite);background:transparent} .btn.ghost:hover{color:var(--ink);border-color:var(--graphite);background:var(--faint)}
+  .btn.primary{background:var(--ink);color:#fff} .btn.primary:hover{background:#333} .btn.small{padding:.3rem .6rem;font-size:.82rem;min-height:var(--tap);min-width:var(--tap);display:inline-flex;align-items:center;justify-content:center;gap:.3rem} .btn.ghost{border-color:var(--rule);color:var(--graphite);background:transparent} .btn.ghost:hover{color:var(--ink);border-color:var(--graphite);background:var(--faint)}
   .btn[disabled]{opacity:.45;cursor:not-allowed} .btn:active:not([disabled]){transform:translateY(1px)} :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   kbd{font-family:var(--sans);font-size:.72em;line-height:1.25;padding:.02rem .34rem;border:1px solid var(--rule);border-bottom-width:2px;border-radius:4px;background:var(--faint);color:var(--graphite);white-space:nowrap;vertical-align:.08em}
   .muted{color:var(--graphite)} .small{font-size:.85rem} ul.clean{list-style:none;margin:0;padding:0}
@@ -176,7 +176,7 @@
   .head{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap;border-bottom:1px solid var(--rule);padding-bottom:.7rem;margin-bottom:1.1rem}
 
   /* library */
-  .drop{border:1.5px dashed var(--rule);border-radius:var(--r);padding:1.1rem 1.2rem;text-align:center;color:var(--graphite);margin-bottom:1rem;transition:border-color .15s,background .15s} .drop::before{content:"";display:block;width:18px;height:18px;margin:0 auto .45rem;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 16V4M6 10l6-6 6 6M4 20h16'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 16V4M6 10l6-6 6 6M4 20h16'/%3E%3C/svg%3E") center/contain no-repeat} .drop.over{border-color:var(--accent);border-style:solid;background:var(--faint);color:var(--ink)} .drop.over::after{content:"Release to add these files";display:block;margin-top:.3rem;font-weight:500} .drop label:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+  .drop{border:1.5px dashed var(--rule);border-radius:var(--r);padding:1.1rem 1.2rem;text-align:center;color:var(--graphite);margin-bottom:1rem;transition:border-color .15s,background .15s} .drop::before{content:"";display:block;width:18px;height:18px;margin:0 auto .45rem;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 16V4M6 10l6-6 6 6M4 20h16'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 16V4M6 10l6-6 6 6M4 20h16'/%3E%3C/svg%3E") center/contain no-repeat} .drop.over{border-color:var(--accent);border-style:solid;background:var(--faint);color:var(--ink)} .drop.over::after{content:"Release to add these files";display:block;margin-top:.3rem;font-weight:500} .drop label{display:inline-flex;align-items:center;min-height:var(--tap)} .drop label:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
   /* tutor */
   /* `>` matters: chat bubbles are built in JS as `advb tutor`, so an unscoped `.tutor` laid every
      bubble out as the Tutor SCREEN's two-column grid. The layout div is a direct child of .screen. */
@@ -195,7 +195,7 @@
   .timer{position:fixed;left:.6rem;bottom:.6rem;background:var(--paper);box-shadow:0 2px 10px rgba(0,0,0,.10);z-index:45;display:flex;gap:.4rem;align-items:center;background:var(--paper);border:1px solid var(--rule);border-radius:999px;padding:.25rem .4rem}
   .timer.running{border-color:var(--accent)} #timerClock{font-variant-numeric:tabular-nums;font-family:var(--serif);font-size:1rem;padding:0 .3rem}
   body.focus .timer{opacity:.4} body.focus .timer:hover{opacity:1}
-  #caseIndex{columns:2;column-gap:2rem;margin-top:.5rem} #caseIndex .ci{break-inside:avoid;padding:.25rem 0;border-bottom:1px solid var(--faint)} #caseIndex .ci b{font-family:var(--serif);font-weight:500} #caseIndex .ci .cc{color:var(--graphite)} #caseIndex .ci a{color:var(--accent);cursor:pointer}
+  #caseIndex{columns:2;column-gap:2rem;margin-top:.5rem} #caseIndex .ci{break-inside:avoid;padding:.35rem 0;border-bottom:1px solid var(--faint)} #caseIndex .ci a{display:inline-flex;align-items:center;min-height:var(--tap);cursor:pointer} #caseIndex .ci b{font-family:var(--serif);font-weight:500} #caseIndex .ci .cc{color:var(--graphite)} #caseIndex .ci a{color:var(--accent);cursor:pointer}
   @media(max-width:1300px){#caseIndex{columns:1}}
   .addform{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem}
   .agenda{display:flex;flex-direction:column;gap:1.1rem;max-width:760px}
@@ -207,7 +207,9 @@
   .sess{display:flex;align-items:center;gap:.7rem;padding:.55rem .9rem;border-top:1px solid var(--faint)} .sess:first-child{border-top:none}
   .sess .ic{width:1.6rem;height:1.6rem;flex:none;display:grid;place-items:center;border-radius:6px;font-size:.9rem;background:var(--faint);border:1px solid var(--rule)}
   .sess .body{flex:1;min-width:0} .sess .top{display:flex;gap:.5rem;align-items:baseline} .sess .tp{font-size:.96rem} .sess.done .tp{color:var(--graphite);text-decoration:line-through}
-  .sess .meta{font-size:.78rem;color:var(--graphite)} .sess .act{display:flex;gap:.35rem;opacity:0;transition:opacity .12s} .sess:hover .act,.sess:focus-within .act{opacity:1}
+  .sess .meta{font-size:.78rem;color:var(--graphite)}
+  /* The tick stays an 18px square; only what you can hit grows, the way .book .tab does. */
+  .sess .chk{position:relative} .sess .chk::before{content:"";position:absolute;top:50%;left:50%;width:var(--tap);height:var(--tap);transform:translate(-50%,-50%)} .sess .act{display:flex;gap:.35rem;opacity:0;transition:opacity .12s} .sess:hover .act,.sess:focus-within .act{opacity:1}
   .sess .chk{width:18px;height:18px;flex:none;border:1.5px solid var(--graphite);border-radius:5px;cursor:pointer;display:grid;place-items:center;color:transparent} .sess.done .chk{background:var(--accent);border-color:var(--accent);color:var(--paper)}
   .emptystate,.agenda .empty{display:grid;justify-items:center;gap:.3rem;text-align:center;padding:2rem 1rem;color:var(--graphite);font-size:.92rem} .emptystate b{font-family:var(--serif);font-weight:500;font-size:1.1rem;color:var(--ink)} .emptystate .btn{margin-top:.55rem} .agenda .empty{border:1px dashed var(--rule);border-radius:var(--r)} .notes .list li.emptystate{cursor:default;border-bottom:none;padding:1.4rem .5rem}
   @media(max-width:1300px){.agenda{max-width:none}}
@@ -266,6 +268,9 @@
   @media(max-width:900px){.cdlgbody{grid-template-columns:1fr;overflow:auto} .cfields,.cpreview pre{overflow:visible} .cpreview{border-left:none;border-top:1px solid var(--rule)} .cfields fieldset{grid-template-columns:1fr}}
   tr.grouphead td{background:var(--faint);border-top:1px solid var(--rule);padding-top:.5rem} tr.grouphead b{font-family:var(--serif)}
   /* notes editing */
+    /* A checkbox cannot carry a pseudo-element, so the label is the target — which is what a
+     label is for. data-toggle stays on the input, so the change handler is untouched. */
+  .tick{display:inline-flex;align-items:center;justify-content:center;gap:.25rem;min-height:var(--tap);min-width:var(--tap);cursor:pointer}
   .tagbar{display:flex;gap:.3rem;align-items:center;flex-wrap:wrap} .editwrap{flex:1;min-height:0;display:flex;gap:1rem;--measure:36rem;--pagey:2.6rem} .editwrap>*{flex:1;min-height:0}
   .editwrap textarea{height:100%}
   /* Read, Split and Edit are the same page: same measure, same paper, same margins — only the pen changes. */
@@ -279,7 +284,7 @@
   .readbar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap} .readbar audio{height:28px;max-width:280px}
   .cover{background:var(--ink);color:var(--ink);border-radius:2px;cursor:pointer;transition:none} .cover:hover{opacity:.85} .cover.on{background:transparent;color:inherit}
   .cover .prov,.cover em,.cover strong{color:inherit} .cover *{visibility:hidden} .cover.on *{visibility:visible}
-  .tplay{display:inline-block;font-family:var(--sans);font-size:.7rem;color:var(--graphite);border:1px solid var(--rule);border-radius:999px;padding:0 .35rem;margin-left:.3rem;text-decoration:none;cursor:pointer;vertical-align:.1em} .tplay:hover{color:var(--ink);border-color:var(--ink)}
+  .tplay{display:inline-flex;align-items:center;min-height:var(--tap);font-family:var(--sans);font-size:.7rem;color:var(--graphite);border:1px solid var(--rule);border-radius:999px;padding:0 .35rem;margin-left:.3rem;text-decoration:none;cursor:pointer;vertical-align:.1em} .tplay:hover{color:var(--ink);border-color:var(--ink)}
   #recBtn.on{background:#b3261e;color:#fff;border-color:#b3261e}
   @media print{.tplay,.readbar{display:none!important}}
   /* mermaid 10 paints a pink "syntax error" diagram when a graph fails to parse, and leaves its temp
@@ -351,7 +356,7 @@
   /* focus mode: current screen only, nothing else */
   body.focus aside.side, body.focus .head, body.focus .screen>.tutor aside.col, body.focus .notes>aside.col{display:none}
   body.focus .app{grid-template-columns:1fr} body.focus .screen>.tutor,body.focus .screen>.notes{grid-template-columns:1fr;height:calc(100vh - 4.4rem)} body.focus main{padding:.8rem 1rem}
-  #focusBtn{position:fixed;right:.7rem;top:.5rem;z-index:40;opacity:.55;font-size:.74rem;padding:.12rem .45rem;border-color:transparent} #focusBtn:hover{opacity:1}
+  #focusBtn{position:fixed;right:.7rem;top:.5rem;z-index:40;opacity:.55;font-size:.74rem;padding:.12rem .6rem;min-height:var(--tap);border-color:transparent} #focusBtn:hover{opacity:1}
   /* Motion overrides go LAST on purpose. The reduce block near the top of this sheet only reaches
      the book, because everything it names is declared above it — a rule added there for .fcinner
      (declared ~150 lines below) loses the cascade to the declaration itself at equal specificity.
@@ -451,7 +456,7 @@
   <div class="head"><div><h1>Notes</h1><div class="small muted">Autosaves. "Send to tutor" snapshots the note into Files so the tutor can read and reconcile it.</div></div><span style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
       <span class="seg" role="group"><button class="btn small" id="scopeMaster" aria-pressed="true" title="All files ticked in Files">Master</button><button class="btn small" id="scopeWeek" aria-pressed="false" title="Only ticked files of one week">Week</button></span>
       <input type="text" id="draftWeek" size="3" placeholder="2" hidden aria-label="Week">
-      <label class="small muted" style="display:flex;gap:.25rem;align-items:center"><input type="checkbox" id="draftViz" checked> diagrams</label>
+      <label class="small muted tick"><input type="checkbox" id="draftViz" checked> diagrams</label>
       <button class="btn small ghost" id="draftNote">Draft from files</button> <button class="btn small" id="newNote">New note</button></span></div>
   <div class="notes">
     <aside class="col"><ul class="clean list" id="noteList"></ul></aside>
@@ -825,7 +830,7 @@ async function loadFiles(){
   else {
     const groups={}; fs.forEach(f=>{ const k=f.week?('Week '+f.week):'Unsorted'; (groups[k]=groups[k]||[]).push(f) });
     const order=Object.keys(groups).sort((a,b)=>{ if(a==='Unsorted')return 1; if(b==='Unsorted')return -1; return (+a.slice(5))-(+b.slice(5)) });
-    const row=f=>`<tr><td><input type="checkbox" ${f.selected?'checked':''} data-toggle="${f.id}" aria-label="Include in tutor context"></td><td>${esc(f.name)}</td><td>${f.kind}</td><td>${esc(f.week)||'<span class=muted>—</span>'}</td><td class="small muted">${f.chars?Math.round(f.chars/1000)+'k':'–'}</td><td><span class="tag ${f.status==='indexed'?'ok':(f.status==='no text'?'warn':'')}">${f.status}</span></td><td><button class="btn small ghost" data-view="${f.id}" ${f.kind==='image'?'disabled':''}>Text</button> <button class="btn small ghost" data-del="${f.id}">Remove</button></td></tr>`;
+    const row=f=>`<tr><td><label class="tick"><input type="checkbox" ${f.selected?'checked':''} data-toggle="${f.id}" aria-label="Include in tutor context"></label></td><td>${esc(f.name)}</td><td>${f.kind}</td><td>${esc(f.week)||'<span class=muted>—</span>'}</td><td class="small muted">${f.chars?Math.round(f.chars/1000)+'k':'–'}</td><td><span class="tag ${f.status==='indexed'?'ok':(f.status==='no text'?'warn':'')}">${f.status}</span></td><td><button class="btn small ghost" data-view="${f.id}" ${f.kind==='image'?'disabled':''}>Text</button> <button class="btn small ghost" data-del="${f.id}">Remove</button></td></tr>`;
     $('#fileRows').innerHTML=order.map(k=>{ const g=groups[k]; const on=g.filter(f=>f.selected).length; const ids=g.map(f=>f.id).join(',');
       return `<tr class="grouphead"><td><input type="checkbox" data-group="${ids}" ${on===g.length?'checked':''} ${on&&on<g.length?'data-some="1"':''} aria-label="Tick all in ${k}"></td><td colspan="6"><b>${k}</b> <span class="small muted">· ${g.length} file${g.length>1?'s':''}, ${on} on</span></td></tr>` + g.map(row).join(''); }).join('');
     document.querySelectorAll('[data-some="1"]').forEach(c=>c.indeterminate=true);
