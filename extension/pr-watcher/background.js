@@ -1,8 +1,10 @@
-import { loadStatuses, mergePull, pullDiff } from './github.js';
-import { badge, changes } from './lib.js';
+import { loadRunnerHealth, loadStatuses, mergePull, pullDiff } from './github.js';
+import { badge, billingUrl, changes, ciNotice } from './lib.js';
 import { reviewDiff } from './review.js';
 
-const DEFAULTS = { repo: 'cognitio-org/cognitioflow', token: '', provider: 'openrouter', openrouterKey: '', anthropicKey: '', model: '' };
+// ciRepos is separate from `repo` on purpose: the repository whose CI is broken is
+// often not the one whose pull requests you are reading.
+const DEFAULTS = { repo: 'cognitio-org/cognitioflow', ciRepos: '', token: '', provider: 'openrouter', openrouterKey: '', anthropicKey: '', model: '' };
 const settings = async () => ({ ...DEFAULTS, ...(await chrome.storage.local.get(Object.keys(DEFAULTS))) });
 
 async function setBadge({ text, color }) {
@@ -19,17 +21,45 @@ async function refresh() {
   }
   try {
     const statuses = await loadStatuses(s.token, s.repo);
-    const { statuses: previous = [] } = await chrome.storage.local.get('statuses');
+    const { statuses: previous = [], ci: previousCi = null } = await chrome.storage.local.get(['statuses', 'ci']);
     for (const n of changes(previous, statuses)) {
       chrome.notifications.create(`pr-${n.number}-${Date.now()}`, { type: 'basic', iconUrl: 'icons/128.png', title: n.title, message: n.message, priority: 1 });
     }
-    await setBadge(badge(statuses));
-    await chrome.storage.local.set({ statuses, error: '', checkedAt: Date.now() });
+
+    // A CI outage never fails the refresh: a broken runner pool must not also cost
+    // you the pull request list.
+    const ci = await checkCi(s);
+    if (ci && ci.state !== previousCi?.state && (ci.state === 'starved' || ci.state === 'degraded')) {
+      chrome.notifications.create(`ci-${ci.repo}-${Date.now()}`, {
+        type: 'basic', iconUrl: 'icons/128.png', priority: 2,
+        title: `${ci.repo}: CI is not getting runners`,
+        message: ciNotice(ci) || 'Jobs are being rejected before a runner is allocated.',
+      });
+    }
+
+    await setBadge(badge(statuses, ci));
+    await chrome.storage.local.set({ statuses, ci, error: '', checkedAt: Date.now() });
   } catch (e) {
     await setBadge({ text: '×', color: '#a4541f' });
     const error = e.status === 401 ? 'GitHub rejected the token. Check it in Options.' : `Couldn't reach GitHub: ${e.message}`;
     await chrome.storage.local.set({ error, checkedAt: Date.now() });
   }
+}
+
+/** Runner health for the configured CI repositories; the worst answer wins. */
+async function checkCi(s) {
+  const repos = (s.ciRepos || s.repo || '').split(',').map((r) => r.trim()).filter(Boolean);
+  const rank = { starved: 3, degraded: 2, unknown: 1, ok: 0 };
+  let worst = null;
+  for (const repo of repos) {
+    try {
+      const health = await loadRunnerHealth(s.token, repo);
+      if (!worst || rank[health.state] > rank[worst.state]) worst = health;
+    } catch (e) {
+      if (!worst) worst = { repo, state: 'unknown', rejected: 0, completed: 0, billingError: e.message };
+    }
+  }
+  return worst;
 }
 
 function schedule() {
@@ -40,6 +70,12 @@ chrome.runtime.onInstalled.addListener(schedule);
 chrome.runtime.onStartup.addListener(schedule);
 chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === 'refresh') refresh(); });
 chrome.notifications.onClicked.addListener(async (id) => {
+  if (id.startsWith('ci-')) {
+    const { ci } = await chrome.storage.local.get('ci');
+    const owner = (ci?.repo || '').split('/')[0];
+    chrome.tabs.create({ url: billingUrl(owner, ci?.billingKind === 'user' ? 'user' : 'org') });
+    return;
+  }
   const { repo } = await settings();
   chrome.tabs.create({ url: `https://github.com/${repo}/pull/${id.split('-')[1]}` });
 });

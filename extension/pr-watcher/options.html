@@ -24,6 +24,8 @@
   <fieldset>
     <legend>GitHub</legend>
     <label>Repository <input id="repo" autocomplete="off" spellcheck="false"></label>
+    <label>CI repositories to watch <input id="ciRepos" autocomplete="off" spellcheck="false" placeholder="cognitio-org/ALLMS, cognitio-org/cognitioflow"></label>
+    <p class="hint">Comma separated. These are checked for whether GitHub is handing out runners at all — when it stops, every pull request goes red for a reason that has nothing to do with the code. Leave blank to watch the repository above. Reading Actions billing needs an org admin scope on the token; without it you still get the runner answer, just not the minutes.</p>
     <label>Fine-grained token <input id="token" type="password" autocomplete="off" spellcheck="false"></label>
     <p class="hint">GitHub → Settings → Developer settings → Fine-grained tokens → <b>Only select repositories</b>: this repository.
       Permissions: <b>Pull requests</b> read and write, <b>Contents</b> read and write (to merge and delete the branch),
