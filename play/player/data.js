@@ -283,13 +283,31 @@ export async function findMedia(game, scene) {
 export const ASSETS_BASE = new URL('assets/', GAMES_BASE);
 const assetCache = new Map();
 
-/** URL of games/assets/<kind>/<name>.glb if it exists, else null. */
+/** Assets that exist, as {kind: [name, …]}. One fetch, cached; {} when there is no manifest yet.
+ *
+ * This replaces a HEAD probe per asset. The probe is why findAsset used to bail out on `IN_APP`:
+ * in the app nothing was ever there, so every scene paid for requests that could only 404. A
+ * manifest costs one request whatever the context, so assets can now load in the app as well as
+ * in the standalone player — which is the whole point of putting them in `play/assets/`.
+ */
+let assetIndex = null;
+function assetManifest() {
+  if (!assetIndex) {
+    assetIndex = fetch(new URL('index.json', ASSETS_BASE).href, { cache: 'no-cache' })
+      .then((r) => (r.ok ? r.json() : {}))
+      .catch(() => ({}));
+  }
+  return assetIndex;
+}
+
+/** URL of play/assets/<kind>/<name>.glb when the manifest lists it, else null. */
 export async function findAsset(kind, name) {
-  if (IN_APP) return null;
   const key = `${kind}/${name}`;
   if (!assetCache.has(key)) {
-    const url = new URL(`${kind}/${name}.glb`, ASSETS_BASE).href;
-    assetCache.set(key, exists(url).then((ok) => (ok ? url : null)));
+    assetCache.set(key, assetManifest().then((index) => {
+      const names = Array.isArray(index?.[kind]) ? index[kind] : [];
+      return names.includes(name) ? new URL(`${kind}/${name}.glb`, ASSETS_BASE).href : null;
+    }));
   }
   return assetCache.get(key);
 }
