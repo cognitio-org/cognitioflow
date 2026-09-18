@@ -20,3 +20,7 @@ header { display: flex; align-items: center; justify-content: space-between; gap
 .actions { display: flex; gap: .35rem; justify-content: flex-end; }
 .empty { padding: 1.6rem .9rem; text-align: center; color: var(--graphite); }
 .empty b { display: block; font-family: var(--serif); font-weight: 500; font-size: 15px; color: var(--ink); margin-bottom: .2rem; }
+
+/* CI outage banner: the one thing that outranks the pull request list. */
+.notice.ci { border-left: 3px solid #a4541f; }
+.notice.ci a { color: inherit; white-space: nowrap; }
