@@ -243,6 +243,19 @@
   .wk .rd{width:7px;height:7px;border-radius:50%;background:var(--rule)} .wk .rd.ready{background:var(--ok)} .wk .rd.partial{background:var(--warn)}
   .wk .n{color:var(--graphite);font-size:.8rem}
   .wk.weak{border-color:var(--bad);color:var(--bad)} .wk.weak .rd{display:none}
+  /* syllabus review — a proposal on the page, never the live data, until Apply is pressed */
+  .sylbar{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;margin-left:auto}
+  .sylbar select{max-width:24ch;border:1px solid var(--rule);border-radius:var(--r);background:var(--paper);color:var(--ink);min-height:var(--tap);padding:.2rem .45rem}
+  .syl{margin-bottom:1rem;border-left:4px solid var(--accent)}
+  .sylhd{display:flex;gap:.6rem;align-items:baseline;flex-wrap:wrap;margin-bottom:.4rem}
+  .sylwk{display:grid;grid-template-columns:var(--tap) 4.5rem 1fr;gap:.2rem .6rem;padding:.5rem 0;border-top:1px solid var(--rule);align-items:baseline}
+  .sylwk .n{font-family:var(--serif);color:var(--graphite)}
+  .sylwk .t{font-family:var(--serif);font-size:1.02rem}
+  .sylwk .d{grid-column:3;color:var(--graphite);font-size:.85rem;line-height:1.45}
+  .sylwk.off .t,.sylwk.off .d,.sylwk.off .n{opacity:.4;text-decoration:line-through}
+  .sylft{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-top:.7rem;padding-top:.7rem;border-top:1px solid var(--rule)}
+  .sylft .sp{margin-right:auto}
+  @media(max-width:700px){.sylwk{grid-template-columns:var(--tap) 1fr}.sylwk .d{grid-column:2}.sylbar{margin-left:0}}
   /* command palette */
   .pal{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:60;display:flex;align-items:flex-start;justify-content:center;padding-top:12vh}
   .palbox{width:min(640px,92vw);background:var(--paper);border:1px solid var(--rule);border-radius:6px;overflow:hidden}
@@ -425,6 +438,19 @@
     <label class="small muted">Week <input type="text" id="week" size="4" placeholder="2"></label></div>
   <div class="panel small" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
     <button class="btn small ghost" id="inferBtn" title="Recognise each untagged file week from its content">Detect weeks</button>
+    <span class="sylbar">
+      <label class="small muted" for="sylFile">Syllabus</label>
+      <select id="sylFile" aria-label="Which uploaded file is the syllabus"></select>
+      <button class="btn small ghost" id="sylRead" title="Read the weeks, topics and readings out of that document. Nothing is saved until you apply them.">Read syllabus</button>
+      <span class="small muted" id="sylState" role="status"></span>
+    </span>
+  </div>
+  <div class="panel small syl" id="sylPanel" hidden aria-labelledby="sylHd">
+    <div class="sylhd"><h3 id="sylHd">Proposed weeks</h3><span class="small muted" id="sylNote"></span></div>
+    <div id="sylWeeks"></div>
+    <div class="sylft"><span class="small muted sp" id="sylHint">Nothing is saved until you apply this.</span>
+      <button class="btn small ghost" id="sylDiscard">Discard</button>
+      <button class="btn small primary" id="sylApply">Apply to this course</button></div>
   </div>
   <div class="drop" id="drop">Drop files here or <label style="text-decoration:underline;cursor:pointer" tabindex="0" role="button">choose<input type="file" id="fileInput" multiple hidden></label> — pdf, pptx, docx, txt/md/vtt, png/jpg</div>
   <table><thead><tr><th></th><th>Name</th><th>Type</th><th>Week</th><th>Text</th><th>Status</th><th></th></tr></thead><tbody id="fileRows"></tbody></table>
@@ -858,6 +884,7 @@ async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle'
 /* files */
 async function loadFiles(){
   const fs=await api(`/courses/${cid}/files`);
+  sylFill(fs);
   if(!fs.length){ $('#fileRows').innerHTML='<tr><td colspan="7"><div class="emptystate"><b>No files yet</b><span>Drop the Week 2 slides and a transcript in to start.</span><button class="btn small" type="button" onclick="document.getElementById(\'fileInput\').click()">Choose files</button></div></td></tr>'; }
   else {
     const groups={}; fs.forEach(f=>{ const k=f.week?('Week '+f.week):'Unsorted'; (groups[k]=groups[k]||[]).push(f) });
@@ -874,6 +901,45 @@ async function loadFiles(){
 }
 async function upload(files){ for(const f of files){ const fd=new FormData(); fd.append('file',f); fd.append('week',$('#week').value); toast('Indexing '+f.name+'…'); try{ const r=await api(`/courses/${cid}/files`,{method:'POST',body:fd}); toast(`${f.name}: ${r.status}${r.chars?' · '+Math.round(r.chars/1000)+'k chars':''}`);}catch(e){toast('Failed: '+e.message)} } loadFiles(); }
 $('#inferBtn').onclick=async()=>{const b=$('#inferBtn');b.disabled=true;b.textContent='Detecting…';try{const r=await post(`/courses/${cid}/infer-weeks`);toast(r.tagged?`Sorted ${r.tagged} file(s) into weeks`:'Nothing to sort — all files already have a week');loadFiles()}catch(e){toast('Failed: '+e.message)}b.disabled=false;b.textContent='Detect weeks'};
+/* syllabus in, weeks and topics out. The panel holds a proposal; only Apply writes anything. */
+let sylProposal=null;
+function sylFill(fs){ const opts=fs.filter(f=>f.kind!=='image'&&f.chars); const sel=$('#sylFile'); const keep=sel.value;
+  sel.innerHTML=opts.length?opts.map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join(''):'<option value="">No readable file yet</option>';
+  if(opts.some(f=>f.id===keep)) sel.value=keep;
+  else { const guess=opts.find(f=>/syllab|course guide|module guide|outline|studiewijzer/i.test(f.name)); if(guess) sel.value=guess.id }
+  sel.disabled=$('#sylRead').disabled=!opts.length;
+  if(!sylProposal) sylApplied(); }
+async function sylApplied(){ try{ const s=await api(`/courses/${cid}/syllabus`);
+    $('#sylState').textContent=s.weeks.length?`${s.weeks.length} week${s.weeks.length>1?'s':''} applied${s.source?' from '+s.source:''}`:''; }
+  catch(e){ $('#sylState').textContent='' } }
+function sylRender(p){ sylProposal=p;
+  $('#sylNote').textContent=p.note||'';
+  $('#sylHint').textContent=p.weeks.length?'Untick a week to leave it out. Nothing is saved until you apply this.':'Nothing to apply.';
+  $('#sylApply').disabled=!p.weeks.length;
+  $('#sylWeeks').innerHTML=p.weeks.length?p.weeks.map((w,i)=>{
+      const d=[(w.topics||[]).length?'Topics: '+w.topics.join('; '):'',(w.readings||[]).length?'Reading: '+w.readings.join('; '):''].filter(Boolean).join(' · ');
+      return `<div class="sylwk" data-sylwk="${i}"><label class="tick"><input type="checkbox" checked data-sylpick="${i}" aria-label="Keep week ${esc(w.week)}"></label>`+
+        `<span class="n">Week ${esc(w.week)}</span><span class="t">${w.title?esc(w.title):'<span class="muted">untitled</span>'}</span>`+
+        (d?`<span class="d">${esc(d)}</span>`:'') + `</div>` }).join('')
+    :'<p class="small muted">Nothing in that document reads as a teaching schedule, so no weeks are proposed.</p>';
+  document.querySelectorAll('[data-sylpick]').forEach(b=>b.onchange=()=>{
+    document.querySelector(`[data-sylwk="${b.dataset.sylpick}"]`).classList.toggle('off',!b.checked);
+    $('#sylApply').disabled=!document.querySelectorAll('[data-sylpick]:checked').length });
+  $('#sylPanel').hidden=false; }
+$('#sylRead').onclick=async()=>{ const fid=$('#sylFile').value; if(!fid) return;
+  const b=$('#sylRead'); b.disabled=true; b.textContent='Reading…';
+  try{ sylRender(await post(`/courses/${cid}/syllabus/extract`,{file_id:fid})) }
+  catch(e){ toast('Could not read it: '+e.message) }
+  b.disabled=false; b.textContent='Read syllabus'; };
+$('#sylDiscard').onclick=()=>{ sylProposal=null; $('#sylPanel').hidden=true; sylApplied() };
+$('#sylApply').onclick=async()=>{ if(!sylProposal) return;
+  const keep=[...document.querySelectorAll('[data-sylpick]:checked')].map(b=>sylProposal.weeks[+b.dataset.sylpick]);
+  const b=$('#sylApply'); b.disabled=true; b.textContent='Applying…';
+  try{ const r=await post(`/courses/${cid}/syllabus/apply`,{weeks:keep,source:sylProposal.source||''});
+    toast(`${r.weeks} week${r.weeks===1?'':'s'} applied${r.tagged?` · ${r.tagged} file${r.tagged===1?'':'s'} sorted`:' · no file matched a week by name'}`);
+    sylProposal=null; $('#sylPanel').hidden=true; await loadCourses(); loadFiles() }
+  catch(e){ toast('Failed: '+e.message) }
+  b.disabled=false; b.textContent='Apply to this course'; };
 $('#fileInput').addEventListener('change',e=>upload([...e.target.files]));
 const drop=$('#drop'); ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')})); ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')})); drop.addEventListener('drop',e=>upload([...e.dataTransfer.files])); drop.querySelector('label').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#fileInput').click()}});
 
