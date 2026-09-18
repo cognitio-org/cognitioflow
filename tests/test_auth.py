@@ -80,7 +80,10 @@ def _google_flow(web, email, *, key=KEY, verified=True, state_override=None):
 
 def test_healthz_needs_no_auth(web):
     r = web.get("/healthz")
-    assert r.status_code == 200 and r.json() == {"ok": True}
+    assert r.status_code == 200
+    # ok stays the liveness signal; commit says WHICH build answered, so a stale
+    # revision is visible rather than being discovered months later.
+    assert r.json() == {"ok": True, "commit": "dev"}
 
 
 def test_api_without_cookie_is_401_json(web):
@@ -268,7 +271,11 @@ def test_production_with_auth_off_refuses_to_boot():
 def test_health_needs_no_auth_for_cloud_run(web):
     """Cloud Run's front end answers /healthz itself with a 404 (paths ending in z are reserved), so probes use /health."""
     r = web.get("/health")
-    assert r.status_code == 200 and r.json() == {"ok": True}
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    # CF_COMMIT is injected at deploy; unset locally it falls back to "dev".
+    assert body["commit"] == "dev"
 
 
 def test_design_pages_need_no_auth(web):

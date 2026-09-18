@@ -247,7 +247,7 @@ def test_continue_a_cut_off_draft_rebuilds_the_same_prompt(client, fake):
     import run
     cid = _cid(client)
     _upload(client, cid, "w5.txt", "Week five: proportionality", week="5")
-    fake(("# Week 5 notes\n## Scope", "max_tokens"))
+    fake(*[("# Week 5 notes\n## Scope", "max_tokens")] * run.DRAFT_ROUNDS)  # still cut after self-continuation
     nid = client.post(f"/api/courses/{cid}/notes/draft", json={"week": "5", "diagrams": False}).json()["id"]
     assert "<!--cf:continue kind=draft week=5 diagrams=0 files=" in client.get(f"/api/notes/{nid}").json()["body"]
     fc = fake(("\n## Core rules\n1. Proportionality", None))
@@ -257,9 +257,44 @@ def test_continue_a_cut_off_draft_rebuilds_the_same_prompt(client, fake):
     assert "Week five: proportionality" in call["messages"][0]["content"]  # same files as the original draft
 
 
-def test_continue_without_a_marker_is_400(client):
+def test_continue_without_a_marker_finishes_from_the_notes_own_text(client, fake):
+    """A markerless note used to 400. It is now finished from its own text — that is this PR's point.
+
+    Only notes written by draft/reconcile carry a marker, so everything pasted, imported or cut off
+    upstream was unfinishable for good.
+    """
     cid = _cid(client)
-    nid = client.post(f"/api/courses/{cid}/notes", json={"title": "Fine", "body": "All done."}).json()["id"]
+    _upload(client, cid, "w5.txt", "COURSE FILE MATERIAL")
+    nid = client.post(f"/api/courses/{cid}/notes",
+                      json={"title": "Imported", "body": "# Scope\nThe test is whether the measure"}).json()["id"]
+    fc = fake((" restricts market access.", None))
+    assert client.post(f"/api/notes/{nid}/continue").status_code == 200
+    assert client.get(f"/api/notes/{nid}").json()["body"] == "# Scope\nThe test is whether the measure restricts market access."
+    sent = fc.calls[0]["messages"][0]["content"]
+    assert "The test is whether the measure" in sent          # the note's own text is the material
+    assert "COURSE FILE MATERIAL" not in sent                  # and the ticked files are not read for this path
+
+
+def test_continue_without_a_marker_never_auto_routes_above_the_notes_tier(client, fake):
+    """Continue is a button, so this path is auto-routing.
+
+    STRONG_MODEL is reconcile-only and may be set to Fable, which is ~10x a Sonnet call. Auto-routing
+    must never reach it — see the model rules in CLAUDE.md.
+    """
+    import run
+    cid = _cid(client)
+    nid = client.post(f"/api/courses/{cid}/notes",
+                      json={"title": "Imported", "body": "# Scope\nThe measure"}).json()["id"]
+    fc = fake((" restricts access.", None))
+    assert client.post(f"/api/notes/{nid}/continue").status_code == 200
+    assert fc.calls[0]["model"] in (run.CHEAP_MODEL, run.MODEL)
+    assert fc.calls[0]["max_tokens"] == run.DRAFT_TOKENS
+
+
+def test_continue_an_empty_note_is_400(client):
+    """The one case that still cannot be finished: there is nothing to finish from."""
+    cid = _cid(client)
+    nid = client.post(f"/api/courses/{cid}/notes", json={"title": "Blank", "body": "   "}).json()["id"]
     r = client.post(f"/api/notes/{nid}/continue")
     assert r.status_code == 400 and "nothing to continue" in r.json()["detail"]
 
@@ -285,7 +320,8 @@ def test_continue_master_draft_uses_the_files_it_was_written_from(client, fake):
     cid = _cid(client)
     _upload(client, cid, "a.txt", "ALPHA material")
     b = _upload(client, cid, "b.txt", "BETA material")
-    fake(("# Master notes\n## Scope\n", "max_tokens"))
+    import run
+    fake(*[("# Master notes\n## Scope\n", "max_tokens")] * run.DRAFT_ROUNDS)  # still cut after self-continuation
     nid = client.post(f"/api/courses/{cid}/notes/draft", json={"diagrams": True}).json()["id"]
     client.post(f"/api/files/{b}/toggle-to", json={"on": False})  # ticks change before Continue
     fc = fake(("## Core rules\n1. x", None))
@@ -297,7 +333,8 @@ def test_continue_master_draft_uses_the_files_it_was_written_from(client, fake):
 def test_continue_marker_survives_a_week_with_spaces(client, fake):
     cid = _cid(client)
     _upload(client, cid, "w3.txt", "WEEK THREE material", week="Week 3")
-    fake(("# Week 3 notes\n", "max_tokens"))
+    import run
+    fake(*[("# Week 3 notes\n", "max_tokens")] * run.DRAFT_ROUNDS)  # still cut after self-continuation
     nid = client.post(f"/api/courses/{cid}/notes/draft", json={"week": "Week 3", "diagrams": False}).json()["id"]
     assert "week=Week%203" in client.get(f"/api/notes/{nid}").json()["body"]
     fc = fake(("## Core rules", None))
@@ -649,7 +686,8 @@ def test_the_writing_surface_is_keyboard_reachable_with_a_visible_focus_ring():
     for hook in ("esNext", "esBank", "esSubmit", "esModelBtn"):
         assert re.search(rf'<button[^>]*id="{hook}"', section), f"#{hook} must be a real button to be tabbable"
     assert re.search(r'<textarea id="esAnswer"', section) and re.search(r'<select id="esWeek"', section)
-    css = re.sub(r"/\*.*?\*/", "", re.search(r"<style>(.*?)</style>", html, re.S).group(1), flags=re.S)
+    sheets = "".join((page.parent / n).read_text(encoding="utf-8") for n in ("app.css", "book.css"))
+    css = re.sub(r"/\*.*?\*/", "", sheets, flags=re.S)
     assert "outline:2px solid var(--accent)" in re.search(r"\.eswrite:focus-visible\{([^}]*)\}", css).group(1)
     assert "min-height:var(--tap)" in re.search(r"\.esweek\{([^}]*)\}", css).group(1)
     assert 'for="esAnswer"' in section, "the writing surface needs a label, not just a placeholder"
@@ -658,8 +696,10 @@ def test_the_writing_surface_is_keyboard_reachable_with_a_visible_focus_ring():
 def test_the_page_never_holds_the_model_answer_before_it_is_asked_for():
     """The whole phase turns on this: hiding a model answer the page already has is not the same as
     not having it. The only place it may be fetched is the button, and only after a submission."""
-    page = pathlib.Path(__file__).resolve().parent.parent / "static" / "index.html"
-    html = page.read_text(encoding="utf-8")
+    static = pathlib.Path(__file__).resolve().parent.parent / "static"
+    # both, not just app.js: the count below is the gate, and it has to see every place the page
+    # could fetch from, the way it did when index.html still held the script.
+    html = (static / "index.html").read_text(encoding="utf-8") + (static / "app.js").read_text(encoding="utf-8")
     at = html.index("$('#esModelBtn').onclick")
     handler = html[at:html.index("$('#esBank').onclick", at)]
     assert "/model`" in handler, "the model answer is fetched here or nowhere"

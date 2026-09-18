@@ -7,7 +7,8 @@ test_courses.py's palette test does, because there is no JS test runner and CLAU
 import re
 from pathlib import Path
 
-PAGE = (Path(__file__).resolve().parent.parent / "static" / "index.html").read_text(encoding="utf-8")
+PAGE = (lambda s: s("index.html") + s("app.js") + s("app.css") + s("book.css"))(
+    lambda n: (Path(__file__).resolve().parent.parent / "static" / n).read_text(encoding="utf-8"))
 
 
 def test_a_failed_autosave_says_so_and_offers_a_way_back():
