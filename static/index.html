@@ -294,6 +294,7 @@
   .noteview table{font-family:var(--sans);font-size:.88rem;width:100%;margin:.6rem 0 1rem} .noteview th{border-bottom:1.5px solid var(--ink)} .noteview td{border-bottom:1px solid var(--rule)}
   .noteview blockquote{margin:.8rem 0;padding:.6rem 1rem;border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--r);background:var(--faint);color:var(--ink)} .noteview blockquote p{margin:0} .noteview blockquote strong:first-child{font-family:var(--sans);font-size:.82rem;color:var(--graphite);display:block;margin-bottom:.15rem}
   .noteview code{font-size:.85em;background:var(--faint);padding:0 .25rem} .noteview .viz{margin:.8rem 0}
+  #noteStatus[data-state="failed"]{color:var(--warn);font-weight:500;display:inline-flex;align-items:center;gap:.5rem}
   .prov{display:inline-block;font-family:var(--sans);font-size:.68rem;letter-spacing:.04em;padding:.02rem .38rem;border:1px solid var(--graphite);border-radius:2px;color:var(--graphite);vertical-align:.12em;margin-left:.15rem;white-space:nowrap}
   .prov.wg{border-color:var(--ink);color:var(--ink);font-weight:600} .prio{font-size:.7rem;letter-spacing:-1px;margin-right:.2rem} .prio.core{color:#b3524e} .prio.know{color:var(--accent)} .prio.sup{color:var(--graphite)} .prov.flag{border-style:dashed}
   @media print{ html,body{background:#fff!important;color:#000!important;height:auto} body *{visibility:hidden} .noteview,.noteview *{visibility:visible}
@@ -692,7 +693,16 @@ const setFocus=v=>{document.body.classList.toggle('focus',v);localStorage.setIte
 $('#focusBtn').onclick=()=>setFocus(!document.body.classList.contains('focus'));
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='.'){e.preventDefault();$('#focusBtn').click()}});
 if(localStorage.getItem('cf.focus')==='1') setFocus(true);
-function toast(m){const t=$('#toast');t.textContent=m;t.dataset.tone=/^(failed|could not|error)|failed|not allowed/i.test(m)?'warn':/…$/.test(m)?'busy':'ok';t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2800)}
+/* tone was guessed from the wording, and the guess was wrong often enough to matter: "The bench did
+   not respond", "Microphone blocked" and "Mic: not-allowed" all showed the SUCCESS dot, the last
+   because the regex wants "not allowed" and the API emits "not-allowed". Callers can now say. The
+   regex stays as the default so no existing call changes, and a warn toast holds long enough to
+   read and speaks assertively, because the polite live region was being missed. */
+function toast(m,tone){const t=$('#toast');t.textContent=m;
+  t.dataset.tone=tone||(/^(failed|could not|error)|failed|not[ -]allowed/i.test(m)?'warn':/…$/.test(m)?'busy':'ok');
+  t.setAttribute('aria-live',t.dataset.tone==='warn'?'assertive':'polite');
+  t.classList.add('show');clearTimeout(t._h);
+  t._h=setTimeout(()=>t.classList.remove('show'),t.dataset.tone==='warn'?7000:2800)}
 let courses=[], cid=localStorage.getItem('cf.course')||'', mode='drill', cfg={};
 const C=()=>courses.find(c=>c.id===cid)||courses[0];
 
@@ -927,7 +937,7 @@ function initVoice(){
     recog.onresult=e=>{let t='';for(const r of e.results)t+=r[0].transcript;$('#q').value=t;};
     recog.onend=()=>{listening=false;$('#micBtn').setAttribute('aria-pressed','false');$('#micBtn').textContent='🎙 Talk';
       if($('#q').value.trim()) send();};
-    recog.onerror=e=>{listening=false;$('#micBtn').textContent='🎙 Talk';toast('Mic: '+e.error)};
+    recog.onerror=e=>{listening=false;$('#micBtn').textContent='🎙 Talk';toast('Mic: '+e.error,'warn')};
   }
   if(cfg.voice?.gemini){ $('#micMode').hidden=false; document.querySelectorAll('#micMode [data-mic]').forEach(b=>b.onclick=()=>setMicMode(b.dataset.mic)); setMicMode(currentMicMode()); }
   $('#speakBtn').setAttribute('aria-pressed',speakOn?'true':'false'); $('#speakBtn').classList.toggle('primary',speakOn);
@@ -1402,7 +1412,7 @@ async function courtReply(text){
   text=(text||'').trim();
   if(!text||court.busy||!court.hearing) return;
   const q=court.hearing.bench[court.qi]; if(!q) return;
-  court.busy=true; courtSay('me',text); $('#courtType').value='';
+  court.busy=true; const b0=courtSay('me',text); $('#courtType').value='';
   const think=courtSay('tutor','…');
   try{
     const g=await post(`/courses/${cid}/court/reply`,{case:court.case,question:q,answer:text});
@@ -1414,7 +1424,11 @@ async function courtReply(text){
       b.insertAdjacentHTML('beforeend',`<span class="kept">Kept as a card — <b>${esc(dueWord(g.due))}</b></span>`); }
     if(advSpeak) await advSpeak(g.spoken);   // the verdict finishes before the bench moves on
     court.qi++; setTimeout(benchAsk,700);
-  }catch(e){ think.remove(); toast('The bench did not respond — say that again'); }
+  }catch(e){ think.remove();
+    // Give the submission back. It was cleared before the request, so a 502 used to lose a long
+    // answer outright and the only way forward was to say the whole thing again.
+    $('#courtType').value=text; b0 && b0.remove();
+    toast('The bench did not respond — your submission is back in the box','warn'); }
   court.busy=false;
 }
 $('#courtSend').onclick=()=>courtReply($('#courtType').value);
@@ -1490,7 +1504,7 @@ function watchTranscript(rid){ const t0=Date.now(); const tick=setInterval(async
     if(s.status==='done'){ await loadNotes(); offerReconcile() } else if(s.status==='failed'){ toast('Transcription failed: '+s.error) } },3000) }
 function offerReconcile(){ const bar=$('#txBar'); bar.hidden=false; }
 $('#recBtn').onclick=async()=>{ if(rec){ rec.stop(); return } if(!nid){$('#newNote').click(); await new Promise(r=>setTimeout(r,500))}
-  let stream; try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}) }catch(e){ toast('Microphone blocked — allow it in the browser'); return }
+  let stream; try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}) }catch(e){ toast('Microphone blocked — allow it in the browser','warn'); return }
   const r=await post(`/notes/${nid}/recordings/start`); recId=r.id; recStart=Date.now(); recChunks=[]; await loadRecIds();
   rec=new MediaRecorder(stream,{mimeType:'audio/webm'}); rec.ondataavailable=e=>{ if(e.data.size) recChunks.push(e.data) };
   rec.onstop=async()=>{ clearInterval(recTimer); stream.getTracks().forEach(t=>t.stop()); const blob=new Blob(recChunks,{type:'audio/webm'}); const fd=new FormData(); fd.append('audio',blob,'rec.webm'); fd.append('seconds',String((Date.now()-recStart)/1000));
@@ -1535,7 +1549,29 @@ $('#noteRead').onclick=()=>{noteMode='read';localStorage.setItem('cf.noteMode','
 if(!['read','split','edit'].includes(noteMode)) noteMode='read';
 $('#noteEdit').onclick=()=>{noteMode='edit';localStorage.setItem('cf.noteMode','edit');showNote();$('#noteBody').focus()};
 $('#notePrint').onclick=async()=>{ const was=noteMode; noteMode='read'; await showNote(); setTimeout(()=>{window.print(); noteMode=was; showNote()},150) };
-function scheduleSave(){ if(!nid) return; $('#noteStatus').textContent='…'; clearTimeout(saveT); saveT=setTimeout(async()=>{await put(`/notes/${nid}`,{title:$('#noteTitle').value||'Untitled',body:rawBody()});$('#noteStatus').textContent='Saved '+new Date().toLocaleTimeString();},700); }
+/* The autosave had no catch. A rejected put left #noteStatus reading '…' for the rest of the
+   session — no toast, nothing in the UI — so a dropped connection during a lecture lost the whole
+   capture while the screen still said everything was fine. It has to fail loudly and keep trying.
+   The unsaved text lives where it always did, in the textarea: CLAUDE.md keeps note state out of
+   localStorage, and a copy there would not survive the tab closing anyway. */
+async function saveNote(){
+  if(!nid) return false;
+  const st=$('#noteStatus');
+  try{
+    await put(`/notes/${nid}`,{title:$('#noteTitle').value||'Untitled',body:rawBody()});
+    delete st.dataset.state; st.textContent='Saved '+new Date().toLocaleTimeString(); return true;
+  }catch(e){
+    st.dataset.state='failed';
+    st.innerHTML=`Not saved — ${esc(e.message||'no connection')}. Your text is still here. `;
+    const b=document.createElement('button'); b.type='button'; b.className='btn small'; b.textContent='Retry';
+    b.onclick=saveNote; st.appendChild(b);
+    return false;
+  }
+}
+function scheduleSave(){ if(!nid) return;
+  // Keep the failure visible while retrying, rather than flicking back to a reassuring '…'
+  const st=$('#noteStatus'); if(st.dataset.state!=='failed') st.textContent='…';
+  clearTimeout(saveT); saveT=setTimeout(saveNote,700); }
 $('#noteTitle').addEventListener('input',scheduleSave); $('#noteBody').addEventListener('input',scheduleSave);
 let draftScope='master';
 const setScope=s=>{draftScope=s;$('#scopeMaster').setAttribute('aria-pressed',s==='master');$('#scopeWeek').setAttribute('aria-pressed',s==='week');$('#draftWeek').hidden=s!=='week';if(s==='week')$('#draftWeek').focus()};
@@ -1549,12 +1585,17 @@ $('#delNote').onclick=async()=>{if(nid&&confirm('Delete this note?')){await del(
 $('#noteContinue').onclick=async()=>{ if(!nid) return; const b=$('#noteContinue'); b.disabled=true; b.textContent='Finishing…'; toast('Finishing the note from where it stopped…');
   try{ await post(`/notes/${nid}/continue`); toast('Appended the rest'); const n=await api(`/notes/${nid}`); $('#noteBody').value=toDisplay(n.body); noteMode='read'; showNote(); loadNotes(); }catch(e){ toast('Continue failed: '+e.message) }
   b.disabled=false; b.textContent='Continue'; };
-$('#noteReconcile').onclick=async()=>{ if(!nid) return; const b=$('#noteReconcile'); clearTimeout(saveT); await put(`/notes/${nid}`,{title:$('#noteTitle').value||'Untitled',body:rawBody()});
+$('#noteReconcile').onclick=async()=>{ if(!nid) return; const b=$('#noteReconcile'); clearTimeout(saveT);
+  // Reconcile reads the note back from the server, so an unsaved edit would be silently reconciled away
+  if(!await saveNote()){ toast('Not reconciled — the note could not be saved first','warn'); return }
   if(!/^##\s+Live capture/m.test(rawBody())){ toast('No Live capture section yet — press + Lecture capture and type what was said'); return }
   b.disabled=true; b.textContent='Reconciling…'; toast('Comparing capture against the draft and files — 30–90 s');
   try{ const r=await post(`/notes/${nid}/reconcile`); nid=r.id; noteMode='read'; toast('Reconciled — original kept, corrected copy opened'); loadNotes() }catch(e){ toast('Reconcile failed: '+e.message) }
   b.disabled=false; b.textContent='Reconcile with lecture' };
-$('#noteToTutor').onclick=async()=>{if(!nid) return; clearTimeout(saveT); await put(`/notes/${nid}`,{title:$('#noteTitle').value||'Untitled',body:rawBody()}); await post(`/notes/${nid}/to-file`); toast('Snapshot added to Files — ask the tutor to reconcile it'); };
+$('#noteToTutor').onclick=async()=>{if(!nid) return; clearTimeout(saveT);
+  if(!await saveNote()){ toast('Not sent — the note could not be saved first','warn'); return }
+  try{ await post(`/notes/${nid}/to-file`); toast('Snapshot added to Files — ask the tutor to reconcile it') }
+  catch(e){ toast('Could not add the snapshot: '+e.message,'warn') } };
 
 /* recall */
 let queue=[], cur=null, flipped=false;
