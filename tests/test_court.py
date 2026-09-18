@@ -107,3 +107,57 @@ def test_a_bench_that_does_not_answer_is_still_a_502(client, pg):
                         json={"case": CASE, "question": QUESTION, "answer": "x"})
     assert r.status_code == 502
     assert pg.execute("SELECT COUNT(*) FROM cards WHERE course_id=%s", (cid,)).fetchone()[0] == 0
+
+
+# ---------------------------------------------------------------- the page half of the same gap
+#
+# The server writes the card and returns its due date; until now the page threw that away, so a
+# hearing still ended with no sign that anything had been kept. There is no JS test runner here and
+# CLAUDE.md forbids adding one, so these assert against the page source the way test_courses.py's
+# palette test does — plus one behavioural check of dueWord through node when node is present.
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+PAGE = (Path(__file__).resolve().parent.parent / "static" / "index.html").read_text(encoding="utf-8")
+
+
+def test_the_page_consumes_the_due_date_the_bench_returns():
+    """The regression itself: court_reply returns `due` and the reply handler has to act on it."""
+    handler = re.search(r"async function courtReply\(text\)\{.*?\n\}", PAGE, re.S).group(0)
+    assert "g.due" in handler, "courtReply ignores the due date, so a kept card is invisible again"
+    assert "court.kept++" in handler
+
+
+def test_the_tally_resets_with_each_hearing():
+    """kept counts one hearing. Left running, the second hearing on a case inherits the first's total."""
+    opener = re.search(r"async function openCase\(name\)\{.*?\n\}", PAGE, re.S).group(0)
+    assert "court.kept=0" in opener.replace(" ", "")
+
+
+def test_the_close_of_the_hearing_points_at_recall():
+    """Naming where the cards went is the whole point; #recall is reached through the existing nav hook."""
+    ask = re.search(r"function benchAsk\(\)\{.*?\n\}", PAGE, re.S).group(0)
+    assert 'data-nav="recall"' in ask
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node is not on this machine")
+def test_due_word_says_what_the_rest_of_the_app_says():
+    """today / tomorrow / a date, and nothing at all for a value the server never sends."""
+    fn = re.search(r"\nfunction dueWord\(iso\)\{.*?\n\}\n", PAGE, re.S).group(0)
+    script = fn + """
+const at=d=>{const x=new Date();x.setHours(0,0,0,0);x.setDate(x.getDate()+d);
+  return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`};
+console.log(JSON.stringify([dueWord(at(0)),dueWord(at(1)),dueWord(at(9)),dueWord(at(-3)),dueWord(''),dueWord('nonsense')]));
+"""
+    out = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+    assert out.returncode == 0, out.stderr
+    today, tomorrow, later, overdue, empty, junk = json.loads(out.stdout)
+    assert today == "due today"
+    assert tomorrow == "due tomorrow"
+    assert re.fullmatch(r"due \d{1,2} \w+", later), later
+    assert overdue == "due today", "an overdue card is due now, not 'due -3 days'"
+    assert empty == "" and junk == "", "a missing or unreadable date must render nothing, not 'Invalid Date'"
