@@ -7,7 +7,8 @@ stood before this change — that is the point of writing them.
 import re
 from pathlib import Path
 
-PAGE = (Path(__file__).resolve().parent.parent / "static" / "index.html").read_text(encoding="utf-8")
+PAGE = (lambda s: s("index.html") + s("app.js") + s("app.css") + s("book.css"))(
+    lambda n: (Path(__file__).resolve().parent.parent / "static" / n).read_text(encoding="utf-8"))
 
 
 def test_the_bubble_class_the_scoping_defends_against_is_still_written():
@@ -24,7 +25,8 @@ def test_the_screen_layouts_cannot_catch_chat_bubbles():
     layout, and in focus mode a height of calc(100vh - 4.4rem) as well. The layout div is a direct
     child of .screen; the bubbles are not, so `>` is what separates them.
     """
-    css = re.sub(r"/\*.*?\*/", "", re.search(r"<style>(.*?)</style>", PAGE, re.S).group(1), flags=re.S)
+    css = re.sub(r"/\*.*?\*/", "", (lambda s: s("app.css") + s("book.css"))(
+        lambda n: (Path(__file__).resolve().parent.parent / "static" / n).read_text(encoding="utf-8")), flags=re.S)
     for m in re.finditer(r"\.tutor\b", css):
         at = m.start()
         start = max(css.rfind("{", 0, at), css.rfind("}", 0, at)) + 1

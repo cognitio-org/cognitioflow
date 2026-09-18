@@ -113,7 +113,7 @@ def test_normalise_brief_validation():
 
 
 def test_palette_avoids_blackstone_tab_colours():
-    html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+    html = (ROOT / "static" / "app.js").read_text(encoding="utf-8")  # const TABS moved here with the split
     tabs = re.findall(r'\["(#[0-9a-f]{6})","[A-Z]', re.search(r"const TABS=\[(.*?)\];", html).group(1))
     assert tabs == cb.TAB_COLOURS
     rgb = lambda h: tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))
