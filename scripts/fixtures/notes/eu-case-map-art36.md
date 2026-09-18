@@ -5,16 +5,16 @@
 ●● One row per case. Cover the Rule column and work down it — that is the whole revision method
 for this topic. [WG]
 
-| Case | Ground argued | Measure | Outcome | Rule it gives you |
-| --- | --- | --- | --- | --- |
-| *Henn and Darby* | Public morality | Import ban on pornography | Upheld | The state sets its own moral standard |
-| *Conegate* | Public morality | Import ban on inflatable dolls | Failed | Not available where domestic trade is permitted |
-| *Cassis de Dijon* | Consumer protection | Minimum alcohol content | Failed | Labelling is the less restrictive alternative |
-| *Danish Bottles* | Environment | Deposit-and-return scheme | Partly upheld | Environmental protection is a mandatory requirement |
-| *Commission v Denmark* | Public health | Ban on vitamin additives | Failed | Real risk must be shown on the evidence |
-| *Schmidberger* | Fundamental rights | Motorway closed for a protest | Upheld | Rights can be balanced against free movement |
-| *Commission v Italy (Statistical Levy)* | — | Levy on exports | Unlawful | Art 30 has no justification route |
-| *De Agostini* | Consumer protection | Advertising ban aimed at children | Caught | *Keck*'s "in fact" limb has teeth |
+| Case | Citation | Ground argued | Measure | Outcome | Rule it gives you |
+| --- | --- | --- | --- | --- | --- |
+| *Henn and Darby* | 34/79 | Public morality | Import ban on pornography | Upheld | The state sets its own moral standard |
+| *Conegate* | 121/85 | Public morality | Import ban on inflatable dolls | Failed | Not available where domestic trade is permitted |
+| *Cassis de Dijon* | 120/78 | Consumer protection | Minimum alcohol content | Failed | Labelling is the less restrictive alternative |
+| *Danish Bottles* | 302/86 | Environment | Deposit-and-return scheme | Partly upheld | Environmental protection is a mandatory requirement |
+| *Commission v Denmark* | C-192/01 | Public health | Ban on vitamin additives | Failed | Real risk must be shown on the evidence |
+| *Schmidberger* | C-112/00 | Fundamental rights | Motorway closed for a protest | Upheld | Rights can be balanced against free movement |
+| *Commission v Italy (Statistical Levy)* | 24/68 | — | Levy on exports | Unlawful | Art 30 has no justification route |
+| *De Agostini* | C-34/95 | Consumer protection | Advertising ban aimed at children | Caught | *Keck*'s "in fact" limb has teeth |
 
 ## What the table hides
 

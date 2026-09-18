@@ -197,6 +197,27 @@
   body.focus .timer{opacity:.4} body.focus .timer:hover{opacity:1}
   #caseIndex{columns:2;column-gap:2rem;margin-top:.5rem} #caseIndex .ci{break-inside:avoid;padding:.35rem 0;border-bottom:1px solid var(--faint)} #caseIndex .ci a{display:inline-flex;align-items:center;min-height:var(--tap);cursor:pointer} #caseIndex .ci b{font-family:var(--serif);font-weight:500} #caseIndex .ci .cc{color:var(--graphite)} #caseIndex .ci a{color:var(--accent);cursor:pointer}
   @media(max-width:1300px){#caseIndex{columns:1}}
+  /* case timeline — the same case index, read as chronology. A rail for time, the year in the serif
+     used for content, the accent only where it marks a position on that rail. Undated cases keep the
+     rail but lose the dot: they are listed, not placed. */
+  #caseTimeline .tline{margin:.6rem 0 0;padding:0;list-style:none}
+  #caseTimeline .tyear{display:grid;grid-template-columns:4.25rem minmax(0,1fr);gap:0 1rem}
+  /* sticky: the undated group runs to twenty-odd cases, and a group you have scrolled into the
+     middle of has to still say which year — or whether it has one — without scrolling back */
+  #caseTimeline .ty{font-family:var(--serif);font-size:1.05rem;font-variant-numeric:tabular-nums;text-align:right;padding-top:.1rem;position:sticky;top:.35rem;align-self:start}
+  #caseTimeline .tcases{border-left:1px solid var(--rule);padding:0 0 1rem 1.05rem;position:relative}
+  #caseTimeline .tyear:last-child .tcases{padding-bottom:0}
+  #caseTimeline .tcases::before{content:"";position:absolute;left:-4px;top:.5rem;width:7px;height:7px;border-radius:50%;background:var(--accent)}
+  #caseTimeline .tc{padding:.15rem 0 .35rem}
+  #caseTimeline .tc b{font-family:var(--serif);font-weight:500}
+  #caseTimeline .tc .cc{color:var(--graphite)}
+  #caseTimeline .tc .tn{display:block;color:var(--graphite);font-size:.82rem}
+  #caseTimeline .tc .tn a{color:var(--accent);cursor:pointer;display:inline-flex;align-items:center;min-height:var(--tap)}
+  #caseTimeline .undated .ty{font-family:var(--sans);font-size:.78rem;line-height:1.3;color:var(--graphite);padding-top:.35rem}
+  #caseTimeline .undated .tcases{border-left-style:dashed}
+  #caseTimeline .undated .tcases::before{background:var(--paper);border:1px solid var(--rule-strong);left:-5px}
+  #caseTimeline .tnote{margin:0 0 .6rem;color:var(--graphite)}
+  @media(max-width:1300px){#caseTimeline .tyear{grid-template-columns:3.4rem minmax(0,1fr);gap:0 .7rem} #caseTimeline .ty{font-size:.98rem}}
   .addform{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem}
   .agenda{display:flex;flex-direction:column;gap:1.1rem;max-width:760px}
   .day{border:1px solid var(--rule);border-radius:var(--r);overflow:hidden;background:var(--paper)}
@@ -625,7 +646,10 @@
     <div class="panel stat"><div class="n" id="p-q">–</div><div class="l">Tutor questions</div></div>
   </div>
   <div class="panel bar"><div class="small muted">Recommended</div><h3 id="p-next"></h3></div>
-  <div class="panel" style="margin-top:1rem"><div style="display:flex;justify-content:space-between;align-items:baseline"><h3>Case index</h3><span class="small muted">every case across your notes · your tabbing checklist</span></div><div id="caseIndex" class="small"></div></div>
+  <div class="panel" style="margin-top:1rem"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap"><h3>Case index</h3>
+      <span class="seg" role="group" aria-label="Order the case index" title="A–Z to tab the statute book; by year to read the doctrine as it developed"><button class="btn small" data-caseview="az" aria-pressed="true">A–Z</button><button class="btn small" data-caseview="year">By year</button></span></div>
+    <div class="small muted" id="caseSub">every case across your notes · your tabbing checklist</div>
+    <div id="caseIndex" class="small"></div><div id="caseTimeline" class="small" hidden></div></div>
 </section>
 </main>
 </div>
@@ -1781,6 +1805,35 @@ $('#addSession').onclick=async()=>{const t=$('#sTopic').value.trim(); if(!t){toa
 async function loadCaseIndex(){ const el=$('#caseIndex'); try{ const cs=await api(`/courses/${cid}/cases`); if(!cs.length){el.innerHTML='<div class="muted">No cases yet — they appear once your notes name cases in *italics*.</div>';return}
     el.innerHTML=cs.map(c=>`<div class="ci"><b>${esc(c.name)}</b>${c.cite?` <span class="cc">${esc(c.cite)}</span>`:''} — ${c.notes.map(n=>`<a data-note="${n.id}">${esc(n.title)}</a>`).join(', ')}</div>`).join('');
     el.querySelectorAll('a[data-note]').forEach(a=>a.onclick=()=>{nid=a.dataset.note;noteMode='read';show('notes')}); keyable(el); }catch(e){ el.textContent='' } }
+
+/* The case index, read as chronology. Van Gend → Costa → Simmenthal is a sentence; A–Z is a filing
+   cabinet. Same cases, same note links — only the order and the grouping differ, and the years come
+   from the citations already written in the notes, never from what the model remembers about a case.
+   Which order you last chose is a view preference, so localStorage is where it belongs. */
+let caseView = localStorage.getItem('cf.caseView')==='year' ? 'year' : 'az';
+const CASE_SUB = {az:'every case across your notes · your tabbing checklist',
+                  year:'in the order the doctrine happened · years read off the citations you wrote'};
+function loadCaseView(){
+  document.querySelectorAll('[data-caseview]').forEach(b=>b.setAttribute('aria-pressed', b.dataset.caseview===caseView));
+  $('#caseSub').textContent=CASE_SUB[caseView];
+  $('#caseIndex').hidden = caseView!=='az'; $('#caseTimeline').hidden = caseView!=='year';
+  return caseView==='year' ? loadCaseTimeline() : loadCaseIndex();
+}
+document.querySelectorAll('[data-caseview]').forEach(b=>b.onclick=()=>{
+  caseView=b.dataset.caseview; localStorage.setItem('cf.caseView',caseView); loadCaseView(); });
+function tlCase(c){ return `<div class="tc"><b>${esc(c.name)}</b>${c.cite?` <span class="cc">${esc(c.cite)}</span>`:''}`
+  +`<span class="tn">${c.notes.map(n=>`<a data-note="${n.id}">${esc(n.title)}</a>`).join(', ')}</span></div>` }
+async function loadCaseTimeline(){ const el=$('#caseTimeline');
+  try{ const t=await api(`/courses/${cid}/timeline`);
+    if(!t.total){ el.innerHTML='<div class="muted">No cases yet — they appear once your notes name cases in *italics*.</div>'; return }
+    const ls=t.groups.map(g=>`<li class="tyear"><span class="ty">${g.year}</span><div class="tcases">${g.cases.map(tlCase).join('')}</div></li>`);
+    if(t.undated.length) ls.push(`<li class="tyear undated"><span class="ty">No year<br>written</span><div class="tcases">${t.undated.map(tlCase).join('')}</div></li>`);
+    const dated=t.total-t.undated.length;
+    const head=(t.span?`${t.span.from}–${t.span.to} · ${dated} case${dated===1?'':'s'} placed`:'No case in your notes carries a year yet')
+      +(t.undated.length?` · ${t.undated.length} with no year written down, listed at the end`:'');
+    el.innerHTML=`<p class="tnote">${head}</p><ol class="tline">${ls.join('')}</ol>`;
+    el.querySelectorAll('a[data-note]').forEach(a=>a.onclick=()=>{nid=a.dataset.note;noteMode='read';show('notes')}); keyable(el);
+  }catch(e){ el.innerHTML='<div class="muted">Could not read your cases.</div>' } }
 /* ---- study timer ---- */
 let tStart=+(localStorage.getItem('cf.tStart')||0), tInt=null;
 function tShow(){ const on=tStart>0; $('#timer').classList.toggle('running',on); $('#timerBtn').hidden=on; $('#timerClock').hidden=!on; $('#timerStop').hidden=!on;
@@ -1790,7 +1843,7 @@ $('#timerStop').onclick=async()=>{ const mins=Math.max(1,Math.round((Date.now()-
   try{ await post(`/courses/${cid}/sessions/log`,{minutes:mins,topic}); toast(`Logged ${mins} min`) }catch(e){ toast('Could not log: '+e.message) }
   tStart=0; localStorage.removeItem('cf.tStart'); clearInterval(tInt); tInt=null; tShow(); if(document.querySelector('#progress.active')) loadProgress(); };
 if(tStart>0){ tInt=setInterval(tShow,1000); } tShow();
-async function loadProgress(){ loadCaseIndex(); const s=await api(`/courses/${cid}/stats`); $('#progSub').textContent=C().name; $('#p-cards').textContent=`${s.cards} (${s.retained})`; $('#p-reviews').textContent=s.reviews; $('#p-time').textContent=(s.study_minutes/60).toFixed(1)+' h'; $('#p-q').textContent=s.questions_asked;
+async function loadProgress(){ loadCaseView(); const s=await api(`/courses/${cid}/stats`); $('#progSub').textContent=C().name; $('#p-cards').textContent=`${s.cards} (${s.retained})`; $('#p-reviews').textContent=s.reviews; $('#p-time').textContent=(s.study_minutes/60).toFixed(1)+' h'; $('#p-q').textContent=s.questions_asked;
   $('#p-next').textContent=s.due?`Clear ${s.due} due cards`:(s.cards<10?'Build the deck to at least 10 cards':(s.recall_accuracy!=null&&s.recall_accuracy<70?'Accuracy under 70% — drill the weak cards with the tutor':'Ask the tutor for an IRAC case question'));}
 
 /* init */
