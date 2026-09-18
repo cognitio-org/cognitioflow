@@ -207,7 +207,11 @@ def index(): return FileResponse(ROOT / "static" / "index.html")
 
 @app.get("/health")
 @app.get("/healthz")  # local only: Cloud Run reserves paths ending in z and answers /healthz with its own 404
-def healthz(): return {"ok": True}
+def healthz():
+    # CF_COMMIT is set at deploy time from the git SHA. Without it there is no way to
+    # tell what is actually running: the predecessor app (ALLMS) drifted six months
+    # behind main and nobody noticed, because its health endpoint never said.
+    return {"ok": True, "commit": os.environ.get("CF_COMMIT", "dev")}
 
 @app.get("/api/config")
 def config(user: dict = Depends(current_user)): return {"email": user["email"], "model": MODEL, "cheap_model": CHEAP_MODEL, "strong_model": STRONG_MODEL, "models": MODELS,
