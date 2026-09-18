@@ -1466,17 +1466,44 @@ def search(cid: str, q: str, limit: int = 20):
 
 # ---------------------------------------------------------------- case index (Progress screen)
 _CITE = re.compile(r"\b(?:Case\s+)?(?:[CT]-\d{1,4}/\d{2}|\d{1,3}/\d{2})\b|\bECLI:[A-Z]{2}:[A-Z]+:\d{4}:\d+")
+_ECLI_YEAR = re.compile(r"\bECLI:[A-Z]{2}:[A-Z]+:(\d{4}):")
+_YEAR4 = re.compile(r"(?<!\d)(1[5-9]\d\d|20\d\d)(?!\d)")
+_DOCKET_YEAR = re.compile(r"(?<![\w/])(?:[CTF]-)?\d{1,4}/(\d{2})(?!\d)")
+_YEAR_BRACKET = re.compile(r"[\[(](1[5-9]\d\d|20\d\d)[\])]")
 
-@app.get("/api/courses/{cid}/cases")
-def case_index(cid: str):
+def _year_in(text, docket=True):
+    """The year as the notes write it, or None. Three readings, in order of how explicit they are:
+    the year field of an ECLI, a four-figure year ([1963] ECR 1), and — only where a citation is what
+    we are reading — the year in an EU case number (26/62 -> 1962; the Court opened in 1953, so two
+    figures under 50 are 20xx). Nothing else: a year the model happens to know about a case is not a
+    year the course wrote down, and an unread year leaves the case undated rather than placed."""
+    t = (text or "").strip()
+    if not t: return None
+    m = _ECLI_YEAR.search(t) or _YEAR4.search(t)
+    if m: return int(m.group(1))
+    if docket:
+        m = _DOCKET_YEAR.search(t)
+        if m:
+            yy = int(m.group(1))
+            return 1900 + yy if yy >= 50 else 2000 + yy
+    return None
+
+def _year_beside(text):
+    """A year written in brackets right after a case name — *Cassis de Dijon* (1979). Bracketed only:
+    a loose four-figure number in running prose is as likely to be an article or a treaty year."""
+    m = _YEAR_BRACKET.search(text or "")
+    return int(m.group(1)) if m else None
+
+def _cases_in_notes(cid: str):
     """Cases named in the course's notes: *italic* names (house style) and the Case column of case-map tables,
-    with the first citation seen and every note that mentions them. No model."""
+    with the first citation seen, the year that citation carries, and every note that mentions them. No model."""
     found = {}
-    def add(name, cite, n):
+    def add(name, cite, n, year=None):
         name = re.sub(r"\s+", " ", name).strip(" *_.,;:")
         if not name or not name[0].isupper() or len(name) > 80 or len(name.split()) > 8: return
-        c = found.setdefault(name.casefold(), {"name": name, "cite": "", "notes": []})
+        c = found.setdefault(name.casefold(), {"name": name, "cite": "", "year": None, "notes": []})
         if cite and not c["cite"]: c["cite"] = cite.strip()
+        if year and not c["year"]: c["year"] = year
         if all(x["id"] != n["id"] for x in c["notes"]): c["notes"].append({"id": n["id"], "title": n["title"]})
     for n in rows("SELECT id,title,body FROM notes WHERE course_id=? ORDER BY updated DESC", cid):
         body = n["body"] or ""; lines = body.splitlines()
@@ -1486,14 +1513,43 @@ def case_index(cid: str):
             ci = next((k for k, h in enumerate(head) if "case" in h), None)
             if ci is None: continue
             cc = next((k for k, h in enumerate(head) if "citation" in h or h.startswith("cite")), None)
+            cy = next((k for k, h in enumerate(head) if "year" in h or h == "date"), None)   # an explicit column beats reading the citation
             j = i + 2
             while j < len(lines) and lines[j].lstrip().startswith("|"):
                 row = [c.strip() for c in lines[j].strip().strip("|").split("|")]; j += 1
-                if len(row) == len(head) and row[ci]: add(row[ci], row[cc] if cc is not None else "", n)
+                if len(row) != len(head) or not row[ci]: continue
+                cite = row[cc] if cc is not None else ""
+                add(row[ci], cite, n, (_year_in(row[cy]) if cy is not None else None) or _year_in(cite))
         for m in re.finditer(r"(?<![*\w])\*(?![*\s])([^*\n]{1,80}?)(?<!\s)\*(?![*\w])", body):
-            cm = _CITE.search(body[m.end():m.end() + 60])
-            add(m.group(1), cm.group(0) if cm else "", n)
-    return sorted(found.values(), key=lambda c: c["name"].casefold())
+            tail = body[m.end():m.end() + 60]
+            cm = _CITE.search(tail)
+            cite = cm.group(0) if cm else ""
+            # no citation to read: a bracketed (1979) written beside the name still counts, but a loose
+            # "12/34" in running prose does not — that is a paragraph number as often as a year.
+            add(m.group(1), cite, n, _year_in(cite) or _year_beside(tail))
+    return found
+
+@app.get("/api/courses/{cid}/cases")
+def case_index(cid: str):
+    """Every case the notes name, A-Z. `year` is the year the citation carries, or null."""
+    return sorted(_cases_in_notes(cid).values(), key=lambda c: c["name"].casefold())
+
+@app.get("/api/courses/{cid}/timeline")
+def case_timeline(cid: str):
+    """The same cases, in the order the doctrine happened: Van Gend -> Costa -> Simmenthal is a sentence,
+    and reading it in the order someone happened to type the notes loses the argument. Years come from the
+    citations in the notes (see _year_in); a case whose notes carry no year is grouped as undated and said
+    to be undated, never slotted in by guess and never dropped. Cases within a year are A-Z, so two cases
+    of the same year hold their order across reloads."""
+    cases = list(_cases_in_notes(cid).values())
+    dated = sorted((c for c in cases if c["year"]), key=lambda c: (c["year"], c["name"].casefold()))
+    undated = sorted((c for c in cases if not c["year"]), key=lambda c: c["name"].casefold())
+    groups = []
+    for c in dated:
+        if not groups or groups[-1]["year"] != c["year"]: groups.append({"year": c["year"], "cases": []})
+        groups[-1]["cases"].append(c)
+    return {"groups": groups, "undated": undated, "total": len(cases),
+            "span": {"from": dated[0]["year"], "to": dated[-1]["year"]} if dated else None}
 
 # ---------------------------------------------------------------- offline: recordings, cards from case map
 @app.post("/api/notes/{nid}/recordings/start")
@@ -2113,9 +2169,39 @@ def del_session(sid: str):
     with db() as d: d.execute("DELETE FROM sessions WHERE id=?", (sid,))
     return {"ok": True}
 
+# ---------------------------------------------------------------- the day streak (Phase 15)
+STREAK_FREEZE_WINDOW = 7   # a missed day is forgiven only when the seven days before it were unbroken
+
+def streak_days(days: set, today: date):
+    """The day streak, derived from `reviews` alone, surviving one earned missed day.
+
+    `days` is the set of ISO dates a review happened on — the dates `reviews` already uses, and
+    `today` is the same notion of today the rest of stats() runs on; there is no second one.
+
+    Today is still in progress, so a today with no review yet is neither a hit nor a gap: the walk
+    starts at yesterday, and no freeze is ever spent on a day that can still be redeemed. A *closed*
+    day with no review is forgiven exactly when the seven days before it were all study days. That
+    single condition is also what breaks the run on a second gap inside the same seven days, and on
+    any two missed days in a row, however long the run before them: two freezes can never land less
+    than eight days apart, because a freeze needs seven unbroken days behind it.
+
+    Returns (streak, frozen): the days actually studied in the current run, and the forgiven days
+    inside it, oldest first. No reviews at all is (0, []) — not 1, and not a crash.
+    """
+    if not days: return 0, []
+    earliest, streak, frozen = min(days), 0, []
+    cur = today if today.isoformat() in days else today - timedelta(days=1)   # today is not yet a missed day
+    while cur.isoformat() >= earliest:
+        if cur.isoformat() in days: streak += 1
+        elif all((cur - timedelta(days=k)).isoformat() in days for k in range(1, STREAK_FREEZE_WINDOW + 1)): frozen.append(cur.isoformat())
+        else: break
+        cur -= timedelta(days=1)
+    return streak, frozen[::-1]
+
+
 @app.get("/api/courses/{cid}/stats")
 def stats(cid: str):
-    today = date.today().isoformat()
+    day0 = date.today(); today = day0.isoformat()
     with db() as d:
         total    = d.execute("SELECT COUNT(*) AS n FROM cards WHERE course_id=?", (cid,)).fetchone()["n"]
         due      = d.execute("SELECT COUNT(*) AS n FROM cards WHERE course_id=? AND due<=?", (cid, today)).fetchone()["n"]
@@ -2124,14 +2210,13 @@ def stats(cid: str):
         files_n  = d.execute("SELECT COUNT(*) AS n, COALESCE(SUM(chars),0) AS total_chars FROM files WHERE course_id=?", (cid,)).fetchone()
         minutes  = d.execute("SELECT COALESCE(SUM(minutes),0) AS n FROM sessions WHERE course_id=? AND done=1", (cid,)).fetchone()["n"]
         msgs     = d.execute("SELECT COUNT(*) AS n FROM messages WHERE course_id=? AND role='user'", (cid,)).fetchone()["n"]
-    days = sorted({date.fromtimestamp(r["created"]).isoformat() for r in reviews}, reverse=True)
-    streak, d0 = 0, date.today()
-    for dd in days:
-        if dd == d0.isoformat(): streak += 1; d0 -= timedelta(days=1)
-        else: break
+        streak, frozen = streak_days({date.fromtimestamp(r["created"]).isoformat() for r in reviews}, day0)
+        for iso in frozen:   # the ledger: the missed days this streak was kept alive across, recorded once each
+            d.execute("INSERT INTO streak_freezes(course_id,day,created) VALUES(?,?,?) ON CONFLICT DO NOTHING", (cid, iso, time.time()))
     acc = round(100 * sum(1 for r in reviews if r["rating"] >= 2) / len(reviews)) if reviews else None
     return {"cards": total, "due": due, "retained": retained, "reviews": len(reviews), "recall_accuracy": acc,
-            "streak": streak, "files": files_n["n"], "file_chars": files_n["total_chars"], "study_minutes": minutes, "questions_asked": msgs}
+            "streak": streak, "streak_frozen": frozen,
+            "files": files_n["n"], "file_chars": files_n["total_chars"], "study_minutes": minutes, "questions_asked": msgs}
 
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 class PlayerFiles(StaticFiles):

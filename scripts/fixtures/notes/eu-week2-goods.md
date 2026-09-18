@@ -31,13 +31,13 @@ be sold fall outside Art 34 provided they apply to all traders and affect domest
 goods in the same way, in law and in fact. [LECTURE] ?? check whether Villanueva still teaches
 the "in fact" limb as a separate step
 
-| Case | Measure | Caught? | Rule it gives you |
-| --- | --- | --- | --- |
-| *Dassonville* | Certificate of origin for Scotch whisky | Yes | The formula: capable of hindering trade |
-| *Cassis de Dijon* | Minimum alcohol content for liqueurs | Yes | Mutual recognition; mandatory requirements |
-| *Keck* | Ban on resale at a loss | No | Selling arrangements fall outside Art 34 |
-| *Italian Trailers* | Ban on trailers towed by motorcycles | Yes | Market access test extends past Keck |
-| *Mickelsson and Roos* | Restrictions on jet-ski use | Yes | Use restrictions can hinder access |
+| Case | Citation | Measure | Caught? | Rule it gives you |
+| --- | --- | --- | --- | --- |
+| *Dassonville* | 8/74 | Certificate of origin for Scotch whisky | Yes | The formula: capable of hindering trade |
+| *Cassis de Dijon* | 120/78 | Minimum alcohol content for liqueurs | Yes | Mutual recognition; mandatory requirements |
+| *Keck* | C-267/91 | Ban on resale at a loss | No | Selling arrangements fall outside Art 34 |
+| *Italian Trailers* | C-110/05 | Ban on trailers towed by motorcycles | Yes | Market access test extends past Keck |
+| *Mickelsson and Roos* | C-142/05 | Restrictions on jet-ski use | Yes | Use restrictions can hinder access |
 
 ## Step two — can it be justified?
 

@@ -54,6 +54,71 @@ def test_case_index_empty_course(client):
     assert client.get(f"/api/courses/{cid}/cases").json() == []
 
 
+# ---------------------------------------------------------------- Phase 16: the case law, in order
+def _timeline_note(client, cid):
+    return client.post(f"/api/courses/{cid}/notes", json={"title": "Supremacy", "body":
+        "1. **Direct effect** — *Van Gend en Loos* (26/62) [LECTURE]\n"
+        "2. **Primacy** — *Costa v ENEL* (6/64) [LECTURE]\n"
+        "3. **Set aside** — *Simmenthal* (106/77) [WG]\n"
+        "4. **Read together with** *Factortame* (ECLI:EU:C:1990:257) [WG]\n"
+        "5. *Melloni* is on the reading list but I never wrote its citation down [SLIDES]\n\n"
+        "| Case | Citation | Year | Rule |\n|---|---|---|---|\n"
+        "| *Cassis de Dijon* | 120/78 | 1979 | mandatory requirements |\n"}).json()["id"]
+
+
+def test_cases_carry_the_year_the_notes_wrote(client):
+    """The year is read off the citation as written — ECLI, a four-figure year, or the year in an EU
+    case number. A case the notes never dated stays undated: the model's own memory is not a source."""
+    cid = _cid(client)
+    _timeline_note(client, cid)
+    by = {c["name"]: c for c in client.get(f"/api/courses/{cid}/cases").json()}
+    assert by["Van Gend en Loos"]["year"] == 1962
+    assert by["Costa v ENEL"]["year"] == 1964
+    assert by["Simmenthal"]["year"] == 1977
+    assert by["Factortame"]["year"] == 1990          # ECLI year field
+    assert by["Cassis de Dijon"]["year"] == 1979     # the table's own Year column, not 1978 from 120/78
+    assert by["Melloni"]["year"] is None             # a famous case, and still undated here
+
+
+def test_timeline_orders_by_year_and_groups_the_undated(client):
+    cid = _cid(client)
+    _timeline_note(client, cid)
+    t = client.get(f"/api/courses/{cid}/timeline").json()
+    assert [g["year"] for g in t["groups"]] == [1962, 1964, 1977, 1979, 1990]
+    assert [c["name"] for g in t["groups"] for c in g["cases"]] == [
+        "Van Gend en Loos", "Costa v ENEL", "Simmenthal", "Cassis de Dijon", "Factortame"]
+    assert [c["name"] for c in t["undated"]] == ["Melloni"]     # listed, not interleaved by guess
+    assert t["span"] == {"from": 1962, "to": 1990} and t["total"] == 6
+    # the note it came from is reachable from the timeline, as it is from the A-Z index
+    assert all(c["notes"] for g in t["groups"] for c in g["cases"])
+
+
+def test_timeline_same_year_keeps_a_stable_order(client):
+    cid = _cid(client)
+    client.post(f"/api/courses/{cid}/notes", json={"title": "1974", "body":
+        "*Reyners* (2/74) and *Dassonville* (8/74) and *Van Binsbergen* (33/74) [WG]"})
+    seen = [[c["name"] for c in client.get(f"/api/courses/{cid}/timeline").json()["groups"][0]["cases"]]
+            for _ in range(3)]
+    assert seen[0] == ["Dassonville", "Reyners", "Van Binsbergen"] and seen[1] == seen[0] == seen[2]
+
+
+def test_timeline_of_a_course_with_no_cases_is_empty_not_an_error(client):
+    cid = client.post("/api/courses", json={"name": "Empty"}).json()["id"]
+    r = client.get(f"/api/courses/{cid}/timeline")
+    assert r.status_code == 200
+    assert r.json() == {"groups": [], "undated": [], "total": 0, "span": None}
+
+
+def test_timeline_holds_the_case_index_line_on_outside_files(client):
+    """[OUTSIDE FILES] on a new surface: only what the course wrote down gets on the timeline."""
+    cid = _cid(client)
+    client.post(f"/api/courses/{cid}/notes", json={"title": "Goods", "body": "*Keck* (C-267/91) [WG]"})
+    t = client.get(f"/api/courses/{cid}/timeline").json()
+    names = {c["name"] for g in t["groups"] for c in g["cases"]} | {c["name"] for c in t["undated"]}
+    assert names == {"Keck"}          # not Cassis, not Dassonville — the notes never name them
+    assert t["groups"][0]["year"] == 1991
+
+
 # ---------------------------------------------------------------- model-backed routes (fake client)
 import json
 import pathlib
@@ -667,6 +732,118 @@ def test_infer_weeks_is_untouched_by_the_syllabus_routes(client, fake):
     assert fc.calls[0]["model"] == run.CHEAP_MODEL
     weeks = {f["id"]: f["week"] for f in client.get(f"/api/courses/{cid}/files").json()}
     assert (weeks[w2], weeks[rd]) == ("2", "4")
+# ---------------------------------------------------------------- the day streak survives one missed day (Phase 15)
+from datetime import datetime, time as _time_of_day
+
+
+def _reviewed_on(pg, kid, *day_offsets):
+    """Write one review per offset (days back from today), at noon so the epoch round-trips to that
+    same date through date.fromtimestamp() whatever the local offset or a DST change does."""
+    for n, off in enumerate(day_offsets):
+        ts = datetime.combine(date.today() - timedelta(days=off), _time_of_day(12, 0)).timestamp()
+        pg.execute("INSERT INTO reviews(id,card_id,rating,created) VALUES(%s,%s,2,%s)", (f"rv-{off}-{n}", kid, ts))
+    pg.commit()
+
+
+def _day(off):
+    return (date.today() - timedelta(days=off)).isoformat()
+
+
+def _streak(client, cid):
+    s = client.get(f"/api/courses/{cid}/stats").json()
+    return s["streak"], s["streak_frozen"]
+
+
+def _ledger(pg, cid):
+    return [r[0] for r in pg.execute("SELECT day FROM streak_freezes WHERE course_id=%s ORDER BY day", (cid,)).fetchall()]
+
+
+def test_streak_pure_function_boundaries_without_todays_date():
+    """The rule itself, against a fixed 'today' so the assertions never move with the calendar."""
+    from run import streak_days
+    today = date(2026, 3, 10)
+    iso = lambda off: (today - timedelta(days=off)).isoformat()
+    days = lambda *offs: {iso(o) for o in offs}
+
+    assert streak_days(set(), today) == (0, [])                       # no reviews at all: 0, not 1
+    assert streak_days(days(0), today) == (1, [])
+    assert streak_days(days(1, 2, 3), today) == (3, [])               # today still open: not a gap, no freeze
+    # one gap, seven unbroken days behind it: forgiven, and the forgiven day is named
+    assert streak_days(days(0, 2, 3, 4, 5, 6, 7, 8), today) == (8, [iso(1)])
+    # the same gap with only six days behind it: not earned
+    assert streak_days(days(0, 2, 3, 4, 5, 6, 7), today) == (1, [])
+    # two missed days in a row, thirty clean days behind them: always breaks
+    assert streak_days(days(0, *range(3, 33)), today) == (1, [])
+    # a second gap inside the same seven days breaks it; filling that day in forgives the first gap
+    assert streak_days(days(0, 1, 2, 4, 5, 7, 8, 9, 10), today) == (3, [])
+    assert streak_days(days(0, 1, 2, 4, 5, 6, 7, 8, 9, 10), today) == (10, [iso(3)])
+
+
+def test_streak_survives_one_missed_day_after_seven_clean_ones(client, pg):
+    cid = _cid(client)
+    kid = _card(client, cid, "Dassonville?", "All trading rules capable of hindering trade")
+    _reviewed_on(pg, kid, 0, 2, 3, 4, 5, 6, 7, 8)     # missed the day before yesterday only
+    assert _streak(client, cid) == (8, [_day(1)])
+    assert _ledger(pg, cid) == [_day(1)]              # the freeze is recorded, not just implied
+
+
+def test_streak_freeze_is_consumed_once_and_re_reads_the_same(client, pg):
+    cid = _cid(client)
+    kid = _card(client, cid, "Keck?", "Selling arrangements")
+    _reviewed_on(pg, kid, 0, 2, 3, 4, 5, 6, 7, 8)
+    first = _streak(client, cid)
+    for _ in range(3):
+        assert _streak(client, cid) == first          # same gap, re-evaluated: same answer every time
+    assert _ledger(pg, cid) == [_day(1)]              # and one ledger row, not four
+
+
+def test_a_second_gap_in_the_same_seven_days_breaks_the_streak(client, pg):
+    cid = _cid(client)
+    kid = _card(client, cid, "Cassis?", "Mandatory requirements")
+    _reviewed_on(pg, kid, 0, 1, 2, 4, 5, 7, 8, 9, 10)  # gaps three and six days back
+    assert _streak(client, cid) == (3, [])
+    assert _ledger(pg, cid) == []
+    _reviewed_on(pg, kid, 6)                           # fill the second gap: the first one is now earned
+    assert _streak(client, cid) == (10, [_day(3)])
+    assert _ledger(pg, cid) == [_day(3)]
+
+
+def test_two_missed_days_in_a_row_always_break_it(client, pg):
+    cid = _cid(client)
+    kid = _card(client, cid, "Gebhard?", "Four-condition test")
+    _reviewed_on(pg, kid, *range(0, 5), *range(7, 40))  # 33 unbroken days behind two missed in a row
+    assert _streak(client, cid) == (5, [])
+    assert _ledger(pg, cid) == []
+
+
+def test_today_not_studied_yet_costs_neither_the_streak_nor_a_freeze(client, pg):
+    cid = _cid(client)
+    kid = _card(client, cid, "Art 34?", "Quantitative restrictions and MEQRs")
+    _reviewed_on(pg, kid, 1, 2, 3, 4, 5, 6, 7, 8)     # yesterday back, nothing today
+    assert _streak(client, cid) == (8, [])            # today is still open, so it is not a missed day
+    assert _ledger(pg, cid) == []                     # no freeze spent on a day that can still be redeemed
+
+
+def test_no_reviews_is_zero_and_no_ledger_row(client, pg):
+    cid = _cid(client)
+    _card(client, cid, "Never drilled", "Nothing yet")
+    s = client.get(f"/api/courses/{cid}/stats").json()
+    assert (s["streak"], s["streak_frozen"]) == (0, [])
+    empty = client.post("/api/courses", json={"name": "Brand new"}).json()["id"]
+    assert _streak(client, empty) == (0, [])
+    assert _ledger(pg, cid) == [] and _ledger(pg, empty) == []
+
+
+def test_the_streak_is_derived_and_no_table_stores_a_counter(client, pg):
+    cid = _cid(client)
+    kid = _card(client, cid, "Keck?", "Selling arrangements")
+    _reviewed_on(pg, kid, 0, 1, 2)
+    assert _streak(client, cid)[0] == 3
+    pg.execute("DELETE FROM reviews WHERE id='rv-1-1'"); pg.commit()   # nothing else to update
+    assert _streak(client, cid)[0] == 1
+    cols = pg.execute("SELECT table_name, column_name FROM information_schema.columns "
+                      "WHERE table_schema='public' AND column_name LIKE '%streak%'").fetchall()
+    assert cols == []                                                   # the ledger stores days, never a count
 def test_oral_bank_builds_from_ticked_files_without_a_file_id(client, fake):
     """The default path: no file_id, so the questions come from whatever is ticked.
 

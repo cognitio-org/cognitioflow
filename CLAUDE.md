@@ -20,7 +20,10 @@ Work proceeds in numbered phases. The current phase brief lives in `docs/phases/
 
 ## Three seams — every backend change goes through one
 
-1. `db()` / `rows()` — the only way to touch the database. Placeholders are `%s`. No SQLite-isms.
+1. `db()` / `rows()` — the only way to touch the database. **Placeholders are `?`** — `_Conn.execute`
+   rewrites them to `%s` and escapes literal `%` to `%%` on the way. Writing `%s` yourself gets it
+   escaped to `%%s` and silently breaks. A literal `%` (a `LIKE` pattern) must be doubled when the
+   query also carries a placeholder. No SQLite-isms.
 2. `storage.py` — `put(key, bytes|stream) / get(key) / url(key) / delete(key)`. Backends: `local` (dev), `gcs`. `run.py` never imports `google.cloud.storage` and never builds a filesystem path to user content.
 3. `transcribe.py` — `transcribe(audio_key, language) -> Job`. Backend: `hosted` (`STT_PROVIDER=google`). Job state lives in the `jobs` table, never in process memory.
 

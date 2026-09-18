@@ -49,7 +49,7 @@
     </div><div class="k booknum"><span id="h-due">–</span><small>cards due today</small></div></div>
   </div>
   <div class="statrow">
-    <div class="stat"><div class="n" id="h-streak">–</div><div class="l">day streak</div></div>
+    <div class="stat"><div class="n" id="h-streak">–</div><div class="l">day streak <span class="tag" id="h-freeze" hidden></span></div></div>
     <div class="stat"><div class="n" id="h-files">–</div><div class="l">files indexed</div></div>
     <div class="stat"><div class="n" id="h-acc">–</div><div class="l">recall accuracy</div></div>
   </div>
@@ -277,7 +277,10 @@
     <div class="panel stat"><div class="n" id="p-q">–</div><div class="l">Tutor questions</div></div>
   </div>
   <div class="panel bar"><div class="small muted">Recommended</div><h3 id="p-next"></h3></div>
-  <div class="panel" style="margin-top:1rem"><div style="display:flex;justify-content:space-between;align-items:baseline"><h3>Case index</h3><span class="small muted">every case across your notes · your tabbing checklist</span></div><div id="caseIndex" class="small"></div></div>
+  <div class="panel" style="margin-top:1rem"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap"><h3>Case index</h3>
+      <span class="seg" role="group" aria-label="Order the case index" title="A–Z to tab the statute book; by year to read the doctrine as it developed"><button class="btn small" data-caseview="az" aria-pressed="true">A–Z</button><button class="btn small" data-caseview="year">By year</button></span></div>
+    <div class="small muted" id="caseSub">every case across your notes · your tabbing checklist</div>
+    <div id="caseIndex" class="small"></div><div id="caseTimeline" class="small" hidden></div></div>
 </section>
 </main>
 </div>
