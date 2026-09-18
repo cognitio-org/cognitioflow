@@ -4,7 +4,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CognitioFlow</title>
 <style>
-  :root{--ink:#1c1c1a;--graphite:#5c5b55;--rule:#dcdad3;--faint:#f3f2ee;--paper:#fbfbf9;--raised:#ffffff;--accent:var(--course,#24467a);--ok:#2e6b4a;--warn:#a4541f;--tap:32px;
+  :root{--ink:#1c1c1a;--graphite:#5c5b55;--rule:#dcdad3;--faint:#f3f2ee;--paper:#fbfbf9;--raised:#ffffff;--accent:var(--course,#24467a);--ok:#2e6b4a;--warn:#a4541f;--bad:#a8453f;--rule-strong:#8b8980;--tap:32px;
     --s1:.25rem;--s2:.5rem;--s3:.75rem;--s4:1rem;--s5:1.5rem;--s6:2.25rem;
     --serif:Charter,"Iowan Old Style","Palatino Linotype",Georgia,serif;--sans:"Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;--r:4px}
   *{box-sizing:border-box} [hidden]{display:none!important} html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;height:100%}
@@ -75,7 +75,7 @@
   .lawopt .lt{font-family:var(--serif);color:var(--accent);flex:0 0 auto}
   .lawopt[data-state=picked]{border-color:var(--accent);background:color-mix(in oklab,var(--accent),transparent 88%)}
   .lawopt[data-state=right]{border-color:var(--ok);background:color-mix(in oklab,var(--ok),transparent 86%)}
-  .lawopt[data-state=wrong]{border-color:#c0563c;background:color-mix(in oklab,#c0563c,transparent 88%)}
+  .lawopt[data-state=wrong]{border-color:var(--bad);background:color-mix(in oklab,var(--bad),transparent 88%)}
   .lawopt[data-state=gone]{opacity:.32}
   .lawopt[disabled]{cursor:default}
   @media(prefers-reduced-motion:no-preference){.lawopt[data-state=right]{animation:pop .32s ease}}
@@ -135,11 +135,11 @@
   .advb.me{align-self:flex-end;background:var(--ink);color:var(--paper)}
   .advb.tutor{align-self:flex-start;background:var(--faint);border-left:3px solid var(--accent)}
   .advb .verdict{font-family:var(--sans);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;margin-bottom:.2rem}
-  .v-solid{color:var(--ok)} .v-shaky{color:var(--warn)} .v-missed{color:#c0563c}
+  .v-solid{color:var(--ok)} .v-shaky{color:var(--warn)} .v-missed{color:var(--bad)}
   .advctrl{display:flex;gap:.5rem;align-items:center;border-top:1px solid var(--rule);padding-top:.7rem}
   .advctrl input{flex:1}
   #advMic,#advOwnMic{min-height:36px;white-space:nowrap}
-  #advMic[aria-pressed=true],#advOwnMic[aria-pressed=true]{background:#b3261e;color:#fff;border-color:#b3261e}
+  #advMic[aria-pressed=true],#advOwnMic[aria-pressed=true]{background:var(--bad);color:#fff;border-color:var(--bad)}
   .advown{display:flex;flex-direction:column;gap:var(--s2)} .advown h3{margin:0}
   .advownrow{display:flex;gap:var(--s2);align-items:center} .advownrow input{flex:1;min-width:0}
   .advown select{width:100%;min-height:36px} .advown .btn{min-height:36px}
@@ -150,7 +150,7 @@
   .mrow{display:flex;justify-content:space-between;gap:.5rem;align-items:center;padding:.35rem 0;border-bottom:1px dashed var(--rule);font-size:.86rem}
   .mrow:last-child{border-bottom:0}
   .mdot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:.45rem;flex:0 0 auto}
-  .m-untested{background:var(--rule)} .m-solid{background:var(--ok)} .m-shaky{background:var(--warn)} .m-missed{background:#c0563c}
+  .m-untested{background:var(--rule)} .m-solid{background:var(--ok)} .m-shaky{background:var(--warn)} .m-missed{background:var(--bad)}
   .mstate{font-size:.72rem;color:var(--graphite);text-transform:uppercase;letter-spacing:.06em}
   .advnotes{max-height:240px;overflow:auto;margin:.4rem 0}
   .advnotes .emptystate{padding:.5rem 0}
@@ -225,20 +225,24 @@
   .face .ftext{font-family:var(--serif);font-size:1.35rem;line-height:1.4} .face.back .ftext{font-size:1.15rem}
   .face .hintline{position:absolute;bottom:1rem;font-size:.78rem;color:var(--graphite)}
   .ratings{display:grid;grid-template-columns:repeat(4,1fr);gap:.6rem;margin-top:1.2rem}
-  .rate{padding:.7rem;font-size:.9rem} .rate.again{border-color:#b3524e;color:#b3524e} .rate.hard{border-color:#a4771f;color:#a4771f} .rate.good{border-color:#2e6b4a;color:#2e6b4a} .rate.easy{border-color:var(--accent);color:var(--accent)}
+  /* These were the light-mode values written as literals and never redefined for dark, so a
+     20-minute dark recall session was graded through four buttons, two of which could barely be
+     read. Measured on dark --paper before: Again 3.55:1, Hard 4.39:1, Good 2.78:1 — the one
+     pressed most. The tokens were already tuned for both themes; they just were not used. */
+  .rate{padding:.7rem;font-size:.9rem} .rate.again{border-color:var(--bad);color:var(--bad)} .rate.hard{border-color:var(--warn);color:var(--warn)} .rate.good{border-color:var(--ok);color:var(--ok)} .rate.easy{border-color:var(--accent);color:var(--accent)}
   .rate:hover{background:var(--faint)}
   .rdone{text-align:center;padding:3rem 1rem;font-family:var(--serif);font-size:1.3rem;color:var(--graphite)} .rdone:has(b){display:grid;justify-items:center;gap:.3rem;font-family:var(--sans);font-size:.92rem} .rdone b{font-family:var(--serif);font-weight:500;font-size:1.25rem;color:var(--ink)}
   .quizcard .q{font-family:var(--serif);font-size:1.3rem;line-height:1.4;margin-bottom:1.4rem;min-height:2.4em}
   .qopt{display:block;width:100%;text-align:left;border:1px solid var(--rule);background:var(--paper);border-radius:10px;padding:.85rem 1.1rem;margin-bottom:.7rem;font-size:1rem;cursor:pointer;transition:border-color .15s,background .15s}
   .qopt:hover{border-color:var(--graphite)} .qopt .lt{display:inline-block;width:1.6rem;color:var(--graphite);font-family:var(--serif)}
-  .qopt.correct{border-color:#2e6b4a;background:rgba(46,107,74,.08)} .qopt.wrong{border-color:#b3524e;background:rgba(179,82,78,.08)} .qopt.muted{opacity:.55}
+  .qopt.correct{border-color:#2e6b4a;background:rgba(46,107,74,.08)} .qopt.wrong{border-color:var(--bad);background:rgba(179,82,78,.08)} .qopt.muted{opacity:.55}
   .qnext{margin-top:.6rem;text-align:right} .qscore{text-align:center;color:var(--graphite);margin-top:.6rem;font-size:.85rem}
   .weekdir{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem}
   .wk{border:1px solid var(--rule);border-radius:999px;padding:.35rem .9rem;cursor:pointer;font-size:.88rem;display:flex;align-items:center;gap:.45rem;background:var(--paper)}
   .wk:hover{border-color:var(--graphite)} .wk.sel{border-color:var(--accent);border-width:1.5px;background:var(--faint)}
   .wk .rd{width:7px;height:7px;border-radius:50%;background:var(--rule)} .wk .rd.ready{background:var(--ok)} .wk .rd.partial{background:var(--warn)}
   .wk .n{color:var(--graphite);font-size:.8rem}
-  .wk.weak{border-color:#b3524e;color:#b3524e} .wk.weak .rd{display:none}
+  .wk.weak{border-color:var(--bad);color:var(--bad)} .wk.weak .rd{display:none}
   /* command palette */
   .pal{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:60;display:flex;align-items:flex-start;justify-content:center;padding-top:12vh}
   .palbox{width:min(640px,92vw);background:var(--paper);border:1px solid var(--rule);border-radius:6px;overflow:hidden}
@@ -285,7 +289,7 @@
   .cover{background:var(--ink);color:var(--ink);border-radius:2px;cursor:pointer;transition:none} .cover:hover{opacity:.85} .cover.on{background:transparent;color:inherit}
   .cover .prov,.cover em,.cover strong{color:inherit} .cover *{visibility:hidden} .cover.on *{visibility:visible}
   .tplay{display:inline-flex;align-items:center;min-height:var(--tap);font-family:var(--sans);font-size:.7rem;color:var(--graphite);border:1px solid var(--rule);border-radius:999px;padding:0 .35rem;margin-left:.3rem;text-decoration:none;cursor:pointer;vertical-align:.1em} .tplay:hover{color:var(--ink);border-color:var(--ink)}
-  #recBtn.on{background:#b3261e;color:#fff;border-color:#b3261e}
+  #recBtn.on{background:var(--bad);color:#fff;border-color:var(--bad)}
   @media print{.tplay,.readbar{display:none!important}}
   /* mermaid 10 paints a pink "syntax error" diagram when a graph fails to parse, and leaves its temp
      node on <body>: it then floats over every screen until a reload, and prints with the note. Hide both —
@@ -296,7 +300,7 @@
   .noteview{flex:1;overflow:auto;border:1px solid var(--rule);border-radius:var(--r);font-family:var(--serif);font-size:1.06rem;line-height:1.75;max-width:none;--measure:36rem;--pagey:2.6rem}
   .noteview h1{font-size:1.85rem;margin:0 0 .9rem;padding-bottom:.5rem;border-bottom:1px solid var(--rule);letter-spacing:-.01em} .noteview h2{font-size:1.25rem;margin:1.8rem 0 .55rem;letter-spacing:.01em} .noteview h3{font-size:1.05rem;margin:1rem 0 .3rem}
   .noteview p,.noteview li{margin:0 0 .55rem} .noteview ol,.noteview ul{padding-left:1.4rem} .noteview li{padding-left:.2rem}
-  .noteview table{font-family:var(--sans);font-size:.88rem;width:100%;margin:.6rem 0 1rem} .noteview th{border-bottom:1.5px solid var(--ink)} .noteview td{border-bottom:1px solid var(--rule)}
+  .noteview table{font-family:var(--sans);font-size:.88rem;width:100%;margin:.6rem 0 1rem} .noteview th{border-bottom:1.5px solid var(--ink)} .noteview td{border-bottom:1px solid var(--rule-strong)}
   .noteview blockquote{margin:.8rem 0;padding:.6rem 1rem;border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--r);background:var(--faint);color:var(--ink)} .noteview blockquote p{margin:0} .noteview blockquote strong:first-child{font-family:var(--sans);font-size:.82rem;color:var(--graphite);display:block;margin-bottom:.15rem}
   .noteview code{font-size:.85em;background:var(--faint);padding:0 .25rem} .noteview .viz{margin:.8rem 0}
   #noteStatus[data-state="failed"]{color:var(--warn);font-weight:500;display:inline-flex;align-items:center;gap:.5rem}
@@ -319,7 +323,7 @@
         vertical-align:.14em;border-radius:50%;background:currentColor}
   .prov.flag{font-size:.56em;vertical-align:.32em;border:1px solid var(--warn);color:var(--warn);
         border-radius:2px;padding:0 .3em;letter-spacing:.04em}
-  .prio{font-size:.7rem;letter-spacing:-1px;margin-right:.2rem} .prio.core{color:#b3524e} .prio.know{color:var(--accent)} .prio.sup{color:var(--graphite)}
+  .prio{font-size:.7rem;letter-spacing:-1px;margin-right:.2rem} .prio.core{color:var(--bad)} .prio.know{color:var(--accent)} .prio.sup{color:var(--graphite)}
   @media print{ html,body{background:#fff!important;color:#000!important;height:auto} body *{visibility:hidden} .noteview,.noteview *{visibility:visible}
     /* content in the left 63%, a ruled annotation column on the right of every page */
     .noteview{position:absolute;left:0;top:0;width:63%;border:none;padding:0 0 0 0;overflow:visible;color:#000;background:#fff;font-size:10.5pt;line-height:1.5;box-shadow:none}
@@ -334,7 +338,7 @@
   .stage{max-width:640px;margin:0 auto} .flip{width:100%;text-align:left;border:1px solid var(--ink);border-radius:var(--r);min-height:220px;padding:1.4rem;font-family:var(--serif);font-size:1.2rem;line-height:1.4;background:var(--paper);display:flex;flex-direction:column;justify-content:center;white-space:pre-wrap}
   .flip .side{font-family:var(--sans);font-size:.74rem;color:var(--graphite);margin-bottom:.5rem} .ratings{display:flex;gap:.5rem;justify-content:center;margin-top:1rem;flex-wrap:wrap} .ratings .btn{min-width:88px}
   /* dark scheme — neutral panels, accent only on bars (standing rule) */
-  @media(prefers-color-scheme:dark){:root{--ink:#e9e7e2;--graphite:#a3a19a;--rule:#383733;--faint:#242320;--paper:#191918;--raised:#2c2b28;--accent:color-mix(in oklab,var(--course,#24467a),#fff 55%);--ok:#7cc59d;--warn:#e5a06f}
+  @media(prefers-color-scheme:dark){:root{--ink:#e9e7e2;--graphite:#a3a19a;--rule:#383733;--faint:#242320;--paper:#191918;--raised:#2c2b28;--accent:color-mix(in oklab,var(--course,#24467a),#fff 55%);--ok:#7cc59d;--warn:#e5a06f;--bad:#e2705c;--rule-strong:#7b7a76}
     .btn.primary{background:#e8e6e1;color:#1a1a19} .btn.primary:hover{background:#fff} .msg.user{background:#e8e6e1;color:#1a1a19} .modes .btn.active{background:#e8e6e1;color:#1a1a19}}
   html{color-scheme:light dark}
 
