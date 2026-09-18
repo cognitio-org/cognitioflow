@@ -600,16 +600,22 @@ def test_regrading_the_same_answer_does_not_create_a_second_bank_entry(client, f
     assert count("essay_attempts") == 1, "a second attempt row would fork the draft as well"
 
 
-def test_grading_is_routed_and_never_reaches_the_strong_model(client, fake):
+def test_grading_is_routed_and_never_reaches_the_strong_model(client, fake, monkeypatch):
     """CLAUDE.md: STRONG_MODEL is for reconcile only, and nothing above CF_MODEL may be auto-routed.
     Marking an essay is the analytical call, so it is CF_MODEL — chosen by pick_model, not named here."""
     import run
+    # CF_STRONG_MODEL is unset in CI, so STRONG_MODEL falls back to MODEL (run.py:37) and any assertion
+    # that only compares the two names passes whatever the route does. Point it at Fable first - the
+    # model this rule exists to keep out, and ~10x a Sonnet call - so the comparison can actually fail.
+    monkeypatch.setattr(run, "STRONG_MODEL", "claude-fable-5-1")
     cid = _cid(client)
     qid = _bank_essays(client, cid, fake)["question"]["id"]
     fc = fake((MARKED, None))
     assert client.post(f"/api/courses/{cid}/essay/grade", json={"question_id": qid, "answer": ANSWER}).status_code == 200
     assert fc.calls[0]["model"] == run.pick_model("apply", None) == run.MODEL
-    assert fc.calls[0]["model"] != run.STRONG_MODEL or run.STRONG_MODEL == run.MODEL
+    assert fc.calls[0]["model"] != run.STRONG_MODEL
+    # and the route table itself cannot reach it, however analytical the answer reads
+    assert run.pick_model("apply", None, ANSWER) != run.STRONG_MODEL
     assert "pick_model(\"apply\", None)" in pathlib.Path(run.__file__).read_text().split("def essay_grade")[1], \
         "the model must be routed, not hard-coded"
     # and the marker's files block is the cached one, with the per-call contract last
