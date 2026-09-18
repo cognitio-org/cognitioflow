@@ -993,3 +993,17 @@ def test_the_note_views_hooks_and_renderer_are_untouched():
         assert hook in NOTES_PAGE, f"{hook} disappeared — a hook was renamed"
     for fn in ("function chipify(", "function priomark(", "async function paint("):
         assert fn in NOTES_PAGE
+
+def test_banking_essays_cannot_read_a_file_from_another_course(client, fake):
+    """Found by review. The lookup was `WHERE id=?` with no course, so naming any file id banked that
+    file's text into this course and sent it to the model — a course's material leaking into another
+    course's questions. build_context() next to it has always scoped by course_id; this did not."""
+    mine = _cid(client)
+    theirs = client.post("/api/courses", json={"name": "Someone else's course"}).json()["id"]
+    secret = _upload(client, theirs, "theirs.txt", "CONFIDENTIAL MATERIAL FROM THE OTHER COURSE")
+
+    fc = fake((json.dumps([{"question": "q", "model": "m"}]), None))
+    r = client.post(f"/api/courses/{mine}/essay/bank", json={"count": 1, "file_id": secret})
+
+    assert r.status_code == 404, f"a file from another course must not be readable here, got {r.status_code}"
+    assert not fc.calls, "and nothing may reach the model"

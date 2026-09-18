@@ -1309,7 +1309,10 @@ def essay_bank(cid: str, g: EssayBankIn):
     setting a question from a topic is not the analytical call — marking the answer is."""
     if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
     if g.file_id:
-        f = rows("SELECT name,text,week FROM files WHERE id=?", g.file_id)
+        # scoped to the course, not looked up by id alone: this route's whole premise is the student's
+        # own material for THIS course, and an unscoped lookup will happily read another course's file
+        # and send its text to the model.
+        f = rows("SELECT name,text,week FROM files WHERE id=? AND course_id=?", g.file_id, cid)
         if not f: raise HTTPException(404)
         src, week, txt = f[0]["name"], f[0]["week"] or "", (f[0]["text"] or "")[:60000]
     else:
