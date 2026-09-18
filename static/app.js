@@ -166,6 +166,11 @@ async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle'
   $('#coverTitle').textContent=c.name.toUpperCase(); $('#leafTitle').textContent=c.name;
   $('#leafKicker').textContent=TABS.slice(0,3).map(x=>x[1]).join(' · ').toUpperCase(); const s=await api(`/courses/${cid}/stats`);
   $('#h-due').textContent=s.due; $('#h-streak').textContent=s.streak; $('#h-files').textContent=s.files; $('#h-acc').textContent=s.recall_accuracy==null?'–':s.recall_accuracy+'%';
+  /* a streak kept alive across a missed day says so, so the number is never quietly wrong */
+  const fz=s.streak_frozen||[], fzEl=$('#h-freeze'), fzDay=d=>new Date(d+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'});
+  fzEl.hidden=!fz.length;
+  if(fz.length){ fzEl.textContent=fz.length===1?`freeze · ${fzDay(fz[0])}`:`${fz.length} freezes`;
+    fzEl.title=`Missed ${fz.map(fzDay).join(', ')} — covered by a streak freeze. Seven unbroken days earns one.`; }
   let next,body,go; if(s.files===0){next='Add your files';body='Slides, transcripts and notes go in first — the tutor only works from what you upload.';go='library'}
   else if(s.due>0){next=`Review ${s.due} due card${s.due>1?'s':''}`;body='Clear the queue before adding new material.';go='recall'}
   else if(s.cards===0){next='Generate a first deck';body='Pick a file in Recall and let the tutor write cards from it.';go='recall'}
