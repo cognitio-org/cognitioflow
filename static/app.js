@@ -77,7 +77,12 @@ function toast(m,tone){const t=$('#toast');t.textContent=m;
   t.dataset.tone=tone||(/^(failed|could not|error)|failed|not[ -]allowed/i.test(m)?'warn':/…$/.test(m)?'busy':'ok');
   t.setAttribute('aria-live',t.dataset.tone==='warn'?'assertive':'polite');
   t.classList.add('show');clearTimeout(t._h);
-  t._h=setTimeout(()=>t.classList.remove('show'),t.dataset.tone==='warn'?7000:2800)}
+  // A busy toast announces work that takes 20-90 seconds ("Drafting master notes… 20-60 s").
+  // Dismissing it after 2.8 s leaves only a disabled button that may be scrolled out of view,
+  // so the app looks idle while it is working. Busy stays until the next toast replaces it —
+  // every handler already calls toast() again on both success and failure.
+  clearTimeout(t._h);
+  if(t.dataset.tone!=='busy') t._h=setTimeout(()=>t.classList.remove('show'),t.dataset.tone==='warn'?7000:2800)}
 let courses=[], cid=localStorage.getItem('cf.course')||'', mode='drill', cfg={};
 const C=()=>courses.find(c=>c.id===cid)||courses[0];
 
