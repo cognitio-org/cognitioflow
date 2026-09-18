@@ -46,16 +46,26 @@
   .prov.flag{font-size:.56em;vertical-align:.32em;border:1px solid var(--warn);color:var(--warn);
         border-radius:2px;padding:0 .3em;letter-spacing:.04em}
   .prio{font-size:.7rem;letter-spacing:-1px;margin-right:.2rem} .prio.core{color:var(--bad)} .prio.know{color:var(--accent)} .prio.sup{color:var(--graphite)}
-  @media print{ html,body{background:#fff!important;color:#000!important;height:auto} body *{visibility:hidden} .noteview,.noteview *{visibility:visible}
+  @media print{ html,body{background:#fff!important;color:#000!important;height:auto;
+    print-color-adjust:exact;-webkit-print-color-adjust:exact}
+  /* scoped to body.printing: a bare Cmd+P from any other screen used to print a blank sheet */
+  body.printing *{visibility:hidden} body.printing .noteview,body.printing .noteview *{visibility:visible}
     /* content in the left 63%, a ruled annotation column on the right of every page */
     .noteview{position:absolute;left:0;top:0;width:63%;border:none;padding:0 0 0 0;overflow:visible;color:#000;background:#fff;font-size:10.5pt;line-height:1.5;box-shadow:none}
-    .noteview::after{content:"";visibility:visible;position:fixed;top:0;right:0;width:32%;height:100vh;border-left:.5pt solid #000;
-      background:repeating-linear-gradient(to bottom,transparent 0 7.6mm,#bbb 7.6mm 7.8mm);background-position:0 6mm}
-    .noteview::before{content:"Notes";visibility:visible;position:fixed;top:0;right:0;width:32%;font-family:var(--sans);font-size:7.5pt;color:#666;text-align:right;padding-right:2mm}
+    /* the rules ride on the element itself so they repeat down every page, not just the first */
+    .noteview{background-image:linear-gradient(to right,transparent 0 100%),
+      repeating-linear-gradient(to bottom,transparent 0 7.6mm,#bbb 7.6mm 7.8mm);
+      background-repeat:no-repeat,repeat-y;background-position:0 0,100% 6mm;
+      background-size:100% 100%,32% auto;border-right:.5pt solid #000;padding-right:34%}
+    .noteview::before{content:"Notes";visibility:visible;position:absolute;top:0;right:0;width:32%;font-family:var(--sans);font-size:7.5pt;color:#666;text-align:right;padding-right:2mm}
     .noteview h1{border-color:#000;font-size:17pt} .noteview h2{margin-top:1.1rem;page-break-after:avoid} .noteview h2+*{page-break-before:avoid}
     .noteview blockquote{border:.5pt solid #000;border-left:2pt solid #000;background:#fff;page-break-inside:avoid} .noteview .viz{page-break-inside:avoid} .noteview table{page-break-inside:avoid}
-    .prov{color:#000!important;border-color:#000!important;background:#fff!important} .prov.wg{background:#000!important;color:#fff!important} .noteview th,.noteview td{color:#000;border-color:#000} .noteview code{color:#000;background:#fff}
+    .prov{color:#000!important;border-color:#000!important;background:#fff!important} .prov.wg{background:#fff!important;color:#000!important;border:1.5pt solid #000!important;font-weight:700} .noteview th,.noteview td{color:#000;border-color:#000} .noteview code{color:#000;background:#fff}
+    .printhead{visibility:visible;font-family:var(--serif);font-size:12pt;color:#000;
+      border-bottom:.5pt solid #000;padding-bottom:2mm;margin-bottom:4mm}
+    .printhead .meta{font-family:var(--sans);font-size:8pt;color:#000;display:block;margin-top:1mm}
     @page{size:A4;margin:14mm 12mm 14mm 16mm} }
+  @media screen{.printhead{display:none}}
   /* recall */
   .stage{max-width:640px;margin:0 auto} .flip{width:100%;text-align:left;border:1px solid var(--ink);border-radius:var(--r);min-height:220px;padding:1.4rem;font-family:var(--serif);font-size:1.2rem;line-height:1.4;background:var(--paper);display:flex;flex-direction:column;justify-content:center;white-space:pre-wrap}
   .flip .side{font-family:var(--sans);font-size:.74rem;color:var(--graphite);margin-bottom:.5rem} .ratings{display:flex;gap:.5rem;justify-content:center;margin-top:1rem;flex-wrap:wrap} .ratings .btn{min-width:88px}
