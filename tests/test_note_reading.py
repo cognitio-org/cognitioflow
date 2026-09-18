@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-PAGE = (Path(__file__).resolve().parent.parent / "static" / "index.html").read_text(encoding="utf-8")
+PAGE = (lambda s: s("index.html") + s("app.js") + s("app.css") + s("book.css"))(
+    lambda n: (Path(__file__).resolve().parent.parent / "static" / n).read_text(encoding="utf-8"))
 
 
 def test_the_reading_measure_does_not_depend_on_the_element_font_size():
