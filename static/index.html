@@ -266,7 +266,7 @@
   @media(max-width:900px){.cdlgbody{grid-template-columns:1fr;overflow:auto} .cfields,.cpreview pre{overflow:visible} .cpreview{border-left:none;border-top:1px solid var(--rule)} .cfields fieldset{grid-template-columns:1fr}}
   tr.grouphead td{background:var(--faint);border-top:1px solid var(--rule);padding-top:.5rem} tr.grouphead b{font-family:var(--serif)}
   /* notes editing */
-  .tagbar{display:flex;gap:.3rem;align-items:center;flex-wrap:wrap} .editwrap{flex:1;min-height:0;display:flex;gap:1rem;--measure:68ch;--pagey:2.6rem} .editwrap>*{flex:1;min-height:0}
+  .tagbar{display:flex;gap:.3rem;align-items:center;flex-wrap:wrap} .editwrap{flex:1;min-height:0;display:flex;gap:1rem;--measure:36rem;--pagey:2.6rem} .editwrap>*{flex:1;min-height:0}
   .editwrap textarea{height:100%}
   /* Read, Split and Edit are the same page: same measure, same paper, same margins — only the pen changes. */
   .editor textarea,.noteview{padding-block:var(--pagey);padding-inline:clamp(1.25rem,calc((100% - var(--measure))/2),5rem);background:var(--raised);box-shadow:0 1px 2px rgba(0,0,0,.04),0 10px 30px -18px rgba(0,0,0,.22)}
@@ -288,14 +288,32 @@
   svg[aria-roledescription="error"],body>div[id^="dmm"],body>svg[id^="mm"]{display:none!important}
   /* notes reading view */
   .seg{display:inline-flex;gap:2px;padding:2px;background:var(--faint);border:1px solid var(--rule);border-radius:calc(var(--r) + 2px)} .seg .btn{border-color:transparent;background:transparent;color:var(--graphite);border-radius:var(--r)} .seg .btn:hover{color:var(--ink);background:transparent} .seg .btn[aria-pressed=true]{background:var(--raised);color:var(--ink);border-color:var(--rule);box-shadow:0 1px 2px rgba(0,0,0,.08);font-weight:500}
-  .noteview{flex:1;overflow:auto;border:1px solid var(--rule);border-radius:var(--r);font-family:var(--serif);font-size:1.06rem;line-height:1.75;max-width:none;--measure:68ch;--pagey:2.6rem}
+  .noteview{flex:1;overflow:auto;border:1px solid var(--rule);border-radius:var(--r);font-family:var(--serif);font-size:1.06rem;line-height:1.75;max-width:none;--measure:36rem;--pagey:2.6rem}
   .noteview h1{font-size:1.85rem;margin:0 0 .9rem;padding-bottom:.5rem;border-bottom:1px solid var(--rule);letter-spacing:-.01em} .noteview h2{font-size:1.25rem;margin:1.8rem 0 .55rem;letter-spacing:.01em} .noteview h3{font-size:1.05rem;margin:1rem 0 .3rem}
   .noteview p,.noteview li{margin:0 0 .55rem} .noteview ol,.noteview ul{padding-left:1.4rem} .noteview li{padding-left:.2rem}
   .noteview table{font-family:var(--sans);font-size:.88rem;width:100%;margin:.6rem 0 1rem} .noteview th{border-bottom:1.5px solid var(--ink)} .noteview td{border-bottom:1px solid var(--rule)}
   .noteview blockquote{margin:.8rem 0;padding:.6rem 1rem;border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--r);background:var(--faint);color:var(--ink)} .noteview blockquote p{margin:0} .noteview blockquote strong:first-child{font-family:var(--sans);font-size:.82rem;color:var(--graphite);display:block;margin-bottom:.15rem}
   .noteview code{font-size:.85em;background:var(--faint);padding:0 .25rem} .noteview .viz{margin:.8rem 0}
-  .prov{display:inline-block;font-family:var(--sans);font-size:.68rem;letter-spacing:.04em;padding:.02rem .38rem;border:1px solid var(--graphite);border-radius:2px;color:var(--graphite);vertical-align:.12em;margin-left:.15rem;white-space:nowrap}
-  .prov.wg{border-color:var(--ink);color:var(--ink);font-weight:600} .prio{font-size:.7rem;letter-spacing:-1px;margin-right:.2rem} .prio.core{color:#b3524e} .prio.know{color:var(--accent)} .prio.sup{color:var(--graphite)} .prov.flag{border-style:dashed}
+  /* --measure was declared 68ch and never bound: the padding-inline clamp above caps the side
+     margin at 5rem, and reaching 68ch on this column needs ~180px. Measured before: 94.3 characters
+     a line at 1440 and 123.6 at 1190, where the return sweep loses the line. Cap the TEXT rather
+     than the container, so tables and diagrams keep the full width of the paper. */
+  .noteview>p,.noteview>ul,.noteview>ol,.noteview>blockquote,
+  .noteview>h1,.noteview>h2,.noteview>h3,.noteview>h4{max-width:var(--measure);margin-inline:auto}
+  /* Every tag was a bordered box dropped mid-sentence — about one hard-edged rectangle per line of
+     prose, out-shouting the italic case names they interrupt, which are the thing actually being
+     scanned for. Weight now follows the authority hierarchy CLAUDE.md sets out: routine provenance
+     becomes a superior siglum the eye can skip, annotated WG keeps a marker because it sits at the
+     top of that hierarchy, and only a flag — VERIFY, CORRECTION, ADDED, OUTSIDE FILES, the ones
+     that mean act on me — stays boxed. chipify() is untouched; this is CSS. */
+  .prov{display:inline;font-family:var(--sans);font-size:.6em;line-height:1;letter-spacing:.07em;
+        border:0;padding:0;background:none;color:var(--graphite);vertical-align:.45em;margin-left:.2em;white-space:nowrap}
+  .prov.wg{color:var(--ink);font-weight:600}
+  .prov.wg::before{content:"";display:inline-block;width:.34em;height:.34em;margin-right:.24em;
+        vertical-align:.14em;border-radius:50%;background:currentColor}
+  .prov.flag{font-size:.56em;vertical-align:.32em;border:1px solid var(--warn);color:var(--warn);
+        border-radius:2px;padding:0 .3em;letter-spacing:.04em}
+  .prio{font-size:.7rem;letter-spacing:-1px;margin-right:.2rem} .prio.core{color:#b3524e} .prio.know{color:var(--accent)} .prio.sup{color:var(--graphite)}
   @media print{ html,body{background:#fff!important;color:#000!important;height:auto} body *{visibility:hidden} .noteview,.noteview *{visibility:visible}
     /* content in the left 63%, a ruled annotation column on the right of every page */
     .noteview{position:absolute;left:0;top:0;width:63%;border:none;padding:0 0 0 0;overflow:visible;color:#000;background:#fff;font-size:10.5pt;line-height:1.5;box-shadow:none}
@@ -1011,9 +1029,44 @@ function toDisplay(body){ return body.replace(/\s*<!--r:([a-z0-9]+):(\d+)-->/g,(
 function toRaw(body){ return body.replace(/\s*⏵(\d+)·(\d{1,3}):(\d\d)/g,(m,n,mm,ss)=>{ const r=recIds[+n-1]; return r?` <!--r:${r}:${+mm*60+ +ss}-->`:m }) }
 const rawBody=()=>toRaw($('#noteBody').value);
 function fmt(s){s=Math.max(0,Math.round(s));return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
+/* A note is stored as it was written, and a reconcile wraps its lines. render() parses with
+   breaks:true, so every one of those soft wraps becomes a <br> — which is why a bullet reads
+
+       Week 2 covers two foundational freedoms
+       : (1) free movement of goods (Art 34-36 TFEU), and (2) free movement of workers
+
+   with the colon stranded on its own line, all the way down a note.
+
+   The blunt fix is breaks:false for notes, and it is wrong here: Live capture is typed as one line
+   per thought ([LEC] …, [!] …, [P] …), none of which start a markdown block, so they would all run
+   together into a paragraph. Instead join only the lines that cannot be starting anything — a line
+   opening with : ; , or ) is always the tail of the line above, never a new note line. Fenced
+   blocks are left exactly as written. */
+function unwrapSoftBreaks(md){
+  const out=[]; let fenced=false;
+  // A line that begins a block of its own is never a continuation. [ covers Live capture's
+  // [LEC] / [!] / [P] lines, which are typed one per thought and must stay one per line.
+  const STARTS_A_BLOCK=/^\s*(?:[-*+>|#]|\d+[.)]\s|```|~~~|\[|●|○|<)/;
+  // Nor is it one if the line above finished a sentence, or asked for a hard break with two
+  // trailing spaces, or is a setext underline / table rule.
+  const ENDS_A_THOUGHT=/(?:[.!?:;|]|\s{2}|^\s*[-=|]+\s*)$/;
+  for(const line of md.split("\n")){
+    if(/^\s*(```|~~~)/.test(line)){ fenced=!fenced; out.push(line); continue; }
+    const prev=out.length?out[out.length-1]:null;
+    if(!fenced && prev!==null && prev.trim() && !ENDS_A_THOUGHT.test(prev) && !STARTS_A_BLOCK.test(line) && line.trim()){
+      // : ; , ) attach to the word before them — joining with a space would read "freedoms : (1)"
+      const glue=/^\s*[:;,)]/.test(line)?'':' ';
+      out[out.length-1]=prev.replace(/\s+$/,'')+glue+line.replace(/^\s+/,'');
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join("\n");
+}
+
 async function paint(el,body){
   // <!--r:REC:SEC--> markers become tiny play chips (Read view only)
-  const pre=body.replace(/<!--r:([a-z0-9]+):(\d+)-->/g,(m,r,s)=>`<a class="tplay" data-r="${r}" data-s="${s}" title="Recording ${recIds.indexOf(r)+1||'?'} · play from ${fmt(Math.max(0,s-20))}">▶ ${fmt(s)}</a>`);
+  const pre=unwrapSoftBreaks(body).replace(/<!--r:([a-z0-9]+):(\d+)-->/g,(m,r,s)=>`<a class="tplay" data-r="${r}" data-s="${s}" title="Recording ${recIds.indexOf(r)+1||'?'} · play from ${fmt(Math.max(0,s-20))}">▶ ${fmt(s)}</a>`);
   await render(el,pre); el.innerHTML=priomark(chipify(el.innerHTML));
   el.querySelectorAll('.tplay').forEach(a=>a.onclick=()=>playAt(a.dataset.r,+a.dataset.s));
   applyCover(el);
