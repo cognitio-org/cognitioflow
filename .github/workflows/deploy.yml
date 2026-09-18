@@ -75,6 +75,17 @@ jobs:
           PYTEST_ADDOPTS: --durations=15
         run: make test
 
+      # The extension ships its own node tests and nothing was running them, so a
+      # regression there would have reached the browser silently. No install step:
+      # it has no dependencies, and `node --test` is the runner.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: extension tests
+        working-directory: extension/pr-watcher
+        run: node --test
+
   test:
     needs: fast          # a broken PR has already failed, a minute in, without touching Neon
     runs-on: ubuntu-latest
