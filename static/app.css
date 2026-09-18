@@ -1,0 +1,95 @@
+/* CognitioFlow — the shared look.
+   Moved out of static/index.html so one system serves every page instead of being
+   reinvented per file. Values are unchanged: a relocation, not a redesign. */
+  :root{--ink:#1c1c1a;--graphite:#5c5b55;--rule:#dcdad3;--faint:#f3f2ee;--paper:#fbfbf9;--raised:#ffffff;--accent:var(--course,#24467a);--ok:#2e6b4a;--warn:#a4541f;--bad:#a8453f;--rule-strong:#8b8980;--tap:32px;
+    --s1:.25rem;--s2:.5rem;--s3:.75rem;--s4:1rem;--s5:1.5rem;--s6:2.25rem;
+    --serif:Charter,"Iowan Old Style","Palatino Linotype",Georgia,serif;--sans:"Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;--r:4px}
+  *{box-sizing:border-box} [hidden]{display:none!important} html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;height:100%}
+  h1,h2,h3{font-family:var(--serif);font-weight:500;margin:0 0 .4rem;line-height:1.2;letter-spacing:-.005em} h1{font-size:1.75rem} h2{font-size:1.3rem} h3{font-size:1.05rem}
+  p{margin:0 0 .7rem} button{font:inherit;cursor:pointer} input,select,textarea{font:inherit}
+  .btn{border:1px solid var(--ink);background:var(--paper);color:var(--ink);padding:.45rem .9rem;border-radius:var(--r);line-height:1.2} .btn:hover{background:var(--faint)}
+  .btn.primary{background:var(--ink);color:#fff} .btn.primary:hover{background:#333} .btn.small{padding:.3rem .6rem;font-size:.82rem;min-height:var(--tap);min-width:var(--tap);display:inline-flex;align-items:center;justify-content:center;gap:.3rem} .btn.ghost{border-color:var(--rule);color:var(--graphite);background:transparent} .btn.ghost:hover{color:var(--ink);border-color:var(--graphite);background:var(--faint)}
+  .btn[disabled]{opacity:.45;cursor:not-allowed} .btn:active:not([disabled]){transform:translateY(1px)} :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  kbd{font-family:var(--sans);font-size:.72em;line-height:1.25;padding:.02rem .34rem;border:1px solid var(--rule);border-bottom-width:2px;border-radius:4px;background:var(--faint);color:var(--graphite);white-space:nowrap;vertical-align:.08em}
+  .muted{color:var(--graphite)} .small{font-size:.85rem} ul.clean{list-style:none;margin:0;padding:0}
+  .tag{display:inline-block;font-size:.74rem;padding:.05rem .45rem;border:1px solid var(--rule);border-radius:999px;color:var(--graphite)} .tag.ok{border-color:var(--ok);color:var(--ok)} .tag.warn{border-color:var(--warn);color:var(--warn)}
+  .panel{border:1px solid var(--rule);border-radius:var(--r);padding:var(--s4) 1.1rem;background:var(--paper)} .panel.bar{border-left:4px solid var(--accent)}
+  .hero{border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--r);padding:var(--s5) var(--s5) var(--s5) var(--s5);background:var(--paper);display:grid;grid-template-columns:1fr auto;gap:var(--s5);align-items:center}
+  .herobook{grid-template-columns:1fr 260px;align-items:center} .bookwrap{display:flex;flex-direction:column;align-items:center;gap:.4rem} .booknum{text-align:center} .hero h2{font-size:1.6rem;margin:.1rem 0 .4rem}
+
+  /* notes reading view */
+  .seg{display:inline-flex;gap:2px;padding:2px;background:var(--faint);border:1px solid var(--rule);border-radius:calc(var(--r) + 2px)} .seg .btn{border-color:transparent;background:transparent;color:var(--graphite);border-radius:var(--r)} .seg .btn:hover{color:var(--ink);background:transparent} .seg .btn[aria-pressed=true]{background:var(--raised);color:var(--ink);border-color:var(--rule);box-shadow:0 1px 2px rgba(0,0,0,.08);font-weight:500}
+  .noteview{flex:1;overflow:auto;border:1px solid var(--rule);border-radius:var(--r);font-family:var(--serif);font-size:1.06rem;line-height:1.75;max-width:none;--measure:36rem;--pagey:2.6rem}
+  .noteview h1{font-size:1.85rem;margin:0 0 .9rem;padding-bottom:.5rem;border-bottom:1px solid var(--rule);letter-spacing:-.01em} .noteview h2{font-size:1.25rem;margin:1.8rem 0 .55rem;letter-spacing:.01em} .noteview h3{font-size:1.05rem;margin:1rem 0 .3rem}
+  .noteview p,.noteview li{margin:0 0 .55rem} .noteview ol,.noteview ul{padding-left:1.4rem} .noteview li{padding-left:.2rem}
+  .noteview table{font-family:var(--sans);font-size:.88rem;width:100%;margin:.6rem 0 1rem} .noteview th{border-bottom:1.5px solid var(--ink)} .noteview td{border-bottom:1px solid var(--rule-strong)}
+  .noteview blockquote{margin:.8rem 0;padding:.6rem 1rem;border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--r);background:var(--faint);color:var(--ink)} .noteview blockquote p{margin:0} .noteview blockquote strong:first-child{font-family:var(--sans);font-size:.82rem;color:var(--graphite);display:block;margin-bottom:.15rem}
+  .noteview code{font-size:.85em;background:var(--faint);padding:0 .25rem} .noteview .viz{margin:.8rem 0}
+  #noteStatus[data-state="failed"]{color:var(--warn);font-weight:500;display:inline-flex;align-items:center;gap:.5rem}
+  /* --measure was declared 68ch and never bound: the padding-inline clamp above caps the side
+     margin at 5rem, and reaching 68ch on this column needs ~180px. Measured before: 94.3 characters
+     a line at 1440 and 123.6 at 1190, where the return sweep loses the line. Cap the TEXT rather
+     than the container, so tables and diagrams keep the full width of the paper. */
+  .noteview>p,.noteview>ul,.noteview>ol,.noteview>blockquote,
+  .noteview>h1,.noteview>h2,.noteview>h3,.noteview>h4{max-width:var(--measure);margin-inline:auto}
+  /* Every tag was a bordered box dropped mid-sentence — about one hard-edged rectangle per line of
+     prose, out-shouting the italic case names they interrupt, which are the thing actually being
+     scanned for. Weight now follows the authority hierarchy CLAUDE.md sets out: routine provenance
+     becomes a superior siglum the eye can skip, annotated WG keeps a marker because it sits at the
+     top of that hierarchy, and only a flag — VERIFY, CORRECTION, ADDED, OUTSIDE FILES, the ones
+     that mean act on me — stays boxed. chipify() is untouched; this is CSS. */
+  .prov{display:inline;font-family:var(--sans);font-size:.6em;line-height:1;letter-spacing:.07em;
+        border:0;padding:0;background:none;color:var(--graphite);vertical-align:.45em;margin-left:.2em;white-space:nowrap}
+  .prov.wg{color:var(--ink);font-weight:600}
+  .prov.wg::before{content:"";display:inline-block;width:.34em;height:.34em;margin-right:.24em;
+        vertical-align:.14em;border-radius:50%;background:currentColor}
+  .prov.flag{font-size:.56em;vertical-align:.32em;border:1px solid var(--warn);color:var(--warn);
+        border-radius:2px;padding:0 .3em;letter-spacing:.04em}
+  .prio{font-size:.7rem;letter-spacing:-1px;margin-right:.2rem} .prio.core{color:var(--bad)} .prio.know{color:var(--accent)} .prio.sup{color:var(--graphite)}
+  @media print{ html,body{background:#fff!important;color:#000!important;height:auto;
+    print-color-adjust:exact;-webkit-print-color-adjust:exact}
+  /* scoped to body.printing: a bare Cmd+P from any other screen used to print a blank sheet */
+  body.printing *{visibility:hidden} body.printing .noteview,body.printing .noteview *{visibility:visible}
+    /* content in the left 63%, a ruled annotation column on the right of every page */
+    .noteview{position:absolute;left:0;top:0;width:63%;border:none;padding:0 0 0 0;overflow:visible;color:#000;background:#fff;font-size:10.5pt;line-height:1.5;box-shadow:none}
+    /* the rules ride on the element itself so they repeat down every page, not just the first */
+    .noteview{background-image:linear-gradient(to right,transparent 0 100%),
+      repeating-linear-gradient(to bottom,transparent 0 7.6mm,#bbb 7.6mm 7.8mm);
+      background-repeat:no-repeat,repeat-y;background-position:0 0,100% 6mm;
+      background-size:100% 100%,32% auto;border-right:.5pt solid #000;padding-right:34%}
+    .noteview::before{content:"Notes";visibility:visible;position:absolute;top:0;right:0;width:32%;font-family:var(--sans);font-size:7.5pt;color:#666;text-align:right;padding-right:2mm}
+    .noteview h1{border-color:#000;font-size:17pt} .noteview h2{margin-top:1.1rem;page-break-after:avoid} .noteview h2+*{page-break-before:avoid}
+    .noteview blockquote{border:.5pt solid #000;border-left:2pt solid #000;background:#fff;page-break-inside:avoid} .noteview .viz{page-break-inside:avoid} .noteview table{page-break-inside:avoid}
+    .prov{color:#000!important;border-color:#000!important;background:#fff!important} .prov.wg{background:#fff!important;color:#000!important;border:1.5pt solid #000!important;font-weight:700} .noteview th,.noteview td{color:#000;border-color:#000} .noteview code{color:#000;background:#fff}
+    .printhead{visibility:visible;font-family:var(--serif);font-size:12pt;color:#000;
+      border-bottom:.5pt solid #000;padding-bottom:2mm;margin-bottom:4mm}
+    .printhead .meta{font-family:var(--sans);font-size:8pt;color:#000;display:block;margin-top:1mm}
+    @page{size:A4;margin:14mm 12mm 14mm 16mm} }
+  @media screen{.printhead{display:none}}
+  /* recall */
+  .stage{max-width:640px;margin:0 auto} .flip{width:100%;text-align:left;border:1px solid var(--ink);border-radius:var(--r);min-height:220px;padding:1.4rem;font-family:var(--serif);font-size:1.2rem;line-height:1.4;background:var(--paper);display:flex;flex-direction:column;justify-content:center;white-space:pre-wrap}
+  .flip .side{font-family:var(--sans);font-size:.74rem;color:var(--graphite);margin-bottom:.5rem} .ratings{display:flex;gap:.5rem;justify-content:center;margin-top:1rem;flex-wrap:wrap} .ratings .btn{min-width:88px}
+  /* dark scheme — neutral panels, accent only on bars (standing rule) */
+  @media(prefers-color-scheme:dark){:root{--ink:#e9e7e2;--graphite:#a3a19a;--rule:#383733;--faint:#242320;--paper:#191918;--raised:#2c2b28;--accent:color-mix(in oklab,var(--course,#24467a),#fff 55%);--ok:#7cc59d;--warn:#e5a06f;--bad:#e2705c;--rule-strong:#7b7a76}
+    .btn.primary{background:#e8e6e1;color:#1a1a19} .btn.primary:hover{background:#fff} .msg.user{background:#e8e6e1;color:#1a1a19} .modes .btn.active{background:#e8e6e1;color:#1a1a19}}
+  html{color-scheme:light dark}
+
+  /* half-screen: slim top bar, dense content */
+  @media(max-width:1300px){
+    .app{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+    aside.side{flex-direction:row;align-items:center;flex-wrap:nowrap;gap:.8rem;padding:0 1rem;border-right:none;border-bottom:1px solid var(--rule);overflow:visible;background:var(--paper)}
+    .brand{align-items:center;font-size:1rem} .brand i{height:1rem} aside.side label{font-size:0} aside.side label select{font-size:.85rem;padding:.25rem}
+    nav{flex:1;min-width:0;align-self:stretch;display:flex} nav ul{display:flex;gap:0;overflow-x:auto;overflow-y:visible;align-items:stretch} nav a{padding:.55rem .6rem .5rem;font-size:.88rem;border-left:none;border-top:3px solid transparent;border-radius:0;white-space:nowrap} nav a:hover{background:transparent;color:var(--ink)} nav a.active{background:none;border-top-color:var(--accent);color:var(--ink)}
+    #addCourse{display:none} #searchBtn{padding:.15rem .5rem;font-size:.78rem;border-color:transparent} .acct{margin:0 3.2rem 0 0;padding:0;border:none;flex:none} .acct .who{display:none} #signOut{padding:.15rem .5rem;font-size:.78rem} .keystate{margin:0 3.2rem 0 0;font-size:0;width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none} .keystate.off{background:var(--warn)}
+    main{padding:.9rem 1rem 3.5rem} .head{margin-bottom:.7rem;padding-bottom:.45rem} h1{font-size:1.3rem} .head>div>div.small{display:none}
+    .g4{grid-template-columns:repeat(4,1fr);gap:.5rem} .stat{padding:.5rem .7rem;display:flex;align-items:baseline;gap:.4rem} .stat .n{font-size:1.25rem} .stat .l{margin:0;font-size:.78rem}
+    .hero{padding:var(--s4) var(--s5);gap:var(--s4)} .hero h2{font-size:1.35rem} .hero .k{font-size:2.1rem}
+    .g2{grid-template-columns:1fr} .panel{padding:.75rem .9rem}
+    .screen>.tutor,.screen>.notes{grid-template-columns:1fr;height:calc(100vh - 9.25rem)} .screen>.tutor{grid-template-rows:auto 1fr} .screen>.tutor aside.col{max-height:7.5rem;overflow:auto;padding:.45rem .7rem;flex-direction:row;align-items:baseline;gap:.5rem;flex-wrap:wrap;flex:0 0 auto} .screen>.tutor aside.col h3{font-size:.8rem;margin:0;color:var(--graphite);white-space:nowrap}
+    .screen>.tutor .ctx{display:flex;flex-wrap:wrap;gap:.3rem;flex:1} .screen>.tutor .ctx li{border:1px solid var(--rule);border-radius:999px;padding:.05rem .55rem;font-size:.78rem;color:var(--graphite)} .screen>.tutor .ctx li:last-child{border:1px solid var(--rule)} .screen>.tutor #ctxSize{margin:0!important;white-space:nowrap}
+    .modes{flex-wrap:wrap;row-gap:.3rem} .msg{max-width:94%}
+  }
+  /* focus mode: current screen only, nothing else */
+  body.focus aside.side, body.focus .head, body.focus .screen>.tutor aside.col, body.focus .notes>aside.col{display:none}
+  body.focus .app{grid-template-columns:1fr} body.focus .screen>.tutor,body.focus .screen>.notes{grid-template-columns:1fr;height:calc(100vh - 4.4rem)} body.focus main{padding:.8rem 1rem}
+  #focusBtn{position:fixed;right:.7rem;top:.5rem;z-index:40;opacity:.55;font-size:.74rem;padding:.12rem .6rem;min-height:var(--tap);border-color:transparent} #focusBtn:hover{opacity:1}

@@ -11,7 +11,8 @@ made it focusable. Measured in Chromium before the change:
 import re
 from pathlib import Path
 
-PAGE = (Path(__file__).resolve().parent.parent / "static" / "index.html").read_text(encoding="utf-8")
+PAGE = (lambda s: s("index.html") + s("app.js") + s("app.css") + s("book.css"))(
+    lambda n: (Path(__file__).resolve().parent.parent / "static" / n).read_text(encoding="utf-8"))
 
 
 def _fn(name):
