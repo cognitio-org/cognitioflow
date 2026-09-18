@@ -445,3 +445,217 @@ def test_speak_returns_audio_or_tells_the_page_to_speak_itself(client, monkeypat
     r = client.post("/api/speak", json={"text": "Hello."})
     assert r.status_code == 200 and r.content == b"ID3fake-mp3"
     assert r.headers["content-type"] == "audio/mpeg" and r.headers["cache-control"] == "no-store"
+
+
+# ---------------------------------------------------------------- essay practice (Phase 17)
+BANKED = json.dumps([
+    {"question": "A Dutch rule bans the sale of imported liquorice above 0.2% ammonium chloride. Advise the importer.",
+     "model": "**Applicability** Art 34 TFEU, *Dassonville* …\n**Restriction** …\n**Justification** *Cassis* [OUTSIDE FILES]"},
+    {"question": "Compare the justification routes open to a distinctly and an indistinctly applicable measure.",
+     "model": "Art 36 is closed; the mandatory requirements are open — *Cassis de Dijon*."},
+])
+
+MARKED = json.dumps({
+    "limbs": {
+        "applicability": {"standing": "solid", "comment": "Art 34 identified and the cross-border element stated."},
+        "restriction": {"standing": "shaky", "comment": "Dassonville quoted but Keck never addressed."},
+        "justification": {"standing": "missed", "comment": "No Art 36 head named and proportionality asserted, not argued."},
+    },
+    "outside": ["Scotch Whisky Association"],
+})
+
+ANSWER = ("Art 34 TFEU applies: the rule affects imported liquorice. Dassonville catches it as a measure "
+          "having equivalent effect. It is therefore for the Netherlands to justify.")
+
+
+def _bank_essays(client, cid, fake, week=""):
+    _upload(client, cid, "w2.txt", "Art 34 TFEU; Dassonville; Cassis de Dijon", week=week)
+    fake((BANKED, None))
+    made = client.post(f"/api/courses/{cid}/essay/bank", json={"count": 2, "week": week}).json()["made"]
+    assert made == 2
+    return client.post(f"/api/courses/{cid}/essay/next", json={"week": week}).json()
+
+
+def test_the_bank_is_built_per_course_and_week_from_ticked_files_only(client, fake, pg):
+    import run
+    cid = _cid(client)
+    _upload(client, cid, "w2.txt", "Art 34 TFEU; Dassonville", week="2")
+    off = _upload(client, cid, "not-ticked.txt", "Zambrano and the Ruiz Zambrano line", week="2")
+    assert client.post(f"/api/files/{off}/toggle-to", json={"on": False}).status_code == 200
+    fc = fake((BANKED, None))
+    assert client.post(f"/api/courses/{cid}/essay/bank", json={"count": 2, "week": "2"}).json()["made"] == 2
+
+    sent = fc.calls[0]["messages"][0]["content"]
+    assert "Dassonville" in sent and "Zambrano" not in sent, "an un-ticked file reached the question setter"
+    assert "[OUTSIDE FILES]" in sent, "the label the course uses for anything beyond the ticked files"
+    assert fc.calls[0]["model"] == run.CHEAP_MODEL, "setting a question is not the analytical call"
+
+    banked = pg.execute("SELECT course_id, week FROM essay_questions").fetchall()
+    assert banked == [(cid, "2"), (cid, "2")]
+    other = client.post("/api/courses", json={"name": "Property"}).json()["id"]
+    assert client.post(f"/api/courses/{other}/essay/next", json={}).json()["question"] is None
+    assert client.post(f"/api/courses/{cid}/essay/next", json={"week": "9"}).json()["question"] is None
+
+
+def test_a_question_is_served_without_its_model_answer(client, fake):
+    cid = _cid(client)
+    d = _bank_essays(client, cid, fake)
+    assert d["question"]["question"].startswith("A Dutch rule bans")
+    assert "model" not in d["question"] and "Cassis" not in json.dumps(d), "the model answer travelled with the question"
+    assert d["unlocked"] is False and d["left"] == 2
+
+
+def test_the_model_answer_is_unreachable_until_an_answer_is_submitted(client, fake):
+    cid = _cid(client)
+    qid = _bank_essays(client, cid, fake)["question"]["id"]
+    locked = client.get(f"/api/courses/{cid}/essay/{qid}/model")
+    assert locked.status_code == 409 and "own answer first" in locked.json()["detail"]
+
+    # A saved draft is not a submission: writing it down must not open the structure either.
+    assert client.post(f"/api/courses/{cid}/essay/answer", json={"question_id": qid, "answer": ANSWER}).status_code == 200
+    assert client.get(f"/api/courses/{cid}/essay/{qid}/model").status_code == 409
+
+    fake((MARKED, None))
+    assert client.post(f"/api/courses/{cid}/essay/grade", json={"question_id": qid, "answer": ANSWER}).status_code == 200
+    opened = client.get(f"/api/courses/{cid}/essay/{qid}/model")
+    assert opened.status_code == 200 and "Dassonville" in opened.json()["model"]
+
+
+def test_the_answer_is_saved_before_grading_and_survives_a_reload_mid_write(client, fake, pg):
+    cid = _cid(client)
+    qid = _bank_essays(client, cid, fake)["question"]["id"]
+    half = "Art 34 TFEU applies because the rule affects imported liquo"
+    assert client.post(f"/api/courses/{cid}/essay/answer", json={"question_id": qid, "answer": half}).status_code == 200
+    assert pg.execute("SELECT answer FROM essay_attempts WHERE question_id=%s", (qid,)).fetchone()[0] == half
+
+    # The reload: a fresh /next hands back the same question with the half-written answer in it.
+    back = client.post(f"/api/courses/{cid}/essay/next", json={})
+    assert back.json()["question"]["id"] == qid and back.json()["answer"] == half
+
+    # And the marker going down does not take the work with it.
+    fake(("not json at all", None))
+    assert client.post(f"/api/courses/{cid}/essay/grade", json={"question_id": qid, "answer": ANSWER}).status_code == 502
+    assert pg.execute("SELECT answer FROM essay_attempts WHERE question_id=%s", (qid,)).fetchone()[0] == ANSWER
+    assert client.get(f"/api/courses/{cid}/essay/{qid}/model").status_code == 200, \
+        "the answer was submitted; a grader outage must not lock the model answer away"
+
+
+def test_marking_is_a_comment_per_limb_of_the_method_and_never_a_score(client, fake):
+    import essay
+    cid = _cid(client)
+    qid = _bank_essays(client, cid, fake)["question"]["id"]
+    fc = fake((MARKED, None))
+    g = client.post(f"/api/courses/{cid}/essay/grade", json={"question_id": qid, "answer": ANSWER}).json()
+
+    assert [l["limb"] for l in g["limbs"]] == [k for k, _ in essay.LIMBS]
+    assert [l["standing"] for l in g["limbs"]] == ["solid", "shaky", "missed"]
+    assert all(l["comment"] for l in g["limbs"])
+    assert g["outside"] == ["Scotch Whisky Association"]
+    for banned in ("score", "mark", "percent", "total", "/100"):
+        assert banned not in json.dumps(g).lower(), f"a {banned} crept into the feedback"
+
+    # The method is read, not rewritten: the tutor's own apply block is what the marker is handed.
+    import run
+    assert run.MODES["apply"] in fc.calls[0]["system"][0]["text"]
+
+
+def test_a_marker_that_drops_a_limb_reports_it_missed_rather_than_dropping_it(client, fake):
+    import essay
+    assert [l["limb"] for l in essay.normalise_grade({"limbs": {"applicability": {"standing": "solid"}}})["limbs"]] \
+        == [k for k, _ in essay.LIMBS]
+    assert essay.normalise_grade({"limbs": {"applicability": {"standing": "solid"}}})["limbs"][1]["standing"] == "missed"
+    assert essay.normalise_grade({"limbs": {"restriction": {"standing": "BRILLIANT"}}})["limbs"][1]["standing"] == "missed"
+    assert essay.normalise_grade(None)["limbs"][0]["standing"] == "missed"
+    long = essay.normalise_grade({"limbs": {"applicability": {"standing": "solid", "comment": "word " * 200}}})
+    assert len(long["limbs"][0]["comment"].split()) == essay.COMMENT_WORDS
+
+
+def test_the_marking_contract_names_every_limb_the_app_renders(client):
+    """If a limb is renamed in essay.py and not in the contract, the marker silently returns nothing
+    for it and the page shows 'missed' on a move that was actually answered."""
+    import essay, run
+    for key, _ in essay.LIMBS:
+        assert f'"{key}"' in run.ESSAY_MARKING_CONTRACT, f"{key} is not asked for in the marking contract"
+
+
+def test_an_empty_answer_is_refused_before_any_model_call(client, fake):
+    cid = _cid(client)
+    qid = _bank_essays(client, cid, fake)["question"]["id"]
+    fc = fake()  # no queued reply: FakeClient raises if anything reaches the model
+    for blank in ("", "   ", "\n\t \n"):
+        r = client.post(f"/api/courses/{cid}/essay/grade", json={"question_id": qid, "answer": blank})
+        assert r.status_code == 400 and "nothing to mark" in r.json()["detail"]
+    assert fc.calls == []
+
+
+def test_regrading_the_same_answer_does_not_create_a_second_bank_entry(client, fake, pg):
+    cid = _cid(client)
+    qid = _bank_essays(client, cid, fake)["question"]["id"]
+    count = lambda t: pg.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+    before = count("essay_questions")
+    for _ in range(2):
+        fake((MARKED, None))
+        assert client.post(f"/api/courses/{cid}/essay/grade", json={"question_id": qid, "answer": ANSWER}).status_code == 200
+    assert count("essay_questions") == before == 2
+    assert count("essay_attempts") == 1, "a second attempt row would fork the draft as well"
+
+
+def test_grading_is_routed_and_never_reaches_the_strong_model(client, fake):
+    """CLAUDE.md: STRONG_MODEL is for reconcile only, and nothing above CF_MODEL may be auto-routed.
+    Marking an essay is the analytical call, so it is CF_MODEL — chosen by pick_model, not named here."""
+    import run
+    cid = _cid(client)
+    qid = _bank_essays(client, cid, fake)["question"]["id"]
+    fc = fake((MARKED, None))
+    assert client.post(f"/api/courses/{cid}/essay/grade", json={"question_id": qid, "answer": ANSWER}).status_code == 200
+    assert fc.calls[0]["model"] == run.pick_model("apply", None) == run.MODEL
+    assert fc.calls[0]["model"] != run.STRONG_MODEL or run.STRONG_MODEL == run.MODEL
+    assert "pick_model(\"apply\", None)" in pathlib.Path(run.__file__).read_text().split("def essay_grade")[1], \
+        "the model must be routed, not hard-coded"
+    # and the marker's files block is the cached one, with the per-call contract last
+    system = fc.calls[0]["system"]
+    assert system[1].get("cache_control") == {"type": "ephemeral"}
+    assert system[-1]["text"] == run.ESSAY_MARKING_CONTRACT
+
+
+def test_the_bank_refuses_to_invent_material(client, fake):
+    cid = _cid(client)
+    r = client.post(f"/api/courses/{cid}/essay/bank", json={"count": 2})
+    assert r.status_code == 400 and "ticked files" in r.json()["detail"]
+
+
+def test_a_question_without_a_model_answer_is_never_banked(client, fake):
+    cid = _cid(client)
+    _upload(client, cid, "w2.txt", "Art 34 TFEU")
+    fake((json.dumps([{"question": "Discuss.", "model": ""}, {"question": "", "model": "Art 34."},
+                      {"question": "Advise the importer.", "model": "Art 34 TFEU; Dassonville."}]), None))
+    assert client.post(f"/api/courses/{cid}/essay/bank", json={"count": 3}).json()["made"] == 1
+
+
+def test_the_writing_surface_is_keyboard_reachable_with_a_visible_focus_ring():
+    """No JS test runner here, so this asserts against the page the way test_quality_floor.py does.
+    Every control on the essay screen is a real button, select or textarea — nothing is a div with a
+    click handler — and the textarea carries its own ring because it also moves its border colour."""
+    import re
+    page = pathlib.Path(__file__).resolve().parent.parent / "static" / "index.html"
+    html = page.read_text(encoding="utf-8")
+    section = html[html.index('<section id="essay"'):html.index('<section id="arena"')]
+    for hook in ("esNext", "esBank", "esSubmit", "esModelBtn"):
+        assert re.search(rf'<button[^>]*id="{hook}"', section), f"#{hook} must be a real button to be tabbable"
+    assert re.search(r'<textarea id="esAnswer"', section) and re.search(r'<select id="esWeek"', section)
+    css = re.sub(r"/\*.*?\*/", "", re.search(r"<style>(.*?)</style>", html, re.S).group(1), flags=re.S)
+    assert "outline:2px solid var(--accent)" in re.search(r"\.eswrite:focus-visible\{([^}]*)\}", css).group(1)
+    assert "min-height:var(--tap)" in re.search(r"\.esweek\{([^}]*)\}", css).group(1)
+    assert 'for="esAnswer"' in section, "the writing surface needs a label, not just a placeholder"
+
+
+def test_the_page_never_holds_the_model_answer_before_it_is_asked_for():
+    """The whole phase turns on this: hiding a model answer the page already has is not the same as
+    not having it. The only place it may be fetched is the button, and only after a submission."""
+    page = pathlib.Path(__file__).resolve().parent.parent / "static" / "index.html"
+    html = page.read_text(encoding="utf-8")
+    at = html.index("$('#esModelBtn').onclick")
+    handler = html[at:html.index("$('#esBank').onclick", at)]
+    assert "/model`" in handler, "the model answer is fetched here or nowhere"
+    assert html.count("/model`") == 1, "a second fetch of the model answer would be a way around the gate"
+    assert "esLock(true)" in html and "$('#esModelBtn').disabled=!es.unlocked" in html
