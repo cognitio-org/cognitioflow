@@ -207,7 +207,7 @@
   .sess{display:flex;align-items:center;gap:.7rem;padding:.55rem .9rem;border-top:1px solid var(--faint)} .sess:first-child{border-top:none}
   .sess .ic{width:1.6rem;height:1.6rem;flex:none;display:grid;place-items:center;border-radius:6px;font-size:.9rem;background:var(--faint);border:1px solid var(--rule)}
   .sess .body{flex:1;min-width:0} .sess .top{display:flex;gap:.5rem;align-items:baseline} .sess .tp{font-size:.96rem} .sess.done .tp{color:var(--graphite);text-decoration:line-through}
-  .sess .meta{font-size:.78rem;color:var(--graphite)} .sess .act{display:flex;gap:.35rem;opacity:0;transition:opacity .12s} .sess:hover .act{opacity:1}
+  .sess .meta{font-size:.78rem;color:var(--graphite)} .sess .act{display:flex;gap:.35rem;opacity:0;transition:opacity .12s} .sess:hover .act,.sess:focus-within .act{opacity:1}
   .sess .chk{width:18px;height:18px;flex:none;border:1.5px solid var(--graphite);border-radius:5px;cursor:pointer;display:grid;place-items:center;color:transparent} .sess.done .chk{background:var(--accent);border-color:var(--accent);color:var(--paper)}
   .emptystate,.agenda .empty{display:grid;justify-items:center;gap:.3rem;text-align:center;padding:2rem 1rem;color:var(--graphite);font-size:.92rem} .emptystate b{font-family:var(--serif);font-weight:500;font-size:1.1rem;color:var(--ink)} .emptystate .btn{margin-top:.55rem} .agenda .empty{border:1px dashed var(--rule);border-radius:var(--r)} .notes .list li.emptystate{cursor:default;border-bottom:none;padding:1.4rem .5rem}
   @media(max-width:1300px){.agenda{max-width:none}}
@@ -333,6 +333,14 @@
   body.focus aside.side, body.focus .head, body.focus .screen>.tutor aside.col, body.focus .notes>aside.col{display:none}
   body.focus .app{grid-template-columns:1fr} body.focus .screen>.tutor,body.focus .screen>.notes{grid-template-columns:1fr;height:calc(100vh - 4.4rem)} body.focus main{padding:.8rem 1rem}
   #focusBtn{position:fixed;right:.7rem;top:.5rem;z-index:40;opacity:.55;font-size:.74rem;padding:.12rem .45rem;border-color:transparent} #focusBtn:hover{opacity:1}
+  /* Motion overrides go LAST on purpose. The reduce block near the top of this sheet only reaches
+     the book, because everything it names is declared above it — a rule added there for .fcinner
+     (declared ~150 lines below) loses the cascade to the declaration itself at equal specificity.
+     Anything added here wins, whatever order the declarations are in. */
+  @media(prefers-reduced-motion:reduce){
+    .fcinner,.progress span,.sess .act,.drop,.btn:active:not([disabled]){transition:none}
+    .flashcard{perspective:none}   /* no 3D rotation to be sick over, just a swap */
+  }
 </style>
 <script src="/static/marked.min.js"></script>
 <script src="/static/mermaid.min.js"></script>
@@ -653,8 +661,20 @@ const del=p=>api(p,{method:'DELETE'});
 /* ---- ⌘K palette + search ---- */
 let palItems=[], palSel=0, palT=null;
 const PAL_SCREENS=[['home','Overview'],['library','Files'],['tutor','Tutor'],['notes','Notes'],['recall','Recall'],['advocate','Advocate'],['arena','Arena'],['planner','Planner'],['progress','Progress']];
-function openPal(){ $('#pal').hidden=false; $('#palQ').value=''; $('#palQ').placeholder='Search notes, files, chats, cards — or type a screen name'; palRender([]); setTimeout(()=>$('#palQ').focus(),0) }
-function closePal(){ $('#pal').hidden=true }
+/* The palette is role="dialog" over a dimmed page, but nothing held focus inside it: one Tab walked
+   out to #focusBtn, the sidebar and the nav behind the dim, and Escape was bound on #palQ alone, so
+   once focus left there was no keyboard way back out at all. The 3D player already solves this
+   properly a few hundred lines down — same inert list, same document-level Escape — so reuse it
+   rather than inventing a second pattern. */
+const palBehind=on=>['.app','#focusBtn','#timer'].forEach(sel=>{ const el=document.querySelector(sel); if(el) el.inert=on; });
+let palOpener=null;
+function openPal(){ palOpener=document.activeElement;
+  $('#pal').hidden=false; $('#pal').setAttribute('aria-modal','true'); palBehind(true);
+  $('#palQ').value=''; $('#palQ').placeholder='Search notes, files, chats, cards — or type a screen name'; palRender([]); setTimeout(()=>$('#palQ').focus(),0) }
+function closePal(){ $('#pal').hidden=true; $('#pal').removeAttribute('aria-modal'); palBehind(false);
+  // Put focus back where it came from, rather than dropping it on <body>
+  if(palOpener && document.contains(palOpener)) palOpener.focus();
+  palOpener=null; }
 function palRender(items){ palItems=items; palSel=0; $('#palList').innerHTML=items.length?items.map((it,i)=>`<li class="${i===0?'sel':''}" data-i="${i}"><span class="k">${it.kind}</span><span class="t">${esc(it.title)}</span>${it.snippet?`<span class="s">${esc(it.snippet)}</span>`:''}</li>`).join(''):'<li class="muted small" style="display:block">Type to search this course.</li>';
   document.querySelectorAll('#palList li[data-i]').forEach(li=>{li.onmouseenter=()=>{palSel=+li.dataset.i;palPaint()}; li.onclick=()=>palGo(+li.dataset.i)}) }
 function palPaint(){ document.querySelectorAll('#palList li[data-i]').forEach(li=>li.classList.toggle('sel',+li.dataset.i===palSel)); const el=document.querySelector('#palList li.sel'); el&&el.scrollIntoView({block:'nearest'}) }
@@ -665,7 +685,8 @@ async function palGo(i){ const it=palItems[i]; if(!it) return; closePal();
 $('#palQ').addEventListener('input',e=>{ clearTimeout(palT); palT=setTimeout(()=>palSearch(e.target.value),140) });
 $('#palQ').addEventListener('keydown',e=>{ if(e.key==='ArrowDown'){e.preventDefault();palSel=Math.min(palItems.length-1,palSel+1);palPaint()} else if(e.key==='ArrowUp'){e.preventDefault();palSel=Math.max(0,palSel-1);palPaint()} else if(e.key==='Enter'){e.preventDefault();palGo(palSel)} else if(e.key==='Escape'){closePal()} });
 $('#pal').addEventListener('click',e=>{ if(e.target.id==='pal') closePal() });
-document.addEventListener('keydown',e=>{ if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){ e.preventDefault(); $('#pal').hidden?openPal():closePal() } });
+document.addEventListener('keydown',e=>{ if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){ e.preventDefault(); $('#pal').hidden?openPal():closePal() }
+  else if(e.key==='Escape'&&!$('#pal').hidden){ e.preventDefault(); closePal() } });
 $('#searchBtn').onclick=openPal;
 const setFocus=v=>{document.body.classList.toggle('focus',v);localStorage.setItem('cf.focus',v?'1':'0');$('#focusBtn').textContent=v?'Show all':'Focus'};
 $('#focusBtn').onclick=()=>setFocus(!document.body.classList.contains('focus'));
@@ -1031,7 +1052,8 @@ document.querySelectorAll('[data-cover]').forEach(b=>b.onclick=()=>{coverMode=b.
 let histVid=null;
 $('#histBtn').onclick=async()=>{ if(!nid) return; const vs=await api(`/notes/${nid}/versions`); if(!vs.length){toast('No earlier versions yet — snapshots are kept as you edit');return}
   palRender(vs.map(v=>({kind:'version',id:v.id,title:new Date(v.created*1000).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}),snippet:`${v.title} · ${Math.round(v.chars/1000)||0}k chars`})));
-  $('#pal').hidden=false; $('#palQ').value=''; $('#palQ').placeholder='Earlier versions — Enter to preview'; $('#palQ').focus() };
+  palOpener=document.activeElement; $('#pal').hidden=false; $('#pal').setAttribute('aria-modal','true'); palBehind(true);
+  $('#palQ').value=''; $('#palQ').placeholder='Earlier versions — Enter to preview'; $('#palQ').focus() };
 async function previewVersion(vid){ const v=await api(`/versions/${vid}`); histVid=vid; $('#histWhen').textContent=new Date(v.created*1000).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}); $('#histBar').hidden=false; noteMode='read'; await showNote(); await paint($('#noteView'),v.body) }
 $('#txReconcile').onclick=()=>{ $('#txBar').hidden=true; $('#noteReconcile').click() }; $('#txLater').onclick=()=>{ $('#txBar').hidden=true };
 $('#autoTx').checked=localStorage.getItem('cf.autoTx')!=='0'; $('#autoTx').onchange=e=>localStorage.setItem('cf.autoTx',e.target.checked?'1':'0');
@@ -1589,7 +1611,12 @@ function showQ(){ const it=quiz[qi]; rprog(qi,qTotal);
 $('#genCards').onclick=async()=>{if(!cfg.has_key){toast('No Claude API key on the server — add it to .env.local and restart');return} $('#genCards').disabled=true; toast('Writing cards…'); try{const r=await post(`/courses/${cid}/cards/generate`,{file_id:$('#genFrom').value||null,count:8});toast(`${r.made} cards added`);loadRecall()}catch(e){toast('Failed: '+e.message)} $('#genCards').disabled=false;};
 $('#addCard').onclick=async()=>{const f=prompt('Front'); if(!f) return; const b=prompt('Back'); if(!b) return; await post(`/courses/${cid}/cards`,{front:f,back:b,source:'manual'}); loadRecall();};
 $('#showAll').onclick=()=>{$('#allCards').hidden=!$('#allCards').hidden};
-function renderAll(all){ $('#cardRows').innerHTML=all.map(c=>`<tr><td>${esc(c.front)}</td><td class="small">${esc(c.back)}</td><td class="small muted">${c.week?'W'+c.week:''}</td><td class="small muted">${c.due}</td><td><button class="btn small ghost" data-delcard="${c.id}">Remove</button></td></tr>`).join(''); document.querySelectorAll('[data-delcard]').forEach(b=>b.onclick=async()=>{await del(`/cards/${b.dataset.delcard}`);loadRecall()}); }
+function renderAll(all){ $('#cardRows').innerHTML=all.map(c=>`<tr><td>${esc(c.front)}</td><td class="small">${esc(c.back)}</td><td class="small muted">${c.week?'W'+c.week:''}</td><td class="small muted">${c.due}</td><td><button class="btn small ghost" data-delcard="${c.id}">Remove</button></td></tr>`).join(''); document.querySelectorAll('[data-delcard]').forEach(b=>b.onclick=async()=>{
+    // Unconfirmed until now, in a table of small buttons. The card carries its whole review
+    // history, so one stray click threw away weeks of scheduling with nothing shown.
+    const c=all.find(x=>x.id===b.dataset.delcard);
+    if(!confirm(`Remove this card and its review history?\n\n${c?c.front:''}`)) return;
+    await del(`/cards/${b.dataset.delcard}`); toast('Card removed'); loadRecall()}); }
 
 /* planner */
 async function runPlan(replace){const b=$('#autoPlan'); b.disabled=true; $('#rePlan').disabled=true; toast('Planning…');
@@ -1611,7 +1638,9 @@ async function loadPlanner(){ const ss=await api('/sessions'); if(!$('#sDay').va
   const total=ss.reduce((a,s)=>a+s.minutes,0), left=ss.filter(s=>!s.done).length;
   $('#planSub').textContent=`${left} to do · ${(total/60).toFixed(1)} h planned`;
   document.querySelectorAll('[data-sess]').forEach(b=>b.onclick=async()=>{await post(`/sessions/${b.dataset.sess}/toggle`);loadPlanner()});
-  document.querySelectorAll('[data-delsess]').forEach(b=>b.onclick=async()=>{await del(`/sessions/${b.dataset.delsess}`);loadPlanner()}); }
+  document.querySelectorAll('[data-delsess]').forEach(b=>b.onclick=async()=>{
+    if(!confirm(`Remove this session?\n\n${b.closest('.sess').querySelector('.tp').textContent}`)) return;
+    await del(`/sessions/${b.dataset.delsess}`); loadPlanner()}); }
 document.addEventListener('click',e=>{ if(e.target.id==='addToggle'){ const f=$('#addForm'); f.hidden=!f.hidden; if(!f.hidden)$('#sTopic').focus(); }});
 $('#addSession').onclick=async()=>{const t=$('#sTopic').value.trim(); if(!t){toast('Give the session a topic');return} await post(`/courses/${cid}/sessions`,{day:$('#sDay').value,topic:t,minutes:+$('#sMin').value||60}); $('#sTopic').value=''; loadPlanner();};
 
