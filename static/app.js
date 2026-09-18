@@ -8,7 +8,7 @@ const put=(p,b)=>api(p,{method:'PUT',headers:{'Content-Type':'application/json'}
 const del=p=>api(p,{method:'DELETE'});
 /* ---- ⌘K palette + search ---- */
 let palItems=[], palSel=0, palT=null;
-const PAL_SCREENS=[['home','Overview'],['library','Files'],['tutor','Tutor'],['notes','Notes'],['recall','Recall'],['advocate','Advocate'],['arena','Arena'],['planner','Planner'],['progress','Progress']];
+const PAL_SCREENS=[['home','Overview'],['library','Files'],['tutor','Tutor'],['notes','Notes'],['recall','Recall'],['advocate','Advocate'],['essay','Essay'],['arena','Arena'],['planner','Planner'],['progress','Progress']];
 /* The palette is role="dialog" over a dimmed page, but nothing held focus inside it: one Tab walked
    out to #focusBtn, the sidebar and the nav behind the dim, and Escape was bound on #palQ alone, so
    once focus left there was no keyboard way back out at all. The 3D player already solves this
@@ -82,8 +82,8 @@ let courses=[], cid=localStorage.getItem('cf.course')||'', mode='drill', cfg={};
 const C=()=>courses.find(c=>c.id===cid)||courses[0];
 
 /* nav */
-const SCREENS=['home','library','tutor','notes','recall','advocate','arena','planner','progress'];
-const loaders={home:loadHome,library:loadFiles,tutor:loadTutor,notes:loadNotes,recall:loadRecall,advocate:loadAdvocate,arena:loadArena,planner:loadPlanner,progress:loadProgress};
+const SCREENS=['home','library','tutor','notes','recall','advocate','essay','arena','planner','progress'];
+const loaders={home:loadHome,library:loadFiles,tutor:loadTutor,notes:loadNotes,recall:loadRecall,advocate:loadAdvocate,essay:loadEssay,arena:loadArena,planner:loadPlanner,progress:loadProgress};
 function show(id){ if(!SCREENS.includes(id)) id='home'; document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.id===id)); document.querySelectorAll('[data-nav]').forEach(a=>a.classList.toggle('active',a.dataset.nav===id)); localStorage.setItem('cf.screen',id); loaders[id](); }
 document.addEventListener('click',e=>{const a=e.target.closest('a[data-nav]'); if(a){e.preventDefault(); show(a.dataset.nav)}});
 
@@ -697,6 +697,127 @@ $('#advOwnMic').onclick=()=>{
   micOwner('#advOwnMic','#advOwnQ','🎙',()=>advOwnReady());
   try{ advRecog.start(); advListening=true; $('#advOwnMic').setAttribute('aria-pressed','true'); $('#advOwnMic').textContent='●'; }catch(e){}
 };
+/* ---- Essay (Phase 17): write the answer, then see how it should have gone ----
+   Two rules the page has to keep, not only the server. The draft is written down as it is typed, so
+   closing the tab mid-paragraph costs nothing. And the model answer is never held here in advance —
+   it is fetched from its own route, which refuses until an answer has been submitted. A page that
+   already had it and merely hid it would be showing the structure first, which is the one thing this
+   screen exists not to do. */
+let es={q:null, saveT:null, dirty:false, unlocked:false};
+
+function esWords(){
+  const n=$('#esAnswer').value.trim().split(/\s+/).filter(Boolean).length;
+  $('#esWords').textContent = n===1 ? '1 word' : n+' words';
+  $('#esSubmit').disabled = !es.q || !n;          // an empty page is refused here as well as on the server
+}
+
+function esPaintGrade(g){
+  const box=$('#esGrade');
+  if(!g || !g.limbs){ box.innerHTML='<div class="emptystate">Nothing marked yet.</div>'; $('#esOutsideWrap').hidden=true; return }
+  box.innerHTML=g.limbs.map(l=>`<div class="eslimb"><b><span class="mdot m-${esc(l.standing||'untested')}"></span>${esc(l.label)}</b>`+
+    `<p>${esc(l.comment||'Nothing came back for this move.')}</p></div>`).join('');
+  const out=g.outside||[];
+  $('#esOutsideWrap').hidden=!out.length;
+  $('#esOutside').innerHTML=out.map(x=>`<li>${esc(x)}</li>`).join('');
+}
+
+function esLock(unlocked){
+  es.unlocked=!!unlocked;
+  $('#esModelBtn').disabled=!es.unlocked;
+  $('#esModelHint').textContent = es.unlocked
+    ? 'You have written yours. Read it against what you wrote — do not copy it into the box.'
+    : 'Shut until you submit an answer. Reading the structure first teaches recognition, not production.';
+  if(es.unlocked) return;
+  $('#esModel').hidden=true; $('#esModel').innerHTML='';
+  $('#esModelBtn').setAttribute('aria-expanded','false'); $('#esModelBtn').textContent='Show the model answer';
+}
+
+function esShow(d){
+  es.q=d.question||null; es.dirty=false; clearTimeout(es.saveT);
+  $('#esQ').textContent = es.q ? es.q.question : 'Nothing banked for this week yet — tick the files it should come from, then build questions.';
+  $('#esMeta').textContent = es.q
+    ? `${d.left} in the bank${es.q.week?' · week '+es.q.week:''}${es.q.source?' · '+es.q.source:''}`
+    : 'No questions banked yet.';
+  $('#esAnswer').value=d.answer||''; $('#esAnswer').disabled=!es.q;
+  $('#esSaved').dataset.state='';
+  $('#esSaved').textContent = d.answer ? 'Picked up where you left off.' : 'Saved as you type — a reload will not lose it.';
+  esPaintGrade(d.graded); esLock(d.unlocked); esWords();
+}
+
+/* A failed save must say so and keep saying so: the note editor learned this the hard way (#silent
+   failures), and this box holds a whole exam answer. */
+async function esSave(){
+  if(!es.q) return true;
+  try{
+    await post(`/courses/${cid}/essay/answer`,{question_id:es.q.id, answer:$('#esAnswer').value});
+    es.dirty=false; $('#esSaved').dataset.state='';
+    $('#esSaved').textContent='Saved '+new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    return true;
+  }catch(e){
+    es.dirty=true; $('#esSaved').dataset.state='failed';
+    $('#esSaved').textContent='Not saved — '+e.message+'. It will try again as you type.';
+    return false;
+  }
+}
+
+async function esNext(){
+  if(es.dirty) await esSave();
+  try{ esShow(await post(`/courses/${cid}/essay/next`,{week:$('#esWeek').value||''})) }
+  catch(e){ toast('Could not load a question: '+e.message,'warn') }
+}
+
+async function loadEssay(){
+  const sel=$('#esWeek'), keep=sel.value;
+  try{ const map=await api(`/courses/${cid}/recall-map`);
+       sel.innerHTML='<option value="">all</option>'+map.weeks.filter(w=>w.week).map(w=>`<option value="${esc(w.week)}">${esc(w.week)}</option>`).join('');
+       if(keep && [...sel.options].some(o=>o.value===keep)) sel.value=keep; }catch(e){}
+  await esNext();
+}
+
+$('#esAnswer').addEventListener('input',()=>{ esWords(); es.dirty=true; clearTimeout(es.saveT); es.saveT=setTimeout(esSave,700) });
+$('#esAnswer').addEventListener('blur',()=>{ if(es.dirty){ clearTimeout(es.saveT); esSave() } });
+$('#esWeek').addEventListener('change',()=>esNext());
+$('#esNext').onclick=()=>esNext();
+
+$('#esSubmit').onclick=async()=>{
+  const answer=$('#esAnswer').value;
+  if(!es.q || !answer.trim()){ toast('Write an answer first — an empty page has nothing to mark.','warn'); return }
+  clearTimeout(es.saveT);
+  const b=$('#esSubmit'), label=b.textContent; b.disabled=true; b.textContent='Marking…';
+  try{
+    const g=await post(`/courses/${cid}/essay/grade`,{question_id:es.q.id, answer});
+    es.dirty=false; esPaintGrade(g); esLock(true);
+    $('#esSaved').dataset.state=''; $('#esSaved').textContent='Submitted and marked.';
+  }catch(e){
+    toast('Could not mark it: '+e.message,'warn');
+    // The server saves and records the submission before it calls the marker, so the model answer is
+    // open even when the marking failed. Ask rather than assume.
+    try{ esLock((await post(`/courses/${cid}/essay/next`,{week:$('#esWeek').value||''})).unlocked) }catch(_){}
+  }finally{ b.textContent=label; esWords() }
+};
+
+$('#esModelBtn').onclick=async()=>{
+  const box=$('#esModel'), btn=$('#esModelBtn');
+  if(!box.hidden){ box.hidden=true; btn.setAttribute('aria-expanded','false'); btn.textContent='Show the model answer'; return }
+  if(!es.q) return;
+  try{
+    const r=await api(`/courses/${cid}/essay/${es.q.id}/model`);
+    await render(box, r.model || '_No model answer was banked with this question._');
+    box.innerHTML=priomark(chipify(box.innerHTML));   // the same two passes the note view makes
+    box.hidden=false; btn.setAttribute('aria-expanded','true'); btn.textContent='Hide the model answer';
+  }catch(e){ toast('Not yet — '+e.message,'warn') }
+};
+
+$('#esBank').onclick=async()=>{
+  const b=$('#esBank'), label=b.textContent; b.disabled=true; b.textContent='Writing questions…';
+  try{
+    const r=await post(`/courses/${cid}/essay/bank`,{count:4, week:$('#esWeek').value||''});
+    toast(r.made ? `${r.made} question${r.made===1?'':'s'} banked` : 'Nothing banked — tick the files it should come from');
+    await esNext();
+  }catch(e){ toast('Could not build questions: '+e.message,'warn') }
+  finally{ b.disabled=false; b.textContent=label }
+};
+
 /* ---- Arena: the ladder and the courtroom. Both feed the same cards as everything else. ---- */
 const RUNGS=15;   // asked for; the ladder is drawn from what the course can actually supply
 const safeRungs=n=>n<6?[] :[...new Set([Math.ceil(n/3),Math.ceil(2*n/3),n])].filter(x=>x>0);

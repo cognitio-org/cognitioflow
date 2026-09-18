@@ -21,6 +21,7 @@
     <li><a href="#notes" data-nav="notes">Notes</a></li>
     <li><a href="#recall" data-nav="recall">Recall</a></li>
     <li><a href="#advocate" data-nav="advocate">Advocate</a></li>
+    <li><a href="#essay" data-nav="essay">Essay</a></li>
     <li><a href="#arena" data-nav="arena">Arena</a></li>
     <li><a href="#planner" data-nav="planner">Planner</a></li>
     <li><a href="#progress" data-nav="progress">Progress</a></li>
@@ -188,6 +189,39 @@
       <div class="panel"><h3>Weak-point notes</h3><div class="small muted">Written only from what you got wrong.</div>
         <div class="advnotes" id="advNotes"><div class="emptystate">Nothing yet. Miss something and it lands here.</div></div>
         <button class="btn small ghost" id="advCopy">Copy notes</button></div>
+    </aside>
+  </div>
+</section>
+
+<section id="essay" class="screen">
+  <div class="head"><div><h1>Essay</h1><div class="small muted" id="esSub">Write the answer first. The model answer opens when you submit.</div></div>
+    <span><label class="esweek small muted" for="esWeek">Week <select id="esWeek"><option value="">all</option></select></label>
+      <button class="btn small" id="esNext" type="button">Next question</button>
+      <button class="btn small ghost" id="esBank" type="button" title="Write essay questions from the files you have ticked">Build questions from my files</button></span></div>
+  <div class="esgrid">
+    <div class="panel esstage">
+      <div class="small muted" id="esMeta">No questions banked yet.</div>
+      <p class="esq" id="esQ">Build questions from your ticked files, then press “Next question”.</p>
+      <label class="small muted eslabel" for="esAnswer">Your answer</label>
+      <textarea id="esAnswer" class="eswrite" rows="16" spellcheck="true" aria-describedby="esHint"
+        placeholder="Work the method, in order, naming the article and the case at each step."></textarea>
+      <div class="esctrl">
+        <span class="small muted" id="esSaved">Saved as you type — a reload will not lose it.</span>
+        <span class="small muted" id="esWords">0 words</span>
+        <button class="btn primary" id="esSubmit" type="button" disabled>Submit for marking</button>
+      </div>
+      <div class="small muted" id="esHint">You get comments on each move of the method — no mark, nothing to optimise.</div>
+    </div>
+    <aside class="esside">
+      <div class="panel"><h3>Marking</h3><div class="small muted">One comment per move of the method.</div>
+        <div id="esGrade"><div class="emptystate">Nothing marked yet.</div></div></div>
+      <div class="panel" id="esOutsideWrap" hidden><h3>Outside your files</h3>
+        <div class="small muted">Authorities the marker had to reach outside the files you ticked.</div>
+        <ul id="esOutside" class="small"></ul></div>
+      <div class="panel"><h3>Model answer</h3>
+        <div class="small muted" id="esModelHint">Shut until you submit an answer. Reading the structure first teaches recognition, not production.</div>
+        <button class="btn small ghost" id="esModelBtn" type="button" disabled aria-expanded="false" aria-controls="esModel">Show the model answer</button>
+        <div class="esmodel" id="esModel" hidden></div></div>
     </aside>
   </div>
 </section>
