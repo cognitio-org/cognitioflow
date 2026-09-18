@@ -11,7 +11,19 @@ made it focusable. Measured in Chromium before the change:
 import re
 from pathlib import Path
 
-PAGE = (Path(__file__).resolve().parent.parent / "static" / "index.html").read_text(encoding="utf-8")
+# index.html was split on 2026-09-18: JS to static/app.js, CSS to static/app.css
+# and static/book.css. These assertions are about the shipped UI, so read all of it.
+def _page_text():
+    d = Path(__file__).resolve().parent.parent / "static"
+    out = []
+    for n in ("index.html", "app.js", "app.css", "book.css", "app-after.css"):
+        f = d / n
+        if f.exists():
+            out.append(f.read_text(encoding="utf-8"))
+    return chr(10).join(out)
+
+
+PAGE = _page_text()
 
 
 def _fn(name):

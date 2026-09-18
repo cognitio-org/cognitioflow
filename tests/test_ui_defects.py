@@ -7,7 +7,19 @@ stood before this change — that is the point of writing them.
 import re
 from pathlib import Path
 
-PAGE = (Path(__file__).resolve().parent.parent / "static" / "index.html").read_text(encoding="utf-8")
+# index.html was split on 2026-09-18: JS to static/app.js, CSS to static/app.css
+# and static/book.css. These assertions are about the shipped UI, so read all of it.
+def _page_text():
+    d = Path(__file__).resolve().parent.parent / "static"
+    out = []
+    for n in ("index.html", "app.js", "app.css", "book.css", "app-after.css"):
+        f = d / n
+        if f.exists():
+            out.append(f.read_text(encoding="utf-8"))
+    return chr(10).join(out)
+
+
+PAGE = _page_text()
 
 
 def test_the_bubble_class_the_scoping_defends_against_is_still_written():
@@ -24,7 +36,8 @@ def test_the_screen_layouts_cannot_catch_chat_bubbles():
     layout, and in focus mode a height of calc(100vh - 4.4rem) as well. The layout div is a direct
     child of .screen; the bubbles are not, so `>` is what separates them.
     """
-    css = re.sub(r"/\*.*?\*/", "", re.search(r"<style>(.*?)</style>", PAGE, re.S).group(1), flags=re.S)
+    # PAGE already carries app.css and book.css; there is no <style> block to search any more.
+    css = re.sub(r"/\*.*?\*/", "", PAGE, flags=re.S)
     for m in re.finditer(r"\.tutor\b", css):
         at = m.start()
         start = max(css.rfind("{", 0, at), css.rfind("}", 0, at)) + 1
