@@ -725,6 +725,34 @@ if(localStorage.getItem('cf.focus')==='1') setFocus(true);
    because the regex wants "not allowed" and the API emits "not-allowed". Callers can now say. The
    regex stays as the default so no existing call changes, and a warn toast holds long enough to
    read and speaks assertively, because the polite live region was being missed. */
+/* Controls built from innerHTML get their click handlers wired afterwards, and nothing ever made
+   them reachable without a mouse. Measured: li[data-note] tabIndex -1 — the note list could not be
+   opened by keyboard at all — and the same for the Recall week chips and the planner's done tick.
+   #caseIndex's links report tabIndex 0 and still are not focusable, because an <a> with no href
+   never is. keyable() adds the attributes after a render; one delegated handler turns Enter and
+   Space into the click those existing handlers already expect. Attributes only: no id, no data-
+   hook and no JS-written class is renamed. */
+const KEYABLE = '[data-note],[data-wk],[data-weak],[data-sess],.cover,.tplay';
+function keyable(root){
+  for(const el of (root || document).querySelectorAll(KEYABLE)){
+    if(!el.hasAttribute('tabindex')) el.tabIndex = 0;
+    if(el.hasAttribute('role')) continue;
+    if(el.matches('[data-sess]')){        // a done tick is a checkbox, not a button
+      el.setAttribute('role','checkbox');
+      el.setAttribute('aria-checked', el.closest('.sess')?.classList.contains('done') ? 'true' : 'false');
+    } else {
+      el.setAttribute('role','button');
+    }
+  }
+}
+document.addEventListener('keydown', e => {
+  if(e.key !== 'Enter' && e.key !== ' ') return;
+  const t = e.target.closest && e.target.closest(KEYABLE);
+  if(!t || t.tabIndex < 0) return;
+  e.preventDefault();          // Space would scroll the page
+  t.click();
+});
+
 function toast(m,tone){const t=$('#toast');t.textContent=m;
   t.dataset.tone=tone||(/^(failed|could not|error)|failed|not[ -]allowed/i.test(m)?'warn':/…$/.test(m)?'busy':'ok');
   t.setAttribute('aria-live',t.dataset.tone==='warn'?'assertive':'polite');
@@ -1054,7 +1082,7 @@ $('#clearChat').onclick=async()=>{if(confirm('Clear this course\'s conversation?
 let nid=null, saveT=null;
 async function loadNotes(){ const ns=await api(`/courses/${cid}/notes`); if(!ns.find(n=>n.id===nid)) nid=ns[0]?.id||null;
   $('#noteList').innerHTML=ns.length?ns.map(n=>`<li class="${n.id===nid?'active':''}" data-note="${n.id}">${esc(n.title)}<div class="small muted">${new Date(n.updated*1000).toLocaleDateString()} · ${Math.round(n.chars/1000)||0}k</div></li>`).join(''):'<li class="emptystate small"><b>No notes yet</b><span>Start one, or draft it from your files.</span><button class="btn small" type="button" onclick="document.getElementById(\'newNote\').click()">New note</button></li>';
-  document.querySelectorAll('[data-note]').forEach(l=>l.onclick=()=>{nid=l.dataset.note;loadNotes()});
+  document.querySelectorAll('[data-note]').forEach(l=>l.onclick=()=>{nid=l.dataset.note;loadNotes()}); keyable($('#noteList'));
   if(nid){const n=await api(`/notes/${nid}`);$('#noteTitle').value=n.title;await loadRecIds();$('#noteBody').value=toDisplay(n.body);$('#noteStatus').textContent='Saved'} else {$('#noteTitle').value='';$('#noteBody').value='';$('#noteStatus').textContent=''}
   histVid=null; $('#histBar').hidden=true; $('#txBar').hidden=true; showNote(); loadRecs();
 }
@@ -1109,6 +1137,7 @@ async function paint(el,body){
   const pre=unwrapSoftBreaks(body).replace(/<!--r:([a-z0-9]+):(\d+)-->/g,(m,r,s)=>`<a class="tplay" data-r="${r}" data-s="${s}" title="Recording ${recIds.indexOf(r)+1||'?'} · play from ${fmt(Math.max(0,s-20))}">▶ ${fmt(s)}</a>`);
   await render(el,pre); el.innerHTML=priomark(chipify(el.innerHTML));
   el.querySelectorAll('.tplay').forEach(a=>a.onclick=()=>playAt(a.dataset.r,+a.dataset.s));
+  keyable(el);
   applyCover(el);
 }
 /* ---- cover mode: self-test off the notes ---- */
@@ -1119,6 +1148,7 @@ function applyCover(el){ el.querySelectorAll('.cover').forEach(c=>{c.replaceWith
     el.querySelectorAll('table').forEach(tb=>{ const hs=[...tb.querySelectorAll('th')].map(t=>t.textContent.toLowerCase()); const ci=hs.findIndex(x=>x.includes('case')); if(ci<0) return; tb.querySelectorAll('tbody tr').forEach(tr=>{ const td=tr.children[ci]; if(td&&!td.querySelector('.cover')) wrap([...td.childNodes]) }) }) }
   if(coverMode==='rules'){ el.querySelectorAll('table').forEach(tb=>{ const hs=[...tb.querySelectorAll('th')].map(t=>t.textContent.toLowerCase()); const ri=hs.findIndex(x=>x.includes('rule')); if(ri<0) return; tb.querySelectorAll('tbody tr').forEach(tr=>{ const td=tr.children[ri]; if(td) wrap([...td.childNodes]) }) }) }
   if(coverMode==='rules'){ el.querySelectorAll('li, td').forEach(li=>{ const b=li.querySelector('strong'); if(!b||b.parentNode!==li) return; const after=[]; let n=b.nextSibling; while(n){after.push(n); n=n.nextSibling} wrap(after.filter(x=>!(x.nodeType===3&&!x.textContent.trim())||true)); }); }
+  keyable(el);   // the .cover spans are made here, after paint() has already run
 }
 document.querySelectorAll('[data-cover]').forEach(b=>b.onclick=()=>{coverMode=b.dataset.cover; document.querySelectorAll('[data-cover]').forEach(x=>x.setAttribute('aria-pressed',x===b)); applyCover($('#noteView'))});
 let histVid=null;
@@ -1669,7 +1699,7 @@ async function loadWeekDir(){ const m=await api(`/courses/${cid}/recall-map`); c
   if(m.weak) html+=`<div class="wk weak ${rweak?'sel':''}" data-weak="1">Weak cards<span class="n">${m.weak}</span></div>`;
   d.innerHTML=html;
   d.querySelectorAll('[data-wk]').forEach(b=>b.onclick=()=>{ rweak=false; rweek=b.dataset.wk; loadRecall(); });
-  const wb=d.querySelector('[data-weak]'); if(wb) wb.onclick=()=>{ rweak=true; rweek=''; loadRecall(); }; }
+  const wb=d.querySelector('[data-weak]'); if(wb) wb.onclick=()=>{ rweak=true; rweek=''; loadRecall(); }; keyable(d); }
 function scopeQS(){ const p=new URLSearchParams(); if(rweek)p.set('week',rweek); if(rweak)p.set('weak','1'); return p.toString()?('&'+p.toString()):''; }
 async function loadRecall(){ const fs=await api(`/courses/${cid}/files`); $('#genFrom').innerHTML='<option value="">From all ticked files</option>'+fs.filter(f=>f.kind!=='image').map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('');
   loadWeekDir();
@@ -1740,7 +1770,7 @@ async function loadPlanner(){ const ss=await api('/sessions'); if(!$('#sDay').va
   }).join('');
   const total=ss.reduce((a,s)=>a+s.minutes,0), left=ss.filter(s=>!s.done).length;
   $('#planSub').textContent=`${left} to do · ${(total/60).toFixed(1)} h planned`;
-  document.querySelectorAll('[data-sess]').forEach(b=>b.onclick=async()=>{await post(`/sessions/${b.dataset.sess}/toggle`);loadPlanner()});
+  document.querySelectorAll('[data-sess]').forEach(b=>b.onclick=async()=>{await post(`/sessions/${b.dataset.sess}/toggle`);loadPlanner()}); keyable($('#agenda'));
   document.querySelectorAll('[data-delsess]').forEach(b=>b.onclick=async()=>{
     if(!confirm(`Remove this session?\n\n${b.closest('.sess').querySelector('.tp').textContent}`)) return;
     await del(`/sessions/${b.dataset.delsess}`); loadPlanner()}); }
@@ -1750,7 +1780,7 @@ $('#addSession').onclick=async()=>{const t=$('#sTopic').value.trim(); if(!t){toa
 /* progress */
 async function loadCaseIndex(){ const el=$('#caseIndex'); try{ const cs=await api(`/courses/${cid}/cases`); if(!cs.length){el.innerHTML='<div class="muted">No cases yet — they appear once your notes name cases in *italics*.</div>';return}
     el.innerHTML=cs.map(c=>`<div class="ci"><b>${esc(c.name)}</b>${c.cite?` <span class="cc">${esc(c.cite)}</span>`:''} — ${c.notes.map(n=>`<a data-note="${n.id}">${esc(n.title)}</a>`).join(', ')}</div>`).join('');
-    el.querySelectorAll('a[data-note]').forEach(a=>a.onclick=()=>{nid=a.dataset.note;noteMode='read';show('notes')}); }catch(e){ el.textContent='' } }
+    el.querySelectorAll('a[data-note]').forEach(a=>a.onclick=()=>{nid=a.dataset.note;noteMode='read';show('notes')}); keyable(el); }catch(e){ el.textContent='' } }
 /* ---- study timer ---- */
 let tStart=+(localStorage.getItem('cf.tStart')||0), tInt=null;
 function tShow(){ const on=tStart>0; $('#timer').classList.toggle('running',on); $('#timerBtn').hidden=on; $('#timerClock').hidden=!on; $('#timerStop').hidden=!on;
