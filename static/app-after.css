@@ -86,3 +86,25 @@
     .fcinner,.progress span,.sess .act,.drop,.btn:active:not([disabled]){transition:none}
     .flashcard{perspective:none}   /* no 3D rotation to be sick over, just a swap */
   }
+
+  /* case timeline — the same case index, read as chronology. A rail for time, the year in the serif
+     used for content, the accent only where it marks a position on that rail. Undated cases keep the
+     rail but lose the dot: they are listed, not placed. */
+  #caseTimeline .tline{margin:.6rem 0 0;padding:0;list-style:none}
+  #caseTimeline .tyear{display:grid;grid-template-columns:4.25rem minmax(0,1fr);gap:0 1rem}
+  /* sticky: the undated group runs to twenty-odd cases, and a group you have scrolled into the
+     middle of has to still say which year — or whether it has one — without scrolling back */
+  #caseTimeline .ty{font-family:var(--serif);font-size:1.05rem;font-variant-numeric:tabular-nums;text-align:right;padding-top:.1rem;position:sticky;top:.35rem;align-self:start}
+  #caseTimeline .tcases{border-left:1px solid var(--rule);padding:0 0 1rem 1.05rem;position:relative}
+  #caseTimeline .tyear:last-child .tcases{padding-bottom:0}
+  #caseTimeline .tcases::before{content:"";position:absolute;left:-4px;top:.5rem;width:7px;height:7px;border-radius:50%;background:var(--accent)}
+  #caseTimeline .tc{padding:.15rem 0 .35rem}
+  #caseTimeline .tc b{font-family:var(--serif);font-weight:500}
+  #caseTimeline .tc .cc{color:var(--graphite)}
+  #caseTimeline .tc .tn{display:block;color:var(--graphite);font-size:.82rem}
+  #caseTimeline .tc .tn a{color:var(--accent);cursor:pointer;display:inline-flex;align-items:center;min-height:var(--tap)}
+  #caseTimeline .undated .ty{font-family:var(--sans);font-size:.78rem;line-height:1.3;color:var(--graphite);padding-top:.35rem}
+  #caseTimeline .undated .tcases{border-left-style:dashed}
+  #caseTimeline .undated .tcases::before{background:var(--paper);border:1px solid var(--rule-strong);left:-5px}
+  #caseTimeline .tnote{margin:0 0 .6rem;color:var(--graphite)}
+  @media(max-width:1300px){#caseTimeline .tyear{grid-template-columns:3.4rem minmax(0,1fr);gap:0 .7rem} #caseTimeline .ty{font-size:.98rem}}

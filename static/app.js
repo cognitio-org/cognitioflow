@@ -166,6 +166,11 @@ async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle'
   $('#coverTitle').textContent=c.name.toUpperCase(); $('#leafTitle').textContent=c.name;
   $('#leafKicker').textContent=TABS.slice(0,3).map(x=>x[1]).join(' · ').toUpperCase(); const s=await api(`/courses/${cid}/stats`);
   $('#h-due').textContent=s.due; $('#h-streak').textContent=s.streak; $('#h-files').textContent=s.files; $('#h-acc').textContent=s.recall_accuracy==null?'–':s.recall_accuracy+'%';
+  /* a streak kept alive across a missed day says so, so the number is never quietly wrong */
+  const fz=s.streak_frozen||[], fzEl=$('#h-freeze'), fzDay=d=>new Date(d+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'});
+  fzEl.hidden=!fz.length;
+  if(fz.length){ fzEl.textContent=fz.length===1?`freeze · ${fzDay(fz[0])}`:`${fz.length} freezes`;
+    fzEl.title=`Missed ${fz.map(fzDay).join(', ')} — covered by a streak freeze. Seven unbroken days earns one.`; }
   let next,body,go; if(s.files===0){next='Add your files';body='Slides, transcripts and notes go in first — the tutor only works from what you upload.';go='library'}
   else if(s.due>0){next=`Review ${s.due} due card${s.due>1?'s':''}`;body='Clear the queue before adding new material.';go='recall'}
   else if(s.cards===0){next='Generate a first deck';body='Pick a file in Recall and let the tutor write cards from it.';go='recall'}
@@ -1276,7 +1281,35 @@ $('#timerStop').onclick=async()=>{ const mins=Math.max(1,Math.round((Date.now()-
   try{ await post(`/courses/${cid}/sessions/log`,{minutes:mins,topic}); toast(`Logged ${mins} min`) }catch(e){ toast('Could not log: '+e.message) }
   tStart=0; localStorage.removeItem('cf.tStart'); clearInterval(tInt); tInt=null; tShow(); if(document.querySelector('#progress.active')) loadProgress(); };
 if(tStart>0){ tInt=setInterval(tShow,1000); } tShow();
-async function loadProgress(){ loadCaseIndex(); const s=await api(`/courses/${cid}/stats`); $('#progSub').textContent=C().name; $('#p-cards').textContent=`${s.cards} (${s.retained})`; $('#p-reviews').textContent=s.reviews; $('#p-time').textContent=(s.study_minutes/60).toFixed(1)+' h'; $('#p-q').textContent=s.questions_asked;
+/* The case index, read as chronology. Van Gend → Costa → Simmenthal is a sentence; A–Z is a filing
+   cabinet. Same cases, same note links — only the order and the grouping differ, and the years come
+   from the citations already written in the notes, never from what the model remembers about a case.
+   Which order you last chose is a view preference, so localStorage is where it belongs. */
+let caseView = localStorage.getItem('cf.caseView')==='year' ? 'year' : 'az';
+const CASE_SUB = {az:'every case across your notes · your tabbing checklist',
+                  year:'in the order the doctrine happened · years read off the citations you wrote'};
+function loadCaseView(){
+  document.querySelectorAll('[data-caseview]').forEach(b=>b.setAttribute('aria-pressed', b.dataset.caseview===caseView));
+  $('#caseSub').textContent=CASE_SUB[caseView];
+  $('#caseIndex').hidden = caseView!=='az'; $('#caseTimeline').hidden = caseView!=='year';
+  return caseView==='year' ? loadCaseTimeline() : loadCaseIndex();
+}
+document.querySelectorAll('[data-caseview]').forEach(b=>b.onclick=()=>{
+  caseView=b.dataset.caseview; localStorage.setItem('cf.caseView',caseView); loadCaseView(); });
+function tlCase(c){ return `<div class="tc"><b>${esc(c.name)}</b>${c.cite?` <span class="cc">${esc(c.cite)}</span>`:''}`
+  +`<span class="tn">${c.notes.map(n=>`<a data-note="${n.id}">${esc(n.title)}</a>`).join(', ')}</span></div>` }
+async function loadCaseTimeline(){ const el=$('#caseTimeline');
+  try{ const t=await api(`/courses/${cid}/timeline`);
+    if(!t.total){ el.innerHTML='<div class="muted">No cases yet — they appear once your notes name cases in *italics*.</div>'; return }
+    const ls=t.groups.map(g=>`<li class="tyear"><span class="ty">${g.year}</span><div class="tcases">${g.cases.map(tlCase).join('')}</div></li>`);
+    if(t.undated.length) ls.push(`<li class="tyear undated"><span class="ty">No year<br>written</span><div class="tcases">${t.undated.map(tlCase).join('')}</div></li>`);
+    const dated=t.total-t.undated.length;
+    const head=(t.span?`${t.span.from}–${t.span.to} · ${dated} case${dated===1?'':'s'} placed`:'No case in your notes carries a year yet')
+      +(t.undated.length?` · ${t.undated.length} with no year written down, listed at the end`:'');
+    el.innerHTML=`<p class="tnote">${head}</p><ol class="tline">${ls.join('')}</ol>`;
+    el.querySelectorAll('a[data-note]').forEach(a=>a.onclick=()=>{nid=a.dataset.note;noteMode='read';show('notes')}); keyable(el);
+  }catch(e){ el.innerHTML='<div class="muted">Could not read your cases.</div>' } }
+async function loadProgress(){ loadCaseView(); const s=await api(`/courses/${cid}/stats`); $('#progSub').textContent=C().name; $('#p-cards').textContent=`${s.cards} (${s.retained})`; $('#p-reviews').textContent=s.reviews; $('#p-time').textContent=(s.study_minutes/60).toFixed(1)+' h'; $('#p-q').textContent=s.questions_asked;
   $('#p-next').textContent=s.due?`Clear ${s.due} due cards`:(s.cards<10?'Build the deck to at least 10 cards':(s.recall_accuracy!=null&&s.recall_accuracy<70?'Accuracy under 70% — drill the weak cards with the tutor':'Ask the tutor for an IRAC case question'));}
 
 /* init */
