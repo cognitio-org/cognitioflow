@@ -42,6 +42,7 @@ RETRIEVAL_CHARS = int(os.environ.get("RETRIEVAL_CHARS", "40000"))        # ~10k 
 MAX_IMAGES = 6
 RECONCILE_TOKENS = 8000   # the cap stays here; the Continue button finishes anything cut off
 DRAFT_TOKENS = 4000
+DRAFT_ROUNDS = 3         # how many times a draft may continue itself before Continue is left to the student
 
 # ---------------------------------------------------------------- DB
 from psycopg.rows import dict_row
@@ -207,7 +208,11 @@ def index(): return FileResponse(ROOT / "static" / "index.html")
 
 @app.get("/health")
 @app.get("/healthz")  # local only: Cloud Run reserves paths ending in z and answers /healthz with its own 404
-def healthz(): return {"ok": True}
+def healthz():
+    # CF_COMMIT is set at deploy time from the git SHA. Without it there is no way to
+    # tell what is actually running: the predecessor app (ALLMS) drifted six months
+    # behind main and nobody noticed, because its health endpoint never said.
+    return {"ok": True, "commit": os.environ.get("CF_COMMIT", "dev")}
 
 @app.get("/api/config")
 def config(user: dict = Depends(current_user)): return {"email": user["email"], "model": MODEL, "cheap_model": CHEAP_MODEL, "strong_model": STRONG_MODEL, "models": MODELS,
@@ -1723,32 +1728,56 @@ def draft_notes(cid: str, d: DraftIn):
     system, prompt, fs = _draft_inputs(cid, d)
     m = client().messages.create(model=pick_model("notes", None, ""), max_tokens=DRAFT_TOKENS, system=system,
                                  messages=[{"role": "user", "content": prompt}])
-    body = _mark_if_cut(_reply_text(m), m, kind="draft", week=d.week, diagrams="1" if d.diagrams else "0",
-                        files=",".join(f["id"] for f in fs))  # the files actually used, so Continue reads the same material if ticks change
+    meta = dict(kind="draft", week=d.week, diagrams="1" if d.diagrams else "0",
+                files=",".join(f["id"] for f in fs))  # the files actually used, so Continue reads the same material if ticks change
+    body = _mark_if_cut(_reply_text(m), m, **meta)
+    for _ in range(DRAFT_ROUNDS - 1):  # a note that stops at the cap finishes itself rather than being stored half-written
+        if not _CUT.search(body): break
+        partial, _meta = _split_marker(body)
+        body, _added, _used = _continue_once(partial, system, prompt, pick_model("notes", None, ""), DRAFT_TOKENS, meta)
     title = d.title or (body.splitlines()[0].lstrip("# ").strip() if body.startswith("#") else (f"Week {d.week} notes" if d.week else "Master notes"))
     nid = uuid.uuid4().hex
     with db() as c: c.execute("INSERT INTO notes VALUES(?,?,?,?,?)", (nid, cid, title, body, time.time()))
     return {"id": nid, "title": title, "chars": len(body), "files": [f["name"] for f in fs], "model": m.model}
 
-@app.post("/api/notes/{nid}/continue")
-def continue_note(nid: str):
-    """Finish a note the model left unfinished at the token cap. Current models reject an assistant prefill,
-    so the partial text goes back in the user turn and the reply is appended."""
-    n = note(nid); body = n["body"] or ""
+def _split_marker(body: str):
+    """(text without the continuation marker, marker meta) — meta is empty for a note that never had one."""
     mk = _CUT.search(body)
-    if not mk: raise HTTPException(400, "This note wasn't cut off — nothing to continue.")
+    if not mk: return body.rstrip(), {}
     meta = {k: unquote(v) for k, v in (kv.split("=", 1) for kv in mk.group(1).split() if "=" in kv)}
     before = body[:mk.start()]
-    partial = (before[:-2] if before.endswith("\n\n") else before) + body[mk.end():]  # drop only the separator the marker added
+    return (before[:-2] if before.endswith("\n\n") else before) + body[mk.end():], meta  # drop only the separator the marker added
+
+def _finish_inputs(course_id: str, partial: str, meta: dict):
+    """(system, prompt, model, cap) for finishing `partial`, from its marker when it has a usable one."""
     if meta.get("kind") == "reconcile":
         src = rows("SELECT * FROM notes WHERE id=?", meta.get("src", ""))
         if not src: raise HTTPException(400, "The note this was reconciled from is gone — reconcile again from the original.")
-        system, prompt = _reconcile_inputs(src[0]); model, cap = STRONG_MODEL, RECONCILE_TOKENS
-    elif meta.get("kind") == "draft":
+        system, prompt = _reconcile_inputs(src[0])
+        return system, prompt, STRONG_MODEL, RECONCILE_TOKENS
+    if meta.get("kind") == "draft":
         d = DraftIn(week=meta.get("week", ""), diagrams=meta.get("diagrams", "1") == "1",
                     file_ids=[x for x in meta.get("files", "").split(",") if x])
-        system, prompt, _ = _draft_inputs(n["course_id"], d); model, cap = pick_model("notes", None, ""), DRAFT_TOKENS
-    else: raise HTTPException(400, "This note has no continuation marker the app understands.")
+        system, prompt, _ = _draft_inputs(course_id, d)
+        return system, prompt, pick_model("notes", None, ""), DRAFT_TOKENS
+    # No marker this build understands: the note arrived some other way — pasted from a chat, imported,
+    # cut off by whatever produced it. Finish it from its own text rather than leaving it half-written
+    # for good. No course files are read here: the note carries its own structure and provenance tags.
+    if not partial.strip(): raise HTTPException(400, "This note is empty — nothing to continue.")
+    course = rows("SELECT * FROM courses WHERE id=?", course_id)
+    system = BASE_PROMPT + "\n" + ((course[0]["tutor_prompt"] if course else "") or "") + """
+Mode: finish a note that stops part-way. """ + NOTE_STYLE + """Output Markdown only, no preamble.
+Keep the structure, headings, tone and provenance tags the note already uses. Add nothing the note does not
+already carry: where a section cannot be completed from what is there, name what is missing under
+## Gaps / verify instead of inventing material."""
+    # pick_model, not STRONG_MODEL: this path is reached by pressing Continue on any note, so it is
+    # auto-routing. STRONG_MODEL is reconcile-only and may be set to Fable (~10x a Sonnet call), which
+    # auto-routing must never select. The notes route escalates to MODEL for analytical text and no further.
+    return system, "These are the notes so far.", pick_model("notes", None, partial), DRAFT_TOKENS
+
+def _continue_once(partial: str, system: str, prompt: str, model: str, cap: int, meta: dict):
+    """One continuation round -> (joined text, characters added, model used). The partial goes back in the
+    user turn because current models reject an assistant prefill."""
     ask = (prompt + "\n\nYou already wrote the answer below, but it was cut off at the token limit. Continue from exactly where it stops: "
            "no preamble, no repetition, no restating earlier sections — pick up mid-sentence if that is where it ends — and finish the sections still missing. "
            "Your reply is appended to the answer with nothing added in between, so begin with the exact next characters: the rest of the word if it stops "
@@ -1758,11 +1787,21 @@ def continue_note(nid: str):
     raw = _text(m)
     if not raw.strip(): raise HTTPException(502, "Empty reply from the model.")
     rest = raw if getattr(m, "stop_reason", "") == "max_tokens" else raw.rstrip()  # leading space or line break is the join itself
-    joined = _mark_if_cut(partial + rest, m, **meta)
+    return _mark_if_cut(partial + rest, m, **meta), len(rest), m.model
+
+@app.post("/api/notes/{nid}/continue")
+def continue_note(nid: str):
+    """Finish a note that stops part-way. Current models reject an assistant prefill, so the partial text
+    goes back in the user turn and the reply is appended. Works with or without a continuation marker."""
+    n = note(nid); body = n["body"] or ""
+    partial, meta = _split_marker(body)
+    if not partial.strip(): raise HTTPException(400, "This note is empty — nothing to continue.")
+    system, prompt, model, cap = _finish_inputs(n["course_id"], partial, meta)
+    joined, added, used = _continue_once(partial, system, prompt, model, cap, meta)
     with db() as c:
         c.execute("INSERT INTO note_versions VALUES(?,?,?,?,?)", (uuid.uuid4().hex, nid, n["title"], body, time.time()))
         c.execute("UPDATE notes SET body=?, updated=? WHERE id=?", (joined, time.time(), nid))
-    return {"chars": len(joined), "added": len(rest), "cut": bool(_CUT.search(joined)), "model": m.model}
+    return {"chars": len(joined), "added": added, "cut": bool(_CUT.search(joined)), "model": used}
 
 class PlanIn(BaseModel): start: str = ""; days: int = 7; minutes_per_day: int = 90; replace: bool = False
 

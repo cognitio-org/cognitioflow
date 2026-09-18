@@ -9,8 +9,15 @@ getBoundingClientRect does not see.
 import re
 from pathlib import Path
 
-PAGE = (Path(__file__).resolve().parent.parent / "static" / "index.html").read_text(encoding="utf-8")
-CSS = re.sub(r"/\*.*?\*/", "", re.search(r"<style>(.*?)</style>", PAGE, re.S).group(1), flags=re.S)
+_STATIC = Path(__file__).resolve().parent.parent / "static"
+_read = lambda name: (_STATIC / name).read_text(encoding="utf-8")
+
+# index.html used to carry the markup, the script and the styles together. Splitting it into
+# app.js/app.css/book.css left the <style> block empty of existence, so the search below returned
+# None and this module failed at import. These assertions are about the page as the browser
+# assembles it, so PAGE is the markup plus the script it loads, and CSS is both stylesheets.
+PAGE = _read("index.html") + _read("app.js")
+CSS = re.sub(r"/\*.*?\*/", "", _read("app.css") + _read("book.css"), flags=re.S)
 
 
 def _rule(sel):
