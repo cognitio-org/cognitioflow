@@ -716,8 +716,11 @@ def test_a_reading_needs_a_voice_and_something_to_read(client, fake, voice, monk
 
 
 # ---- the play control on the page (no JS runner here, so this reads the sheet the way the other UI tests do)
-NOTES_PAGE = (pathlib.Path(__file__).parent.parent / "static" / "index.html").read_text(encoding="utf-8")
-NOTES_CSS = re.sub(r"/\*.*?\*/", "", re.search(r"<style>(.*?)</style>", NOTES_PAGE, re.S).group(1), flags=re.S)
+_ST = pathlib.Path(__file__).parent.parent / "static"
+_rd = lambda n: (_ST / n).read_text(encoding="utf-8")
+# index.html was split into markup + app.js + two sheets; read the page as the browser assembles it.
+NOTES_PAGE = _rd("index.html") + _rd("app.js")
+NOTES_CSS = re.sub(r"/\*.*?\*/", "", _rd("app.css") + _rd("book.css"), flags=re.S)
 
 
 def test_the_play_control_clears_the_quality_floor():
