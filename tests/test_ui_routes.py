@@ -54,6 +54,71 @@ def test_case_index_empty_course(client):
     assert client.get(f"/api/courses/{cid}/cases").json() == []
 
 
+# ---------------------------------------------------------------- Phase 16: the case law, in order
+def _timeline_note(client, cid):
+    return client.post(f"/api/courses/{cid}/notes", json={"title": "Supremacy", "body":
+        "1. **Direct effect** — *Van Gend en Loos* (26/62) [LECTURE]\n"
+        "2. **Primacy** — *Costa v ENEL* (6/64) [LECTURE]\n"
+        "3. **Set aside** — *Simmenthal* (106/77) [WG]\n"
+        "4. **Read together with** *Factortame* (ECLI:EU:C:1990:257) [WG]\n"
+        "5. *Melloni* is on the reading list but I never wrote its citation down [SLIDES]\n\n"
+        "| Case | Citation | Year | Rule |\n|---|---|---|---|\n"
+        "| *Cassis de Dijon* | 120/78 | 1979 | mandatory requirements |\n"}).json()["id"]
+
+
+def test_cases_carry_the_year_the_notes_wrote(client):
+    """The year is read off the citation as written — ECLI, a four-figure year, or the year in an EU
+    case number. A case the notes never dated stays undated: the model's own memory is not a source."""
+    cid = _cid(client)
+    _timeline_note(client, cid)
+    by = {c["name"]: c for c in client.get(f"/api/courses/{cid}/cases").json()}
+    assert by["Van Gend en Loos"]["year"] == 1962
+    assert by["Costa v ENEL"]["year"] == 1964
+    assert by["Simmenthal"]["year"] == 1977
+    assert by["Factortame"]["year"] == 1990          # ECLI year field
+    assert by["Cassis de Dijon"]["year"] == 1979     # the table's own Year column, not 1978 from 120/78
+    assert by["Melloni"]["year"] is None             # a famous case, and still undated here
+
+
+def test_timeline_orders_by_year_and_groups_the_undated(client):
+    cid = _cid(client)
+    _timeline_note(client, cid)
+    t = client.get(f"/api/courses/{cid}/timeline").json()
+    assert [g["year"] for g in t["groups"]] == [1962, 1964, 1977, 1979, 1990]
+    assert [c["name"] for g in t["groups"] for c in g["cases"]] == [
+        "Van Gend en Loos", "Costa v ENEL", "Simmenthal", "Cassis de Dijon", "Factortame"]
+    assert [c["name"] for c in t["undated"]] == ["Melloni"]     # listed, not interleaved by guess
+    assert t["span"] == {"from": 1962, "to": 1990} and t["total"] == 6
+    # the note it came from is reachable from the timeline, as it is from the A-Z index
+    assert all(c["notes"] for g in t["groups"] for c in g["cases"])
+
+
+def test_timeline_same_year_keeps_a_stable_order(client):
+    cid = _cid(client)
+    client.post(f"/api/courses/{cid}/notes", json={"title": "1974", "body":
+        "*Reyners* (2/74) and *Dassonville* (8/74) and *Van Binsbergen* (33/74) [WG]"})
+    seen = [[c["name"] for c in client.get(f"/api/courses/{cid}/timeline").json()["groups"][0]["cases"]]
+            for _ in range(3)]
+    assert seen[0] == ["Dassonville", "Reyners", "Van Binsbergen"] and seen[1] == seen[0] == seen[2]
+
+
+def test_timeline_of_a_course_with_no_cases_is_empty_not_an_error(client):
+    cid = client.post("/api/courses", json={"name": "Empty"}).json()["id"]
+    r = client.get(f"/api/courses/{cid}/timeline")
+    assert r.status_code == 200
+    assert r.json() == {"groups": [], "undated": [], "total": 0, "span": None}
+
+
+def test_timeline_holds_the_case_index_line_on_outside_files(client):
+    """[OUTSIDE FILES] on a new surface: only what the course wrote down gets on the timeline."""
+    cid = _cid(client)
+    client.post(f"/api/courses/{cid}/notes", json={"title": "Goods", "body": "*Keck* (C-267/91) [WG]"})
+    t = client.get(f"/api/courses/{cid}/timeline").json()
+    names = {c["name"] for g in t["groups"] for c in g["cases"]} | {c["name"] for c in t["undated"]}
+    assert names == {"Keck"}          # not Cassis, not Dassonville — the notes never name them
+    assert t["groups"][0]["year"] == 1991
+
+
 # ---------------------------------------------------------------- model-backed routes (fake client)
 import json
 import pathlib
