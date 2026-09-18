@@ -7,15 +7,15 @@ assert against static/index.html the way test_courses.py's palette test does.
 import re
 from pathlib import Path
 
+# The page was split on 2026-09-18: CSS moved to static/app.css and static/book.css,
+# JS to static/app.js. These tests assert against all of it, so read the pieces and
+# join them — that keeps the assertions honest wherever the code physically lives.
 _STATIC = Path(__file__).resolve().parent.parent / "static"
-_read = lambda name: (_STATIC / name).read_text(encoding="utf-8")
-
-# index.html used to carry the markup, the script and the styles together. Splitting it into
-# app.js/app.css/book.css left the <style> block empty of existence, so the search below returned
-# None and this module failed at import. These assertions are about the page as the browser
-# assembles it, so PAGE is the markup plus the script it loads, and CSS is both stylesheets.
-PAGE = _read("index.html") + _read("app.js")
-CSS = re.sub(r"/\*.*?\*/", "", _read("app.css") + _read("book.css"), flags=re.S)
+def _read(name):
+    p = _STATIC / name
+    return p.read_text(encoding="utf-8") if p.exists() else ""
+PAGE = _read("index.html") + chr(10) + _read("app.js")
+CSS = re.sub(r"/\*.*?\*/", "", _read("app.css") + chr(10) + _read("book.css") + chr(10) + _read("app-after.css"), flags=re.S)
 
 
 def test_nothing_irreversible_happens_without_asking():
