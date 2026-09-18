@@ -1774,9 +1774,39 @@ def del_session(sid: str):
     with db() as d: d.execute("DELETE FROM sessions WHERE id=?", (sid,))
     return {"ok": True}
 
+# ---------------------------------------------------------------- the day streak (Phase 15)
+STREAK_FREEZE_WINDOW = 7   # a missed day is forgiven only when the seven days before it were unbroken
+
+def streak_days(days: set, today: date):
+    """The day streak, derived from `reviews` alone, surviving one earned missed day.
+
+    `days` is the set of ISO dates a review happened on — the dates `reviews` already uses, and
+    `today` is the same notion of today the rest of stats() runs on; there is no second one.
+
+    Today is still in progress, so a today with no review yet is neither a hit nor a gap: the walk
+    starts at yesterday, and no freeze is ever spent on a day that can still be redeemed. A *closed*
+    day with no review is forgiven exactly when the seven days before it were all study days. That
+    single condition is also what breaks the run on a second gap inside the same seven days, and on
+    any two missed days in a row, however long the run before them: two freezes can never land less
+    than eight days apart, because a freeze needs seven unbroken days behind it.
+
+    Returns (streak, frozen): the days actually studied in the current run, and the forgiven days
+    inside it, oldest first. No reviews at all is (0, []) — not 1, and not a crash.
+    """
+    if not days: return 0, []
+    earliest, streak, frozen = min(days), 0, []
+    cur = today if today.isoformat() in days else today - timedelta(days=1)   # today is not yet a missed day
+    while cur.isoformat() >= earliest:
+        if cur.isoformat() in days: streak += 1
+        elif all((cur - timedelta(days=k)).isoformat() in days for k in range(1, STREAK_FREEZE_WINDOW + 1)): frozen.append(cur.isoformat())
+        else: break
+        cur -= timedelta(days=1)
+    return streak, frozen[::-1]
+
+
 @app.get("/api/courses/{cid}/stats")
 def stats(cid: str):
-    today = date.today().isoformat()
+    day0 = date.today(); today = day0.isoformat()
     with db() as d:
         total    = d.execute("SELECT COUNT(*) AS n FROM cards WHERE course_id=?", (cid,)).fetchone()["n"]
         due      = d.execute("SELECT COUNT(*) AS n FROM cards WHERE course_id=? AND due<=?", (cid, today)).fetchone()["n"]
@@ -1785,14 +1815,13 @@ def stats(cid: str):
         files_n  = d.execute("SELECT COUNT(*) AS n, COALESCE(SUM(chars),0) AS total_chars FROM files WHERE course_id=?", (cid,)).fetchone()
         minutes  = d.execute("SELECT COALESCE(SUM(minutes),0) AS n FROM sessions WHERE course_id=? AND done=1", (cid,)).fetchone()["n"]
         msgs     = d.execute("SELECT COUNT(*) AS n FROM messages WHERE course_id=? AND role='user'", (cid,)).fetchone()["n"]
-    days = sorted({date.fromtimestamp(r["created"]).isoformat() for r in reviews}, reverse=True)
-    streak, d0 = 0, date.today()
-    for dd in days:
-        if dd == d0.isoformat(): streak += 1; d0 -= timedelta(days=1)
-        else: break
+        streak, frozen = streak_days({date.fromtimestamp(r["created"]).isoformat() for r in reviews}, day0)
+        for iso in frozen:   # the ledger: the missed days this streak was kept alive across, recorded once each
+            d.execute("INSERT INTO streak_freezes(course_id,day,created) VALUES(?,?,?) ON CONFLICT DO NOTHING", (cid, iso, time.time()))
     acc = round(100 * sum(1 for r in reviews if r["rating"] >= 2) / len(reviews)) if reviews else None
     return {"cards": total, "due": due, "retained": retained, "reviews": len(reviews), "recall_accuracy": acc,
-            "streak": streak, "files": files_n["n"], "file_chars": files_n["total_chars"], "study_minutes": minutes, "questions_asked": msgs}
+            "streak": streak, "streak_frozen": frozen,
+            "files": files_n["n"], "file_chars": files_n["total_chars"], "study_minutes": minutes, "questions_asked": msgs}
 
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 class PlayerFiles(StaticFiles):

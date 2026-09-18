@@ -445,3 +445,117 @@ def test_speak_returns_audio_or_tells_the_page_to_speak_itself(client, monkeypat
     r = client.post("/api/speak", json={"text": "Hello."})
     assert r.status_code == 200 and r.content == b"ID3fake-mp3"
     assert r.headers["content-type"] == "audio/mpeg" and r.headers["cache-control"] == "no-store"
+
+
+# ---------------------------------------------------------------- the day streak survives one missed day (Phase 15)
+from datetime import datetime, time as _time_of_day
+
+
+def _reviewed_on(pg, kid, *day_offsets):
+    """Write one review per offset (days back from today), at noon so the epoch round-trips to that
+    same date through date.fromtimestamp() whatever the local offset or a DST change does."""
+    for n, off in enumerate(day_offsets):
+        ts = datetime.combine(date.today() - timedelta(days=off), _time_of_day(12, 0)).timestamp()
+        pg.execute("INSERT INTO reviews(id,card_id,rating,created) VALUES(%s,%s,2,%s)", (f"rv-{off}-{n}", kid, ts))
+    pg.commit()
+
+
+def _day(off):
+    return (date.today() - timedelta(days=off)).isoformat()
+
+
+def _streak(client, cid):
+    s = client.get(f"/api/courses/{cid}/stats").json()
+    return s["streak"], s["streak_frozen"]
+
+
+def _ledger(pg, cid):
+    return [r[0] for r in pg.execute("SELECT day FROM streak_freezes WHERE course_id=%s ORDER BY day", (cid,)).fetchall()]
+
+
+def test_streak_pure_function_boundaries_without_todays_date():
+    """The rule itself, against a fixed 'today' so the assertions never move with the calendar."""
+    from run import streak_days
+    today = date(2026, 3, 10)
+    iso = lambda off: (today - timedelta(days=off)).isoformat()
+    days = lambda *offs: {iso(o) for o in offs}
+
+    assert streak_days(set(), today) == (0, [])                       # no reviews at all: 0, not 1
+    assert streak_days(days(0), today) == (1, [])
+    assert streak_days(days(1, 2, 3), today) == (3, [])               # today still open: not a gap, no freeze
+    # one gap, seven unbroken days behind it: forgiven, and the forgiven day is named
+    assert streak_days(days(0, 2, 3, 4, 5, 6, 7, 8), today) == (8, [iso(1)])
+    # the same gap with only six days behind it: not earned
+    assert streak_days(days(0, 2, 3, 4, 5, 6, 7), today) == (1, [])
+    # two missed days in a row, thirty clean days behind them: always breaks
+    assert streak_days(days(0, *range(3, 33)), today) == (1, [])
+    # a second gap inside the same seven days breaks it; filling that day in forgives the first gap
+    assert streak_days(days(0, 1, 2, 4, 5, 7, 8, 9, 10), today) == (3, [])
+    assert streak_days(days(0, 1, 2, 4, 5, 6, 7, 8, 9, 10), today) == (10, [iso(3)])
+
+
+def test_streak_survives_one_missed_day_after_seven_clean_ones(client, pg):
+    cid = _cid(client)
+    kid = _card(client, cid, "Dassonville?", "All trading rules capable of hindering trade")
+    _reviewed_on(pg, kid, 0, 2, 3, 4, 5, 6, 7, 8)     # missed the day before yesterday only
+    assert _streak(client, cid) == (8, [_day(1)])
+    assert _ledger(pg, cid) == [_day(1)]              # the freeze is recorded, not just implied
+
+
+def test_streak_freeze_is_consumed_once_and_re_reads_the_same(client, pg):
+    cid = _cid(client)
+    kid = _card(client, cid, "Keck?", "Selling arrangements")
+    _reviewed_on(pg, kid, 0, 2, 3, 4, 5, 6, 7, 8)
+    first = _streak(client, cid)
+    for _ in range(3):
+        assert _streak(client, cid) == first          # same gap, re-evaluated: same answer every time
+    assert _ledger(pg, cid) == [_day(1)]              # and one ledger row, not four
+
+
+def test_a_second_gap_in_the_same_seven_days_breaks_the_streak(client, pg):
+    cid = _cid(client)
+    kid = _card(client, cid, "Cassis?", "Mandatory requirements")
+    _reviewed_on(pg, kid, 0, 1, 2, 4, 5, 7, 8, 9, 10)  # gaps three and six days back
+    assert _streak(client, cid) == (3, [])
+    assert _ledger(pg, cid) == []
+    _reviewed_on(pg, kid, 6)                           # fill the second gap: the first one is now earned
+    assert _streak(client, cid) == (10, [_day(3)])
+    assert _ledger(pg, cid) == [_day(3)]
+
+
+def test_two_missed_days_in_a_row_always_break_it(client, pg):
+    cid = _cid(client)
+    kid = _card(client, cid, "Gebhard?", "Four-condition test")
+    _reviewed_on(pg, kid, *range(0, 5), *range(7, 40))  # 33 unbroken days behind two missed in a row
+    assert _streak(client, cid) == (5, [])
+    assert _ledger(pg, cid) == []
+
+
+def test_today_not_studied_yet_costs_neither_the_streak_nor_a_freeze(client, pg):
+    cid = _cid(client)
+    kid = _card(client, cid, "Art 34?", "Quantitative restrictions and MEQRs")
+    _reviewed_on(pg, kid, 1, 2, 3, 4, 5, 6, 7, 8)     # yesterday back, nothing today
+    assert _streak(client, cid) == (8, [])            # today is still open, so it is not a missed day
+    assert _ledger(pg, cid) == []                     # no freeze spent on a day that can still be redeemed
+
+
+def test_no_reviews_is_zero_and_no_ledger_row(client, pg):
+    cid = _cid(client)
+    _card(client, cid, "Never drilled", "Nothing yet")
+    s = client.get(f"/api/courses/{cid}/stats").json()
+    assert (s["streak"], s["streak_frozen"]) == (0, [])
+    empty = client.post("/api/courses", json={"name": "Brand new"}).json()["id"]
+    assert _streak(client, empty) == (0, [])
+    assert _ledger(pg, cid) == [] and _ledger(pg, empty) == []
+
+
+def test_the_streak_is_derived_and_no_table_stores_a_counter(client, pg):
+    cid = _cid(client)
+    kid = _card(client, cid, "Keck?", "Selling arrangements")
+    _reviewed_on(pg, kid, 0, 1, 2)
+    assert _streak(client, cid)[0] == 3
+    pg.execute("DELETE FROM reviews WHERE id='rv-1-1'"); pg.commit()   # nothing else to update
+    assert _streak(client, cid)[0] == 1
+    cols = pg.execute("SELECT table_name, column_name FROM information_schema.columns "
+                      "WHERE table_schema='public' AND column_name LIKE '%streak%'").fetchall()
+    assert cols == []                                                   # the ledger stores days, never a count
