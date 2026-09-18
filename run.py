@@ -4,7 +4,7 @@ Run:  python run.py   then open http://localhost:8000
 Everything lives in ./data (SQLite + uploaded files). Nothing leaves your Mac except tutor calls to the Claude API.
 """
 import re
-import asyncio, base64, hashlib, io, json, mimetypes, os, random, tempfile, time, uuid
+import asyncio, base64, hashlib, io, json, mimetypes, os, random, tempfile, threading, time, uuid
 from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
@@ -307,6 +307,7 @@ def delete_course(cid: str, force: int = 0):
         raise HTTPException(409, f"This course has {u['files']} file(s), {u['notes']} note(s) and {u['cards']} card(s). Confirm to delete them too.")
     for f in rows("SELECT id FROM files WHERE course_id=?", cid): delete_file(f["id"])   # also removes the stored upload
     for r in rows("SELECT r.id FROM recordings r JOIN notes n ON n.id=r.note_id WHERE n.course_id=?", cid): rec_del(r["id"])   # and the audio
+    for n in rows("SELECT id FROM notes WHERE course_id=?", cid): _del_note_audio(n["id"])                                    # and the readings
     with db() as d:
         d.execute("DELETE FROM reviews WHERE card_id IN (SELECT id FROM cards WHERE course_id=?)", (cid,))
         d.execute("DELETE FROM note_versions WHERE note_id IN (SELECT id FROM notes WHERE course_id=?)", (cid,))
@@ -653,6 +654,7 @@ def restore(nid: str, vid: str):
 
 @app.delete("/api/notes/{nid}")
 def del_note(nid: str):
+    _del_note_audio(nid)   # the reading the app made of this note goes with it
     with db() as d: d.execute("DELETE FROM notes WHERE id=?", (nid,))
     return {"ok": True}
 
@@ -1545,6 +1547,193 @@ def transcribe_status(rid: str):
     view = _job_view(job)
     if collected: view["collected"] = True  # this request added the block: the UI reloads the open note
     return view
+
+# ---------------------------------------------------------------- notes you can listen to (Phase 14)
+# A note becomes a spoken script (cheap model) and then audio (the app's one voice), stored under its
+# own key prefix in the bucket. Generation is a job, exactly as transcription is: the request returns
+# at once and the page polls. The jobs table holds the state — nothing about a running generation
+# lives in this process beyond the thread doing the work.
+SPOKEN_KIND = "note_audio"
+SPOKEN_SOURCE_CHARS = 24000       # of the note sent to the script writer
+SPOKEN_SCRIPT_TOKENS = 3000       # ~12k characters of script, about fifteen minutes of speech
+SPOKEN_STALE_S = 15 * 60          # a generation whose process died is collected after this
+
+SPOKEN_SYSTEM = """You turn a law student's own revision note into a script to be read aloud on the walk to campus.
+
+Rules:
+- Say only what the note says. Add no case, article, rule, example, definition or transition that is not already in it. You are re-voicing the note, not teaching from it.
+- Keep the note's headings and their order. Speak a heading as a short line of its own ("Part two. Justification.") and carry on into what sits under it.
+- Write continuous spoken prose: no markdown, no bullet characters, no table pipes, no code, no stage directions, no "in this episode".
+- A table becomes one spoken sentence per row, in the table's order, built from that row's own cells.
+- Drop provenance tags ([WG], [LECTURE], [SLIDES], [SCHUTZE], [READER], [ADDED]), diagrams, recording markers and ?? marks. They are for the eye.
+- Expand what cannot be heard: "Art. 34 TFEU" becomes "Article thirty-four, T F E U"; "VIII.-5:201" becomes "Book eight, five, two-oh-one". Case names keep the note's own spelling.
+- Start with the note's title as the first spoken line. No sign-off.
+
+Output the script and nothing else."""
+
+_MERMAID = re.compile(r"(?ms)^[ \t]*```mermaid.*?^[ \t]*```[ \t]*$\n?")
+
+
+class AudioFailed(Exception):
+    """A failure with a sentence the student can act on. Never a key, a bucket or a traceback."""
+
+
+def _voice_id() -> str:
+    """Which voice the audio was spoken in. Changing the app's voice makes existing audio stale."""
+    return f"{tts.BACKEND}:{tts.LANGUAGE}"
+
+
+def _audio_source(body: str) -> str:
+    """What the script writer is shown. Diagrams and recording anchors are stripped here rather than
+    trusted to the prompt — a mermaid block read aloud is a minute of punctuation."""
+    return _HIDDEN.sub("", _MERMAID.sub("", body or "")).strip()[:SPOKEN_SOURCE_CHARS]
+
+
+def _note_fingerprint(n) -> str:
+    """What the audio was made from. Editing the note changes it, so the stored audio stops matching."""
+    return hashlib.sha256(f"{n['title']}\n{_audio_source(n['body'])}".encode()).hexdigest()[:32]
+
+
+def _audio_row(nid: str):
+    r = rows("SELECT * FROM note_audio WHERE note_id=?", nid)
+    return r[0] if r else None
+
+
+def _audio_job(nid: str):
+    j = rows("SELECT * FROM jobs WHERE ref_id=? AND kind=? ORDER BY created DESC LIMIT 1", nid, SPOKEN_KIND)
+    return j[0] if j else None
+
+
+def _audio_view(nid: str) -> dict:
+    """Everything the play control needs: is there audio for the note AS IT IS NOW, and if not, what
+    is the job doing. Audio made from an older version of the note reads as `stale`, not as ready."""
+    n = note(nid)
+    rec, job, fp = _audio_row(nid), _audio_job(nid), _note_fingerprint(n)
+    current = bool(rec and rec["fingerprint"] == fp and rec["voice"] == _voice_id())
+    view = {"status": "none", "stage": "", "error": "", "ready": current,
+            "stale": bool(rec) and not current, "chars": 0, "bytes": 0}
+    if current:
+        return {**view, "status": "ready", "chars": rec["chars"] or 0, "bytes": rec["bytes"] or 0}
+    # a job for an older version of the note says nothing about this one
+    if job and (job["payload"] or {}).get("fingerprint") == fp:
+        view.update(status=job["status"], stage=job["stage"] or "", error=job["error"] or "")
+    return view
+
+
+def _audio_script(n) -> str:
+    """Spoken prose from the note's own words. CF_CHEAP_MODEL: re-voicing prose is mechanical, and
+    naming the model here rather than routing keeps anything above Sonnet unreachable."""
+    src = _audio_source(n["body"])
+    if not src:
+        raise AudioFailed("This note has nothing to read aloud yet.")
+    m = client().messages.create(model=CHEAP_MODEL, max_tokens=SPOKEN_SCRIPT_TOKENS, system=SPOKEN_SYSTEM,
+                                 messages=[{"role": "user", "content": f"Note title: {n['title']}\n\n{src}"}])
+    script = _text(m).strip()
+    if not script:
+        raise AudioFailed("The script came back empty — try again.")
+    return script
+
+
+def _audio_error(e) -> str:
+    """The sentence the job carries. Anything unexpected is generic on purpose: the storage key, the
+    bucket name and the traceback belong in the server log, not in the note view."""
+    if isinstance(e, (AudioFailed, tts.VoiceError)):
+        return str(e)
+    if isinstance(e, HTTPException):
+        return str(e.detail)
+    return "The audio could not be made — try again."
+
+
+def _make_note_audio(jid: str, nid: str, fingerprint: str):
+    """The job. Runs off the request thread; every step it reaches is written to `jobs`, so a page
+    reopened later (or a different tab) sees exactly where it got to."""
+    try:
+        _set_job(jid, status="running", stage="writing the script")
+        n = note(nid)
+        if _note_fingerprint(n) != fingerprint:
+            raise AudioFailed("The note changed while the audio was being made — press Listen again.")
+        script = _audio_script(n)
+        _set_job(jid, status="running", stage="recording")
+        spoken = tts.narrate(script)
+        if not spoken:
+            raise AudioFailed("No server voice is configured, so there is nothing to record.")
+        audio, media = spoken
+        key = f"notes/{nid}/spoken/{fingerprint}.mp3"
+        storage.put(key, audio, media)
+        with db() as d:
+            prev = d.execute("SELECT key FROM note_audio WHERE note_id=?", (nid,)).fetchone()
+            old_key = (prev or {}).get("key", "")
+            d.execute("DELETE FROM note_audio WHERE note_id=?", (nid,))
+            d.execute("INSERT INTO note_audio(note_id,key,fingerprint,voice,chars,bytes,created) VALUES(?,?,?,?,?,?,?)",
+                      (nid, key, fingerprint, _voice_id(), len(script), len(audio), time.time()))
+        if old_key and old_key != key:
+            storage.delete(old_key)   # the note's previous reading is not worth a second object
+        _set_job(jid, status="done", stage="", error="", result={"chars": len(script), "bytes": len(audio)})
+    except Exception as e:
+        print("note audio:", nid, type(e).__name__, e)
+        _set_job(jid, status="failed", stage="", error=_audio_error(e))
+
+
+@app.post("/api/notes/{nid}/audio")
+def note_audio_start(nid: str):
+    """Ask for this note as audio. Returns a job at once and writes no audio in this request.
+    Audio that already matches the note is returned as-is rather than made a second time."""
+    n = note(nid)
+    view = _audio_view(nid)
+    if view["ready"] or view["status"] in ("queued", "running"):
+        return view
+    if not _audio_source(n["body"]):
+        raise HTTPException(400, "This note has nothing to read aloud yet.")
+    if not tts.available():
+        raise HTTPException(400, "No server voice is configured — set TTS in the environment (e.g. TTS=edge).")
+    fp, now = _note_fingerprint(n), time.time()
+    job = _audio_job(nid)
+    if job:
+        jid = job["id"]
+        _set_job(jid, status="queued", stage="", error="", attempts=(job["attempts"] or 0) + 1,
+                 payload={"fingerprint": fp}, result={})
+    else:
+        from psycopg import errors as pg_errors
+        jid = uuid.uuid4().hex
+        try:
+            with db() as d:
+                d.execute("INSERT INTO jobs(id,kind,ref_id,status,executor,attempts,payload,created,updated) "
+                          "VALUES(?,?,?,?,?,?,CAST(? AS jsonb),?,?)",
+                          (jid, SPOKEN_KIND, nid, "queued", "inline", 1, json.dumps({"fingerprint": fp}), now, now))
+        except pg_errors.UniqueViolation:
+            return _audio_view(nid)   # a second click raced this one: it has the job
+    threading.Thread(target=_make_note_audio, args=(jid, nid, fp), daemon=True).start()
+    return _audio_view(nid)
+
+
+@app.get("/api/notes/{nid}/audio")
+def note_audio_status(nid: str):
+    """Poll. A generation whose process died leaves a job stuck in `running`; it is collected here so
+    the note can be asked again, rather than being blocked by its own unfinished attempt."""
+    job = _audio_job(nid)
+    if job and job["status"] in ("queued", "running") and time.time() - (job["updated"] or 0) > SPOKEN_STALE_S:
+        _set_job(job["id"], status="failed", stage="", error="The reading did not finish — press Listen to try again.")
+    return _audio_view(nid)
+
+
+@app.get("/api/notes/{nid}/audio/file")
+def note_audio_file(nid: str, request: Request):
+    """The audio itself. The key comes from the row; run.py never builds a path to it."""
+    rec = _audio_row(nid)
+    if not rec or not rec["key"]:
+        raise HTTPException(404)
+    return serve_object(rec["key"], request, "audio/mpeg", expires_s=12 * 3600)
+
+
+def _del_note_audio(nid: str):
+    """Deleting a note deletes what the app recorded of it — an orphaned object in the bucket is
+    still the student's content, and nothing would ever point at it again."""
+    rec = _audio_row(nid)
+    if rec and rec["key"]:
+        storage.delete(rec["key"])
+    with db() as d:
+        d.execute("DELETE FROM note_audio WHERE note_id=?", (nid,))
+        d.execute("DELETE FROM jobs WHERE ref_id=? AND kind=?", (nid, SPOKEN_KIND))
 
 # ---------------------------------------------------------------- de-garble a transcript (cheap model, glossary-constrained)
 def _glossary(cid: str, limit: int = 220) -> list:

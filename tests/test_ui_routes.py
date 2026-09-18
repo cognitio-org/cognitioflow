@@ -517,3 +517,258 @@ def test_oral_bank_from_one_named_file_still_works(client, fake):
 
     assert r.status_code == 200, r.text
     assert r.json()["made"] == 1
+# ---------------------------------------------------------------- Phase 14: notes you can listen to
+import re
+import threading
+import time
+
+import storage
+import tts
+
+NOTE_BODY = (
+    "# Free movement of goods\n\n"
+    "> **In one glance** Article 34 catches measures having equivalent effect. [SLIDES]\n\n"
+    "## The Dassonville formula\n"
+    "1. **All trading rules** capable of hindering trade are caught — *Dassonville* (8/74) [WG]\n"
+    "2. *Keck* carves out selling arrangements [LECTURE] <!--r:abc0123456:42-->\n\n"
+    "```mermaid\nflowchart TD\n  A[Measure] --> B[Caught by Art 34?]\n```\n\n"
+    "## Derogations\n"
+    "| Case | Rule |\n|---|---|\n| *Cassis de Dijon* | mandatory requirements |\n"
+)
+
+SCRIPT = ("Free movement of goods. In one glance: Article thirty-four catches measures having equivalent "
+          "effect. The Dassonville formula. All trading rules capable of hindering trade are caught, "
+          "Dassonville, eight of seventy-four. Keck carves out selling arrangements. Derogations. "
+          "Cassis de Dijon gives the mandatory requirements.")
+
+
+@pytest.fixture
+def voice(monkeypatch):
+    """A voice that answers without leaving the process, the way `fake` answers for the model.
+    narrate() still does its own chunking and joining — only synthesising one line is stood in for."""
+    said, gate = [], threading.Event()
+    gate.set()
+
+    def say(line):
+        gate.wait(10)
+        said.append(line)
+        return b"ID3" + line.encode()[:24], "audio/mpeg"
+
+    monkeypatch.setattr(tts, "BACKEND", "test")
+    monkeypatch.setattr(tts, "available", lambda: True)
+    monkeypatch.setattr(tts, "say", say)
+    return types.SimpleNamespace(said=said, gate=gate)
+
+
+def _note(client, cid, body=NOTE_BODY, title="Goods"):
+    return client.post(f"/api/courses/{cid}/notes", json={"title": title, "body": body}).json()["id"]
+
+
+def _audio(client, nid):
+    return client.get(f"/api/notes/{nid}/audio").json()
+
+
+def _wait_audio(client, nid, timeout=15):
+    """The generation runs off the request thread, so the test polls the job the way the page does."""
+    end = time.time() + timeout
+    while time.time() < end:
+        s = _audio(client, nid)
+        if s["status"] not in ("queued", "running"):
+            return s
+        time.sleep(0.05)
+    raise AssertionError(f"the reading never finished: {_audio(client, nid)}")
+
+
+def _key(pg, nid):
+    pg.commit()  # the job committed on another connection; drop this one's snapshot first
+    row = pg.execute("SELECT key FROM note_audio WHERE note_id=%s", (nid,)).fetchone()
+    return row[0] if row else None
+
+
+def test_asking_for_audio_returns_a_job_and_records_nothing_in_the_request(client, fake, voice, pg):
+    """A long note is minutes of speech. The request hands back a job and the page polls it."""
+    nid = _note(client, _cid(client))
+    fake((SCRIPT, None))
+    voice.gate.clear()                                     # hold the voice mid-generation
+    started = client.post(f"/api/notes/{nid}/audio").json()
+    assert started["status"] in ("queued", "running") and started["ready"] is False
+    pg.commit()
+    assert pg.execute("SELECT count(*) FROM note_audio").fetchone()[0] == 0, "audio was written synchronously"
+    job = pg.execute("SELECT status, executor FROM jobs WHERE ref_id=%s AND kind='note_audio'", (nid,)).fetchone()
+    assert job is not None, "the state of a running generation must live in `jobs`"
+    voice.gate.set()
+    done = _wait_audio(client, nid)
+    assert (done["status"], done["ready"]) == ("ready", True)
+    assert done["bytes"] > 0 and done["chars"] == len(SCRIPT)
+
+
+def test_the_script_is_the_notes_own_words_and_leaves_out_what_cannot_be_heard(client, fake, voice):
+    import run
+    nid = _note(client, _cid(client))
+    fc = fake((SCRIPT + " [WG] **bold** [LECTURE]", None))
+    client.post(f"/api/notes/{nid}/audio")
+    assert _wait_audio(client, nid)["status"] == "ready"
+
+    call = fc.calls[0]
+    assert call["model"] == run.CHEAP_MODEL, "the script writer is CF_CHEAP_MODEL, never the strong model"
+    shown = call["messages"][0]["content"]
+    assert "mermaid" not in shown and "flowchart" not in shown, "a diagram read aloud is a minute of punctuation"
+    assert "<!--" not in shown, "recording anchors are not course content"
+    assert "The Dassonville formula" in shown and "Derogations" in shown
+    assert shown.index("Dassonville formula") < shown.index("Derogations"), "the headings keep the note's order"
+    assert "Say only what the note says" in call["system"]
+
+    spoken = " ".join(voice.said)
+    assert "[WG]" not in spoken and "[LECTURE]" not in spoken and "**" not in spoken
+    assert "Dassonville" in spoken and "Cassis de Dijon" in spoken
+
+
+def test_an_unchanged_note_is_not_read_a_second_time(client, fake, voice, pg):
+    nid = _note(client, _cid(client))
+    fc = fake((SCRIPT, None))                    # one reply queued: a second script call would raise
+    client.post(f"/api/notes/{nid}/audio")
+    assert _wait_audio(client, nid)["status"] == "ready"
+    key = _key(pg, nid)
+
+    again = client.post(f"/api/notes/{nid}/audio").json()
+    assert again["status"] == "ready" and again["ready"] is True
+    assert len(fc.calls) == 1 and len(voice.said) > 0
+    assert _key(pg, nid) == key, "the existing key is returned, not a second recording"
+
+
+def test_editing_the_note_invalidates_the_reading(client, fake, voice, pg):
+    nid = _note(client, _cid(client))
+    fake((SCRIPT, None))
+    client.post(f"/api/notes/{nid}/audio")
+    assert _wait_audio(client, nid)["status"] == "ready"
+    old = _key(pg, nid)
+    assert storage.exists(old)
+
+    client.put(f"/api/notes/{nid}", json={"title": "Goods", "body": NOTE_BODY + "\n3. *Gebhard* on establishment [WG]\n"})
+    stale = _audio(client, nid)
+    assert (stale["ready"], stale["stale"], stale["status"]) == (False, True, "none")
+
+    fake((SCRIPT + " Gebhard covers establishment.", None))
+    client.post(f"/api/notes/{nid}/audio")
+    assert _wait_audio(client, nid)["status"] == "ready"
+    new = _key(pg, nid)
+    assert new != old and storage.exists(new)
+    assert not storage.exists(old), "the superseded reading is not left in the bucket"
+
+
+def test_a_failure_is_a_job_in_error_that_gives_nothing_away(client, fake, voice, monkeypatch, pg):
+    nid = _note(client, _cid(client))
+    fake((SCRIPT, None))
+    monkeypatch.setattr(tts, "say", lambda line: None)          # the voice goes quiet part-way
+    client.post(f"/api/notes/{nid}/audio")
+    s = _wait_audio(client, nid)
+
+    assert (s["status"], s["ready"]) == ("failed", False)
+    assert s["error"] == "The voice stopped part-way through the note."
+    for leak in ("notes/", "spoken/", "Traceback", "bucket", nid):
+        assert leak not in s["error"]
+    pg.commit()
+    assert pg.execute("SELECT count(*) FROM note_audio").fetchone()[0] == 0
+
+    fake((SCRIPT, None))                                        # and it can simply be asked again
+    monkeypatch.setattr(tts, "say", lambda line: (b"ID3ok", "audio/mpeg"))
+    client.post(f"/api/notes/{nid}/audio")
+    assert _wait_audio(client, nid)["status"] == "ready"
+
+
+def test_the_reading_is_stored_through_storage_under_its_own_prefix(client, fake, voice, pg):
+    """`recordings` is audio the student made; this is audio the app made, and it gets its own prefix."""
+    nid = _note(client, _cid(client))
+    fake((SCRIPT, None))
+    client.post(f"/api/notes/{nid}/audio")
+    assert _wait_audio(client, nid)["status"] == "ready"
+
+    key = _key(pg, nid)
+    assert key.startswith(f"notes/{nid}/spoken/") and key.endswith(".mp3")
+    assert key != f"notes/{nid}/audio", "the student's own recordings keep notes/{nid}/audio"
+    assert storage.exists(key)
+
+    r = client.get(f"/api/notes/{nid}/audio/file")
+    assert r.status_code == 200 and r.headers["content-type"] == "audio/mpeg"
+    assert r.content == storage.get(key)
+    assert client.get("/api/notes/nope/audio/file").status_code == 404
+
+
+def test_a_reading_whose_process_died_stays_readable_and_can_be_asked_again(client, fake, voice, pg):
+    import run
+    nid = _note(client, _cid(client))
+    fake((SCRIPT, None))
+    client.post(f"/api/notes/{nid}/audio")
+    assert _wait_audio(client, nid)["status"] == "ready"
+
+    # the app restarts mid-generation: the job row is all that is left, and it is still readable
+    pg.execute("DELETE FROM note_audio WHERE note_id=%s", (nid,))
+    pg.execute("UPDATE jobs SET status='running', stage='recording', updated=%s WHERE ref_id=%s AND kind='note_audio'",
+               (time.time(), nid))
+    pg.commit()
+    live = _audio(client, nid)
+    assert (live["status"], live["stage"], live["ready"]) == ("running", "recording", False)
+
+    # nothing in this process will ever finish it, so once it is old enough it is collected
+    pg.execute("UPDATE jobs SET updated=%s WHERE ref_id=%s AND kind='note_audio'",
+               (time.time() - run.SPOKEN_STALE_S - 1, nid))
+    pg.commit()
+    collected = _audio(client, nid)
+    assert collected["status"] == "failed" and "press Listen" in collected["error"]
+
+    fake((SCRIPT, None))
+    client.post(f"/api/notes/{nid}/audio")
+    assert _wait_audio(client, nid)["status"] == "ready"
+
+
+def test_deleting_the_note_takes_its_reading_with_it(client, fake, voice, pg):
+    nid = _note(client, _cid(client))
+    fake((SCRIPT, None))
+    client.post(f"/api/notes/{nid}/audio")
+    assert _wait_audio(client, nid)["status"] == "ready"
+    key = _key(pg, nid)
+
+    assert client.delete(f"/api/notes/{nid}").status_code == 200
+    assert not storage.exists(key), "an object nothing can point at any more is still the student's content"
+    pg.commit()
+    assert pg.execute("SELECT count(*) FROM note_audio WHERE note_id=%s", (nid,)).fetchone()[0] == 0
+    assert pg.execute("SELECT count(*) FROM jobs WHERE ref_id=%s", (nid,)).fetchone()[0] == 0
+
+
+def test_a_reading_needs_a_voice_and_something_to_read(client, fake, voice, monkeypatch):
+    cid = _cid(client)
+    fake()                                              # any model call at all would raise
+    blank = _note(client, cid, "```mermaid\nflowchart TD\n  A[only a diagram]\n```\n", "Blank")
+    assert client.post(f"/api/notes/{blank}/audio").status_code == 400
+
+    nid = _note(client, cid)
+    monkeypatch.setattr(tts, "available", lambda: False)
+    r = client.post(f"/api/notes/{nid}/audio")
+    assert r.status_code == 400 and "voice" in r.json()["detail"]
+    assert client.post("/api/notes/nope/audio").status_code == 404
+
+
+# ---- the play control on the page (no JS runner here, so this reads the sheet the way the other UI tests do)
+_ST = pathlib.Path(__file__).parent.parent / "static"
+_rd = lambda n: (_ST / n).read_text(encoding="utf-8")
+# index.html was split into markup + app.js + two sheets; read the page as the browser assembles it.
+NOTES_PAGE = _rd("index.html") + _rd("app.js")
+NOTES_CSS = re.sub(r"/\*.*?\*/", "", _rd("app.css") + _rd("book.css") + _rd("app-after.css"), flags=re.S)
+
+
+def test_the_play_control_clears_the_quality_floor():
+    assert 'id="listenBtn"' in NOTES_PAGE and 'id="listenAudio"' in NOTES_PAGE
+    # .btn.small is where min-height/min-width:var(--tap) lives, so the 32px floor comes with the class
+    assert 'class="btn small ghost listen" id="listenBtn"' in NOTES_PAGE
+    assert ".listen:focus-visible{outline:2px solid var(--accent)" in NOTES_CSS
+    anim = NOTES_CSS.index(".listen[data-listen=working]::before")
+    reduce = NOTES_CSS.index("@media(prefers-reduced-motion:reduce){.listen[data-listen=working]::before")
+    assert reduce > anim, "at equal specificity the reduce block has to come last or it loses the cascade"
+
+
+def test_the_note_views_hooks_and_renderer_are_untouched():
+    """CLAUDE.md: keep every id and data- attribute, and leave render/chipify/priomark alone."""
+    for hook in ('id="noteView"', 'id="readbar"', 'id="recList"', 'id="noteBody"', 'data-cover="off"', 'id="cleanBtn"'):
+        assert hook in NOTES_PAGE, f"{hook} disappeared — a hook was renamed"
+    for fn in ("function chipify(", "function priomark(", "async function paint("):
+        assert fn in NOTES_PAGE
