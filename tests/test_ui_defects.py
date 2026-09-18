@@ -12,7 +12,7 @@ from pathlib import Path
 def _page_text():
     d = Path(__file__).resolve().parent.parent / "static"
     out = []
-    for n in ("index.html", "app.js", "app.css", "book.css"):
+    for n in ("index.html", "app.js", "app.css", "book.css", "app-after.css"):
         f = d / n
         if f.exists():
             out.append(f.read_text(encoding="utf-8"))

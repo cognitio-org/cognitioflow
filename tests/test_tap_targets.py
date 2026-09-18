@@ -17,7 +17,7 @@ def _read(name):
     p = _STATIC / name
     return p.read_text(encoding="utf-8") if p.exists() else ""
 PAGE = _read("index.html") + chr(10) + _read("app.js")
-CSS = re.sub(r"/\*.*?\*/", "", _read("app.css") + chr(10) + _read("book.css"), flags=re.S)
+CSS = re.sub(r"/\*.*?\*/", "", _read("app.css") + chr(10) + _read("book.css") + chr(10) + _read("app-after.css"), flags=re.S)
 
 
 def _rule(sel):
