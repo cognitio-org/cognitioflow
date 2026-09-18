@@ -281,6 +281,16 @@
   #noteTitle:hover{border-color:var(--rule)} #noteTitle:focus{border-color:var(--rule);background:var(--raised)}
   #noteLive2{overflow:auto}
   .readbar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap} .readbar audio{height:28px;max-width:280px}
+  /* the note read aloud: a button, so the 32px floor and the keyboard come from .btn.small. The ring
+     is restated here because this control is the one the phase asks to be reachable by keyboard. */
+  .listen:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .listen[data-listen=playing]{border-color:var(--accent);color:var(--accent)}
+  .listen[data-listen=working]{color:var(--graphite)}
+  .listen[data-listen=working]::before{content:"";width:7px;height:7px;margin-right:.4rem;border-radius:50%;background:var(--accent);animation:listenpulse 1.4s ease-in-out infinite}
+  @keyframes listenpulse{0%,100%{opacity:.25}50%{opacity:1}}
+  /* after the declaration on purpose: at equal specificity the last rule wins, and a reduce block
+     written earlier in the sheet would lose to it (see .fcinner). */
+  @media(prefers-reduced-motion:reduce){.listen[data-listen=working]::before{animation:none;opacity:1}}
   .cover{background:var(--ink);color:var(--ink);border-radius:2px;cursor:pointer;transition:none} .cover:hover{opacity:.85} .cover.on{background:transparent;color:inherit}
   .cover .prov,.cover em,.cover strong{color:inherit} .cover *{visibility:hidden} .cover.on *{visibility:visible}
   .tplay{display:inline-flex;align-items:center;min-height:var(--tap);font-family:var(--sans);font-size:.7rem;color:var(--graphite);border:1px solid var(--rule);border-radius:999px;padding:0 .35rem;margin-left:.3rem;text-decoration:none;cursor:pointer;vertical-align:.1em} .tplay:hover{color:var(--ink);border-color:var(--ink)}
