@@ -720,7 +720,7 @@ _ST = pathlib.Path(__file__).parent.parent / "static"
 _rd = lambda n: (_ST / n).read_text(encoding="utf-8")
 # index.html was split into markup + app.js + two sheets; read the page as the browser assembles it.
 NOTES_PAGE = _rd("index.html") + _rd("app.js")
-NOTES_CSS = re.sub(r"/\*.*?\*/", "", _rd("app.css") + _rd("book.css"), flags=re.S)
+NOTES_CSS = re.sub(r"/\*.*?\*/", "", _rd("app.css") + _rd("book.css") + _rd("app-after.css"), flags=re.S)
 
 
 def test_the_play_control_clears_the_quality_floor():
