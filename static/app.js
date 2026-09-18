@@ -960,7 +960,19 @@ $('#noteLive').onclick=async()=>{ if(!nid){$('#newNote').click();return} const t
 $('#noteRead').onclick=()=>{noteMode='read';localStorage.setItem('cf.noteMode','read');showNote()};
 if(!['read','split','edit'].includes(noteMode)) noteMode='read';
 $('#noteEdit').onclick=()=>{noteMode='edit';localStorage.setItem('cf.noteMode','edit');showNote();$('#noteBody').focus()};
-$('#notePrint').onclick=async()=>{ const was=noteMode; noteMode='read'; await showNote(); setTimeout(()=>{window.print(); noteMode=was; showNote()},150) };
+$('#notePrint').onclick=async()=>{ const was=noteMode; noteMode='read'; await showNote();
+  // the title lives in an <input> outside .noteview, so print never saw it. Put a header inside.
+  const head=document.createElement('div'); head.className='printhead';
+  const course=($('#courseSel')&&$('#courseSel').selectedOptions[0]||{}).textContent||'';
+  head.textContent=$('#noteTitle').value||'Untitled';
+  const meta=document.createElement('span'); meta.className='meta';
+  meta.textContent=[course, new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})].filter(Boolean).join(' · ');
+  head.appendChild(meta);
+  const v=$('#noteView'); v.insertBefore(head, v.firstChild);
+  // .printing scopes the print block; without it Cmd+P anywhere else printed a blank sheet.
+  document.body.classList.add('printing');
+  setTimeout(()=>{ try{ window.print() } finally {
+    document.body.classList.remove('printing'); head.remove(); noteMode=was; showNote() } },150) };
 /* The autosave had no catch. A rejected put left #noteStatus reading '…' for the rest of the
    session — no toast, nothing in the UI — so a dropped connection during a lecture lost the whole
    capture while the screen still said everything was fine. It has to fail loudly and keep trying.
