@@ -686,7 +686,7 @@ def test_the_writing_surface_is_keyboard_reachable_with_a_visible_focus_ring():
     for hook in ("esNext", "esBank", "esSubmit", "esModelBtn"):
         assert re.search(rf'<button[^>]*id="{hook}"', section), f"#{hook} must be a real button to be tabbable"
     assert re.search(r'<textarea id="esAnswer"', section) and re.search(r'<select id="esWeek"', section)
-    sheets = "".join((page.parent / n).read_text(encoding="utf-8") for n in ("app.css", "book.css"))
+    sheets = "".join((page.parent / n).read_text(encoding="utf-8") for n in ("app.css", "book.css", "app-after.css"))
     css = re.sub(r"/\*.*?\*/", "", sheets, flags=re.S)
     assert "outline:2px solid var(--accent)" in re.search(r"\.eswrite:focus-visible\{([^}]*)\}", css).group(1)
     assert "min-height:var(--tap)" in re.search(r"\.esweek\{([^}]*)\}", css).group(1)
