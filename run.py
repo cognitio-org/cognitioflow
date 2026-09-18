@@ -1710,7 +1710,10 @@ Mode: finish a note that stops part-way. """ + NOTE_STYLE + """Output Markdown o
 Keep the structure, headings, tone and provenance tags the note already uses. Add nothing the note does not
 already carry: where a section cannot be completed from what is there, name what is missing under
 ## Gaps / verify instead of inventing material."""
-    return system, "These are the notes so far.", STRONG_MODEL, RECONCILE_TOKENS
+    # pick_model, not STRONG_MODEL: this path is reached by pressing Continue on any note, so it is
+    # auto-routing. STRONG_MODEL is reconcile-only and may be set to Fable (~10x a Sonnet call), which
+    # auto-routing must never select. The notes route escalates to MODEL for analytical text and no further.
+    return system, "These are the notes so far.", pick_model("notes", None, partial), DRAFT_TOKENS
 
 def _continue_once(partial: str, system: str, prompt: str, model: str, cap: int, meta: dict):
     """One continuation round -> (joined text, characters added, model used). The partial goes back in the
