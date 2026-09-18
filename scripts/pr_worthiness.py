@@ -234,16 +234,30 @@ def model_review(title: str, body: str, files: list, diff: str, findings: list) 
     if not chain:
         raise RuntimeError("no model key is set")
     for i, model in enumerate(chain):
-        try:
-            msg = client_for(model).messages.create(model=model, max_tokens=400, system=SYSTEM,
-                                                    messages=[{"role": "user", "content": prompt}])
-            return parse_model("".join(getattr(b, "text", "") for b in msg.content)), model
-        except Exception as e:
-            if i + 1 < len(chain) and worth_another_model(e):
-                # Never print the exception itself: a client can put the key in its message.
-                print(f"{model} could not answer ({type(e).__name__}); falling back to {chain[i + 1]}")
-                continue
-            raise
+        err = None
+        for attempt in (1, 2):
+            try:
+                msg = client_for(model).messages.create(model=model, max_tokens=400, system=SYSTEM,
+                                                        messages=[{"role": "user", "content": prompt}])
+                return parse_model("".join(getattr(b, "text", "") for b in msg.content)), model
+            except ValueError as e:
+                # An unusable reply is a sampling accident, not a bad request: the same model asked
+                # again normally answers in the shape the prompt demands. Worth one retry before
+                # spending the fallback — and it is the only thing that helps at the end of the
+                # chain, where handing over is not an option and the review is otherwise lost.
+                err = e
+                if attempt == 1:
+                    print(f"{model} answered unusably; asking it once more")
+                    continue
+                break
+            except Exception as e:
+                err = e
+                break
+        if i + 1 < len(chain) and worth_another_model(err):
+            # Never print the exception itself: a client can put the key in its message.
+            print(f"{model} could not answer ({type(err).__name__}); falling back to {chain[i + 1]}")
+            continue
+        raise err
 
 
 @dataclass

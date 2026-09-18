@@ -181,7 +181,8 @@ def test_using_the_public_helper_is_not_a_change_to_public_routes():
 # --- the fallback: when the Anthropic models are used up, another provider finishes the job -------
 
 def _fake_anthropic(monkeypatch, answers):
-    """answers: {model_id: Exception to raise | text to return}. Records the order models were tried."""
+    """answers: {model_id: Exception to raise | text to return | callable for a reply that differs
+    between attempts}. Records the order models were tried."""
     import types as pytypes
     tried = []
 
@@ -195,6 +196,8 @@ def _fake_anthropic(monkeypatch, answers):
         model = kw["model"]
         tried.append(model)
         got = answers[model]
+        if callable(got) and not isinstance(got, BaseException):
+            got = got()
         if isinstance(got, BaseException):
             raise got
         return pytypes.SimpleNamespace(content=[pytypes.SimpleNamespace(text=got)])
@@ -289,19 +292,45 @@ def test_an_unusable_reply_from_the_primary_hands_over_to_the_fallback(monkeypat
     answers.update({"claude-haiku-4-5": "Sure! Here is my review: it looks fine to me.",
                     "z-ai/glm-5.3-flash": APPROVED})
     out, used = pw.model_review("Docs", "", [f("README.md")], diff_for("README.md", ["x"]), [])
-    assert tried == ["claude-haiku-4-5", "z-ai/glm-5.3-flash"], "the unusable reply must not end the review"
+    assert tried == ["claude-haiku-4-5", "claude-haiku-4-5", "z-ai/glm-5.3-flash"], \
+        "the primary is asked twice — a rambling reply is usually a one-off — and only then handed over"
     assert out["verdict"] == "approve" and used == "z-ai/glm-5.3-flash"
 
 
-def test_an_unusable_reply_with_no_fallback_left_still_raises(monkeypatch):
-    """Rules-only is the right outcome when nothing else can be asked — it just must not be the
-    outcome while a second model is sitting there unused."""
+def test_an_unusable_reply_with_no_fallback_left_is_retried_once_then_raises(monkeypatch):
+    """Rules-only is the right outcome when nothing else can be asked — but only after asking the
+    one model available a second time. Before that retry existed, a single rambling reply from the
+    only configured model lost the review outright, which is what happened on #49 on 2026-09-18:
+    the footer read "review: rules (model review unavailable: ValueError)"."""
     _both_keys(monkeypatch)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     tried, _, _ = _fake_anthropic(monkeypatch, {"claude-haiku-4-5": "no json here"})
     with pytest.raises(ValueError):
         pw.model_review("Docs", "", [f("README.md")], diff_for("README.md", ["x"]), [])
-    assert tried == ["claude-haiku-4-5"]
+    assert tried == ["claude-haiku-4-5", "claude-haiku-4-5"], "the only model must get a second chance"
+
+
+def test_a_retry_that_answers_properly_saves_the_review(monkeypatch):
+    """The case the retry exists for: one rambling reply, then a usable one, and no fallback needed."""
+    _both_keys(monkeypatch)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    replies = ["Sure! Here is my review: it looks fine to me.", APPROVED]
+    tried, _, _ = _fake_anthropic(monkeypatch, {"claude-haiku-4-5": lambda: replies.pop(0)})
+    out, used = pw.model_review("Docs", "", [f("README.md")], diff_for("README.md", ["x"]), [])
+    assert tried == ["claude-haiku-4-5", "claude-haiku-4-5"]
+    assert out["verdict"] == "approve" and used == "claude-haiku-4-5", \
+        "the review is the model's, not the rules' — that is the whole point of retrying"
+
+
+def test_a_malformed_request_is_never_retried_on_the_same_model(monkeypatch):
+    """A 400 is our prompt being wrong. Asking the same model again would fail identically."""
+    _both_keys(monkeypatch)
+    bad = Exception("bad request")
+    bad.status_code = 400
+    tried, _, _ = _fake_anthropic(monkeypatch, {"claude-haiku-4-5": bad, "z-ai/glm-5.3-flash": APPROVED})
+    with pytest.raises(Exception):
+        pw.model_review("Docs", "", [f("README.md")], diff_for("README.md", ["x"]), [])
+    assert tried == ["claude-haiku-4-5"], "a 400 must spend neither a retry nor the fallback"
 
 
 def test_an_openrouter_key_in_the_diff_blocks_the_pr():
