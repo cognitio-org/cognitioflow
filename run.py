@@ -1102,7 +1102,7 @@ def oral_bank(cid: str, g: OralBankIn):
         if not f: raise HTTPException(404)
         src, week, txt = f[0]["name"], f[0]["week"] or "", (f[0]["text"] or "")[:60000]
     else:
-        parts, _ = build_context(cid); src, week, txt = "selected files", g.week, "\n\n".join(parts)[:60000]
+        parts, _, _ = build_context(cid); src, week, txt = "selected files", g.week, "\n\n".join(parts)[:60000]
     if not txt.strip(): raise HTTPException(400, "No ticked files to build questions from.")
     prompt = (f"From the material below, write {max(1, min(30, g.count))} questions an examiner would ask OUT LOUD in a viva "
               "for this course. Each must be answerable in under a minute of speech and must turn on a rule, a case or an "

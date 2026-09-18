@@ -1,4 +1,4 @@
-import { prStatus } from './lib.js';
+import { billingPressure, prStatus, runnerHealth } from './lib.js';
 
 const API = 'https://api.github.com';
 
@@ -50,4 +50,41 @@ export async function mergePull(token, repo, number, sha, branch) {
 
 export function pullDiff(token, repo, number) {
   return gh(token, `/repos/${repo}/pulls/${number}`, { headers: { Accept: 'application/vnd.github.diff' } });
+}
+
+/**
+ * Is this repository getting runners, and what do the Actions billing numbers say?
+ *
+ * Two cheap calls for the runner answer (newest workflow run, then its jobs), which
+ * needs no scope beyond reading the repo. Billing is a third call that often 403s —
+ * it needs an org-admin scope the PR-watching token does not have to have — so a
+ * refusal there is reported, never allowed to hide the runner answer.
+ */
+export async function loadRunnerHealth(token, repo) {
+  const owner = repo.split('/')[0];
+  const runs = await gh(token, `/repos/${repo}/actions/runs?per_page=1&status=completed`);
+  const run = (runs && runs.workflow_runs && runs.workflow_runs[0]) || null;
+  if (!run) return { repo, state: 'unknown', rejected: 0, completed: 0, checkedRun: null };
+
+  const jobs = await gh(token, `/repos/${repo}/actions/runs/${run.id}/jobs?per_page=30`);
+  const health = runnerHealth(jobs && jobs.jobs);
+  const out = { repo, ...health, checkedRun: run.id, checkedAt: run.created_at, branch: run.head_branch };
+  if (health.state === 'ok' || health.state === 'unknown') return out;
+
+  // Only ask about money once something is actually wrong.
+  try {
+    const billing = await gh(token, `/orgs/${owner}/settings/billing/actions`);
+    return { ...out, billing: billingPressure(billing), billingKind: 'org' };
+  } catch (orgError) {
+    try {
+      const billing = await gh(token, `/users/${owner}/settings/billing/actions`);
+      return { ...out, billing: billingPressure(billing), billingKind: 'user' };
+    } catch (userError) {
+      const status = orgError.status || userError.status;
+      const reason = status === 403 || status === 404
+        ? 'the token cannot read it (needs an org admin scope)'
+        : userError.message;
+      return { ...out, billingError: reason };
+    }
+  }
 }
