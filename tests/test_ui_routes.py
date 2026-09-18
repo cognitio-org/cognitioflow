@@ -596,6 +596,39 @@ def test_the_streak_is_derived_and_no_table_stores_a_counter(client, pg):
     cols = pg.execute("SELECT table_name, column_name FROM information_schema.columns "
                       "WHERE table_schema='public' AND column_name LIKE '%streak%'").fetchall()
     assert cols == []                                                   # the ledger stores days, never a count
+def test_oral_bank_builds_from_ticked_files_without_a_file_id(client, fake):
+    """The default path: no file_id, so the questions come from whatever is ticked.
+
+    This unpacked two values from build_context, which returns three, so the
+    branch raised ValueError for every caller who did not name a single file.
+    test_oral.py is pure logic and never touches the route, so nothing caught it.
+    """
+    cid = _cid(client)
+    _upload(client, cid, "w5.txt", "Article 34 TFEU prohibits quantitative restrictions.", week="5")
+    fc = fake((json.dumps([{"concept": "Free movement of goods",
+                            "question": "What does Article 34 TFEU prohibit?",
+                            "model": "Quantitative restrictions and measures of equivalent effect.",
+                            "traps": "Confusing it with Article 35."}]), None))
+
+    r = client.post(f"/api/courses/{cid}/oral/bank", json={"count": 1})
+
+    assert r.status_code == 200, r.text
+    assert r.json()["made"] == 1
+    # the ticked file's text, not a filename, is what the examiner was given
+    assert "Article 34 TFEU prohibits" in fc.calls[0]["messages"][0]["content"]
+
+
+def test_oral_bank_from_one_named_file_still_works(client, fake):
+    """The file_id branch was always correct; pin it so the fix cannot swap them."""
+    cid = _cid(client)
+    fid = _upload(client, cid, "w3.txt", "Keck concerns selling arrangements.", week="3")
+    fake((json.dumps([{"concept": "Selling arrangements", "question": "What did Keck decide?",
+                       "model": "Selling arrangements fall outside Article 34.", "traps": ""}]), None))
+
+    r = client.post(f"/api/courses/{cid}/oral/bank", json={"count": 1, "file_id": fid})
+
+    assert r.status_code == 200, r.text
+    assert r.json()["made"] == 1
 # ---------------------------------------------------------------- Phase 14: notes you can listen to
 import re
 import threading

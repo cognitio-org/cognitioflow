@@ -1,4 +1,4 @@
-import { PROVIDERS, timeAgo } from './lib.js';
+import { PROVIDERS, billingUrl, ciNotice, timeAgo } from './lib.js';
 
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -30,11 +30,20 @@ function row(s, review, provider) {
 }
 
 async function render() {
-  const { statuses = [], reviews = {}, error = '', checkedAt = 0, provider = 'openrouter' } =
-    await chrome.storage.local.get(['statuses', 'reviews', 'error', 'checkedAt', 'provider']);
+  const { statuses = [], reviews = {}, error = '', checkedAt = 0, provider = 'openrouter', ci = null } =
+    await chrome.storage.local.get(['statuses', 'reviews', 'error', 'checkedAt', 'provider', 'ci']);
   $('#meta').textContent = checkedAt ? `Checked ${timeAgo(checkedAt)} · refreshes every minute` : 'Not checked yet';
   $('#notice').hidden = !error;
   $('#notice').textContent = error;
+
+  // The CI banner sits above the list because it changes what the list means: while
+  // runners are being refused, every red row is red for a reason that is not the code.
+  const notice = ciNotice(ci);
+  $('#ci').hidden = !notice;
+  if (notice) {
+    const owner = (ci.repo || '').split('/')[0];
+    $('#ci').innerHTML = `${esc(notice)} <a href="${esc(billingUrl(owner, ci.billingKind === 'user' ? 'user' : 'org'))}" target="_blank">Open billing settings</a>`;
+  }
   $('#list').innerHTML = statuses.length
     ? statuses.map((s) => row(s, reviews[s.number], provider)).join('')
     : (error ? '' : '<li class="empty"><b>No open pull requests</b>New ones appear here within a minute.</li>');

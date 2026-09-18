@@ -17,5 +17,10 @@ __pycache__/
 *copy.txt
 .aider*
 
+# Agent worktrees. `.claude/settings.json` is tracked, so this cannot be a blanket
+# .claude/ rule. These are transient checkouts a subagent works in and the harness
+# removes them when it finishes; committing one would nest the repository in itself.
+.claude/worktrees/
+
 # Kokoro model assets (330MB + 30MB) — fetched, not committed
 voices/
