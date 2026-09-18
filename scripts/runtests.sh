@@ -18,7 +18,8 @@
 # because the auth tests need the OAuth settings that live there.
 #
 # Set $PYTHON if your interpreter is not on PATH as `python`; a .venv in the
-# checkout is picked up automatically.
+# checkout is picked up automatically. Runs are serialised with a lock, so do not
+# expect two of these to overlap, and stop `make dev` first if it is running.
 #
 #   bash scripts/runtests.sh                         # everything
 #   bash scripts/runtests.sh tests/test_ui_routes.py -q
@@ -43,6 +44,15 @@ fi
 if ! "$PY" -c 'import pytest' 2>/dev/null; then
   echo "refusing: $PY has no pytest. Set \$PYTHON to the interpreter with the" >&2
   echo "   project's requirements installed, or create .venv here." >&2; exit 1
+fi
+
+# One run at a time. This rewrites .env.local, which every process in this
+# checkout reads — a second concurrent run, or a `make dev` started mid-run,
+# would see the test database. Two agents working the same checkout hit exactly
+# this today. flock serialises; if you are waiting, something else is testing.
+if command -v flock >/dev/null 2>&1; then
+  exec 9>".git/runtests.lock"
+  flock -w 900 9 || { echo "another test run has held the lock for 15 minutes" >&2; exit 1; }
 fi
 
 # Neutralise the two lines that hurt, and leave the rest of .env.local alone:
