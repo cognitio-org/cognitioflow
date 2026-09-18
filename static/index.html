@@ -108,6 +108,9 @@
         <button class="btn small ghost" id="cardsFromMap" title="Each row of a case-map table becomes a recall card — no model">Cards from case map</button>
         <button class="btn small ghost" id="histBtn" title="Earlier versions of this note">History</button>
         <button class="btn small ghost" id="cleanBtn" title="Haiku fixes mis-heard case names and terms in the Live capture, against the vocabulary of your ticked files. Original kept in History.">Clean garble</button>
+        <button class="btn small ghost listen" id="listenBtn" data-listen="idle" title="Read this note aloud — Haiku writes the script from the note's own words, the app's voice records it">▶ Listen</button>
+        <audio id="listenAudio" preload="none" hidden></audio>
+        <span class="small muted" id="listenState"></span>
         <span id="recList" style="margin-left:auto;display:flex;gap:.4rem;align-items:center;flex-wrap:wrap"></span>
       </div>
       <div id="txBar" class="panel small" hidden style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:.5rem;border-left:4px solid var(--accent)"><span id="txMsg">Transcript added and cleaned under Live capture. Skim it once, then</span><button class="btn small primary" id="txReconcile">Reconcile with lecture</button><button class="btn small ghost" id="txLater">Later</button></div>

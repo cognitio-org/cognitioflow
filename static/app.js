@@ -409,7 +409,7 @@ async function loadNotes(){ const ns=await api(`/courses/${cid}/notes`); if(!ns.
   $('#noteList').innerHTML=ns.length?ns.map(n=>`<li class="${n.id===nid?'active':''}" data-note="${n.id}">${esc(n.title)}<div class="small muted">${new Date(n.updated*1000).toLocaleDateString()} · ${Math.round(n.chars/1000)||0}k</div></li>`).join(''):'<li class="emptystate small"><b>No notes yet</b><span>Start one, or draft it from your files.</span><button class="btn small" type="button" onclick="document.getElementById(\'newNote\').click()">New note</button></li>';
   document.querySelectorAll('[data-note]').forEach(l=>l.onclick=()=>{nid=l.dataset.note;loadNotes()}); keyable($('#noteList'));
   if(nid){const n=await api(`/notes/${nid}`);$('#noteTitle').value=n.title;await loadRecIds();$('#noteBody').value=toDisplay(n.body);$('#noteStatus').textContent='Saved'} else {$('#noteTitle').value='';$('#noteBody').value='';$('#noteStatus').textContent=''}
-  histVid=null; $('#histBar').hidden=true; $('#txBar').hidden=true; showNote(); loadRecs();
+  histVid=null; $('#histBar').hidden=true; $('#txBar').hidden=true; showNote(); loadRecs(); listenLoad();
 }
 const PROV={WG:'wg',LECTURE:'',LEC:'',SLIDES:'',READER:'',SCHUTZE:'',SCHÜTZE:'',ADDED:'flag','OUTSIDE FILES':'flag',P:'',VERIFY:'flag'};
 function priomark(html){ return html.replace(/(<li[^>]*>)\s*●●/g,'$1<span class="prio core" title="Core">●●</span> ').replace(/(<li[^>]*>)\s*●/g,'$1<span class="prio know" title="Know">●</span> ').replace(/(<li[^>]*>)\s*○/g,'$1<span class="prio sup" title="Support">○</span> ').replace(/(<p>)\s*●●/g,'$1<span class="prio core">●●</span> ').replace(/(<p>)\s*●(?!●)/g,'$1<span class="prio know">●</span> ').replace(/(<p>)\s*○/g,'$1<span class="prio sup">○</span> '); }
@@ -489,6 +489,39 @@ $('#cleanBtn').onclick=async()=>{ if(!nid) return; const b=$('#cleanBtn'); b.dis
 $('#histBack').onclick=()=>{ histVid=null; $('#histBar').hidden=true; showNote() };
 $('#histRestore').onclick=async()=>{ if(!histVid) return; if(!confirm('Replace the current text with this version? The current text is kept in History.')) return; await post(`/notes/${nid}/restore/${histVid}`); histVid=null; $('#histBar').hidden=true; toast('Restored'); loadNotes() };
 $('#cardsFromMap').onclick=async()=>{ if(!nid) return; const r=await post(`/notes/${nid}/cards-from-tables`); toast(r.made?`${r.made} card(s) added to Recall`:'No case-map table found (needs a table with a Case column)') };
+/* ---- the note, read aloud. Writing the script and recording it is a job on the server, so this
+   polls exactly the way the Transcribe button does and then plays what the bucket holds. Audio made
+   from an older version of the note comes back `stale`: it is not played, it is offered again. ---- */
+let listenT=null, listenLast={status:'none'};
+function listenPaint(s){ if(s) listenLast=s; s=listenLast; const b=$('#listenBtn'), a=$('#listenAudio');
+  const working=s.status==='queued'||s.status==='running', playing=!!a.getAttribute('src')&&!a.paused&&!a.ended;
+  b.dataset.listen=working?'working':(playing?'playing':'idle');
+  b.textContent=working?'Reading…':(playing?'❚❚ Pause':(s.stale&&!s.ready?'▶ Read again':'▶ Listen'));
+  b.setAttribute('aria-label',b.textContent.replace(/^[^ ]+ /,'')+' this note');
+  $('#listenState').textContent=listenNote(s); }
+function listenNote(s){ if(s.error) return s.error;
+  if(s.status==='running'&&s.stage) return s.stage;
+  if(s.stale&&!s.ready) return 'The note changed since it was read';
+  if(window.CFVOICE&&window.CFVOICE.server===false) return 'No server voice configured';
+  return ''; }
+function listenStop(){ clearInterval(listenT); listenT=null; const a=$('#listenAudio'); try{ a.pause() }catch(e){} a.removeAttribute('src'); }
+async function listenLoad(){ listenStop(); if(!nid){ listenPaint({status:'none'}); return }
+  try{ listenPaint(await api(`/notes/${nid}/audio`)) }catch{ listenPaint({status:'none'}) } }
+function listenPlay(){ const a=$('#listenAudio'); cfHush();                      // one voice at a time
+  if(!a.getAttribute('src')) a.src=`/api/notes/${nid}/audio/file?v=${Date.now()}`;
+  a.play().catch(()=>toast('Could not play the reading','warn')); }
+function listenWatch(){ clearInterval(listenT); listenT=setInterval(async()=>{ let s; try{ s=await api(`/notes/${nid}/audio`) }catch{ return }
+  listenPaint(s); if(s.status==='queued'||s.status==='running') return;
+  clearInterval(listenT); listenT=null;
+  if(s.ready) listenPlay(); else toast('Could not read the note aloud: '+(s.error||'try again'),'warn') },2500) }
+$('#listenBtn').onclick=async()=>{ if(!nid){ toast('Open a note first'); return } const a=$('#listenAudio');
+  if(a.getAttribute('src')&&!a.paused&&!a.ended){ a.pause(); return }
+  let s; try{ s=await api(`/notes/${nid}/audio`) }catch{ s={status:'none'} }
+  if(s.ready){ listenPaint(s); listenPlay(); return }
+  try{ s=await post(`/notes/${nid}/audio`) }catch(e){ toast('Could not start the reading: '+e.message,'warn'); return }
+  listenPaint(s);
+  if(s.ready) listenPlay(); else { toast('Writing the script, then recording it — this takes a minute','busy'); listenWatch() } };
+['play','pause','ended'].forEach(ev=>$('#listenAudio').addEventListener(ev,()=>listenPaint()));
 /* ---- Advocate: oral revision. The engine lives on the server; this is the mouth and ears. ---- */
 const adv={mastery:{},cooldown:{},misses:{},notes:[],asked:0,q:null,busy:false};
 let advRecog=null, advListening=false;

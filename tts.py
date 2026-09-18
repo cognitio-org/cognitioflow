@@ -18,6 +18,9 @@ is speaking.
                 a hosted API (roughly a quarter of real time on a laptop CPU) and the model files are
                 too large to bundle into the Cloud Run image, so this backend is for local dev only;
                 production should use google or elevenlabs.
+
+`say()` is one spoken turn and is capped. `narrate()` (Phase 14) is a whole script — a note read end
+to end — and is the same call repeated over its pieces, so every backend gets it for free.
 """
 import json
 import os
@@ -28,15 +31,21 @@ import urllib.request
 BACKEND = os.environ.get("TTS", "browser").strip().lower()
 MAX_CHARS = 600          # one spoken turn; the tutor prompt already caps replies at 45 words
 LANGUAGE = os.environ.get("TTS_LANGUAGE", "en-GB")
+NARRATE_MAX_CHARS = int(os.environ.get("TTS_NARRATE_MAX_CHARS", "30000"))  # a whole note read aloud; the same guard MAX_CHARS is for one turn
 
 _SAY_NOTHING = re.compile(r"\[(?:LECTURE|WG|SLIDES|READER|SCHUTZE|SCRIPTUM|DCFR|NATIONAL|ADDED|OUTSIDE FILES)[^\]]*\]")
 _MARKUP = re.compile(r"[*_`#>|]")
 
 
-def speakable(text: str) -> str:
+def clean(text: str) -> str:
     """Provenance tags and markdown are for the eye. Reading them aloud is noise."""
-    clean = _MARKUP.sub("", _SAY_NOTHING.sub("", str(text or "")))
-    return re.sub(r"\s{2,}", " ", clean).strip()[:MAX_CHARS]
+    stripped = _MARKUP.sub("", _SAY_NOTHING.sub("", str(text or "")))
+    return re.sub(r"\s{2,}", " ", stripped).strip()
+
+
+def speakable(text: str) -> str:
+    """One spoken turn: cleaned, and capped so a per-character voice cannot run away on a long reply."""
+    return clean(text)[:MAX_CHARS]
 
 
 def sentences(text: str):
@@ -46,6 +55,67 @@ def sentences(text: str):
     """
     parts = re.findall(r"[^.!?]+[.!?]*", speakable(text))
     return [p.strip() for p in parts if p.strip()]
+
+
+class VoiceError(RuntimeError):
+    """The voice is configured but could not speak a piece of a script."""
+
+
+def passages(text: str, limit: int = MAX_CHARS):
+    """
+    Split a whole script into pieces small enough for one `say()` call, on sentence boundaries.
+    Unlike speakable(), nothing is dropped: the cap there guards a single spoken turn, and a note
+    read end to end is many turns, not a truncated one.
+    """
+    out, cur = [], ""
+    for raw in re.findall(r"[^.!?]+[.!?]*", clean(text)):
+        s = raw.strip()
+        if not s:
+            continue
+        while len(s) > limit:            # one runaway sentence: cut on the last space that fits
+            cut = s.rfind(" ", 0, limit)
+            cut = limit if cut <= 0 else cut
+            if cur:
+                out.append(cur); cur = ""
+            out.append(s[:cut].strip()); s = s[cut:].strip()
+        if not s:
+            continue
+        if len(cur) + len(s) + 1 > limit:
+            if cur:
+                out.append(cur)
+            cur = s
+        else:
+            cur = (cur + " " + s).strip()
+    if cur:
+        out.append(cur)
+    return out
+
+
+def narrate(text: str, limit: int = MAX_CHARS):
+    """
+    A whole script as one audio file: `say()` over every piece of it, joined. Returns
+    (audio_bytes, media_type), or None when no server voice is configured — the caller then has
+    nothing to offer and should say so rather than store silence.
+
+    Raises VoiceError when the voice IS configured and a piece came back empty: a note that stops
+    two minutes in is worse than one that was never made, and the job that called this says so.
+
+    Every backend returns MP3 and MP3 frames concatenate, so this needs no re-encoding and no ffmpeg.
+    """
+    if not available():
+        return None
+    pieces = passages(text, limit)
+    if not pieces:
+        return None
+    if sum(len(p) for p in pieces) > NARRATE_MAX_CHARS:
+        raise VoiceError("That note is too long to read aloud in one go.")
+    audio, media = bytearray(), "audio/mpeg"
+    for piece in pieces:
+        out = say(piece)
+        if not out:
+            raise VoiceError("The voice stopped part-way through the note.")
+        audio.extend(out[0]); media = out[1]
+    return bytes(audio), media
 
 
 def available() -> bool:
