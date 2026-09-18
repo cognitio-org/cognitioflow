@@ -277,3 +277,13 @@
      node on <body>: it then floats over every screen until a reload, and prints with the note. Hide both —
      renderMd()'s catch already falls back to showing the diagram source. */
   svg[aria-roledescription="error"],body>div[id^="dmm"],body>svg[id^="mm"]{display:none!important}
+
+  /* Motion overrides go LAST on purpose, and "last" now means the end of the LAST stylesheet
+     the page loads, not the end of app.css. .fcinner's transition is declared in this file, so an
+     override sitting in app.css loses the cascade to it at equal specificity however carefully it
+     was placed there — which is the exact failure the original comment was written to prevent,
+     reintroduced when index.html was split into two sheets. Anything added here wins. */
+  @media(prefers-reduced-motion:reduce){
+    .fcinner,.progress span,.sess .act,.drop,.btn:active:not([disabled]){transition:none}
+    .flashcard{perspective:none}   /* no 3D rotation to be sick over, just a swap */
+  }
