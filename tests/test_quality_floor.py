@@ -7,8 +7,15 @@ assert against static/index.html the way test_courses.py's palette test does.
 import re
 from pathlib import Path
 
-PAGE = (Path(__file__).resolve().parent.parent / "static" / "index.html").read_text(encoding="utf-8")
-CSS = re.sub(r"/\*.*?\*/", "", re.search(r"<style>(.*?)</style>", PAGE, re.S).group(1), flags=re.S)
+# The page was split on 2026-09-18: CSS moved to static/app.css and static/book.css,
+# JS to static/app.js. These tests assert against all of it, so read the pieces and
+# join them — that keeps the assertions honest wherever the code physically lives.
+_STATIC = Path(__file__).resolve().parent.parent / "static"
+def _read(name):
+    p = _STATIC / name
+    return p.read_text(encoding="utf-8") if p.exists() else ""
+PAGE = _read("index.html") + chr(10) + _read("app.js")
+CSS = re.sub(r"/\*.*?\*/", "", _read("app.css") + chr(10) + _read("book.css"), flags=re.S)
 
 
 def test_nothing_irreversible_happens_without_asking():
