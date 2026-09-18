@@ -955,3 +955,23 @@ def test_the_note_views_hooks_and_renderer_are_untouched():
         assert hook in NOTES_PAGE, f"{hook} disappeared — a hook was renamed"
     for fn in ("function chipify(", "function priomark(", "async function paint("):
         assert fn in NOTES_PAGE
+
+def test_a_syllabus_proposal_cannot_be_applied_to_a_different_course():
+    """Found by review, not by us. sylProposal was module-level and the course switcher only
+    reassigns cid, so reading a syllabus on one course, switching, and pressing Apply wrote that
+    schedule onto the other course — overwriting its tutor prompt and retagging its files. Three
+    things have to hold, and each on its own is insufficient."""
+    js = (pathlib.Path(__file__).resolve().parent.parent / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert "sylProposalCid=cid" in js, "the proposal must record the course it was read from"
+
+    switcher = js[js.index("$('#course').addEventListener('change'"):]
+    switcher = switcher[:switcher.index("\n")]
+    assert "sylForget()" in switcher, "changing course must drop a proposal read from the old one"
+
+    apply_at = js.index("$('#sylApply').onclick")
+    handler = js[apply_at:js.index("catch(e)", apply_at)]
+    assert "sylProposalCid!==cid" in handler, \
+        "apply must refuse a proposal from another course, not merely rely on the switcher clearing it"
+    assert handler.index("sylProposalCid!==cid") < handler.index("syllabus/apply"), \
+        "the check must come before the write, or it guards nothing"

@@ -89,7 +89,7 @@ document.addEventListener('click',e=>{const a=e.target.closest('a[data-nav]'); i
 
 /* courses */
 async function loadCourses(){ courses=await api('/courses'); if(!courses.find(c=>c.id===cid)) cid=courses[0].id; const s=$('#course'); s.innerHTML=courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')+'<option value="__new">New course…</option>'; s.value=cid; document.documentElement.style.setProperty('--course',C().accent); }
-$('#course').addEventListener('change',e=>{if(e.target.value==='__new'){e.target.value=cid;openCourseDlg(null);return} cid=e.target.value;localStorage.setItem('cf.course',cid);document.documentElement.style.setProperty('--course',C().accent);show(localStorage.getItem('cf.screen')||'home')});
+$('#course').addEventListener('change',e=>{if(e.target.value==='__new'){e.target.value=cid;openCourseDlg(null);return} cid=e.target.value;sylForget();localStorage.setItem('cf.course',cid);document.documentElement.style.setProperty('--course',C().accent);show(localStorage.getItem('cf.screen')||'home')});
 $('#addCourse').addEventListener('click',()=>openCourseDlg(null));
 
 /* course dialog: "New course" in the switcher, "Course settings" on Overview */
@@ -196,7 +196,10 @@ async function loadFiles(){
 async function upload(files){ for(const f of files){ const fd=new FormData(); fd.append('file',f); fd.append('week',$('#week').value); toast('Indexing '+f.name+'…'); try{ const r=await api(`/courses/${cid}/files`,{method:'POST',body:fd}); toast(`${f.name}: ${r.status}${r.chars?' · '+Math.round(r.chars/1000)+'k chars':''}`);}catch(e){toast('Failed: '+e.message)} } loadFiles(); }
 $('#inferBtn').onclick=async()=>{const b=$('#inferBtn');b.disabled=true;b.textContent='Detecting…';try{const r=await post(`/courses/${cid}/infer-weeks`);toast(r.tagged?`Sorted ${r.tagged} file(s) into weeks`:'Nothing to sort — all files already have a week');loadFiles()}catch(e){toast('Failed: '+e.message)}b.disabled=false;b.textContent='Detect weeks'};
 /* syllabus in, weeks and topics out. The panel holds a proposal; only Apply writes anything. */
-let sylProposal=null;
+/* The proposal belongs to the course it was read from. cid can change under it — the course
+   switcher only reassigns cid — and applying then writes one course's schedule onto another,
+   overwriting its tutor prompt and retagging its files. Bound and checked, not assumed. */
+let sylProposal=null, sylProposalCid=null;
 function sylFill(fs){ const opts=fs.filter(f=>f.kind!=='image'&&f.chars); const sel=$('#sylFile'); const keep=sel.value;
   sel.innerHTML=opts.length?opts.map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join(''):'<option value="">No readable file yet</option>';
   if(opts.some(f=>f.id===keep)) sel.value=keep;
@@ -206,7 +209,7 @@ function sylFill(fs){ const opts=fs.filter(f=>f.kind!=='image'&&f.chars); const 
 async function sylApplied(){ try{ const s=await api(`/courses/${cid}/syllabus`);
     $('#sylState').textContent=s.weeks.length?`${s.weeks.length} week${s.weeks.length>1?'s':''} applied${s.source?' from '+s.source:''}`:''; }
   catch(e){ $('#sylState').textContent='' } }
-function sylRender(p){ sylProposal=p;
+function sylRender(p){ sylProposal=p; sylProposalCid=cid;
   $('#sylNote').textContent=p.note||'';
   $('#sylHint').textContent=p.weeks.length?'Untick a week to leave it out. Nothing is saved until you apply this.':'Nothing to apply.';
   $('#sylApply').disabled=!p.weeks.length;
@@ -225,8 +228,10 @@ $('#sylRead').onclick=async()=>{ const fid=$('#sylFile').value; if(!fid) return;
   try{ sylRender(await post(`/courses/${cid}/syllabus/extract`,{file_id:fid})) }
   catch(e){ toast('Could not read it: '+e.message) }
   b.disabled=false; b.textContent='Read syllabus'; };
-$('#sylDiscard').onclick=()=>{ sylProposal=null; $('#sylPanel').hidden=true; sylApplied() };
+function sylForget(){ sylProposal=null; sylProposalCid=null; const p=$('#sylPanel'); if(p) p.hidden=true; }
+$('#sylDiscard').onclick=()=>{ sylForget(); sylApplied() };
 $('#sylApply').onclick=async()=>{ if(!sylProposal) return;
+  if(sylProposalCid!==cid){ sylForget(); toast('That schedule was read from another course — read it again here.'); return }
   const keep=[...document.querySelectorAll('[data-sylpick]:checked')].map(b=>sylProposal.weeks[+b.dataset.sylpick]);
   const b=$('#sylApply'); b.disabled=true; b.textContent='Applying…';
   try{ const r=await post(`/courses/${cid}/syllabus/apply`,{weeks:keep,source:sylProposal.source||''});
