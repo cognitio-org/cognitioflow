@@ -1,4 +1,4 @@
-.PHONY: dev test migrate db-reset db-branch
+.PHONY: dev test migrate seed seed-clear db-reset db-branch
 
 PORT ?= 8000
 
@@ -10,6 +10,12 @@ test:
 
 migrate:
 	python -m migrate
+
+seed:
+	python3 scripts/seed_dev.py
+
+seed-clear:
+	python3 scripts/seed_dev.py --clear
 
 db-reset:
 	@python3 -c "\
