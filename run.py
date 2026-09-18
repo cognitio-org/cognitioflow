@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import embed
+import essay
 import oral
 import retrieval
 import schedule
@@ -1230,6 +1231,223 @@ def oral_bank(cid: str, g: OralBankIn):
                       (uuid.uuid4().hex[:10], cid, str(it["question"]), str(it["model"]), src, week,
                        str(it.get("concept") or "")[:80], "|".join(str(x) for x in traps if str(x).strip())[:500],
                        date.today().isoformat(), time.time())); made += 1
+    return {"made": made}
+
+
+
+# ---------------------------------------------------------------- essay practice (Phase 17)
+# The gap between knowing the cases and being able to write the answer is where marks go. The oral
+# routes above are the pattern: a bank built from the student's own ticked files, served one at a
+# time, then graded. Three things differ, and each is the point of the phase.
+#
+#   * The student writes first. `essay_next` never returns the model answer; `essay_model` is the
+#     only way to it and it refuses until an answer has been submitted.
+#   * The answer is saved as it is typed, so a reload mid-write loses nothing.
+#   * The marking is a comment per move of the exam method, not one verdict and not a mark. The
+#     method itself is not written out again here — MODES["apply"] already carries it, and it is
+#     handed to the marker verbatim so the standard cannot drift from the tutor's.
+
+ESSAY_MARKING_CONTRACT = """You are NOT answering the question. You are marking what the student wrote, one move of the method above at a time.
+
+For each move say what they actually did, name the article or the case that decides it where they did not, and say in one line what would have to change. Do not write the answer out for them — they are shown a model answer separately, and a comment that becomes the answer is not feedback.
+
+Never give a mark, a score, a percentage or a total. The comments are the whole of the feedback.
+
+Authority when sources conflict: annotated working-group notes > lecture slides/transcripts > textbook. Any authority you rely on that is not in the ticked files goes in "outside", and nowhere else.
+
+Return ONLY valid JSON. No markdown, no code fence, no prose before or after it.
+
+{"limbs":{
+  "applicability":{"standing":"solid|shaky|missed","comment":"<=60 words"},
+  "restriction":{"standing":"solid|shaky|missed","comment":"<=60 words"},
+  "justification":{"standing":"solid|shaky|missed","comment":"<=60 words"}},
+ "outside":["each an authority you had to reach outside the ticked files for; [] when none"]}
+
+"solid" — the move is there, worked on these facts, with its authority next to it.
+"shaky" — the move is attempted but a limb, a qualification or the authority is missing or wrong.
+"missed" — the move is absent, or the law is stated incorrectly.
+
+When an answer sits between two, choose the lower one and say in the comment exactly what would have lifted it."""
+
+
+def _essay_system(course: dict, files_text: str):
+    """
+    The marker's system prompt: the tutor's own rules and this course's own method, then the ticked
+    files as the cached block, then the marking contract last — the ordering CLAUDE.md fixes for the
+    tutor, for the same reason. MODES["apply"] is passed through untouched; this route reads the exam
+    method, it does not restate it.
+    """
+    blocks = [{"type": "text", "text": BASE_PROMPT + "\n" + (course["tutor_prompt"] or "") + "\n" + MODES["apply"]}]
+    if files_text:
+        blocks.append({"type": "text", "text": "COURSE FILES (the ticked files — the only authority):\n" + files_text,
+                       "cache_control": {"type": "ephemeral"}})
+    else:
+        blocks.append({"type": "text", "text": "COURSE FILES: none ticked. Mark on the question and the answer alone, "
+                                               "and put every authority either of them relies on in \"outside\"."})
+    blocks.append({"type": "text", "text": ESSAY_MARKING_CONTRACT})
+    return blocks
+
+
+def _essay_question(cid: str, qid: str) -> dict:
+    q = rows("SELECT * FROM essay_questions WHERE id=? AND course_id=?", qid, cid)
+    if not q: raise HTTPException(404)
+    return dict(q[0])
+
+
+def _essay_attempt(qid: str) -> Optional[dict]:
+    a = rows("SELECT * FROM essay_attempts WHERE question_id=?", qid)
+    return dict(a[0]) if a else None
+
+
+def _essay_save(cid: str, qid: str, answer: str, submit: bool = False) -> float:
+    """
+    Write the answer down. One row per question, so the draft is overwritten in place and re-grading
+    the same question can never leave a second attempt — or a second bank entry — behind.
+    """
+    now = time.time()
+    with db() as d:
+        d.execute("INSERT INTO essay_attempts(id,question_id,course_id,answer,submitted,created,updated) "
+                  "VALUES(?,?,?,?,?,?,?) ON CONFLICT(question_id) DO UPDATE SET answer=EXCLUDED.answer, "
+                  "submitted=COALESCE(essay_attempts.submitted, EXCLUDED.submitted), updated=EXCLUDED.updated",
+                  (uuid.uuid4().hex[:10], qid, cid, answer[:essay.ANSWER_CHARS], now if submit else None, now, now))
+    return now
+
+
+class EssayNextIn(BaseModel):
+    week: str = ""
+
+
+@app.post("/api/courses/{cid}/essay/next")
+def essay_next(cid: str, n: EssayNextIn):
+    """
+    One question, and the draft already written against it. The model answer is deliberately absent
+    from this payload: it is the whole point of the phase that it cannot arrive before the writing.
+    """
+    q, a = "SELECT * FROM essay_questions WHERE course_id=?", [cid]
+    if n.week: q += " AND week=?"; a.append(n.week)
+    bank = [dict(r) for r in rows(q + " ORDER BY created", *a) if essay.valid_question(dict(r))]
+    if not bank: return {"question": None, "answer": "", "left": 0, "graded": None, "unlocked": False}
+    tried = {r["question_id"]: dict(r) for r in rows("SELECT * FROM essay_attempts WHERE course_id=?", cid)}
+    seen = {qid: (r["updated"] or 0.0) for qid, r in tried.items()}
+    # An unsubmitted draft is picked up where it was left, whatever else is in the bank — that is what
+    # makes a reload mid-write safe rather than merely survivable.
+    drafts = [b for b in bank if tried.get(b["id"]) and not tried[b["id"]]["submitted"] and essay.answered(tried[b["id"]]["answer"])]
+    pick = max(drafts, key=lambda b: seen[b["id"]]) if drafts else essay.choose(bank, seen)
+    at = tried.get(pick["id"]) or {}
+    return {"question": {"id": pick["id"], "question": pick["question"], "week": pick["week"] or "", "source": pick["source"] or ""},
+            "answer": at.get("answer") or "", "left": len(bank),
+            "graded": at.get("grade"), "unlocked": essay.unlocked(at)}
+
+
+class EssayAnswerIn(BaseModel):
+    question_id: str
+    answer: str = ""
+
+
+@app.post("/api/courses/{cid}/essay/answer")
+def essay_answer(cid: str, a: EssayAnswerIn):
+    """The draft, saved as it is typed. No model is called and nothing is unlocked — this is a save."""
+    _essay_question(cid, a.question_id)
+    return {"saved": _essay_save(cid, a.question_id, a.answer or "")}
+
+
+class EssayGradeIn(BaseModel):
+    question_id: str
+    answer: str = ""
+
+
+@app.post("/api/courses/{cid}/essay/grade")
+def essay_grade(cid: str, g: EssayGradeIn):
+    """
+    Mark a written answer against the course's own method, one move at a time.
+
+    The answer is written down BEFORE the marker is called, and submission is recorded at the same
+    moment: if the marker is unreachable, the work and the model answer both survive it.
+    """
+    q = _essay_question(cid, g.question_id)
+    course = rows("SELECT * FROM courses WHERE id=?", cid)
+    if not course: raise HTTPException(404)
+    answer = (g.answer or "").strip()
+    if not essay.answered(answer):
+        raise HTTPException(400, "Write an answer first — an empty page has nothing to mark.")
+    _essay_save(cid, g.question_id, answer, submit=True)
+
+    parts, _, _ = build_context(cid, q["question"])
+    usr = (f"QUESTION SET: {q['question'][:essay.QUESTION_CHARS]}\n\n"
+           f"THE STUDENT'S WRITTEN ANSWER:\n\"\"\"\n{answer[:essay.ANSWER_CHARS]}\n\"\"\"")
+    try:
+        m = client().messages.create(model=pick_model("apply", None), max_tokens=1600,
+                                     system=_essay_system(dict(course[0]), "\n\n".join(parts)[:60000]),
+                                     messages=[{"role": "user", "content": usr}])
+        u = getattr(m, "usage", None)
+        if u is not None:
+            print(f"essay grade cache: write={getattr(u, 'cache_creation_input_tokens', 0)} "
+                  f"read={getattr(u, 'cache_read_input_tokens', 0)} in={getattr(u, 'input_tokens', 0)}")
+        graded = _model_json(m)
+    except HTTPException:
+        raise  # a non-JSON reply (502) already says what went wrong
+    except Exception as e:
+        print("essay grade:", type(e).__name__, e)
+        raise HTTPException(502, "Could not reach the marker — your answer is saved; try marking it again.")
+    out = essay.normalise_grade(graded)
+    with db() as d:
+        d.execute("UPDATE essay_attempts SET grade=?, updated=? WHERE question_id=?", (Jsonb(out), time.time(), g.question_id))
+    return {**out, "unlocked": True}
+
+
+@app.get("/api/courses/{cid}/essay/{qid}/model")
+def essay_model(cid: str, qid: str):
+    """
+    The model answer — and only once one of the student's own exists. Showing the structure first
+    teaches recognition, not production, so this is a refusal rather than a hidden element on the page.
+    """
+    q = _essay_question(cid, qid)
+    if not essay.unlocked(_essay_attempt(qid)):
+        raise HTTPException(409, "Submit your own answer first.")
+    return {"model": q["model"] or ""}
+
+
+class EssayBankIn(BaseModel):
+    count: int = 4
+    file_id: str = ""
+    week: str = ""
+    model: Optional[str] = None
+
+
+@app.post("/api/courses/{cid}/essay/bank")
+def essay_bank(cid: str, g: EssayBankIn):
+    """Turn the student's own ticked material into essay questions, per course and week. Cheap model:
+    setting a question from a topic is not the analytical call — marking the answer is."""
+    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    if g.file_id:
+        # scoped to the course, not looked up by id alone: this route's whole premise is the student's
+        # own material for THIS course, and an unscoped lookup will happily read another course's file
+        # and send its text to the model.
+        f = rows("SELECT name,text,week FROM files WHERE id=? AND course_id=?", g.file_id, cid)
+        if not f: raise HTTPException(404)
+        src, week, txt = f[0]["name"], f[0]["week"] or "", (f[0]["text"] or "")[:60000]
+    else:
+        parts, _, _ = build_context(cid)
+        src, week, txt = "selected files", g.week, "\n\n".join(parts)[:60000]
+    if not txt.strip(): raise HTTPException(400, "No ticked files to build questions from.")
+    prompt = (f"From the material below, write {max(1, min(10, g.count))} questions an examiner for this course would set "
+              "as a written exam question: a problem on facts, or a discussion question, that takes a full answer worked "
+              "through the course's method — never something answerable in a sentence. Every question must turn on a rule, "
+              "a case or an article that appears in the material; if it would need anything that is not there, do not write "
+              "that question.\n"
+              "Return ONLY a JSON array of objects with keys: 'question', and 'model' — the model answer, worked through "
+              "the course's method in order, naming the article and the case that decides each step and quoting the few "
+              "words that bite. Label anything you have to reach outside the material for [OUTSIDE FILES].\n\n" + txt)
+    m = client().messages.create(model=pick_model("cards", g.model), max_tokens=6000,
+                                 messages=[{"role": "user", "content": prompt}])
+    items = _model_json(m)
+    made = 0
+    with db() as d:
+        for it in items if isinstance(items, list) else []:
+            if not essay.valid_question(it): continue
+            d.execute("INSERT INTO essay_questions(id,course_id,week,question,model,source,created) VALUES(?,?,?,?,?,?,?)",
+                      (uuid.uuid4().hex[:10], cid, week, str(it["question"])[:essay.QUESTION_CHARS],
+                       str(it["model"])[:essay.ANSWER_CHARS], src, time.time())); made += 1
     return {"made": made}
 
 
