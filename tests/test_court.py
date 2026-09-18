@@ -120,9 +120,21 @@ import shutil
 import subprocess
 from pathlib import Path
 
+# index.html was split on 2026-09-18: JS to static/app.js, CSS to static/app.css
+# and static/book.css. These assertions are about the shipped UI, so read all of it.
+def _page_text():
+    d = Path(__file__).resolve().parent.parent / "static"
+    out = []
+    for n in ("index.html", "app.js", "app.css", "book.css"):
+        f = d / n
+        if f.exists():
+            out.append(f.read_text(encoding="utf-8"))
+    return chr(10).join(out)
+
+
 import pytest
 
-PAGE = (Path(__file__).resolve().parent.parent / "static" / "index.html").read_text(encoding="utf-8")
+PAGE = _page_text()
 
 
 def test_the_page_consumes_the_due_date_the_bench_returns():
