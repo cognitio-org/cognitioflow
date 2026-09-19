@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 import embed
 import essay
+import llm
 import oral
 import retrieval
 import schedule
@@ -383,7 +384,7 @@ def infer_weeks(cid: str):
                   'Return ONLY a JSON object mapping file id to week, e.g. {"abc": "3", "def": ""}.\n\n'
                   f"FILES ALREADY TAGGED:\n{hint}\n\nUNTAGGED FILES:\n{docs}")
         try:
-            got = _model_json(client().messages.create(model=CHEAP_MODEL, max_tokens=1000, messages=[{"role": "user", "content": prompt}]))
+            got = _model_json(ask_model(CHEAP_MODEL, max_tokens=1000, messages=[{"role": "user", "content": prompt}]))
         except Exception as e:  # no API key, API error, or a reply that isn't JSON
             got = {}
             warning = (e.detail if isinstance(e, HTTPException) else "The model step failed") + " — files named with a week were still sorted."
@@ -456,7 +457,7 @@ def syllabus_extract(cid: str, p: SyllabusExtractIn):
     model = pick_model("summarise", None)   # cheap tier, and no requested-model parameter: the strong model is unreachable here
     name = f[0]["name"]
     doc = '<document name="%s">\n%s\n</document>' % (name, text[:SYLLABUS_CHARS])
-    got = _model_json(client().messages.create(model=model, max_tokens=4000, system=SYLLABUS_RULES,
+    got = _model_json(ask_model(model, max_tokens=4000, system=SYLLABUS_RULES,
                                                messages=[{"role": "user", "content": doc}]))
     if not isinstance(got, dict):
         raise HTTPException(502, "The model answered with a list where the syllabus object was asked for. Try again.")
@@ -604,9 +605,30 @@ def build_context(cid: str, question: str = ""):
     return text_parts, images, None
 
 def client():
-    import anthropic
-    if not os.environ.get("ANTHROPIC_API_KEY"): raise HTTPException(400, "ANTHROPIC_API_KEY not set — add it to .env and restart.")
-    return anthropic.Anthropic()
+    """The SDK for whichever backend llm.py names.
+
+    llm.py landed in #76 with the whole provider seam - client, resolve, usage, describe - and
+    this function then built its own anthropic.Anthropic() and ignored all of it. The seam
+    existed, was imported nowhere, and changed nothing. Every model call in this file goes
+    through here, so this is the one place that has to know.
+
+    The HTTPException is kept deliberately: callers and tests rely on a missing key surfacing
+    as a 400 with that text, not as a 500.
+    """
+    try:
+        return llm.client()
+    except llm.ConfigError as e:
+        raise HTTPException(400, str(e))
+
+
+def ask_model(model, **kw):
+    """One model call, through the seam.
+
+    resolve() is identity on anthropic and only bites when the provider is openrouter, where a
+    Claude id needs that vendor's spelling. Going through client() rather than llm.client()
+    keeps the single seam the tests replace.
+    """
+    return client().messages.create(model=llm.resolve(model), **kw)
 
 def _text(m) -> str:
     return "".join(b.text for b in m.content if getattr(b, "type", "") == "text")
@@ -706,10 +728,16 @@ def chat(cid: str, body: ChatIn):
         if narrowed:
             yield f"data: {json.dumps({'reading': {'used': narrowed['used'], 'trimmed': narrowed['trimmed'], 'chars': narrowed['chars']}})}\n\n"
         try:
-            with client().messages.stream(model=chosen, max_tokens=2000, system=system,
+            with client().messages.stream(model=llm.resolve(chosen), max_tokens=2000, system=system,
                                           messages=history + [{"role": "user", "content": user_content}]) as s:
                 for t in s.text_stream:
                     out.append(t); yield f"data: {json.dumps({'t': t})}\n\n"
+                # app.js:440 has always parsed a `usage` event and added its cost to a running
+                # session total, and app.js:451 puts it in the answer's tooltip. This stream has
+                # only ever sent model, reading, t, error and [DONE], so that total has been zero
+                # since the day it was written. The figure is the one llm.py computes, which on
+                # openrouter is the amount actually billed rather than a guess from a local table.
+                yield f"data: {json.dumps({'usage': llm.usage(s.get_final_message(), body.mode)})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
         full = "".join(out)
@@ -831,7 +859,7 @@ def generate_cards(cid: str, g: GenIn):
         parts, _, _ = build_context(cid); src, week, txt = "selected files", "", "\n\n".join(parts)[:60000]
     prompt = (f"From the material below, write {g.count} flashcards for a law exam: precise, one testable point each, "
               "case names and article numbers where present. Return ONLY a JSON array of objects with keys 'front' and 'back'.\n\n" + txt)
-    m = client().messages.create(model=pick_model('cards', g.model), max_tokens=3000, messages=[{"role": "user", "content": prompt}])
+    m = ask_model(pick_model('cards', g.model), max_tokens=3000, messages=[{"role": "user", "content": prompt}])
     text = "".join(b.text for b in m.content if b.type == "text").strip().strip("`")
     if text.startswith("json"): text = text[4:]
     try: items = json.loads(text)
@@ -958,7 +986,7 @@ def hint(cid: str, h: HintIn):
               "Do NOT say which option is correct and do NOT restate the correct answer.\n\n"
               f"QUESTION: {h.question[:600]}\nOPTIONS:\n{opts}")
     try:
-        m = client().messages.create(model=CHEAP_MODEL, max_tokens=120, messages=[{"role": "user", "content": prompt}])
+        m = ask_model(CHEAP_MODEL, max_tokens=120, messages=[{"role": "user", "content": prompt}])
         text = "".join(b.text for b in m.content if b.type == "text").strip()[:300]
         with db() as d:
             d.execute("INSERT INTO hint_cache(key,course_id,hint,model,created) VALUES(?,?,?,?,?) "
@@ -1003,7 +1031,7 @@ def court(cid: str, c: CourtIn):
               'the notes"],"holding":"what the court actually held, in the notes\' own terms"}\n\n'
               f"CASE: {c.case}\n\nNOTES:\n{context}")
     try:
-        m = client().messages.create(model=CHEAP_MODEL, max_tokens=1400, messages=[{"role": "user", "content": prompt}])
+        m = ask_model(CHEAP_MODEL, max_tokens=1400, messages=[{"role": "user", "content": prompt}])
         got = _model_json(m)
     except Exception as e:
         print("court:", type(e).__name__, e)
@@ -1057,7 +1085,7 @@ def court_reply(cid: str, r: CourtReplyIn):
            '"note":"<=25 words: the gap plus the authority; empty string if solid"}')
     usr = f"CASE: {r.case}\nTHE BENCH ASKED: {r.question}\nCOUNSEL ANSWERED: \"{r.answer.strip()[:1500]}\"\n\nNOTES:\n{context}"
     try:
-        m = client().messages.create(model=pick_model("drill", None), max_tokens=600, system=sys,
+        m = ask_model(pick_model("drill", None), max_tokens=600, system=sys,
                                      messages=[{"role": "user", "content": usr}])
         graded = oral.normalise(_model_json(m))
     except Exception as e:
@@ -1129,7 +1157,7 @@ def oral_grade(cid: str, g: OralGradeIn):
         usr += ("\n\nThey have now missed this twice. Instead of testing again, explain it in under 45 spoken words, "
                 "then set 'mastery' to 'missed' and ask nothing.")
     try:
-        m = client().messages.create(model=pick_model("drill", None), max_tokens=700,
+        m = ask_model(pick_model("drill", None), max_tokens=700,
                                      system=sys, messages=[{"role": "user", "content": usr}])
         u = getattr(m, "usage", None)
         if u is not None:  # first call writes the cache, later calls in the window read it
@@ -1184,7 +1212,7 @@ def speech_grade(s: SpeechGradeIn):
         usr += "REFERENCE: none supplied. If the answer is not solid, begin 'note' with [OUTSIDE FILES].\n"
     usr += f"STUDENT'S SPOKEN ANSWER: \"{answer}\""
     try:
-        m = client().messages.create(model=pick_model("drill", None), max_tokens=700,
+        m = ask_model(pick_model("drill", None), max_tokens=700,
                                      system=_grader_system(), messages=[{"role": "user", "content": usr}])
         u = getattr(m, "usage", None)
         if u is not None:
@@ -1220,7 +1248,7 @@ def oral_bank(cid: str, g: OralBankIn):
               "article that appears in the material. Return ONLY a JSON array of objects with keys: 'concept' (3-6 words "
               "naming the idea tested), 'question', 'model' (the answer, with the case name or article number), and 'traps' "
               "(2-3 short strings: the wrong turns a student actually takes).\n\n" + txt)
-    m = client().messages.create(model=pick_model("cards", g.model), max_tokens=4000, messages=[{"role": "user", "content": prompt}])
+    m = ask_model(pick_model("cards", g.model), max_tokens=4000, messages=[{"role": "user", "content": prompt}])
     items = _model_json(m)
     made = 0
     with db() as d:
@@ -1376,7 +1404,7 @@ def essay_grade(cid: str, g: EssayGradeIn):
     usr = (f"QUESTION SET: {q['question'][:essay.QUESTION_CHARS]}\n\n"
            f"THE STUDENT'S WRITTEN ANSWER:\n\"\"\"\n{answer[:essay.ANSWER_CHARS]}\n\"\"\"")
     try:
-        m = client().messages.create(model=pick_model("apply", None), max_tokens=1600,
+        m = ask_model(pick_model("apply", None), max_tokens=1600,
                                      system=_essay_system(dict(course[0]), "\n\n".join(parts)[:60000]),
                                      messages=[{"role": "user", "content": usr}])
         u = getattr(m, "usage", None)
@@ -1438,7 +1466,7 @@ def essay_bank(cid: str, g: EssayBankIn):
               "Return ONLY a JSON array of objects with keys: 'question', and 'model' — the model answer, worked through "
               "the course's method in order, naming the article and the case that decides each step and quoting the few "
               "words that bite. Label anything you have to reach outside the material for [OUTSIDE FILES].\n\n" + txt)
-    m = client().messages.create(model=pick_model("cards", g.model), max_tokens=6000,
+    m = ask_model(pick_model("cards", g.model), max_tokens=6000,
                                  messages=[{"role": "user", "content": prompt}])
     items = _model_json(m)
     made = 0
@@ -1513,7 +1541,7 @@ def quiz(cid: str, qz: QuizIn):
                   "right answer. Borrow names, articles and rules from the course's other cards where they fit.\n"
                   'Return ONLY a JSON array of objects {"i": <question number>, "wrong": [three strings]}.\n\nQUESTIONS:\n' + items +
                   "\n\nOTHER CARDS IN THIS COURSE (answers only):\n" + ("\n".join("- " + o for o in others) or "(none)"))
-        got = _model_json(client().messages.create(model=CHEAP_MODEL, max_tokens=3000, messages=[{"role": "user", "content": prompt}]))
+        got = _model_json(ask_model(CHEAP_MODEL, max_tokens=3000, messages=[{"role": "user", "content": prompt}]))
         wrong_by_i = {}
         for x in got if isinstance(got, list) else []:
             if not (isinstance(x, dict) and isinstance(x.get("wrong"), list)): continue  # a string here would be iterated letter by letter
@@ -2011,7 +2039,7 @@ def _audio_script(n) -> str:
     src = _audio_source(n["body"])
     if not src:
         raise AudioFailed("This note has nothing to read aloud yet.")
-    m = client().messages.create(model=CHEAP_MODEL, max_tokens=SPOKEN_SCRIPT_TOKENS, system=SPOKEN_SYSTEM,
+    m = ask_model(CHEAP_MODEL, max_tokens=SPOKEN_SCRIPT_TOKENS, system=SPOKEN_SYSTEM,
                                  messages=[{"role": "user", "content": f"Note title: {n['title']}\n\n{src}"}])
     script = _text(m).strip()
     if not script:
@@ -2147,7 +2175,7 @@ def clean_text(cid: str, text: str) -> str:
     lines = text.splitlines(); out = []; chunk = 70
     for i in range(0, len(lines), chunk):
         piece = "\n".join(lines[i:i + chunk])
-        m = client().messages.create(model=CHEAP_MODEL, max_tokens=4000, system=system, messages=[{"role": "user", "content": piece}])
+        m = ask_model(CHEAP_MODEL, max_tokens=4000, system=system, messages=[{"role": "user", "content": piece}])
         got = "".join(b.text for b in m.content if getattr(b, "type", "") == "text").strip("\n")
         out.append(got if got.count("\n") >= piece.count("\n") - 3 else piece)   # refuse a chunk that lost lines
     return "\n".join(out)
@@ -2199,7 +2227,7 @@ def reconcile_note(nid: str):
     """Split the note into base notes + 'Live capture' sections; rewrite the base so the capture outranks it. Saves a new note, keeps the original."""
     n = note(nid)
     system, prompt = _reconcile_inputs(n)
-    m = client().messages.create(model=STRONG_MODEL, max_tokens=RECONCILE_TOKENS, system=system, messages=[{"role": "user", "content": prompt}])
+    m = ask_model(STRONG_MODEL, max_tokens=RECONCILE_TOKENS, system=system, messages=[{"role": "user", "content": prompt}])
     out = _reply_text(m)
     if not out.strip(): raise HTTPException(502, "Empty reply from the model.")
     out = _mark_if_cut(out, m, kind="reconcile", src=nid)
@@ -2244,7 +2272,7 @@ Never import material that is not in the files. Where sources disagree, keep bot
 def draft_notes(cid: str, d: DraftIn):
     """Build a master-notes draft from selected files (or the ticked files of a week). Cheap model; escalates on size."""
     system, prompt, fs = _draft_inputs(cid, d)
-    m = client().messages.create(model=pick_model("notes", None, ""), max_tokens=DRAFT_TOKENS, system=system,
+    m = ask_model(pick_model("notes", None, ""), max_tokens=DRAFT_TOKENS, system=system,
                                  messages=[{"role": "user", "content": prompt}])
     meta = dict(kind="draft", week=d.week, diagrams="1" if d.diagrams else "0",
                 files=",".join(f["id"] for f in fs))  # the files actually used, so Continue reads the same material if ticks change
@@ -2301,7 +2329,7 @@ def _continue_once(partial: str, system: str, prompt: str, model: str, cap: int,
            "Your reply is appended to the answer with nothing added in between, so begin with the exact next characters: the rest of the word if it stops "
            "mid-word, a space if a new word follows, a line break if a new line follows.\n\n"
            "ANSWER SO FAR:\n" + partial[-12000:])
-    m = client().messages.create(model=model, max_tokens=cap, system=system, messages=[{"role": "user", "content": ask}])
+    m = ask_model(model, max_tokens=cap, system=system, messages=[{"role": "user", "content": ask}])
     raw = _text(m)
     if not raw.strip(): raise HTTPException(502, "Empty reply from the model.")
     rest = raw if getattr(m, "stop_reason", "") == "max_tokens" else raw.rstrip()  # leading space or line break is the join itself
@@ -2344,7 +2372,7 @@ def auto_plan(cid: str, p: PlanIn):
               "Rules: respect the course calendar in the files (lecture days get a 30-min pre-read the day before and a 45-min reconcile the day after); "
               "spread recall (cards due) into short 15–20 min slots; never exceed minutes_per_day; do not duplicate already_planned; "
               "prefer material whose week matches the current point in the course; make topics concrete enough to act on.")
-    m = client().messages.create(model=pick_model("summarise", None, ""), max_tokens=2000, system=system,
+    m = ask_model(pick_model("summarise", None, ""), max_tokens=2000, system=system,
                                  messages=[{"role": "user", "content": f"COURSE PLANNING FILES:\n{ctx}\n\nSTATE:\n{json.dumps(state)}"}])
     text = "".join(b.text for b in m.content if getattr(b, "type", "") == "text").strip()
     text = text[text.find("["): text.rfind("]") + 1]

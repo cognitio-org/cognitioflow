@@ -437,7 +437,7 @@ async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_
   try{ const r=await fetch(`/api/courses/${cid}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:q,mode,model:$('#modelSel').value,speech:speakOn})});
     const rd=r.body.getReader(); const td=new TextDecoder(); let buf='';
     while(true){const {value,done}=await rd.read(); if(done) break; buf+=td.decode(value,{stream:true}); const lines=buf.split('\n\n'); buf=lines.pop();
-      for(const l of lines){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; const j=JSON.parse(p); if(j.model){d.dataset.model=j.model; continue} if(j.reading){d.dataset.reading=JSON.stringify(j.reading); showReading(j.reading); continue} if(j.usage){d.dataset.usage=JSON.stringify(j.usage); sessionCost+=j.usage.cost; localStorage.setItem('cf.cost',sessionCost); showCost(); continue} if(j.error){d.textContent+='\n[error] '+j.error; d.style.borderLeftColor='var(--warn)'} else d.textContent+=j.t; $('#chat').scrollTop=$('#chat').scrollHeight; } }
+      for(const l of lines){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; const j=JSON.parse(p); if(j.model){d.dataset.model=j.model; continue} if(j.reading){d.dataset.reading=JSON.stringify(j.reading); showReading(j.reading); continue} if(j.usage){d.dataset.usage=JSON.stringify(j.usage); sessionCost+=(j.usage.cost||0); localStorage.setItem('cf.cost',sessionCost); showCost(); continue} if(j.error){d.textContent+='\n[error] '+j.error; d.style.borderLeftColor='var(--warn)'} else d.textContent+=j.t; $('#chat').scrollTop=$('#chat').scrollHeight; } }
   }catch(e){d.textContent+='\n[error] '+e.message}
   let raw=d.textContent; const sm=raw.match(/<speech>([\s\S]*?)<\/speech>\s*$/); if(sm){ d.dataset.speech=sm[1].trim(); raw=raw.replace(sm[0],'').trim() } await render(d,raw);
   lastSpeech=d.dataset.speech||raw.replace(/```[\s\S]*?```/g,' (see the diagram on screen) ');
@@ -448,7 +448,7 @@ async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_
     act.appendChild(sv); d.appendChild(act);
     if(mode==='notes'){ sv.click(); toast('Saved to Notes — open the Notes tab to edit'); }
   }
-  if(d.dataset.model){ const u=d.dataset.usage?JSON.parse(d.dataset.usage):null; d.title='answered by '+d.dataset.model.replace('claude-','')+(u?` · $${u.cost.toFixed(4)} · ${(u.cache_read/1000).toFixed(1)}k cached, ${(u.in/1000).toFixed(1)}k new, ${u.out} out`:'') }
+  if(d.dataset.model){ const u=d.dataset.usage?JSON.parse(d.dataset.usage):null; d.title='answered by '+d.dataset.model.replace('claude-','')+(u?` · ${u.cost==null?'cost unknown':'$'+u.cost.toFixed(4)} · ${(u.cache_read/1000).toFixed(1)}k cached, ${(u.in/1000).toFixed(1)}k new, ${u.out} out`:'') }
   speak(lastSpeech); $('#send').disabled=false; $('#q').focus(); routeGuess(); }
 $('#send').onclick=send; $('#q').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
 $('#clearChat').onclick=async()=>{if(confirm('Clear this course\'s conversation?')){await del(`/courses/${cid}/messages`);loadTutor()}};

@@ -1385,3 +1385,66 @@ def test_banking_essays_cannot_read_a_file_from_another_course(client, fake):
 
     assert r.status_code == 404, f"a file from another course must not be readable here, got {r.status_code}"
     assert not fc.calls, "and nothing may reach the model"
+
+
+class StreamingFakeClient:
+    """A fake that can be streamed from, which FakeClient cannot.
+
+    The tutor route is the only streaming model call in the app and nothing exercised it, which
+    is part of why the usage event could be missing for as long as it was.
+    """
+    def __init__(self, chunks, usage):
+        self.chunks, self.usage, self.messages, self.calls = list(chunks), usage, self, []
+
+    def stream(self, **kw):
+        self.calls.append(kw)
+        client = self
+
+        class Ctx:
+            text_stream = iter(client.chunks)
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def get_final_message(self):
+                return types.SimpleNamespace(usage=client.usage, model="claude-sonnet-4-6")
+        return Ctx()
+
+
+def _sse_events(raw: str):
+    """The JSON payloads out of an SSE body, [DONE] dropped."""
+    out = []
+    for line in raw.splitlines():
+        if not line.startswith("data: "):
+            continue
+        payload = line[6:]
+        if payload == "[DONE]":
+            continue
+        out.append(json.loads(payload))
+    return out
+
+
+def test_the_tutor_stream_reports_what_the_answer_cost(client, monkeypatch):
+    """app.js keeps a running session cost from a `usage` event on this stream.
+
+    It has parsed one since the feature was written (app.js:440, and the tooltip at :451), and
+    the stream only ever sent model, reading, t, error and [DONE]. The total on screen was
+    therefore always zero. This fails on any build that does not emit the event.
+    """
+    import run
+    cid = _cid(client)
+    usage = types.SimpleNamespace(input_tokens=1200, output_tokens=340,
+                                  cache_read_input_tokens=800, cache_creation_input_tokens=0)
+    fake = StreamingFakeClient(["Article ", "34 TFEU."], usage)
+    monkeypatch.setattr(run, "client", lambda: fake)
+
+    body = client.post(f"/api/courses/{cid}/chat", json={"message": "Which article?", "mode": "drill"}).text
+    events = _sse_events(body)
+
+    assert "".join(e["t"] for e in events if "t" in e) == "Article 34 TFEU."
+    reported = [e["usage"] for e in events if "usage" in e]
+    assert reported, "the stream sent no usage event — app.js's session cost can only ever be zero"
+    u = reported[0]
+    assert (u["in"], u["out"], u["cache_read"]) == (1200, 340, 800)
+    assert u["task"] == "drill" and u["model"] == "claude-sonnet-4-6"
+    # a real id, so llm.PRICES can price it: a fake one returns cost None, which is
+    # correct - llm.py will not put a figure on screen that does not match the bill.
+    assert isinstance(u["cost"], float) and u["cost"] > 0, "a cost the UI can add up"
