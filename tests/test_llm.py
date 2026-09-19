@@ -148,16 +148,40 @@ def test_unknown_model_has_no_cost_rather_than_a_guess():
     assert llm.usage(m, "quiz")["cost"] is None
 
 
-def test_openrouter_claude_id_is_still_priced_when_the_response_omits_cost():
+def test_openrouter_without_a_cost_reports_unknown_not_the_local_table():
+    """This test previously asserted the opposite, and the assertion was wrong.
+
+    On openrouter the billed figure comes from the response. Falling back to PRICES would show a
+    number that does not match the bill — a guess, which this seam promises not to make.
+    augmentcode[bot] caught it on PR #76.
+    """
     llm = load("openrouter")
     m = FakeMessage("anthropic/claude-sonnet-5", FakeUsage(input_tokens=1000, output_tokens=0))
-    assert llm.usage(m, "drill")["cost"] == pytest.approx(1000 * 2.0 / 1e6)
+    assert llm.usage(m, "drill")["cost"] is None
 
 
 def test_missing_usage_fields_count_as_zero():
     llm = load()
     u = llm.usage(FakeMessage("claude-sonnet-5", FakeUsage()), "plan")
     assert (u["in"], u["out"], u["cache_read"], u["cache_write"]) == (0, 0, 0, 0)
+
+
+# ---- a tier may never be a router ----------------------------------------------------------
+# resolve() and catalogue() already refused router ids, but a tier read from the environment
+# reached neither, so CF_CHEAP_MODEL=openrouter/auto was handed out unchecked.
+
+@pytest.mark.parametrize("var,tier", [
+    ("CF_CHEAP_MODEL", "cheap"), ("CF_MODEL", "main"), ("CF_STRONG_MODEL", "strong"),
+])
+def test_router_id_refused_in_every_tier(var, tier):
+    llm = load("openrouter", **{var: "openrouter/auto"})
+    with pytest.raises(llm.ConfigError):
+        llm.default_model(tier)
+
+
+def test_a_concrete_tier_is_still_accepted():
+    llm = load("openrouter", CF_CHEAP_MODEL="google/gemini-3.8-flash")
+    assert llm.default_model("cheap") == "google/gemini-3.8-flash"
 
 
 # ---- client -------------------------------------------------------------------------------

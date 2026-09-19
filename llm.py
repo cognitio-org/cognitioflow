@@ -104,12 +104,25 @@ def label(model_id: str) -> str:
     return str(model_id or "").split("/")[-1].replace("claude-", "")
 
 
+def _tier(value: str, where: str) -> str:
+    """A tier may never be a router id. resolve() and catalogue() already refuse them, but a tier
+    read straight from the environment reached neither, so CF_CHEAP_MODEL=openrouter/auto would have
+    been handed out unchecked — and openrouter/auto can select Fable, which CLAUDE.md forbids
+    auto-routing to. Found by augmentcode[bot] on PR #76."""
+    if is_router(value):
+        raise ConfigError(f"{where}={value} is a router id: it can select any model, including Fable. "
+                          "Name a concrete model; the app's ROUTE table is the router.")
+    return value
+
+
 def default_model(tier: str = "main") -> str:
     p = _provider()
     if tier == "cheap":
-        return os.environ.get("CF_CHEAP_MODEL") or DEFAULT_CHEAP[p]
-    main = os.environ.get("CF_MODEL") or DEFAULT_MAIN
-    return os.environ.get("CF_STRONG_MODEL") or main if tier == "strong" else main
+        return _tier(os.environ.get("CF_CHEAP_MODEL") or DEFAULT_CHEAP[p], "CF_CHEAP_MODEL")
+    main = _tier(os.environ.get("CF_MODEL") or DEFAULT_MAIN, "CF_MODEL")
+    if tier == "strong":
+        return _tier(os.environ.get("CF_STRONG_MODEL") or main, "CF_STRONG_MODEL")
+    return main
 
 
 def client():
@@ -184,7 +197,10 @@ def usage(m, task: str) -> dict:
     model_id = getattr(m, "model", "") or ""
     cost = getattr(u, "cost", None)
     if not isinstance(cost, (int, float)):
-        cost = _cost(model_id, tokens)
+        # On openrouter the billed figure comes from the response. When it is absent, the local
+        # table is not what was charged, so reporting it would put a number on screen that does not
+        # match the bill — exactly the guess this seam promises not to make. Say unknown instead.
+        cost = None if _provider() == "openrouter" else _cost(model_id, tokens)
     return {"provider": _provider(), "model": model_id, "task": task, "cost": cost, **tokens}
 
 
