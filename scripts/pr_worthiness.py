@@ -475,7 +475,16 @@ def main():
     ap.add_argument("--no-model", action="store_true", help="rules only, even if ANTHROPIC_API_KEY is set")
     a = ap.parse_args()
     if a.pr:
-        assess_pr(a.repo, a.pr, a.tests, not a.no_model, a.post, a.approve)
+        # Exit 1 on Hold so the `worthiness` check actually fails. Until 2026-09-19 main() always
+        # returned 0, so the job was green whatever the verdict: requiring it as a status check
+        # gated nothing, and a Hold was only ever a comment. Matej keeps an admin bypass, which is
+        # also what lets a PR that changes this checker — always a Hold by design — be merged.
+        a2 = assess_pr(a.repo, a.pr, a.tests, not a.no_model, a.post, a.approve)
+        if a2 is None:          # superseded by a newer commit; that run owns the verdict
+            return 0
+        if a2.verdict != "approve":
+            print(f"::error::worthiness held #{a.pr}: {a2.explanation}")
+            return 1
         return 0
     prs = json.loads(gh("pr", "list", "--repo", a.repo, "--state", "open", "--limit", "50", "--json", "number,isDraft,headRefOid"))
     tests = {p["number"]: tests_from_checks(a.repo, p["number"]) for p in prs}
