@@ -356,7 +356,8 @@ def delete_course(cid: str, force: int = 0):
 # files
 @app.get("/api/courses/{cid}/files")
 def files(cid: str):
-    return rows("SELECT id,name,kind,chars,selected,status,week,created FROM files WHERE course_id=? ORDER BY created DESC", cid)
+    return rows("SELECT id,name,COALESCE(label,'') AS label,COALESCE(role,'') AS role,kind,chars,selected,status,week,created "
+                "FROM files WHERE course_id=? ORDER BY created DESC", cid)
 
 @app.post("/api/courses/{cid}/files")
 async def upload(cid: str, file: UploadFile = File(...), week: str = Form("")):
@@ -367,8 +368,10 @@ async def upload(cid: str, file: UploadFile = File(...), week: str = Form("")):
     storage.put(key, data, file.content_type or mimetypes.guess_type(file.filename)[0] or "application/octet-stream")
     status = "image" if kind == "image" else ("indexed" if text.strip() and not text.startswith("[extraction failed") else "no text")
     with db() as d:
-        d.execute("INSERT INTO files VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                  (fid, cid, file.filename, kind, key, text, len(text), 1, status, week, time.time()))
+        d.execute("INSERT INTO files(id,course_id,name,kind,key,text,chars,selected,status,week,created,label,role) "
+                  "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (fid, cid, file.filename, kind, key, text, len(text), 1, status, week, time.time(),
+                   clean_label(file.filename), role_by_name(file.filename)))
     reindex(cid, "file", fid, file.filename, kind, week, text)
     return {"id": fid, "status": status, "chars": len(text)}
 
@@ -387,6 +390,104 @@ def toggle_to(fid: str, t: ToggleToIn):
     return {"ok": True, "selected": 1 if t.on else 0}
 
 _WEEK_IN_NAME = re.compile(r"(?i)(?:^|[^a-z0-9])(?:w|wk|week|lecture|lec)[\s._-]*0?(\d{1,2})(?!\d)")
+
+ROLES = {"wg": "WG notes", "lecture": "Lecture", "slides": "Slides", "reader": "Reader",
+         "cases": "Case law", "assignment": "Assignment", "admin": "Course info", "note": "Note"}
+
+_ROLE_BY_NAME = [                       # cheap, certain, and free — the model only sees what is left
+    ("wg",         re.compile(r"(?i)\b(wg|working group)\b")),
+    ("cases",      re.compile(r"(?i)\b(case ?law|case ?reader|judgments?)\b")),
+    ("slides",     re.compile(r"(?i)\b(slides?|powerpoint|deck)\b|\.pptx$")),
+    ("assignment", re.compile(r"(?i)\b(assignment|exercise|problem set|practice exam|mock)\b")),
+    ("admin",      re.compile(r"(?i)\b(course (info|planning|overview)|syllabus|exam info|assessment|schedule)\b|^00[\s_-]")),
+    ("reader",     re.compile(r"(?i)\b(sch(u|ü)tze|reader|textbook|chapter|rs[\s_-]?\d)\b")),
+    ("lecture",    re.compile(r"(?i)\b(lecture|lec|hoorcollege|transcript|recording|av )\b")),
+    ("note",       re.compile(r"(?i)^note:|\b(summary|super summary|revision|rev \d|my notes)\b")),
+]
+
+def role_by_name(name: str) -> str:
+    probe = re.sub(r"[_]+", " ", name or "")   # an underscore is a word character, so "W2_WG" hid the \bwg\b it contains
+    for role, rx in _ROLE_BY_NAME:
+        if rx.search(probe): return role
+    return ""
+
+def clean_label(name: str) -> str:
+    """A readable title from an upload filename: no extension, no underscores, no doubled spaces."""
+    stem = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", name or "").replace("_", " ").replace("-", " ")
+    stem = re.sub(r"(?i)^(note:)\s*", "", stem)
+    stem = re.sub(r"\s{2,}", " ", stem).strip(" .")
+    return stem[:120]
+
+class FileMetaIn(BaseModel):
+    label: Optional[str] = None
+    role: Optional[str] = None
+    week: Optional[str] = None
+
+@app.post("/api/files/{fid}/meta")
+def file_meta(fid: str, m: FileMetaIn):
+    """Rename a file on screen, change what kind of material it is, or correct its week.
+    The upload name and the stored object are untouched — cards point at the filename."""
+    f = rows("SELECT id,course_id,name FROM files WHERE id=?", fid)
+    if not f: raise HTTPException(404)
+    sets, args = [], []
+    if m.label is not None: sets.append("label=?"); args.append(m.label.strip()[:120])
+    if m.role is not None:
+        role = m.role.strip().lower()
+        if role and role not in ROLES: raise HTTPException(400, f"role must be one of {', '.join(ROLES)}")
+        sets.append("role=?"); args.append(role)
+    if m.week is not None:
+        wk = m.week.strip()
+        if wk and not (wk.isdigit() and 1 <= int(wk) <= 20): raise HTTPException(400, "week must be 1-20, or empty")
+        wk = str(int(wk)) if wk else ""
+        sets.append("week=?"); args.append(wk)
+    if not sets: return {"ok": True}
+    with db() as d:
+        d.execute(f"UPDATE files SET {', '.join(sets)} WHERE id=?", (*args, fid))
+        if m.week is not None:                                   # cards made from it follow the file
+            d.execute("UPDATE cards SET week=? WHERE course_id=? AND source=?", (args[-1], f[0]["course_id"], f[0]["name"]))
+    return {"ok": True}
+
+@app.post("/api/courses/{cid}/relabel")
+def relabel(cid: str):
+    """Give every file a readable title and say what kind of material it is. Filenames answer most of
+    it for free; one cheap-model call handles the rest. Nothing already labelled by hand is touched."""
+    files_ = rows("SELECT id,name,kind,text,COALESCE(label,'') AS label,COALESCE(role,'') AS role FROM files WHERE course_id=?", cid)
+    by_name, rest = {}, []
+    for f in files_:
+        if f["role"] and f["label"]: continue
+        role = f["role"] or role_by_name(f["name"])
+        if role: by_name[f["id"]] = (f["label"] or clean_label(f["name"]), role)
+        elif f["kind"] != "image" and (f["text"] or "").strip(): rest.append(f)
+        else: by_name[f["id"]] = (f["label"] or clean_label(f["name"]), "")
+    def save(got):
+        with db() as d:
+            for fid, (label, role) in got.items():
+                d.execute("UPDATE files SET label=?, role=? WHERE id=?", (label[:120], role, fid))
+    save(by_name)
+    by_model, warning = {}, ""
+    if rest:
+        batch = rest[:25]; ids = {f["id"] for f in batch}
+        docs = "\n\n".join(f'<file id="{f["id"]}" name="{f["name"]}">\n{(f["text"] or "")[:1500]}\n</file>' for f in batch)
+        prompt = ("For each course file, give a short readable title and say what kind of material it is.\n"
+                  f"Kinds: {', '.join(ROLES)}. Use 'note' for the student's own notes, 'reader' for textbook or reader extracts, "
+                  "'admin' for course information, planning, schedules and exam rules.\n"
+                  "The title is what a student would call it on a shelf: three to nine words, no file extension, no ALL CAPS, "
+                  "keep a week or lecture number when the file has one. Never invent a topic the file does not cover.\n"
+                  'Return ONLY JSON mapping file id to an object, e.g. {"abc": {"title": "Week 2 lecture: free movement of goods", "kind": "lecture"}}.\n\n'
+                  f"FILES:\n{docs}")
+        try:
+            got = _model_json(ask_model(CHEAP_MODEL, max_tokens=1500, messages=[{"role": "user", "content": prompt}]))
+        except Exception as e:
+            got, warning = {}, (e.detail if isinstance(e, HTTPException) else "The model step failed") + " — files named clearly were still labelled."
+        for fid, v in (got.items() if isinstance(got, dict) else []):
+            if fid not in ids or not isinstance(v, dict): continue
+            title = str(v.get("title", "")).strip() or clean_label(next(f["name"] for f in batch if f["id"] == fid))
+            role = str(v.get("kind", "")).strip().lower()
+            by_model[fid] = (title, role if role in ROLES else "")
+        save(by_model)
+    out = {"labelled": len(by_name) + len(by_model), "by_name": len(by_name), "by_model": len(by_model)}
+    if warning: out["warning"] = warning
+    return out
 
 @app.post("/api/courses/{cid}/infer-weeks")
 def infer_weeks(cid: str):

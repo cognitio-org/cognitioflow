@@ -188,22 +188,52 @@ async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle'
 /* files */
 async function loadFiles(){
   const fs=await api(`/courses/${cid}/files`);
+  const syl=(C()&&C().brief&&C().brief.syllabus&&C().brief.syllabus.weeks)||[];
+  sylTitles={}; syl.forEach(w=>{ if(w&&w.week) sylTitles[String(w.week)]=w.title||'' });
   sylFill(fs);
   if(!fs.length){ $('#fileRows').innerHTML='<tr><td colspan="7"><div class="emptystate"><b>No files yet</b><span>Drop the Week 2 slides and a transcript in to start.</span><button class="btn small" type="button" onclick="document.getElementById(\'fileInput\').click()">Choose files</button></div></td></tr>'; }
   else {
     const groups={}; fs.forEach(f=>{ const k=f.week?('Week '+f.week):'Unsorted'; (groups[k]=groups[k]||[]).push(f) });
     const order=Object.keys(groups).sort((a,b)=>{ if(a==='Unsorted')return 1; if(b==='Unsorted')return -1; return (+a.slice(5))-(+b.slice(5)) });
-    const row=f=>`<tr><td><label class="tick"><input type="checkbox" ${f.selected?'checked':''} data-toggle="${f.id}" aria-label="Include in tutor context"></label></td><td>${esc(f.name)}</td><td>${f.kind}</td><td>${esc(f.week)||'<span class=muted>—</span>'}</td><td class="small muted">${f.chars?Math.round(f.chars/1000)+'k':'–'}</td><td><span class="tag ${f.status==='indexed'?'ok':(f.status==='no text'?'warn':'')}">${f.status}</span></td><td><button class="btn small ghost" data-view="${f.id}" ${f.kind==='image'?'disabled':''}>Text</button> <button class="btn small ghost" data-del="${f.id}">Remove</button></td></tr>`;
+    const row=f=>`<tr><td><label class="tick"><input type="checkbox" ${f.selected?'checked':''} data-toggle="${f.id}" aria-label="Include in tutor context"></label></td>`+
+      `<td><span class="fname" data-rename="${f.id}" title="Click to rename — the upload keeps its own filename">${esc(f.label||f.name)}</span>`+
+      `${f.label&&f.label!==f.name?`<span class="small muted fileorig">${esc(f.name)}</span>`:''}</td>`+
+      `<td>${f.role?`<span class="rolechip r-${f.role}">${ROLE_NAMES[f.role]||f.role}</span>`:`<span class="muted small">${f.kind}</span>`}</td>`+
+      `<td><span class="wkedit" data-week="${f.id}" title="Click to change the week">${esc(f.week)||'<span class=muted>—</span>'}</span></td>`+
+      `<td class="small muted">${f.chars?Math.round(f.chars/1000)+'k':'–'}</td>`+
+      `<td><span class="tag ${f.status==='indexed'?'ok':(f.status==='no text'?'warn':'')}">${f.status}</span></td>`+
+      `<td><button class="btn small ghost" data-view="${f.id}" ${f.kind==='image'?'disabled':''}>Text</button> <button class="btn small ghost" data-del="${f.id}">Remove</button></td></tr>`;
     $('#fileRows').innerHTML=order.map(k=>{ const g=groups[k]; const on=g.filter(f=>f.selected).length; const ids=g.map(f=>f.id).join(',');
-      return `<tr class="grouphead"><td><input type="checkbox" data-group="${ids}" ${on===g.length?'checked':''} ${on&&on<g.length?'data-some="1"':''} aria-label="Tick all in ${k}"></td><td colspan="6"><b>${k}</b> <span class="small muted">· ${g.length} file${g.length>1?'s':''}, ${on} on</span></td></tr>` + g.map(row).join(''); }).join('');
+      const wk=k.startsWith('Week ')?k.slice(5):''; const title=(sylTitles[wk]||'');
+      return `<tr class="grouphead"><td><input type="checkbox" data-group="${ids}" ${on===g.length?'checked':''} ${on&&on<g.length?'data-some="1"':''} aria-label="Tick all in ${k}"></td><td colspan="6"><b>${k}</b>${title?` <span class="wktitle">${esc(title)}</span>`:''} <span class="small muted">· ${g.length} file${g.length>1?'s':''}, ${on} on</span></td></tr>` + g.map(row).join(''); }).join('');
     document.querySelectorAll('[data-some="1"]').forEach(c=>c.indeterminate=true);
     document.querySelectorAll('[data-group]').forEach(b=>b.onchange=async()=>{ const ids=b.dataset.group.split(','); await Promise.all(ids.map(id=>post(`/files/${id}/toggle-to`,{on:b.checked}))); loadFiles(); });
   }
   document.querySelectorAll('[data-toggle]').forEach(b=>b.onchange=async()=>{await post(`/files/${b.dataset.toggle}/toggle`);loadFiles()});
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{if(confirm('Remove this file?')){await del(`/files/${b.dataset.del}`);loadFiles()}});
   document.querySelectorAll('[data-view]').forEach(b=>b.onclick=async()=>{const t=await api(`/files/${b.dataset.view}/text`);const w=window.open('','_blank');w.document.write(`<pre style="white-space:pre-wrap;font:14px/1.5 Georgia,serif;max-width:80ch;margin:2rem auto">${esc(t.text)}</pre>`);w.document.title=t.name});
+  document.querySelectorAll('[data-rename]').forEach(el=>el.onclick=async()=>{
+    const now=el.textContent.trim(); const next=prompt('What should this file be called?', now);
+    if(next===null||next.trim()===now) return;
+    await post(`/files/${el.dataset.rename}/meta`,{label:next.trim()}); loadFiles(); });
+  document.querySelectorAll('[data-week]').forEach(el=>el.onclick=async()=>{
+    const now=el.textContent.trim().replace('—',''); const next=prompt('Which week does this file belong to? (1-20, or blank for unsorted)', now);
+    if(next===null) return;
+    try{ await post(`/files/${el.dataset.week}/meta`,{week:next.trim()}); }catch(e){ toast(e.message); return }
+    loadFiles(); });
 }
+
+const ROLE_NAMES={wg:'WG notes',lecture:'Lecture',slides:'Slides',reader:'Reader',cases:'Case law',assignment:'Assignment',admin:'Course info',note:'Note'};
+let sylTitles={};       // week number -> the title the syllabus gives it
+$('#relabelBtn')&&($('#relabelBtn').onclick=async()=>{ const b=$('#relabelBtn'); b.disabled=true; toast('Labelling…');
+  try{ const r=await post(`/courses/${cid}/relabel`,{}); toast(r.warning||`${r.labelled} file(s) labelled`); loadFiles(); }
+  catch(e){ toast('Labelling failed: '+e.message) } b.disabled=false; });
+
 async function upload(files){ for(const f of files){ const fd=new FormData(); fd.append('file',f); fd.append('week',$('#week').value); toast('Indexing '+f.name+'…'); try{ const r=await api(`/courses/${cid}/files`,{method:'POST',body:fd}); toast(`${f.name}: ${r.status}${r.chars?' · '+Math.round(r.chars/1000)+'k chars':''}`);}catch(e){toast('Failed: '+e.message)} } loadFiles(); }
+(function(){ if($('#relabelBtn')||!$('#inferBtn')) return;      // sits beside Detect weeks
+  const b=document.createElement('button'); b.className='btn small ghost'; b.id='relabelBtn'; b.type='button';
+  b.title='Give every file a readable title and say what kind of material it is'; b.textContent='Label files';
+  $('#inferBtn').after(document.createTextNode(' '), b); })();
 $('#inferBtn').onclick=async()=>{const b=$('#inferBtn');b.disabled=true;b.textContent='Detecting…';try{const r=await post(`/courses/${cid}/infer-weeks`);toast(r.tagged?`Sorted ${r.tagged} file(s) into weeks`:'Nothing to sort — all files already have a week');loadFiles()}catch(e){toast('Failed: '+e.message)}b.disabled=false;b.textContent='Detect weeks'};
 /* syllabus in, weeks and topics out. The panel holds a proposal; only Apply writes anything. */
 /* The proposal belongs to the course it was read from. cid can change under it — the course

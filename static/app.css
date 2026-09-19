@@ -21,3 +21,14 @@
 #toast[data-tone="busy"]::before{animation:busypulse 1.4s ease-in-out infinite}
 @keyframes busypulse{0%,100%{opacity:.35}50%{opacity:1}}
 @media(prefers-reduced-motion:reduce){#toast[data-tone="busy"]::before{animation:none}}
+
+/* Files: a readable title, what kind of material it is, and a week you can correct. */
+.fname{cursor:text;border-bottom:1px dashed transparent} .fname:hover{border-bottom-color:var(--rule-strong)}
+.fileorig{display:block;font-size:.72rem;opacity:.7}
+.wkedit{cursor:pointer;border-bottom:1px dashed transparent} .wkedit:hover{border-bottom-color:var(--rule-strong)}
+.wktitle{font-family:var(--serif);color:var(--graphite)}
+.rolechip{font-size:.7rem;letter-spacing:.02em;padding:.08rem .45rem;border-radius:999px;border:1px solid var(--rule);white-space:nowrap}
+.rolechip.r-wg{border-color:var(--accent);color:var(--accent)}
+.rolechip.r-lecture,.rolechip.r-slides{color:var(--ink)}
+.rolechip.r-reader,.rolechip.r-cases{color:var(--graphite)}
+.rolechip.r-admin,.rolechip.r-assignment,.rolechip.r-note{color:var(--graphite);opacity:.9}

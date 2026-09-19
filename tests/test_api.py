@@ -66,6 +66,29 @@ def test_list_files_by_week(client: TestClient):
     assert len(wk1) == 2
 
 
+def test_file_label_role_and_week_edit(client: TestClient):
+    """An upload arrives titled and typed, and every part of that is correctable by hand."""
+    cid = _course_id(client)
+    import io
+    r = client.post(
+        f"/api/courses/{cid}/files",
+        files={"file": ("W2_WG complete notes.pdf", io.BytesIO(b"Dassonville and Keck."), "text/plain")},
+        data={"week": ""},
+    )
+    fid = r.json()["id"]
+    f = next(x for x in client.get(f"/api/courses/{cid}/files").json() if x["id"] == fid)
+    assert f["label"] == "W2 WG complete notes"      # readable: no extension, no underscores
+    assert f["role"] == "wg"                         # the tutor's top authority, recognised from the name
+
+    assert client.post(f"/api/files/{fid}/meta", json={"label": "Week 2 working group", "week": "2"}).status_code == 200
+    f = next(x for x in client.get(f"/api/courses/{cid}/files").json() if x["id"] == fid)
+    assert (f["label"], f["week"], f["role"]) == ("Week 2 working group", "2", "wg")
+
+    assert client.post(f"/api/files/{fid}/meta", json={"week": "99"}).status_code == 400
+    assert client.post(f"/api/files/{fid}/meta", json={"role": "nonsense"}).status_code == 400
+    assert client.post(f"/api/files/{fid}/meta", json={"week": ""}).status_code == 200   # back to unsorted is allowed
+
+
 # ---------------------------------------------------------------- cards / SM-2
 
 def test_create_card(client: TestClient):
