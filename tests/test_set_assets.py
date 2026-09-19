@@ -86,3 +86,45 @@ def test_every_camera_anchor_is_aimed(path):
             f"{path.name}: {node['name']} points {math.degrees(math.asin(max(-1, min(1, up)))):.0f} "
             "degrees off horizontal - the empty was never rotated to face its subject."
         )
+
+def embedded_pngs(j, raw):
+    """(name, width, height, compressed_bytes) for each image in the .glb.
+
+    IHDR is at a fixed offset in every PNG, so the dimensions come out without Pillow - which
+    is not a dependency of this project and must not become one for a test.
+    """
+    jlen = struct.unpack("<I", raw[12:16])[0]
+    off = 20 + jlen
+    blen = struct.unpack("<II", raw[off:off + 8])[0]
+    binary = raw[off + 8: off + 8 + blen]
+    out = []
+    for image in j.get("images", []):
+        view = j["bufferViews"][image["bufferView"]]
+        start = view.get("byteOffset", 0)
+        data = binary[start:start + view["byteLength"]]
+        if data[:8] != b"\x89PNG\r\n\x1a\n":
+            continue
+        w, h = struct.unpack(">II", data[16:24])
+        out.append((image.get("name", "?"), w, h, len(data)))
+    return out
+
+
+@pytest.mark.parametrize("path", set_files(), ids=lambda p: p.stem)
+def test_no_texture_is_blank(path):
+    """A flat texture is the same bug as no texture, and it is silent.
+
+    The courtroom's five textures shipped once as pure black: they were Blender GENERATED
+    images, whose pixels do not survive a file reload unless the pack succeeds, and it did not.
+    The .glb was valid, the material pointed at a real texture, and the room rendered black.
+
+    PNG compresses a featureless image to almost nothing, so bytes-per-pixel separates the two
+    cases by more than an order of magnitude - the real textures run about 0.3, an all-black
+    one about 0.006. The floor is set well below anything with genuine detail in it.
+    """
+    raw = Path(path).read_bytes()
+    for name, w, h, size in embedded_pngs(gltf(path), raw):
+        density = size / (w * h)
+        assert density > 0.02, (
+            f"{path.name}: texture {name!r} is {size} bytes for {w}x{h} "
+            f"({density:.4f} bytes/pixel) - that is a flat image, not a texture."
+        )
