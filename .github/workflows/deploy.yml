@@ -109,10 +109,25 @@ jobs:
       - name: Does this change reach the database?
         id: scope
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
+          # pull_request gives base/head directly; push gives the previous head of the branch.
+          # Until 2026-09-19 only the pull_request pair was read, so BASE was empty on every
+          # push and the job fell straight through to db=true. The measured cost of that: the
+          # same commit took 2 minutes as a PR and 26-37 minutes on main, and the deploy is
+          # gated behind the main run. #82 was five PNGs and #83 a .glb, and each waited half
+          # an hour to reach users for a suite `fast` had already proved.
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          if [ -z "$BASE" ]; then echo "db=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          # A first push to a branch, or a force push, reports an all-zero before-sha. That is
+          # not a range we can diff, so fall open and run everything.
+          case "$BASE" in
+            ""|0000000000000000000000000000000000000000)
+              echo "::notice::no usable base sha; running in full"
+              echo "db=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+          git cat-file -e "$BASE^{commit}" 2>/dev/null || {
+            echo "::notice::base sha $BASE is not in this checkout; running in full"
+            echo "db=true" >> "$GITHUB_OUTPUT"; exit 0; }
           changed=$(git diff --name-only "$BASE" "$HEAD") || { echo "::notice::diff failed; running in full"; echo "db=true" >> "$GITHUB_OUTPUT"; exit 0; }
           printf '%s\n' "$changed" | sed 's/^/  /'
           if printf '%s\n' "$changed" | grep -qE '^(migrations/|run\.py|storage\.py|retrieval\.py|embed\.py|schedule\.py|oral\.py|essay\.py|course_brief\.py|tts\.py|migrate.*\.py|requirements\.txt|Dockerfile|\.github/workflows/)'; then
