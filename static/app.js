@@ -89,7 +89,7 @@ document.addEventListener('click',e=>{const a=e.target.closest('a[data-nav]'); i
 
 /* courses */
 async function loadCourses(){ courses=await api('/courses'); if(!courses.find(c=>c.id===cid)) cid=courses[0].id; const s=$('#course'); s.innerHTML=courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')+'<option value="__new">New course…</option>'; s.value=cid; document.documentElement.style.setProperty('--course',C().accent); }
-$('#course').addEventListener('change',e=>{if(e.target.value==='__new'){e.target.value=cid;openCourseDlg(null);return} cid=e.target.value;localStorage.setItem('cf.course',cid);document.documentElement.style.setProperty('--course',C().accent);show(localStorage.getItem('cf.screen')||'home')});
+$('#course').addEventListener('change',e=>{if(e.target.value==='__new'){e.target.value=cid;openCourseDlg(null);return} cid=e.target.value;sylForget();localStorage.setItem('cf.course',cid);document.documentElement.style.setProperty('--course',C().accent);show(localStorage.getItem('cf.screen')||'home')});
 $('#addCourse').addEventListener('click',()=>openCourseDlg(null));
 
 /* course dialog: "New course" in the switcher, "Course settings" on Overview */
@@ -183,6 +183,7 @@ async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle'
 /* files */
 async function loadFiles(){
   const fs=await api(`/courses/${cid}/files`);
+  sylFill(fs);
   if(!fs.length){ $('#fileRows').innerHTML='<tr><td colspan="7"><div class="emptystate"><b>No files yet</b><span>Drop the Week 2 slides and a transcript in to start.</span><button class="btn small" type="button" onclick="document.getElementById(\'fileInput\').click()">Choose files</button></div></td></tr>'; }
   else {
     const groups={}; fs.forEach(f=>{ const k=f.week?('Week '+f.week):'Unsorted'; (groups[k]=groups[k]||[]).push(f) });
@@ -199,6 +200,50 @@ async function loadFiles(){
 }
 async function upload(files){ for(const f of files){ const fd=new FormData(); fd.append('file',f); fd.append('week',$('#week').value); toast('Indexing '+f.name+'…'); try{ const r=await api(`/courses/${cid}/files`,{method:'POST',body:fd}); toast(`${f.name}: ${r.status}${r.chars?' · '+Math.round(r.chars/1000)+'k chars':''}`);}catch(e){toast('Failed: '+e.message)} } loadFiles(); }
 $('#inferBtn').onclick=async()=>{const b=$('#inferBtn');b.disabled=true;b.textContent='Detecting…';try{const r=await post(`/courses/${cid}/infer-weeks`);toast(r.tagged?`Sorted ${r.tagged} file(s) into weeks`:'Nothing to sort — all files already have a week');loadFiles()}catch(e){toast('Failed: '+e.message)}b.disabled=false;b.textContent='Detect weeks'};
+/* syllabus in, weeks and topics out. The panel holds a proposal; only Apply writes anything. */
+/* The proposal belongs to the course it was read from. cid can change under it — the course
+   switcher only reassigns cid — and applying then writes one course's schedule onto another,
+   overwriting its tutor prompt and retagging its files. Bound and checked, not assumed. */
+let sylProposal=null, sylProposalCid=null;
+function sylFill(fs){ const opts=fs.filter(f=>f.kind!=='image'&&f.chars); const sel=$('#sylFile'); const keep=sel.value;
+  sel.innerHTML=opts.length?opts.map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join(''):'<option value="">No readable file yet</option>';
+  if(opts.some(f=>f.id===keep)) sel.value=keep;
+  else { const guess=opts.find(f=>/syllab|course guide|module guide|outline|studiewijzer/i.test(f.name)); if(guess) sel.value=guess.id }
+  sel.disabled=$('#sylRead').disabled=!opts.length;
+  if(!sylProposal) sylApplied(); }
+async function sylApplied(){ try{ const s=await api(`/courses/${cid}/syllabus`);
+    $('#sylState').textContent=s.weeks.length?`${s.weeks.length} week${s.weeks.length>1?'s':''} applied${s.source?' from '+s.source:''}`:''; }
+  catch(e){ $('#sylState').textContent='' } }
+function sylRender(p){ sylProposal=p; sylProposalCid=cid;
+  $('#sylNote').textContent=p.note||'';
+  $('#sylHint').textContent=p.weeks.length?'Untick a week to leave it out. Nothing is saved until you apply this.':'Nothing to apply.';
+  $('#sylApply').disabled=!p.weeks.length;
+  $('#sylWeeks').innerHTML=p.weeks.length?p.weeks.map((w,i)=>{
+      const d=[(w.topics||[]).length?'Topics: '+w.topics.join('; '):'',(w.readings||[]).length?'Reading: '+w.readings.join('; '):''].filter(Boolean).join(' · ');
+      return `<div class="sylwk" data-sylwk="${i}"><label class="tick"><input type="checkbox" checked data-sylpick="${i}" aria-label="Keep week ${esc(w.week)}"></label>`+
+        `<span class="n">Week ${esc(w.week)}</span><span class="t">${w.title?esc(w.title):'<span class="muted">untitled</span>'}</span>`+
+        (d?`<span class="d">${esc(d)}</span>`:'') + `</div>` }).join('')
+    :'<p class="small muted">Nothing in that document reads as a teaching schedule, so no weeks are proposed.</p>';
+  document.querySelectorAll('[data-sylpick]').forEach(b=>b.onchange=()=>{
+    document.querySelector(`[data-sylwk="${b.dataset.sylpick}"]`).classList.toggle('off',!b.checked);
+    $('#sylApply').disabled=!document.querySelectorAll('[data-sylpick]:checked').length });
+  $('#sylPanel').hidden=false; }
+$('#sylRead').onclick=async()=>{ const fid=$('#sylFile').value; if(!fid) return;
+  const b=$('#sylRead'); b.disabled=true; b.textContent='Reading…';
+  try{ sylRender(await post(`/courses/${cid}/syllabus/extract`,{file_id:fid})) }
+  catch(e){ toast('Could not read it: '+e.message) }
+  b.disabled=false; b.textContent='Read syllabus'; };
+function sylForget(){ sylProposal=null; sylProposalCid=null; const p=$('#sylPanel'); if(p) p.hidden=true; }
+$('#sylDiscard').onclick=()=>{ sylForget(); sylApplied() };
+$('#sylApply').onclick=async()=>{ if(!sylProposal) return;
+  if(sylProposalCid!==cid){ sylForget(); toast('That schedule was read from another course — read it again here.'); return }
+  const keep=[...document.querySelectorAll('[data-sylpick]:checked')].map(b=>sylProposal.weeks[+b.dataset.sylpick]);
+  const b=$('#sylApply'); b.disabled=true; b.textContent='Applying…';
+  try{ const r=await post(`/courses/${cid}/syllabus/apply`,{weeks:keep,source:sylProposal.source||''});
+    toast(`${r.weeks} week${r.weeks===1?'':'s'} applied${r.tagged?` · ${r.tagged} file${r.tagged===1?'':'s'} sorted`:' · no file matched a week by name'}`);
+    sylProposal=null; $('#sylPanel').hidden=true; await loadCourses(); loadFiles() }
+  catch(e){ toast('Failed: '+e.message) }
+  b.disabled=false; b.textContent='Apply to this course'; };
 $('#fileInput').addEventListener('change',e=>upload([...e.target.files]));
 const drop=$('#drop'); ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')})); ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')})); drop.addEventListener('drop',e=>upload([...e.dataTransfer.files])); drop.querySelector('label').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#fileInput').click()}});
 

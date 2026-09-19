@@ -31,6 +31,15 @@ BRIEF_FIELDS = [
 ]
 LIST_FIELDS = {k for k, _, kind in BRIEF_FIELDS if kind == "list"}
 
+# Phase 13. The syllabus is not a form field — it is extracted from an uploaded document and applied in one
+# step — so it is not in BRIEF_FIELDS (which drives the course dialog and /api/course-meta). It still lives in
+# the same brief, under this key, so one JSONB column stays the whole structured description of a course.
+SYLLABUS_KEY = "syllabus"
+SYLLABUS_HEADER = "COURSE SCHEDULE (from the syllabus):"
+MAX_WEEKS = 40          # a teaching block is 6-10; 40 is a wall against a runaway reply, not a real limit
+MAX_ITEMS = 20          # topics or readings per week
+MAX_LINE = 240          # characters per topic or reading
+
 # The seven Blackstone tab colours (static/index.html TABS) and the book cover. Course accents never reuse them.
 TAB_COLOURS = ["#2f5fae", "#d98a2b", "#1f7a4d", "#8fbf6a", "#8e2f6e", "#d46a9a", "#c9b23a"]
 BOOK_COVER = "#7a1f22"
@@ -62,11 +71,14 @@ def normalise_brief(raw) -> dict:
         raw = {}
     if not isinstance(raw, dict):
         raise BriefError("brief must be an object")
-    known = {k for k, _, _ in BRIEF_FIELDS}
+    known = {k for k, _, _ in BRIEF_FIELDS} | {SYLLABUS_KEY}
     unknown = sorted(set(raw) - known)
     if unknown:
         raise BriefError(f"unknown brief field(s): {', '.join(unknown)}")
     out = {}
+    syllabus = normalise_syllabus(raw.get(SYLLABUS_KEY))
+    if syllabus["weeks"]:
+        out[SYLLABUS_KEY] = syllabus
     for key, _, kind in BRIEF_FIELDS:
         v = raw.get(key)
         if kind == "list":
@@ -98,9 +110,132 @@ def normalise_brief(raw) -> dict:
 
 
 def brief_is_empty(brief) -> bool:
+    """Empty means "no brief to compile from", so the course keeps its hand-written tutor_prompt. A syllabus does
+    not make a brief non-empty: it is a schedule, not a description of the course, and a course that has only ever
+    had a hand-written prompt must keep it when a syllabus is applied. compile_prompt/course_prompt add the
+    schedule to whichever prompt results."""
     if not isinstance(brief, dict):
         return True
-    return not any((v if isinstance(v, list) else _text(v)) for v in brief.values())
+    return not any((v if isinstance(v, list) else _text(v))
+                   for k, v in brief.items() if k != SYLLABUS_KEY)
+
+
+# ---------------------------------------------------------------- syllabus (Phase 13)
+
+def _line(v) -> str:
+    """One topic or reading as a single line. The prompt asks for strings, but the reading shape ALLMS's extractor
+    asked for ({author, title, chapters}) is the obvious thing for a model to reach for, so it is flattened here
+    rather than thrown away."""
+    if isinstance(v, dict):
+        bits = [_text(v.get(k)) for k in ("author", "title", "chapters", "pages", "description")]
+        v = " — ".join(b for b in bits[:2] if b) + ("".join(f", {b}" for b in bits[2:] if b))
+    if not isinstance(v, str):
+        return ""
+    return " ".join(v.split())[:MAX_LINE].strip()
+
+
+def _items(v) -> list:
+    if v is None:
+        return []
+    if isinstance(v, str):
+        v = re.split(r"[\n;]", v)
+    if not isinstance(v, list):
+        raise BriefError("topics and readings must be a list")
+    out = []
+    for x in v:
+        line = _line(x)
+        if line and line not in out:
+            out.append(line)
+    return out[:MAX_ITEMS]
+
+
+_WEEK_NUM = re.compile(r"\d{1,2}")
+
+
+def _week_number(v) -> str:
+    """The teaching week as a bare number. "3", 3, "Week 03" and "week 3-4" all become "3"; anything with no
+    usable number is dropped by normalise_syllabus, because a week that cannot be numbered cannot tag a file."""
+    if isinstance(v, bool):
+        return ""
+    if isinstance(v, (int, float)):
+        n = int(v)
+        return str(n) if 1 <= n <= MAX_WEEKS else ""
+    m = _WEEK_NUM.search(v) if isinstance(v, str) else None
+    if not m:
+        return ""
+    n = int(m.group(0))
+    return str(n) if 1 <= n <= MAX_WEEKS else ""
+
+
+def normalise_syllabus(raw) -> dict:
+    """Validate an extracted or posted syllabus into {"weeks": [{week, title, topics, readings}], "source": str}.
+
+    Weeks are merged and sorted by number, so the same payload always normalises to the same object — that is what
+    makes /syllabus/apply idempotent. A week with no usable number is dropped rather than guessed at."""
+    if raw is None:
+        return {"weeks": [], "source": ""}
+    if isinstance(raw, list):
+        raw = {"weeks": raw}
+    if not isinstance(raw, dict):
+        raise BriefError("syllabus must be an object")
+    weeks_in = raw.get("weeks")
+    if weeks_in is None:
+        weeks_in = []
+    if not isinstance(weeks_in, list):
+        raise BriefError("syllabus.weeks must be a list")
+    by_week = {}
+    for w in weeks_in:
+        if not isinstance(w, dict):
+            raise BriefError("each syllabus week must be an object")
+        n = _week_number(w["week"] if w.get("week") is not None else w.get("weekNumber"))
+        if not n:
+            continue
+        cur = by_week.setdefault(n, {"week": n, "title": "", "topics": [], "readings": []})
+        cur["title"] = cur["title"] or _line(w.get("title"))
+        for key in ("topics", "readings"):
+            for item in _items(w.get(key)):
+                if item not in cur[key]:
+                    cur[key].append(item)
+            del cur[key][MAX_ITEMS:]
+    weeks = [by_week[k] for k in sorted(by_week, key=int)][:MAX_WEEKS]
+    return {"weeks": weeks, "source": _line(raw.get("source"))}
+
+
+def syllabus_block(brief) -> str:
+    """The schedule as the tutor sees it. Facts only: what each week covers and what it reads."""
+    syl = (brief or {}).get(SYLLABUS_KEY) if isinstance(brief, dict) else None
+    weeks = (syl or {}).get("weeks") or []
+    if not weeks:
+        return ""
+    lines = [SYLLABUS_HEADER]
+    for w in weeks:
+        line = f"Week {w['week']}"
+        if w.get("title"):
+            line += f" — {w['title']}"
+        if w.get("topics"):
+            line += ". Topics: " + "; ".join(w["topics"])
+        if w.get("readings"):
+            line += ". Reading: " + "; ".join(w["readings"])
+        lines.append(_sentence(line))
+    return "\n".join(lines)
+
+
+def strip_syllabus(text: str) -> str:
+    """Remove a previously compiled schedule from a prompt, so re-applying appends instead of accumulating."""
+    t = text or ""
+    i = t.find(SYLLABUS_HEADER)
+    return (t[:i] if i >= 0 else t).rstrip()
+
+
+def keep_syllabus(new_brief, old_brief):
+    """The course dialog has no syllabus fields, so a brief posted from it carries none. Saving course settings
+    must not silently throw away an applied syllabus; only /syllabus/apply changes it."""
+    if not isinstance(new_brief, dict) or (new_brief.get(SYLLABUS_KEY) or {}).get("weeks"):
+        return new_brief
+    keep = (old_brief or {}).get(SYLLABUS_KEY) if isinstance(old_brief, dict) else None
+    if isinstance(keep, dict) and keep.get("weeks"):
+        return dict(new_brief, **{SYLLABUS_KEY: keep})
+    return new_brief
 
 
 def compile_prompt(brief: dict, name: str = "") -> str:
@@ -138,12 +273,21 @@ def compile_prompt(brief: dict, name: str = "") -> str:
     # Free text last: seeded notes refer back to "the authority order above".
     if t("notes"):
         lines.append(t("notes"))
+    # The schedule after the prose: it is a reference table, and the notes above never point at it.
+    block = syllabus_block(b)
+    if block:
+        lines.append(block)
     return "\n".join(lines)
 
 
 def course_prompt(brief, name: str, stored: str) -> str:
-    """The prompt a course actually uses: the compiled brief, or the stored prompt when the brief is empty."""
-    return (stored or "") if brief_is_empty(brief) else compile_prompt(brief, name)
+    """The prompt a course actually uses: the compiled brief, or the stored prompt when the brief is empty.
+
+    An applied syllabus reaches the tutor either way — appended to the hand-written prompt when there is no brief
+    to compile. The old block is stripped first so applying twice does not stack two schedules."""
+    if not brief_is_empty(brief):
+        return compile_prompt(brief, name)
+    return "\n".join(x for x in (strip_syllabus(stored), syllabus_block(brief)) if x)
 
 
 def slugify(name: str) -> str:

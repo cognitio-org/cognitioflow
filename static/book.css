@@ -247,6 +247,19 @@
   .wk .rd{width:7px;height:7px;border-radius:50%;background:var(--rule)} .wk .rd.ready{background:var(--ok)} .wk .rd.partial{background:var(--warn)}
   .wk .n{color:var(--graphite);font-size:.8rem}
   .wk.weak{border-color:var(--bad);color:var(--bad)} .wk.weak .rd{display:none}
+  /* syllabus review — a proposal on the page, never the live data, until Apply is pressed */
+  .sylbar{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;margin-left:auto}
+  .sylbar select{max-width:24ch;border:1px solid var(--rule);border-radius:var(--r);background:var(--paper);color:var(--ink);min-height:var(--tap);padding:.2rem .45rem}
+  .syl{margin-bottom:1rem;border-left:4px solid var(--accent)}
+  .sylhd{display:flex;gap:.6rem;align-items:baseline;flex-wrap:wrap;margin-bottom:.4rem}
+  .sylwk{display:grid;grid-template-columns:var(--tap) 4.5rem 1fr;gap:.2rem .6rem;padding:.5rem 0;border-top:1px solid var(--rule);align-items:baseline}
+  .sylwk .n{font-family:var(--serif);color:var(--graphite)}
+  .sylwk .t{font-family:var(--serif);font-size:1.02rem}
+  .sylwk .d{grid-column:3;color:var(--graphite);font-size:.85rem;line-height:1.45}
+  .sylwk.off .t,.sylwk.off .d,.sylwk.off .n{opacity:.4;text-decoration:line-through}
+  .sylft{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-top:.7rem;padding-top:.7rem;border-top:1px solid var(--rule)}
+  .sylft .sp{margin-right:auto}
+  @media(max-width:700px){.sylwk{grid-template-columns:var(--tap) 1fr}.sylwk .d{grid-column:2}.sylbar{margin-left:0}}
   /* command palette */
   .pal{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:60;display:flex;align-items:flex-start;justify-content:center;padding-top:12vh}
   .palbox{width:min(640px,92vw);background:var(--paper);border:1px solid var(--rule);border-radius:6px;overflow:hidden}

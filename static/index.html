@@ -62,6 +62,19 @@
     <label class="small muted">Week <input type="text" id="week" size="4" placeholder="2"></label></div>
   <div class="panel small" style="margin-bottom:1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
     <button class="btn small ghost" id="inferBtn" title="Recognise each untagged file week from its content">Detect weeks</button>
+    <span class="sylbar">
+      <label class="small muted" for="sylFile">Syllabus</label>
+      <select id="sylFile" aria-label="Which uploaded file is the syllabus"></select>
+      <button class="btn small ghost" id="sylRead" title="Read the weeks, topics and readings out of that document. Nothing is saved until you apply them.">Read syllabus</button>
+      <span class="small muted" id="sylState" role="status"></span>
+    </span>
+  </div>
+  <div class="panel small syl" id="sylPanel" hidden aria-labelledby="sylHd">
+    <div class="sylhd"><h3 id="sylHd">Proposed weeks</h3><span class="small muted" id="sylNote"></span></div>
+    <div id="sylWeeks"></div>
+    <div class="sylft"><span class="small muted sp" id="sylHint">Nothing is saved until you apply this.</span>
+      <button class="btn small ghost" id="sylDiscard">Discard</button>
+      <button class="btn small primary" id="sylApply">Apply to this course</button></div>
   </div>
   <div class="drop" id="drop">Drop files here or <label style="text-decoration:underline;cursor:pointer" tabindex="0" role="button">choose<input type="file" id="fileInput" multiple hidden></label> — pdf, pptx, docx, txt/md/vtt, png/jpg</div>
   <table><thead><tr><th></th><th>Name</th><th>Type</th><th>Week</th><th>Text</th><th>Status</th><th></th></tr></thead><tbody id="fileRows"></tbody></table>

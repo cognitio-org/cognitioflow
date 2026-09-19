@@ -549,6 +549,189 @@ def test_speak_returns_audio_or_tells_the_page_to_speak_itself(client, monkeypat
     assert r.headers["content-type"] == "audio/mpeg" and r.headers["cache-control"] == "no-store"
 
 
+# ---------------------------------------------------------------- syllabus in, weeks and topics out (Phase 13)
+SYLLABUS_TEXT = (
+    "Course guide 2026/27 — European Law\n"
+    "Week 1: Free movement of goods. Tariff barriers; MEQRs. Reading: Schutze, ch. 12.\n"
+    "Week 2: Justification and proportionality. Art 36; mandatory requirements. Reading: Schutze, ch. 13, par. 4-9.\n"
+)
+SYLLABUS_REPLY = json.dumps({"weeks": [
+    {"week": 1, "title": "Free movement of goods", "topics": ["Tariff barriers", "MEQRs"],
+     "readings": [{"author": "Schutze", "title": "European Union Law", "chapters": "ch. 12"}]},
+    {"week": "Week 2", "title": "Justification and proportionality", "topics": ["Article 36", "Mandatory requirements"],
+     "readings": ["Schutze, ch. 13, par. 4-9"]}],
+    "note": "A two-week course guide."})
+
+
+def _syllabus(client, cid, fake, reply=SYLLABUS_REPLY, name="Course guide.txt", text=SYLLABUS_TEXT):
+    fid = _upload(client, cid, name, text)
+    fc = fake((reply, None))
+    r = client.post(f"/api/courses/{cid}/syllabus/extract", json={"file_id": fid})
+    return fid, fc, r
+
+
+def test_syllabus_extract_proposes_weeks_and_writes_nothing(client, fake, pg):
+    cid = _cid(client)
+    fid, fc, r = _syllabus(client, cid, fake)
+    assert r.status_code == 200
+    got = r.json()
+    assert [w["week"] for w in got["weeks"]] == ["1", "2"]
+    assert got["weeks"][0]["title"] == "Free movement of goods"
+    assert got["weeks"][0]["topics"] == ["Tariff barriers", "MEQRs"]
+    assert got["weeks"][0]["readings"] == ["Schutze — European Union Law, ch. 12"]   # the object shape is flattened
+    assert got["weeks"][1]["week"] == "2" and got["note"] == "A two-week course guide."
+    assert SYLLABUS_TEXT.strip() in fc.calls[0]["messages"][0]["content"]
+    # nothing written: no week on the file it read, nothing under brief.syllabus
+    assert {f["week"] for f in client.get(f"/api/courses/{cid}/files").json()} == {""}
+    assert (pg.execute("SELECT brief FROM courses WHERE id=%s", (cid,)).fetchone()[0] or {}).get("syllabus") is None
+    assert client.get(f"/api/courses/{cid}/syllabus").json() == {"weeks": [], "source": ""}
+
+
+def test_syllabus_extraction_never_reaches_the_strong_model(client, fake, monkeypatch):
+    """CF_STRONG_MODEL is reconcile-only, and Fable sits behind it. Structured extraction from one document is
+    the cheap tier's job, and there is no model parameter on the route that could override that."""
+    import run
+    monkeypatch.setattr(run, "STRONG_MODEL", "claude-fable-5-1")
+    cid = _cid(client)
+    _, fc, r = _syllabus(client, cid, fake)
+    assert r.status_code == 200
+    assert [c["model"] for c in fc.calls] == [run.CHEAP_MODEL]
+    assert run.STRONG_MODEL not in [c["model"] for c in fc.calls]
+    assert r.json()["model"] == run.CHEAP_MODEL
+    # the route asks pick_model for "summarise", and no document text can escalate that to the strong model
+    for text in ("", "compare and contrast", "why does this diverge", "write an exam answer"):
+        assert run.pick_model("summarise", None, text) != run.STRONG_MODEL
+    assert "model" not in run.SyllabusExtractIn.model_fields   # nothing to request a model with
+
+
+def test_a_document_that_is_not_a_syllabus_invents_no_weeks(client, fake):
+    cid = _cid(client)
+    reply = json.dumps({"weeks": [], "note": "This reads as a judgment, not a course guide."})
+    _, _, r = _syllabus(client, cid, fake, reply=reply, name="Dassonville.txt", text="Judgment of the Court, 11 July 1974")
+    assert r.status_code == 200 and r.json()["weeks"] == []
+    assert r.json()["note"] == "This reads as a judgment, not a course guide."
+
+
+def test_a_malformed_syllabus_reply_is_502_not_a_traceback(client, fake):
+    cid = _cid(client)
+    fid = _upload(client, cid, "guide.txt", SYLLABUS_TEXT)
+    for reply in ("Sorry, I can't do that.", json.dumps(["week 1", "week 2"]), json.dumps({"weeks": "week one"})):
+        fake((reply, None))
+        r = client.post(f"/api/courses/{cid}/syllabus/extract", json={"file_id": fid})
+        assert r.status_code == 502, reply
+        assert r.json()["detail"] and "Traceback" not in r.json()["detail"]
+    fake()  # an image has no text, so no model call may be made at all
+    img = client.post(f"/api/courses/{cid}/files", files={"file": ("scan.png", io.BytesIO(b"\x89PNG"), "image/png")}).json()["id"]
+    assert client.post(f"/api/courses/{cid}/syllabus/extract", json={"file_id": img}).status_code == 422
+    assert client.post(f"/api/courses/{cid}/syllabus/extract", json={"file_id": "nope"}).status_code == 404
+
+
+def test_syllabus_apply_stores_weeks_and_tags_only_unambiguous_files(client, fake, pg):
+    cid = _cid(client)
+    _, _, r = _syllabus(client, cid, fake)
+    weeks = r.json()["weeks"]
+    by_number = _upload(client, cid, "W2 handout.txt", "Art 36")
+    by_title = _upload(client, cid, "Free movement of goods - slides.txt", "Dassonville")
+    already = _upload(client, cid, "W1 seminar.txt", "MEQRs", week="9")
+    neither = _upload(client, cid, "Schwarz notes.txt", "no week here")
+    _card(client, cid, "Q", "A", source="W2 handout.txt")
+    out = client.post(f"/api/courses/{cid}/syllabus/apply", json={"weeks": weeks, "source": "Course guide.txt"}).json()
+    assert out["weeks"] == 2 and out["tagged"] == 2
+    got = {f["id"]: f["week"] for f in client.get(f"/api/courses/{cid}/files").json()}
+    assert got[by_number] == "2" and got[by_title] == "1"
+    assert got[already] == "9"      # an existing week is never overwritten
+    assert got[neither] == ""       # nothing in the name names a week
+    assert pg.execute("SELECT week FROM cards WHERE source='W2 handout.txt'").fetchone()[0] == "2"
+    stored = pg.execute("SELECT brief FROM courses WHERE id=%s", (cid,)).fetchone()[0]["syllabus"]
+    assert [w["week"] for w in stored["weeks"]] == ["1", "2"] and stored["source"] == "Course guide.txt"
+    assert client.get(f"/api/courses/{cid}/syllabus").json() == stored
+
+
+def test_syllabus_apply_leaves_a_file_two_weeks_could_claim_alone(client, fake):
+    """The filename says week 1 and the title of week 2 is in it. Two answers is not an unambiguous match."""
+    cid = _cid(client)
+    _, _, r = _syllabus(client, cid, fake)
+    fid = _upload(client, cid, "W1 justification and proportionality.txt", "Art 36")
+    client.post(f"/api/courses/{cid}/syllabus/apply", json={"weeks": r.json()["weeks"]})
+    assert next(f["week"] for f in client.get(f"/api/courses/{cid}/files").json() if f["id"] == fid) == ""
+
+
+def test_re_applying_the_same_syllabus_changes_nothing(client, fake, pg):
+    cid = _cid(client)
+    _, _, r = _syllabus(client, cid, fake)
+    weeks = r.json()["weeks"]
+    _upload(client, cid, "W2 handout.txt", "Art 36")
+    state = lambda: (pg.execute("SELECT brief,tutor_prompt FROM courses WHERE id=%s", (cid,)).fetchone(),
+                     sorted((f["id"], f["week"]) for f in client.get(f"/api/courses/{cid}/files").json()))
+    first = client.post(f"/api/courses/{cid}/syllabus/apply", json={"weeks": weeks}).json()
+    pg.commit(); after_one = state()
+    again = client.post(f"/api/courses/{cid}/syllabus/apply", json={"weeks": weeks}).json()
+    pg.commit(); assert state() == after_one
+    client.post(f"/api/courses/{cid}/syllabus/apply", json={"weeks": list(reversed(weeks))})
+    pg.commit(); assert state() == after_one          # order in the payload does not matter
+    assert first["tagged"] == 1 and again["tagged"] == 0   # the second run has nothing left to tag
+    assert (again["weeks"], again["tutor_prompt"]) == (first["weeks"], first["tutor_prompt"])
+    assert after_one[0][1].count("COURSE SCHEDULE (from the syllabus):") == 1
+
+
+def test_applying_an_empty_syllabus_takes_the_schedule_back_out(client, fake, pg):
+    cid = _cid(client)
+    _, _, r = _syllabus(client, cid, fake)
+    before = pg.execute("SELECT tutor_prompt FROM courses WHERE id=%s", (cid,)).fetchone()[0]
+    client.post(f"/api/courses/{cid}/syllabus/apply", json={"weeks": r.json()["weeks"]})
+    assert client.post(f"/api/courses/{cid}/syllabus/apply", json={"weeks": []}).json()["weeks"] == 0
+    pg.commit()
+    brief, prompt = pg.execute("SELECT brief,tutor_prompt FROM courses WHERE id=%s", (cid,)).fetchone()
+    assert "syllabus" not in brief and prompt == before
+
+
+def test_syllabus_topics_reach_the_tutor_prompt(client, fake):
+    import course_brief as cb
+    cid = _cid(client)
+    _, _, r = _syllabus(client, cid, fake)
+    prompt = client.post(f"/api/courses/{cid}/syllabus/apply", json={"weeks": r.json()["weeks"]}).json()["tutor_prompt"]
+    assert prompt == next(c["tutor_prompt"] for c in client.get("/api/courses").json() if c["id"] == cid)
+    assert "Week 1 — Free movement of goods. Topics: Tariff barriers; MEQRs." in prompt
+    assert "Reading: Schutze — European Union Law, ch. 12." in prompt
+    assert prompt.startswith("Course specifics — European Law")   # the compiled brief is still in front of it
+    assert cb.syllabus_block({"syllabus": client.get(f"/api/courses/{cid}/syllabus").json()}) in prompt
+
+
+def test_a_hand_written_prompt_keeps_its_text_and_gains_the_schedule(client, fake):
+    cid = client.post("/api/courses", json={"name": "Legacy", "tutor_prompt": "hand-written"}).json()["id"]
+    _, _, r = _syllabus(client, cid, fake)
+    prompt = client.post(f"/api/courses/{cid}/syllabus/apply", json={"weeks": r.json()["weeks"]}).json()["tutor_prompt"]
+    assert prompt.startswith("hand-written\nCOURSE SCHEDULE (from the syllabus):")
+    pv = client.post("/api/course-brief/preview", json={"name": "Legacy", "brief": {}, "cid": cid}).json()
+    assert pv["fallback"] is True and pv["prompt"] == prompt
+
+
+def test_saving_course_settings_does_not_wipe_an_applied_syllabus(client, fake, pg):
+    """The course dialog has no syllabus fields, so the brief it posts carries none. Without keep_syllabus,
+    pressing Save changes on any course silently threw the applied schedule away."""
+    cid = _cid(client)
+    _, _, r = _syllabus(client, cid, fake)
+    client.post(f"/api/courses/{cid}/syllabus/apply", json={"weeks": r.json()["weeks"]})
+    pg.commit()
+    brief = dict(pg.execute("SELECT brief FROM courses WHERE id=%s", (cid,)).fetchone()[0])
+    brief.pop("syllabus")
+    saved = client.put(f"/api/courses/{cid}", json={"name": "European Law", "brief": brief}).json()["tutor_prompt"]
+    assert "COURSE SCHEDULE (from the syllabus):" in saved
+    pg.commit()
+    assert pg.execute("SELECT brief FROM courses WHERE id=%s", (cid,)).fetchone()[0]["syllabus"]["weeks"]
+
+
+def test_infer_weeks_is_untouched_by_the_syllabus_routes(client, fake):
+    """This is an addition, not a replacement: infer-weeks still reads filenames and still calls the cheap model."""
+    import run
+    cid = _cid(client)
+    w2 = _upload(client, cid, "W2 slides.txt", "Dassonville")
+    rd = _upload(client, cid, "reader.txt", "Week four: proportionality")
+    fc = fake((json.dumps({rd: "4"}), None))
+    assert client.post(f"/api/courses/{cid}/infer-weeks").json() == {"tagged": 2, "by_name": 1, "by_model": 1}
+    assert fc.calls[0]["model"] == run.CHEAP_MODEL
+    weeks = {f["id"]: f["week"] for f in client.get(f"/api/courses/{cid}/files").json()}
+    assert (weeks[w2], weeks[rd]) == ("2", "4")
 # ---------------------------------------------------------------- essay practice (Phase 17)
 BANKED = json.dumps([
     {"question": "A Dutch rule bans the sale of imported liquorice above 0.2% ammonium chloride. Advise the importer.",
@@ -1171,6 +1354,25 @@ def test_the_note_views_hooks_and_renderer_are_untouched():
     for fn in ("function chipify(", "function priomark(", "async function paint("):
         assert fn in NOTES_PAGE
 
+def test_a_syllabus_proposal_cannot_be_applied_to_a_different_course():
+    """Found by review, not by us. sylProposal was module-level and the course switcher only
+    reassigns cid, so reading a syllabus on one course, switching, and pressing Apply wrote that
+    schedule onto the other course — overwriting its tutor prompt and retagging its files. Three
+    things have to hold, and each on its own is insufficient."""
+    js = (pathlib.Path(__file__).resolve().parent.parent / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert "sylProposalCid=cid" in js, "the proposal must record the course it was read from"
+
+    switcher = js[js.index("$('#course').addEventListener('change'"):]
+    switcher = switcher[:switcher.index("\n")]
+    assert "sylForget()" in switcher, "changing course must drop a proposal read from the old one"
+
+    apply_at = js.index("$('#sylApply').onclick")
+    handler = js[apply_at:js.index("catch(e)", apply_at)]
+    assert "sylProposalCid!==cid" in handler, \
+        "apply must refuse a proposal from another course, not merely rely on the switcher clearing it"
+    assert handler.index("sylProposalCid!==cid") < handler.index("syllabus/apply"), \
+        "the check must come before the write, or it guards nothing"
 def test_banking_essays_cannot_read_a_file_from_another_course(client, fake):
     """Found by review. The lookup was `WHERE id=?` with no course, so naming any file id banked that
     file's text into this course and sent it to the model — a course's material leaking into another

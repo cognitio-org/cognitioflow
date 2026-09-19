@@ -243,9 +243,12 @@ def course_meta(): return {"palette": cb.PALETTE, "fields": [{"key": k, "label":
 @app.post("/api/course-brief/preview")
 def brief_preview(p: BriefPreviewIn):
     brief = _checked(cb.normalise_brief, p.brief)
-    if cb.brief_is_empty(brief) and p.cid:
-        stored = rows("SELECT tutor_prompt FROM courses WHERE id=?", p.cid)
-        return {"prompt": stored[0]["tutor_prompt"] if stored else "", "fallback": True}
+    if p.cid:
+        cur = rows("SELECT tutor_prompt,brief FROM courses WHERE id=?", p.cid)
+        # The dialog has no syllabus fields; the preview has to show the prompt that saving would actually store.
+        if cur: brief = cb.keep_syllabus(brief, cur[0]["brief"])
+        if cb.brief_is_empty(brief):
+            return {"prompt": cb.course_prompt(brief, p.name, cur[0]["tutor_prompt"] if cur else ""), "fallback": True}
     return {"prompt": "" if cb.brief_is_empty(brief) else cb.compile_prompt(brief, p.name), "fallback": False}
 
 @app.post("/api/courses")
@@ -280,7 +283,7 @@ def edit_course(cid: str, c: CourseEdit):
             slug = cb.slugify(c.slug)
             if d.execute("SELECT 1 FROM courses WHERE COALESCE(user_id,'')=? AND slug=? AND id<>?", (cur["user_id"] or "", slug, cid)).fetchone():
                 raise HTTPException(409, f"Another course already uses the slug '{slug}'.")
-        brief = cur["brief"] if c.brief is None else _checked(cb.normalise_brief, c.brief)
+        brief = cur["brief"] if c.brief is None else cb.keep_syllabus(_checked(cb.normalise_brief, c.brief), cur["brief"])
         stored = cur["tutor_prompt"] if c.tutor_prompt is None else c.tutor_prompt
         prompt = cb.course_prompt(brief, name, stored)
         d.execute("UPDATE courses SET name=?,accent=?,slug=?,brief=?,tutor_prompt=? WHERE id=?", (name, accent, slug, Jsonb(brief or {}), prompt, cid))
@@ -391,6 +394,114 @@ def infer_weeks(cid: str):
     out = {"tagged": by_name + len(by_model), "by_name": by_name, "by_model": len(by_model)}
     if warning: out["warning"] = warning
     return out
+
+# ---------------------------------------------------------------- syllabus in, weeks and topics out (Phase 13)
+SYLLABUS_CHARS = 60000   # a syllabus is five to fifteen pages; the cap is a guard against a whole reader being picked
+
+SYLLABUS_RULES = """You read one document and report the teaching schedule it sets out. You do not teach from it and you do not summarise it.
+
+Return ONLY a JSON object, with no prose around it:
+{"weeks": [{"week": 1, "title": "short topic title, three to ten words",
+            "topics": ["one sub-point per string"],
+            "readings": ["Author, Title, chapter or paragraph range exactly as written"]}],
+ "note": "one sentence: what you read, or why there was nothing to read"}
+
+Rules:
+- Work only from the document. Never invent a week, a topic or a reading that is not in it.
+- If the document does not set out weeks and what each one covers - it is a lecture, a case, an article, a reader, a form - return {"weeks": [], "note": "<what it appears to be instead>"}. An empty list is the right answer far more often than a guess is.
+- "week" is the teaching week number as a whole number. Leave out any entry you cannot number.
+- Keep titles short. Topics are the week's sub-points, one phrase each, not sentences.
+- Readings keep the author, the title and the exact chapter or paragraph range as written."""
+
+_SYL_WORD = re.compile(r"[a-z0-9]+")
+_SYL_STOP = {"the", "and", "of", "in", "to", "for", "on", "with", "from", "law", "week", "lecture", "lec", "slides",
+             "slide", "notes", "note", "reading", "readings", "part", "this", "that", "into", "under", "case", "cases"}
+
+
+def _week_for_name(name: str, weeks) -> str:
+    """The one syllabus week this filename names, or "" when none does or more than one does.
+
+    Two signals only: a week number in the name, and every significant word of a week's title appearing in the name.
+    When they disagree, or two weeks both match, the file is left alone - infer-weeks already taught us that a wrong
+    week tag is expensive to undo, so "unambiguous" has to mean exactly one answer."""
+    words = set(_SYL_WORD.findall(name.lower()))
+    numbers = {w["week"] for w in weeks}
+    hits = set()
+    m = _WEEK_IN_NAME.search(name)
+    if m and str(int(m.group(1))) in numbers:
+        hits.add(str(int(m.group(1))))
+    for w in weeks:
+        sig = {x for x in _SYL_WORD.findall((w.get("title") or "").lower()) if len(x) >= 4 and x not in _SYL_STOP}
+        if len(sig) >= 2 and sig <= words:   # a one-word title is too loose to call unambiguous
+            hits.add(w["week"])
+    return hits.pop() if len(hits) == 1 else ""
+
+
+class SyllabusExtractIn(BaseModel): file_id: str
+class SyllabusApplyIn(BaseModel): weeks: list = []; source: str = ""
+
+
+@app.post("/api/courses/{cid}/syllabus/extract")
+def syllabus_extract(cid: str, p: SyllabusExtractIn):
+    """Read one already-uploaded file and propose the course's weeks, topics and readings.
+
+    Writes nothing. Extraction is explicit rather than automatic on upload because a syllabus is not always
+    recognisable, and silently rewriting every file's week would be worse than nothing."""
+    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    f = rows("SELECT name,kind,text FROM files WHERE id=? AND course_id=?", p.file_id, cid)
+    if not f: raise HTTPException(404, "That file is not in this course.")
+    text = (f[0]["text"] or "").strip()
+    if not text or text.startswith("[extraction failed"):
+        raise HTTPException(422, f"There is no readable text in {f[0]['name']} - a scan or a photo has nothing to read a syllabus from.")
+    model = pick_model("summarise", None)   # cheap tier, and no requested-model parameter: the strong model is unreachable here
+    name = f[0]["name"]
+    doc = '<document name="%s">\n%s\n</document>' % (name, text[:SYLLABUS_CHARS])
+    got = _model_json(client().messages.create(model=model, max_tokens=4000, system=SYLLABUS_RULES,
+                                               messages=[{"role": "user", "content": doc}]))
+    if not isinstance(got, dict):
+        raise HTTPException(502, "The model answered with a list where the syllabus object was asked for. Try again.")
+    try: syl = cb.normalise_syllabus({"weeks": got.get("weeks"), "source": name})
+    except cb.BriefError as e: raise HTTPException(502, f"The model's reply was not a syllabus ({e}). Try again.")
+    note = " ".join(str(got.get("note") or "").split())[:400]
+    if not syl["weeks"] and not note:
+        note = "Nothing in that document reads as a teaching schedule."
+    return {"weeks": syl["weeks"], "note": note, "source": name, "file_id": p.file_id, "model": model}
+
+
+@app.post("/api/courses/{cid}/syllabus/apply")
+def syllabus_apply(cid: str, p: SyllabusApplyIn):
+    """Write the reviewed weeks into courses.brief.syllabus, recompile the tutor prompt, and tag the files whose
+    names name exactly one of those weeks. An empty weeks list removes an applied syllabus again.
+
+    Idempotent: normalise_syllabus sorts and merges, the schedule block is stripped from the prompt before it is
+    re-appended, and file weeks are only ever filled in where they are still empty."""
+    syl = _checked(cb.normalise_syllabus, {"weeks": p.weeks, "source": p.source})
+    tagged, names = {}, {}
+    with db() as d:
+        cur = d.execute("SELECT name,tutor_prompt,brief FROM courses WHERE id=?", (cid,)).fetchone()
+        if not cur: raise HTTPException(404)
+        brief = dict(cur["brief"] or {})
+        if syl["weeks"]: brief[cb.SYLLABUS_KEY] = syl
+        else: brief.pop(cb.SYLLABUS_KEY, None)
+        prompt = cb.course_prompt(brief, cur["name"], cur["tutor_prompt"])
+        d.execute("UPDATE courses SET brief=?, tutor_prompt=? WHERE id=?", (Jsonb(brief), prompt, cid))
+        for f in d.execute("SELECT id,name FROM files WHERE course_id=? AND COALESCE(week,'')=''", (cid,)).fetchall():
+            wk = _week_for_name(f["name"], syl["weeks"])
+            if wk: tagged[f["id"]], names[f["id"]] = wk, f["name"]
+        for fid, wk in tagged.items():
+            d.execute("UPDATE files SET week=? WHERE id=? AND COALESCE(week,'')=''", (wk, fid))
+            d.execute("UPDATE cards SET week=? WHERE course_id=? AND source=? AND COALESCE(week,'')=''", (wk, cid, names[fid]))  # cards made from it follow, as in infer-weeks
+    return {"weeks": len(syl["weeks"]), "tagged": len(tagged),
+            "files": [{"id": k, "name": names[k], "week": v} for k, v in tagged.items()], "tutor_prompt": prompt}
+
+
+@app.get("/api/courses/{cid}/syllabus")
+def syllabus_get(cid: str):
+    """What is applied now, so the review panel can show it without re-reading the document."""
+    r = rows("SELECT brief FROM courses WHERE id=?", cid)
+    if not r: raise HTTPException(404)
+    return cb.normalise_syllabus((r[0]["brief"] or {}).get(cb.SYLLABUS_KEY))
+
 
 @app.delete("/api/files/{fid}")
 def delete_file(fid: str):
