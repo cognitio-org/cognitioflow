@@ -1,5 +1,17 @@
 {
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": true
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && command -v ruff >/dev/null 2>&1 && { ruff check . >/tmp/cf-ruff.txt 2>&1 || { echo \"Gate 1 is red \u2014 ruff found problems. Run ./scripts/check.sh\"; head -30 /tmp/cf-ruff.txt; exit 2; }; }; exit 0"
+          }
+        ]
+      }
+    ]
   }
 }
