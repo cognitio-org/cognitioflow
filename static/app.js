@@ -328,12 +328,23 @@ function cfBrowser(parts,run){
     u.onerror=()=>fin(false);
     if(i===parts.length-1){ voiceUtter=u; u.onend=()=>fin(true); }   // keep the last one referenced until it ends
     speechSynthesis.speak(u); }), 3000+parts.join(' ').length*120); }
-const cfFetch=s=>fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:s})})
+const cfServerFetch=s=>fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:s})})
   .then(r=>r.ok&&r.status!==204&&/^audio\//.test(r.headers.get('content-type')||'')?r.blob():null).catch(()=>null);
+/* Voicebox on this Mac, reached through the local bridge (~/.cognitio/voicebridge.py). It is only
+   there when he studies at the Mac, so it is probed once and never blocks: the server voice and
+   then the browser voice stay behind it. */
+const CF_MAC='http://127.0.0.1:17494';
+let cfMac=false;
+async function cfProbeMac(){ try{ const c=new AbortController(); setTimeout(()=>c.abort(),1200);
+    const r=await fetch(CF_MAC+'/health',{signal:c.signal}); if(!r.ok) return false;
+    const j=await r.json(); return !!(j.ok&&j.voicebox&&j.profile); }catch(e){ return false } }
+const cfMacFetch=s=>fetch(CF_MAC+'/say',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:s})})
+  .then(r=>r.ok&&/^audio\//.test(r.headers.get('content-type')||'')?r.blob():null).catch(()=>null);
+const cfFetch=s=>cfMac?cfMacFetch(s).then(b=>b||cfServerFetch(s)):cfServerFetch(s);   // one silent step down, never a dead reply
 async function cfSpeak(text,{serverMax=Infinity}={}){   // resolves true when fully spoken, false when stopped or failed
   cfHush(); const run=cfRun, clean=cfClean(text), parts=cfChunks(clean);
   if(!parts.length) return true;
-  if(!(window.CFVOICE||{}).server||clean.length>serverMax) return cfBrowser(parts,run);
+  if((!(window.CFVOICE||{}).server&&!cfMac)||clean.length>serverMax) return cfBrowser(parts,run);
   let next=cfFetch(parts[0]);
   for(let i=0;i<parts.length;i++){
     const blob=await next; if(run!==cfRun) return false;
@@ -372,6 +383,7 @@ function initVoice(){
   if(cfg.voice?.gemini){ $('#micMode').hidden=false; document.querySelectorAll('#micMode [data-mic]').forEach(b=>b.onclick=()=>setMicMode(b.dataset.mic)); setMicMode(currentMicMode()); }
   $('#speakBtn').setAttribute('aria-pressed',speakOn?'true':'false'); $('#speakBtn').classList.toggle('primary',speakOn);
   if(!('speechSynthesis' in window) && !(window.CFVOICE||{}).server){$('#speakBtn').disabled=true}
+  cfProbeMac().then(on=>{ cfMac=on; if(on){ $('#speakBtn').disabled=false; $('#speakBtn').title='Read replies aloud — using the voice on this Mac'; } });
 }
 /* ---- Gemini dictation (Phase 8): mic → 16 kHz PCM → this app's relay → Vertex AI; only text comes back ---- */
 let gem=null;
