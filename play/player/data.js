@@ -5,8 +5,9 @@ export const PLAYER_BASE = new URL('./', import.meta.url);
 export const GAMES_BASE = new URL('../', import.meta.url);
 
 // CognitioFlow: the player runs inside the app with ?course=<course id>. The game list comes from the app's
-// signed-in docket endpoint (only that course's games), there are no fixtures, and no Blender assets or renders
-// are shipped, so those lookups are skipped instead of 404ing.
+// signed-in docket endpoint (only that course's games) and there are no fixtures. Renders are still skipped
+// in-app; glTF sets are not — they ship in play/assets/ and findAsset reads a manifest rather than probing,
+// so the app can load them without paying for lookups that 404.
 export const APP_COURSE = new URLSearchParams(location.search).get('course') || '';
 const IN_APP = !!APP_COURSE;
 
