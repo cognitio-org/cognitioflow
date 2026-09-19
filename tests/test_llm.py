@@ -9,11 +9,29 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import llm as _llm  # noqa: E402
 
 
+ENV_KEYS = ("LLM_PROVIDER", "CF_EXTRA_MODELS", "CF_MODEL", "CF_CHEAP_MODEL", "CF_STRONG_MODEL",
+            "ANTHROPIC_API_KEY", "OPENROUTER_KEY")
+
+
+@pytest.fixture(autouse=True)
+def restore_env():
+    """load() clears these, and conftest.py sets ANTHROPIC_API_KEY once for the whole session.
+
+    Without restoring them this file leaks: tests/test_auth.py reads os.environ["ANTHROPIC_API_KEY"]
+    directly and sorts after test_llm, so it raised KeyError on a variable this file had deleted —
+    a failure with no connection to the code under test, in a file nobody would think to look at.
+    """
+    saved = {k: os.environ.get(k) for k in ENV_KEYS}
+    yield
+    for k, v in saved.items():
+        os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+    importlib.reload(_llm)
+
+
 def load(provider=None, **env):
     """Reimport llm with a chosen environment. PROVIDER is read at import, so a reload is the
     honest way to test both backends rather than reaching into module state."""
-    for k in ("LLM_PROVIDER", "CF_EXTRA_MODELS", "CF_MODEL", "CF_CHEAP_MODEL", "CF_STRONG_MODEL",
-              "ANTHROPIC_API_KEY", "OPENROUTER_KEY"):
+    for k in ENV_KEYS:
         os.environ.pop(k, None)
     if provider:
         os.environ["LLM_PROVIDER"] = provider
@@ -198,5 +216,3 @@ def test_describe_reports_provider_and_labels():
     assert {"id": "deepseek/deepseek-v4.1-flash", "label": "deepseek-v4.1-flash"} in d["models"]
 
 
-def teardown_module(_):
-    load()  # leave the module on its default for anything importing it later
