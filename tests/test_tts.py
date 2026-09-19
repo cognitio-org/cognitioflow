@@ -1,4 +1,5 @@
 """What gets spoken, and what must never be."""
+import importlib
 import importlib.util
 import os
 import sys
@@ -71,9 +72,23 @@ def test_empty_text_is_never_sent_to_a_paid_api():
 
 
 def test_browser_backend_asks_the_page_to_speak_for_itself():
-    assert tts.BACKEND == "browser", "the default must cost nothing"
-    assert tts.available() is False
-    assert tts.describe()["server"] is False
+    """With nothing configured, the voice must cost nothing.
+
+    This asserted tts.BACKEND directly, but tts.py reads TTS from the environment once at
+    import, and run.py loads .env.local before importing it. A developer who sets TTS=kokoro
+    - the free local voice, which is the point - failed a test about the default and left
+    scripts/check.sh red on a setting that is not a defect. Clear the variable and re-read.
+    """
+    saved = os.environ.pop("TTS", None)
+    try:
+        fresh = importlib.reload(tts)
+        assert fresh.BACKEND == "browser", "the default must cost nothing"
+        assert fresh.available() is False
+        assert fresh.describe()["server"] is False
+    finally:
+        if saved is not None:
+            os.environ["TTS"] = saved
+        importlib.reload(tts)  # hand the module back as this machine actually has it
 
 
 def test_a_failing_voice_becomes_no_audio_not_an_error(monkeypatch):
