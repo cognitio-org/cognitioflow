@@ -3,6 +3,7 @@
 import { documents, pages, moduleIds, linksIn, enforcedFolder, unseen, dedupe } from "./lib.js";
 
 const SCAN_MINUTES = 60;
+const OPEN_DEBOUNCE_MS = 10 * 60 * 1000;
 const conf = () => chrome.storage.sync.get({ appUrl: "", courses: [] });
 const local = (d) => chrome.storage.local.get(d);
 
@@ -23,10 +24,22 @@ async function appTab(appUrl) {
   const [tab] = await chrome.tabs.query({ url: `${origin}/*` });
   if (tab) return tab;
   const made = await chrome.tabs.create({ url: origin, active: false });
-  await new Promise((done) => {
-    const on = (id, info) => { if (id === made.id && info.status === "complete") { chrome.tabs.onUpdated.removeListener(on); done(); } };
+  let timer;
+  const wait = new Promise((resolve, reject) => {
+    const on = (id, info) => {
+      if (id === made.id && info.status === "complete") {
+        chrome.tabs.onUpdated.removeListener(on);
+        clearTimeout(timer);
+        resolve();
+      }
+    };
     chrome.tabs.onUpdated.addListener(on);
+    timer = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(on);
+      reject(new Error("the CognitioFlow tab did not finish loading"));
+    }, 30000);
   });
+  await wait;
   return made;
 }
 
@@ -128,7 +141,11 @@ async function skip({ org, keys }) {
   return { skipped: keys.length };
 }
 
-const routes = { scan, take, skip, badge, "brightspace-open": () => scan({ notify: true }) };
+const routes = { scan, take, skip, badge, "brightspace-open": async () => {
+  const { lastScan } = await chrome.storage.local.get({ lastScan: 0 });
+  if (Date.now() - (lastScan || 0) < OPEN_DEBOUNCE_MS) return { skipped: "debounced" };
+  return scan({ notify: true });
+} };
 
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   const fn = routes[msg && msg.type];
@@ -139,3 +156,5 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
 
 chrome.runtime.onInstalled.addListener(() => chrome.alarms.create("scan", { periodInMinutes: SCAN_MINUTES }));
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === "scan") scan({ notify: true }); });
+
+export { appTab };
