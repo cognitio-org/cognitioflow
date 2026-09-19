@@ -1882,11 +1882,14 @@ def _cases_in_notes(cid: str):
         name = re.sub(r"\s+", " ", name).strip(" *_.,;:")
         # The same case is written three ways across notes: "Humblot", "Humblot C-112/84" and
         # "Humblot, paras 14-16". Strip what is not the name, and keep the citation it carried.
+        name = re.sub(r"[\u200b\u200c\ufeff\xa0]", " ", name).strip()      # zero-width and non-breaking space read as part of the name
         name = re.sub(r"(?i)[,;]?\s*paras?\.?\s*\d+\s*(?:[-–]\s*\d+)?$", "", name).strip(" ,;")
-        tail = re.search(r"(?i)\(?\b(C[-‑]\d{1,4}/\d{2,4})\b\)?$", name)
+        # A joined citation is one case: "Keck and Mithouard (C-267/91 & C-268/91" — note the bracket
+        # the note never closed, which is why a plain \(?...\)? did not match it.
+        tail = re.search(r"(?i)[\(\[]?\s*(C[-‑]\d{1,4}/\d{2,4}(?:\s*(?:&|and|,|\+)\s*C[-‑]\d{1,4}/\d{2,4})*)\s*[\)\]]?\s*$", name)
         if tail:
             cite = cite or tail.group(1)
-            name = name[:tail.start()].strip(" ,;-–")
+            name = name[:tail.start()].strip(" ,;-–([")
         if not name or not name[0].isupper() or len(name) > 80 or len(name.split()) > 8: return
         if _NOT_A_CASE.match(name): return          # "Art 36" is a treaty article, not a case
         c = found.setdefault(name.casefold(), {"name": name, "cite": "", "year": None, "notes": []})
@@ -1915,6 +1918,21 @@ def _cases_in_notes(cid: str):
             # no citation to read: a bracketed (1979) written beside the name still counts, but a loose
             # "12/34" in running prose does not — that is a paragraph number as often as a year.
             add(m.group(1), cite, n, _year_in(cite) or _year_beside(tail))
+    # A shorter name that opens a longer one is the same case written in a hurry: "Keck" for
+    # "Keck and Mithouard", "Cassis" for "Cassis de Dijon". Merge into the fuller name.
+    keys = sorted(found, key=len)
+    for short in list(keys):
+        if short not in found: continue
+        for long in keys:
+            if long is short or long not in found or len(long) <= len(short): continue
+            if long.startswith(short) and long[len(short)] in " ,(-–":
+                a, b = found[long], found.pop(short)
+                a["cite"] = a["cite"] or b["cite"]
+                a["year"] = a["year"] or b["year"]
+                for note in b["notes"]:
+                    if all(x["id"] != note["id"] for x in a["notes"]): a["notes"].append(note)
+                break
+
     # "Keck" and "Keck and Mithouard" with the same citation are one case, under the fuller name.
     by_cite = {}
     for key, c in list(found.items()):
