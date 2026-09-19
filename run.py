@@ -188,6 +188,37 @@ from auth import current_user
 from scripts.check_env import enforce as check_env
 check_env()  # refuses to boot on ENV=production + AUTH=off or missing secrets
 app = FastAPI(title="CognitioFlow")
+
+
+# One canonical host, decided here rather than in the OAuth client.
+#
+# cognitioflow.ai and www.cognitioflow.ai now map to this same Cloud Run service, so the app
+# answers on three hostnames. That breaks sign-in: auth.py builds the OAuth redirect_uri from
+# the REQUEST host (`request.url_for("auth_callback")`), so a visitor arriving at the apex is
+# sent to Google with redirect_uri=https://cognitioflow.ai/auth/callback - a URI the OAuth
+# client does not list, which Google refuses with redirect_uri_mismatch.
+#
+# The fix could be three registered redirect URIs. One is better: every request that is not on
+# the canonical host is redirected to it before anything else runs, so exactly one redirect_uri
+# ever reaches Google and there is one address in the address bar, one cookie domain, and one
+# host in the logs. 308 keeps the method and body, so a POST that arrives at the wrong host is
+# not silently downgraded to GET.
+#
+# Off unless CANONICAL_HOST is set, and it is set only on the deployed service. The first
+# version defaulted to the production hostname and immediately redirected an auth test away
+# from /auth/login before the handler could set its cookie - which is exactly what it would
+# have done to anyone running this app on a hostname of their own.
+CANONICAL_HOST = os.environ.get("CANONICAL_HOST", "").strip()
+
+
+@app.middleware("http")
+async def canonical_host(request, call_next):
+    host = (request.headers.get("host") or "").split(":")[0]
+    if CANONICAL_HOST and host and host != CANONICAL_HOST and "." in host and not host.endswith(".run.app"):
+        return RedirectResponse(str(request.url.replace(netloc=CANONICAL_HOST, scheme="https")), status_code=308)
+    return await call_next(request)
+
+
 auth.install(app, db)  # session middleware + /auth/* routes; everything else needs a signed-in user
 init()
 
