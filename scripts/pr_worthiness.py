@@ -4,8 +4,8 @@ PR worthiness check: is this pull request fit to deploy? It leaves one short com
 (Approve / Hold), a one-line explanation and a security percentage — and updates that same comment on every push.
 
   python3 scripts/pr_worthiness.py --pr 19                          # print the verdict (tests read from the PR's checks)
-  python3 scripts/pr_worthiness.py --pr 19 --tests success --post --approve   # what CI runs after the tests
-  python3 scripts/pr_worthiness.py --all --post --approve           # the 30-minute sweep over every open PR
+  python3 scripts/pr_worthiness.py --pr 19 --tests success --post            # what CI runs after the tests
+  python3 scripts/pr_worthiness.py --all --post                     # the 30-minute sweep over every open PR
 
 Approving: with --approve, an Approve verdict submits a GitHub approval (as github-actions[bot] in CI; GitHub never lets
 you approve your own PR) and a later Hold withdraws it. It approves; it never merges, so deploying stays a human step.
@@ -26,7 +26,8 @@ Model
   whose key is actually set are tried, so one key alone is a working configuration either way, and the comment
   footer names the model that answered, never the one that was asked first.
 Verdict
-  Approve only when the tests passed, security >= 75, nothing blocking was found, and the model (if used) agrees.
+  Approve only when the tests passed, security >= 75, Augment has reviewed the head commit, nothing blocking was
+  found, and the model (if used) agrees.
 
 Stale runs
   HEAD_SHA, set by the per-PR CI job to the commit that run was started for. If the head has moved on since,
@@ -37,6 +38,7 @@ The diff is untrusted input: the script never runs PR code, and CI runs this fil
 It never merges and does not block merging. Never prints ANTHROPIC_API_KEY.
 """
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 import re
@@ -271,6 +273,37 @@ class Assessment:
     reviewer: str = "rules"
 
 
+AUGMENT = "augmentcode[bot]"
+AUGMENT_GRACE_MIN = 12      # it usually comments within ~10 minutes
+AUGMENT_GIVE_UP_MIN = 60    # after this, a silent reviewer must not deadlock every merge
+
+
+def augment_state(repo: str, number: int, sha: str, now=None):
+    """('reviewed'|'waiting'|'absent'|'unknown', detail) for Augment on this exact commit.
+
+    Reads review *comments*, never reviewDecision: FLEET.md:152 records that "Approved" on this
+    repo is github-actions[bot], so the decision field is a rubber stamp and cannot gate anything.
+
+    Evidence for the gate (2026-09-18): #67 open 348 min -> 5 comments; #70 14 min -> reviewed;
+    #68 2 min and #69 0 min -> nothing, and #69 shipped five silent faults.
+    """
+    try:
+        comments = _pages(gh("api", f"repos/{repo}/pulls/{number}/comments", "--paginate", "--slurp"))
+        if any(c.get("user", {}).get("login") == AUGMENT and c.get("commit_id") == sha for c in comments):
+            return "reviewed", ""
+        pushed = gh("api", f"repos/{repo}/commits/{sha}", "--jq", ".commit.committer.date").strip()
+        age = ((now or datetime.now(timezone.utc)) - datetime.fromisoformat(pushed.replace("Z", "+00:00")))
+        mins = int(age.total_seconds() // 60)
+    except Exception as e:
+        # Our own outage must never block a merge; say so and let the rest of the gate decide.
+        return "unknown", f"could not read Augment's review ({type(e).__name__})"
+    if mins < AUGMENT_GRACE_MIN:
+        return "waiting", f"pushed {mins} min ago; Augment usually comments within {AUGMENT_GRACE_MIN}"
+    if mins < AUGMENT_GIVE_UP_MIN:
+        return "absent", f"Augment has not reviewed {sha[:7]} ({mins} min)"
+    return "unknown", f"Augment did not review {sha[:7]} within {AUGMENT_GIVE_UP_MIN} min"
+
+
 def decide(tests: str, rule_score: int, findings: list, blocking: list, model=None, model_note: str = "",
            model_name: str = "") -> Assessment:
     security = min(rule_score, model["security"]) if model else rule_score
@@ -398,6 +431,12 @@ def assess_pr(repo: str, number: int, tests: str, use_model: bool, do_post: bool
     diff = gh("pr", "diff", str(number), "--repo", repo)
     tests = tests_from_checks(repo, number) if tests == "auto" else tests
     score, findings, blocking = rules(files, diff)
+    state, why = augment_state(repo, number, pr["headRefOid"])
+    if state in ("waiting", "absent"):
+        blocking.append(why)
+    elif state == "unknown" and why:
+        score -= 5
+        findings.append((5, why))
     model, note, model_name = None, "", ""
     if use_model and model_key_present() and not blocking:
         try:
