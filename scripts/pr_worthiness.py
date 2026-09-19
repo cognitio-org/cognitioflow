@@ -460,12 +460,17 @@ def assess_pr(repo: str, number: int, tests: str, use_model: bool, do_post: bool
     diff = gh("pr", "diff", str(number), "--repo", repo)
     tests = tests_from_checks(repo, number) if tests == "auto" else tests
     score, findings, blocking = rules(files, diff)
+    # Advisory, not blocking. Augment is the best reviewer on this repo and it is free, but it runs
+    # on credits that can run out, and a gate on a reviewer that can vanish is a tax on a fleet
+    # whose point is running unattended. The verdict still says so and still costs points; it no
+    # longer holds the merge. augment_alive() keeps even the penalty off when it is not running.
     state, why = augment_state(repo, number, pr["headRefOid"])
     if state in ("waiting", "absent"):
-        blocking.append(why)
+        score -= 8
+        findings.append((8, why))
     elif state == "unknown" and why:
-        score -= 5
-        findings.append((5, why))
+        score -= 3
+        findings.append((3, why))
     model, note, model_name = None, "", ""
     if use_model and model_key_present() and not blocking:
         try:

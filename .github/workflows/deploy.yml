@@ -95,19 +95,49 @@ jobs:
       NEON_ROLE: ${{ vars.NEON_ROLE || 'neondb_owner' }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # the scope step diffs against the base
+
+      # `fast` already ran this exact `make test` against a pgvector container in 1-3 minutes.
+      # This job re-runs it against a Neon branch: 21-22 minutes, almost all network to
+      # eu-central-1. That only earns its time when the change could behave differently against
+      # production's own database. #74, #75, #78 and #79 were CI and lint changes and each paid
+      # 21 minutes to re-prove what `fast` proved two minutes earlier.
+      #
+      # The job still runs and still reports, so the required check is never left pending. It just
+      # stops before touching Neon when no database-facing file changed.
+      - name: Does this change reach the database?
+        id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ -z "$BASE" ]; then echo "db=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          changed=$(git diff --name-only "$BASE" "$HEAD") || { echo "::notice::diff failed; running in full"; echo "db=true" >> "$GITHUB_OUTPUT"; exit 0; }
+          printf '%s\n' "$changed" | sed 's/^/  /'
+          if printf '%s\n' "$changed" | grep -qE '^(migrations/|run\.py|storage\.py|retrieval\.py|embed\.py|schedule\.py|oral\.py|essay\.py|course_brief\.py|tts\.py|migrate.*\.py|requirements\.txt|Dockerfile|\.github/workflows/)'; then
+            echo "db=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::no database-facing files changed; fast already proved this suite"
+            echo "db=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/setup-python@v6
+        if: steps.scope.outputs.db == 'true'
         with:
           python-version: "3.12"
           cache: pip
 
       - run: pip install -r requirements.txt
+        if: steps.scope.outputs.db == 'true'
 
       - name: Branch expiry (safety net if the delete step never runs)
+        if: steps.scope.outputs.db == 'true'
         id: expiry
         run: echo "at=$(date -u -d '+2 hours' +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Create Neon branch of production
+        if: steps.scope.outputs.db == 'true'
         id: neon
         uses: neondatabase/create-branch-action@v6
         with:
@@ -121,6 +151,7 @@ jobs:
       # The action does not mask its db_url/password outputs, so fetch the URI here and mask it
       # before anything can print it.
       - name: Connection string (masked)
+        if: steps.scope.outputs.db == 'true'
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
           PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
@@ -133,6 +164,7 @@ jobs:
           echo "DATABASE_URL=$uri" >> "$GITHUB_ENV"
 
       - name: make test
+        if: steps.scope.outputs.db == 'true'
         env:
           AUTH: "off"
           ALLOWED_EMAILS: matej@mgms.eu
