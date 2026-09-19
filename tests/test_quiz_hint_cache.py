@@ -9,7 +9,6 @@ import json
 import time
 import unittest.mock as mock
 
-import pytest
 from fastapi.testclient import TestClient
 
 

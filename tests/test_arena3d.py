@@ -87,7 +87,6 @@ def test_lawyer_pack_schema_answers_and_quotes(client, fake):
 
 
 def test_lawyer_pack_cites_the_slide_a_quote_came_from(client, fake, pg):
-    import run
     _card(client, "eu", "What is the Cassis rule of reason?", "Mandatory requirements", source="L3.pptx")
     fid = uuid.uuid4().hex
     text = "--- slide 1 ---\nIntroduction\n\n--- slide 7 ---\nCassis de Dijon introduced mandatory requirements as a rule of reason."

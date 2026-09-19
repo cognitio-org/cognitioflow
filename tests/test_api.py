@@ -6,7 +6,6 @@ import unittest.mock as mock
 from datetime import date
 
 import psycopg
-import pytest
 from fastapi.testclient import TestClient
 
 

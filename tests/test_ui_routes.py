@@ -125,7 +125,6 @@ import pathlib
 import types
 from datetime import timedelta
 
-import psycopg
 import pytest
 
 

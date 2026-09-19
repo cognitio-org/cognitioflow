@@ -1,5 +1,4 @@
 """Tests: the connection pool survives the database killing its connections (Neon suspends idle computes)."""
-import psycopg
 
 
 def test_request_after_server_kills_pooled_connections(client, pg):

@@ -1,0 +1,24 @@
+# Gate 1's linter. Deliberately narrow to start: this lands on a 2,348-line run.py, and a wall of
+# style findings on day one is how a gate gets ignored. These rules only catch things that are
+# wrong rather than merely unfashionable.
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = [
+  "F",     # pyflakes: undefined names, unused imports, f-strings with no placeholders
+  "E9",    # syntax and IO errors
+  "B006",  # a mutable default argument, shared across every call
+  "B023",  # a closure capturing a loop variable — the classic late-binding bug
+]
+# Deliberately not selected yet, and why:
+#   T201  27 hits, almost all legitimate CLI output in scripts and migrations
+#   B904  15 hits, `raise ... from` is style here, not correctness
+#   B905  3 hits, zip(strict=) on pairs already known to be equal length
+#   B017  3 hits, in tests that genuinely mean "any exception"
+# Turning them on is a separate, deliberate cleanup — not something to inflict on day one.
+
+[lint.per-file-ignores]
+"tests/*" = ["T20", "B011"]
+"scripts/*" = ["T20"]
+"migrate*.py" = ["T20"]

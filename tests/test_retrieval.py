@@ -1,8 +1,5 @@
 """Phase 10: chunking, the authority order, the 'every ticked file gets a seat' rule, and a real save-then-search."""
-import os
-import uuid
 
-import psycopg
 import pytest
 
 import retrieval

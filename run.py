@@ -4,7 +4,7 @@ Run:  python run.py   then open http://localhost:8000
 Everything lives in ./data (SQLite + uploaded files). Nothing leaves your Mac except tutor calls to the Claude API.
 """
 import re
-import asyncio, base64, hashlib, io, json, mimetypes, os, random, tempfile, threading, time, uuid
+import asyncio, base64, hashlib, json, mimetypes, os, random, tempfile, threading, time, uuid
 from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
