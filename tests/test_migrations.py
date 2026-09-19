@@ -1,7 +1,6 @@
 """Tests: migrations, seeding, schema correctness."""
 import os
 import psycopg
-import pytest
 
 
 def _pg_url() -> str:

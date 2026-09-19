@@ -1,6 +1,5 @@
 """Phase 6 — course scaffolding: brief compilation, seeding, course CRUD, delete guard/cascade."""
 import io
-import json
 import logging
 import os
 import re
@@ -10,7 +9,6 @@ from pathlib import Path
 
 import storage
 
-import psycopg
 import pytest
 
 import course_brief as cb

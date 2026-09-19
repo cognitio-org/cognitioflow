@@ -10,7 +10,6 @@ import time
 import unittest.mock as mock
 from urllib.parse import parse_qs, urlparse
 
-import psycopg
 import pytest
 from authlib.integrations.starlette_client.apps import StarletteOAuth2App
 from authlib.jose import JsonWebKey, jwt

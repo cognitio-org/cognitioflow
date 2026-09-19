@@ -7,7 +7,6 @@ import tempfile
 import time
 import uuid
 
-import pytest
 
 
 def _make_fixture_db(path: str) -> dict[str, int]:

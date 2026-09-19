@@ -77,7 +77,9 @@ def export(out_dir, course_id=None, audio=True, files=True, database_url=None, l
         for c in courses:
             folder = _unique(used_courses, _label(c["name"], c["id"]))
 
-            def put(rel, data, ctype=TXT):
+            # folder bound as a default: the closure would otherwise read whatever `folder` held
+            # when it was called, not when it was defined, and write into the wrong course.
+            def put(rel, data, ctype=TXT, folder=folder):
                 out.put(f"{folder}/{rel}", data if isinstance(data, bytes) else data.encode("utf-8"), ctype)
 
             lines = [f"# {c['name']}", "", f"- Course id: `{c['id']}`", f"- Exported: {stamp}"]
