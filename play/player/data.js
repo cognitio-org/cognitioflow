@@ -281,7 +281,9 @@ export async function findMedia(game, scene) {
 
 // ---------- Blender glTF assets ----------
 
-export const ASSETS_BASE = new URL('assets/', GAMES_BASE);
+// Under the player mount (/play/player) so the app actually serves it — /play/assets is not mounted.
+// The -v1 suffix opts into PlayerFiles' immutable cache; rename the folder when the contents change.
+export const ASSETS_BASE = new URL('assets-v1/', PLAYER_BASE);
 const assetCache = new Map();
 
 /** Assets that exist, as {kind: [name, …]}. One fetch, cached; {} when there is no manifest yet.
