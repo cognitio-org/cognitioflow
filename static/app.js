@@ -2,6 +2,11 @@
 // drops under the swarm's 800-line edit limit and free models can maintain it.
 // Nothing here was rewritten: render() -> chipify() -> priomark() are byte-identical.
 const $=s=>document.querySelector(s); const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+/* The day as this Mac reckons it. toISOString() is UTC, so between midnight and 02:00 Amsterdam
+   time it named yesterday, and the planner marked the wrong day "Today". */
+const todayISO=(d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const addDays=(iso,n)=>{const d=new Date(iso+'T00:00:00'); d.setDate(d.getDate()+n); return todayISO(d)};
+const mondayOf=iso=>{const d=new Date(iso+'T00:00:00'); return addDays(iso, -((d.getDay()+6)%7))};
 const api=async(p,o={})=>{const r=await fetch('/api'+p,o); if(!r.ok){let m=r.statusText; try{m=(await r.json()).detail||m}catch{} throw new Error(m)} return r.json()};
 const post=(p,b)=>api(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});
 const put=(p,b)=>api(p,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
@@ -181,7 +186,7 @@ async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle'
   else if(s.cards===0){next='Generate a first deck';body='Pick a file in Recall and let the tutor write cards from it.';go='recall'}
   else{next='Drill with the tutor';body='Ask for one question on your weakest topic.';go='tutor'}
   $('#h-next').textContent=next; $('#h-nextBody').textContent=body; $('#h-go').onclick=()=>show(go);
-  const ss=(await api('/sessions')).filter(x=>x.day===new Date().toISOString().slice(0,10));
+  const ss=await api(`/sessions?start=${todayISO()}&end=${todayISO()}`);
   $('#h-today').innerHTML=ss.length?ss.map(x=>`<li style="padding:.35rem 0;border-bottom:1px solid var(--rule)" class="small">${esc(x.course)} — ${esc(x.topic)} <span class="tag ${x.done?'ok':''}">${x.done?'done':x.minutes+' min'}</span></li>`).join(''):'<li class="small muted">Nothing planned for today.</li>';
 }
 
@@ -1340,20 +1345,58 @@ async function runPlan(replace){const b=$('#autoPlan'); b.disabled=true; $('#reP
   b.disabled=false; $('#rePlan').disabled=false}
 $('#autoPlan').onclick=()=>runPlan(false); $('#rePlan').onclick=()=>{if(confirm('Discard unfinished sessions from today onward and plan again?')) runPlan(true)};
 function sessIcon(t){ t=t.toLowerCase(); if(/pre-?read|read /.test(t))return['📖','pre-read']; if(/reconcile|lecture/.test(t))return['🎧','lecture']; if(/recall|card|drill|review/.test(t))return['🎴','recall']; if(/exam|irac|mock/.test(t))return['📝','exam']; return['•','study']; }
-async function loadPlanner(){ const ss=await api('/sessions'); if(!$('#sDay').value) $('#sDay').value=new Date().toISOString().slice(0,10);
-  const today=new Date().toISOString().slice(0,10);
-  if(!ss.length){ $('#agenda').innerHTML='<div class="empty">Nothing planned. Use <b>Auto-plan week</b> to lay out pre-reads, reconciles and recall around your lectures.</div>'; $('#planSub').textContent='All courses'; return; }
-  const days={}; ss.forEach(s=>{ (days[s.day]=days[s.day]||[]).push(s) });
-  const dl=Object.keys(days).sort();
+let planWeek='';        // Monday of the week on screen
+function planNav(){ if($('#planNav')) return;
+  const bar=document.createElement('span'); bar.id='planNav'; bar.className='small';
+  bar.innerHTML='<button class="btn small ghost" id="planPrev" title="Previous week" aria-label="Previous week">‹</button> '+
+                '<span id="planWeekLab" class="muted"></span> '+
+                '<button class="btn small ghost" id="planNext" title="Next week" aria-label="Next week">›</button> '+
+                '<button class="btn small ghost" id="planThis" title="Jump to the week you are in">This week</button>';
+  $('#planner .head').insertBefore(bar, $('#planner .head').lastElementChild);
+  $('#planPrev').onclick=()=>{planWeek=addDays(planWeek,-7); loadPlanner()};
+  $('#planNext').onclick=()=>{planWeek=addDays(planWeek,7); loadPlanner()};
+  $('#planThis').onclick=()=>{planWeek=mondayOf(todayISO()); loadPlanner()}; }
+
+async function loadPlanner(){ planNav();
+  const today=todayISO(); if(!$('#sDay').value) $('#sDay').value=today;
+  if(!planWeek) planWeek=mondayOf(today);
+  const weekEnd=addDays(planWeek,6);
+  const [ss,before]=await Promise.all([ api(`/sessions?start=${planWeek}&end=${weekEnd}`),
+                                        api(`/sessions?end=${addDays(today,-1)}`) ]);
+  const missed=before.filter(s=>!s.done);
   const fmt=d=>{ const dt=new Date(d+'T00:00:00'); return [dt.toLocaleDateString('en-GB',{weekday:'long'}), dt.toLocaleDateString('en-GB',{day:'numeric',month:'short'})]; };
-  $('#agenda').innerHTML=dl.map(d=>{ const g=days[d]; const [dow,date]=fmt(d); const mins=g.reduce((a,s)=>a+s.minutes,0); const done=g.filter(s=>s.done).length;
+  const weekLab=`${fmt(planWeek)[1]} – ${fmt(weekEnd)[1]}`;
+  $('#planWeekLab').textContent = planWeek===mondayOf(today) ? `This week · ${weekLab}` : weekLab;
+  $('#planThis').hidden = planWeek===mondayOf(today);
+
+  let html='';
+  if(missed.length){ const mins=missed.reduce((a,s)=>a+s.minutes,0);
+    html+=`<div class="day missedblock"><div class="dayhd"><span class="dow">Missed</span><span class="date">before today</span>`+
+          `<span class="sum">${missed.length} session${missed.length>1?'s':''} · ${mins} min</span>`+
+          `<button class="btn small" id="moveAll" title="Carry all of them to today">Move all to today</button></div>`+
+      missed.slice(0,8).map(s=>{ const [ic]=sessIcon(s.topic); const [,d]=fmt(s.day);
+        return `<div class="sess"><div class="chk" data-sess="${s.id}" title="Mark done">✓</div><div class="ic">${ic}</div>`+
+               `<div class="body"><div class="top"><span class="tp">${esc(s.topic)}</span></div><div class="meta">${esc(s.course)} · ${s.minutes} min · planned ${d}</div></div>`+
+               `<div class="act"><button class="btn small ghost" data-movesess="${s.id}" title="Move to today">→ today</button>`+
+               `<button class="btn small ghost" data-delsess="${s.id}" title="Remove">×</button></div></div>`; }).join('')+
+      (missed.length>8?`<div class="sess"><div class="ic">·</div><div class="body"><div class="meta">and ${missed.length-8} more</div></div></div>`:'')+
+      `</div>`; }
+
+  const days={}; ss.forEach(s=>{ (days[s.day]=days[s.day]||[]).push(s) });
+  for(let i=0;i<7;i++){ const d=addDays(planWeek,i), g=days[d]||[]; const [dow,date]=fmt(d);
+    const mins=g.reduce((a,s)=>a+s.minutes,0), done=g.filter(s=>s.done).length;
     const cls=d===today?'today':(d<today?'past':'');
-    return `<div class="day ${cls}"><div class="dayhd"><span class="dow">${dow}</span><span class="date">${date}</span>${d===today?'<span class="todaymark">Today</span>':''}<span class="sum">${done}/${g.length} done · ${mins} min</span></div>`+
-      g.map(s=>{ const [ic]=sessIcon(s.topic); return `<div class="sess ${s.done?'done':''}"><div class="chk" data-sess="${s.id}" title="${s.done?'Mark not done':'Mark done'}">✓</div><div class="ic">${ic}</div><div class="body"><div class="top"><span class="tp">${esc(s.topic)}</span></div><div class="meta">${esc(s.course)} · ${s.minutes} min</div></div><div class="act"><button class="btn small ghost" data-delsess="${s.id}" title="Remove">×</button></div></div>`; }).join('')+`</div>`;
-  }).join('');
-  const total=ss.reduce((a,s)=>a+s.minutes,0), left=ss.filter(s=>!s.done).length;
-  $('#planSub').textContent=`${left} to do · ${(total/60).toFixed(1)} h planned`;
+    html+=`<div class="day ${cls}"><div class="dayhd"><span class="dow">${dow}</span><span class="date">${date}</span>${d===today?'<span class="todaymark">Today</span>':''}`+
+          `<span class="sum">${g.length?`${done}/${g.length} done · ${mins} min`:'nothing planned'}</span></div>`+
+      g.map(s=>{ const [ic]=sessIcon(s.topic); return `<div class="sess ${s.done?'done':''}"><div class="chk" data-sess="${s.id}" title="${s.done?'Mark not done':'Mark done'}">✓</div><div class="ic">${ic}</div><div class="body"><div class="top"><span class="tp">${esc(s.topic)}</span></div><div class="meta">${esc(s.course)} · ${s.minutes} min</div></div><div class="act"><button class="btn small ghost" data-delsess="${s.id}" title="Remove">×</button></div></div>`; }).join('')+`</div>`; }
+  $('#agenda').innerHTML=html;
+
+  const left=ss.filter(s=>!s.done).length, total=ss.reduce((a,s)=>a+s.minutes,0);
+  $('#planSub').textContent=`${left} to do this week · ${(total/60).toFixed(1)} h planned`+(missed.length?` · ${missed.length} missed`:'');
   document.querySelectorAll('[data-sess]').forEach(b=>b.onclick=async()=>{await post(`/sessions/${b.dataset.sess}/toggle`);loadPlanner()}); keyable($('#agenda'));
+  document.querySelectorAll('[data-movesess]').forEach(b=>b.onclick=async()=>{ await post(`/sessions/${b.dataset.movesess}/move`,{day:today}); toast('Moved to today'); loadPlanner()});
+  if($('#moveAll')) $('#moveAll').onclick=async()=>{ for(const s of missed) await post(`/sessions/${s.id}/move`,{day:today});
+    toast(`${missed.length} session(s) moved to today`); loadPlanner()};
   document.querySelectorAll('[data-delsess]').forEach(b=>b.onclick=async()=>{
     if(!confirm(`Remove this session?\n\n${b.closest('.sess').querySelector('.tp').textContent}`)) return;
     await del(`/sessions/${b.dataset.delsess}`); loadPlanner()}); }

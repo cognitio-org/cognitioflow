@@ -2538,12 +2538,31 @@ def auto_plan(cid: str, p: PlanIn):
         if p.replace: c.execute("DELETE FROM sessions WHERE course_id=? AND day>=? AND done=0", (cid, start))
         for it in items:
             if not isinstance(it, dict) or not it.get("day") or not it.get("topic"): continue
+            if str(it["day"])[:10] < start: continue          # the model sometimes copies dates out of the course calendar; a plan never lands in the past
             c.execute("INSERT INTO sessions VALUES(?,?,?,?,?,0)", (uuid.uuid4().hex, cid, str(it["day"])[:10], str(it["topic"])[:160], int(it.get("minutes", 45)))); added += 1
     return {"added": added, "model": m.model}
 
 # ---------------------------------------------------------------- planner + stats
 @app.get("/api/sessions")
-def sessions(): return rows("SELECT s.*,c.name AS course FROM sessions s JOIN courses c ON c.id=s.course_id ORDER BY day")
+def sessions(start: str = "", end: str = ""):
+    """Every session, or one window of them. The planner asks for the week it is showing, plus
+    anything unfinished before today, so months of old days never fill the screen again."""
+    where, args = [], []
+    if start: where.append("s.day>=?"); args.append(start[:10])
+    if end: where.append("s.day<=?"); args.append(end[:10])
+    q = "SELECT s.*,c.name AS course FROM sessions s JOIN courses c ON c.id=s.course_id"
+    if where: q += " WHERE " + " AND ".join(where)
+    return rows(q + " ORDER BY day", *args)
+
+class MoveIn(BaseModel): day: str
+
+@app.post("/api/sessions/{sid}/move")
+def move_session(sid: str, m: MoveIn):
+    """Carry a session that was never done over to another day, keeping its topic and minutes."""
+    day = m.day[:10]
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day): raise HTTPException(400, "day must be YYYY-MM-DD")
+    with db() as c: c.execute("UPDATE sessions SET day=? WHERE id=? AND done=0", (day, sid))
+    return {"id": sid, "day": day}
 
 @app.post("/api/courses/{cid}/sessions")
 def add_session(cid: str, s: SessionIn):
