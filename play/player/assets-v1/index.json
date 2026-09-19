@@ -1,0 +1,6 @@
+{
+  "_why": "Which glTF assets exist, so the player never probes for files that are not there. findAsset() reads this once; a kind missing from here falls back to its procedural builder in sets.js.",
+  "sets": [
+    "courtroom"
+  ]
+}

@@ -2439,10 +2439,10 @@ def stats(cid: str):
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 class PlayerFiles(StaticFiles):
     """The 3D player: not under /static (public), so AuthMiddleware holds it behind sign-in. Game JSON is not served here.
-    Folders named with their version (vendor-r170/, fonts-v1/: three.js and fonts, nothing course-related) never change
+    Folders named with their version (vendor-r170/, fonts-v1/, assets-v1/: three.js, fonts and glTF sets) never change
     under that name, so browsers keep them for a year — rename the folder when the content changes. Everything else
     (index.html, the player's own modules) revalidates by ETag on every load, so a deploy is never served stale."""
-    VERSIONED = re.compile(r"^(?:vendor|fonts)-[A-Za-z0-9.]+/")
+    VERSIONED = re.compile(r"^(?:vendor|fonts|assets)-[A-Za-z0-9.]+/")
 
     def file_response(self, full_path, stat_result, scope, status_code=200):
         resp = super().file_response(full_path, stat_result, scope, status_code)

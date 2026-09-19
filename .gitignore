@@ -24,3 +24,6 @@ __pycache__/
 
 # Kokoro model assets (330MB + 30MB) — fetched, not committed
 voices/
+
+# Blender autosaves; the .blend sources themselves are tracked
+blender/**/*.blend1
