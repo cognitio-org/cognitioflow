@@ -162,20 +162,23 @@ jobs:
     if: always() && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Advisory: it posts a comment, it does not judge the code. Run #42 passed every test and was
-    # still marked red because this job died at start-up, so a failure here must not gate the run.
-    continue-on-error: true
+    # This job gates: a Hold fails it and main requires it. Run #42 is why that needs care — it
+    # passed every test and was still marked red because this job died at start-up. So the setup
+    # steps below carry continue-on-error and the checker's own crash exits 0 with a warning;
+    # only a genuine Hold verdict (exit 1) is allowed to fail the run.
     permissions:
       contents: read
       pull-requests: write
     steps:
       - uses: actions/checkout@v5
+        continue-on-error: true
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           sparse-checkout: scripts/pr_worthiness.py
           sparse-checkout-cone-mode: false
 
       - uses: actions/setup-python@v6
+        continue-on-error: true
         with:
           python-version: "3.12"
 
@@ -196,8 +199,16 @@ jobs:
           if [ ! -f scripts/pr_worthiness.py ]; then
             echo "::notice::scripts/pr_worthiness.py is not on main yet; the check starts on PRs opened after it merges"; exit 0
           fi
-          if [ -n "$ANTHROPIC_API_KEY$OPENROUTER_API_KEY" ]; then pip install -q anthropic; fi
+          if [ -n "$ANTHROPIC_API_KEY$OPENROUTER_API_KEY" ]; then pip install -q anthropic || true; fi
+          set +e
           python scripts/pr_worthiness.py --repo "$GITHUB_REPOSITORY" --pr "$PR" --tests "$TESTS" --post
+          rc=$?
+          set -e
+          # 1 is a Hold: a real verdict about this PR, and the only thing that may gate a merge.
+          # Anything else is the checker failing, not the PR — warn and pass, per run #42.
+          if [ "$rc" -eq 1 ]; then exit 1; fi
+          if [ "$rc" -ne 0 ]; then echo "::warning::pr_worthiness exited $rc; not gating on a checker error"; fi
+          exit 0
 
   deploy:
     needs: test
