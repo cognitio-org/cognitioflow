@@ -279,6 +279,29 @@ class Assessment:
 AUGMENT = "augmentcode[bot]"
 AUGMENT_GRACE_MIN = 12      # it usually comments within ~10 minutes
 AUGMENT_GIVE_UP_MIN = 60    # after this, a silent reviewer must not deadlock every merge
+AUGMENT_ALIVE_HOURS = 3     # no review anywhere in the repo for this long means it is not running
+
+
+def augment_alive(repo: str, now=None) -> bool:
+    """Has Augment reviewed anything in this repo recently?
+
+    Added because Augment runs on credits that can run out. Without this the per-PR gate would add
+    a full AUGMENT_GIVE_UP_MIN to every merge for as long as the account was empty — a tax rather
+    than a check, on a fleet whose whole point is running unattended. One repo-wide call answers
+    "is the reviewer running at all", and when it is not the gate stands down instead of waiting.
+    """
+    try:
+        # Query string, not -f: `gh api -f` sends a POST, so the call failed and fell through to
+        # the "assume alive" branch — the gate would have kept blocking with Augment switched off.
+        comments = _pages(gh("api", f"repos/{repo}/pulls/comments"
+                             "?sort=created&direction=desc&per_page=100"))
+        for c in comments:
+            if c.get("user", {}).get("login") == AUGMENT:
+                seen = datetime.fromisoformat(c["created_at"].replace("Z", "+00:00"))
+                return ((now or datetime.now(timezone.utc)) - seen).total_seconds() < AUGMENT_ALIVE_HOURS * 3600
+        return False
+    except Exception:
+        return True    # cannot tell: assume alive, and let the per-PR timers decide
 
 
 def augment_state(repo: str, number: int, sha: str, now=None):
@@ -300,6 +323,9 @@ def augment_state(repo: str, number: int, sha: str, now=None):
     except Exception as e:
         # Our own outage must never block a merge; say so and let the rest of the gate decide.
         return "unknown", f"could not read Augment's review ({type(e).__name__})"
+    if not augment_alive(repo, now):
+        return "unknown", (f"Augment has reviewed nothing in this repo for {AUGMENT_ALIVE_HOURS}h "
+                           "— not gating on a reviewer that is not running")
     if mins < AUGMENT_GRACE_MIN:
         return "waiting", f"pushed {mins} min ago; Augment usually comments within {AUGMENT_GRACE_MIN}"
     if mins < AUGMENT_GIVE_UP_MIN:
