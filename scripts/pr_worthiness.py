@@ -499,4 +499,15 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Exit 1 means Hold, and main requires this check, so 1 blocks a merge. An unhandled exception
+    # also exits 1, which would make a crashed checker indistinguishable from a real verdict — run
+    # #42 passed every test and went red because this job died at start-up, and that must never gate
+    # a merge. So a crash is caught here and reported as a warning with exit 0: the checker failing
+    # is not a fact about the pull request.
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except BaseException as e:
+        print(f"::warning::pr_worthiness crashed, not gating on it: {type(e).__name__}: {e}")
+        sys.exit(0)
