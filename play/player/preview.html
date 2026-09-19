@@ -52,15 +52,21 @@ scene.add(set.group);
 scene.background = set.bg;
 scene.fog = new THREE.FogExp2(set.fog.color, set.fog.density);
 
+// ?eye=x,y,z&look=x,y,z puts the camera anywhere, for looking at something the set has no
+// anchor for - the entrance doors are only ever seen from behind by cam_door.
+const triple = (k) => { const v = p.get(k); if (!v) return null;
+  const n = v.split(',').map(Number); return n.length === 3 && n.every(Number.isFinite) ? n : null; };
+const eye = triple('eye'), look = triple('look');
 const a = set.anchors[wantCam] || set.anchors['cam_wide'] || Object.values(set.anchors)[0];
-if (a) { cam.position.copy(a.pos); cam.lookAt(a.pos.clone().add(a.facing)); }
+if (eye) { cam.position.set(...eye); cam.lookAt(...(look || [set.center.x, set.center.y, set.center.z])); }
+else if (a) { cam.position.copy(a.pos); cam.lookAt(a.pos.clone().add(a.facing)); }
 else { cam.position.set(0, 2, -8); cam.lookAt(set.center); }
 
 const L = set.lights;
 const rows = L.practicals.map((l) => `  ${(l.name || '?').padEnd(15)}${l.type.replace('Light','').padEnd(12)}${l.intensity.toFixed(1)}`);
 document.getElementById('hud').textContent = [
   `set        ${kind}`,
-  `camera     ${a ? wantCam : '(none - free)'}   of ${Object.keys(set.anchors).join(' ')}`,
+  `camera     ${eye ? 'free ' + eye.join(',') : (a ? wantCam : '(none - free)')}   of ${Object.keys(set.anchors).join(' ')}`,
   `lights     ${L.practicals.length} from the file` + (L.practicals.length ? '' : '  <- FALLBACK IN USE'),
   ...rows,
   `key/fill/sun  ${[L.key, L.fill, L.sun].map((l) => l ? l.name || l.type : '-').join('  ')}`,
