@@ -30,3 +30,5 @@ blender/**/*.blend1
 
 # local-only compose override (a system postgres owns 5432 on some machines)
 docker-compose.override.yml
+# unfinished swarm output, parked so the local gate means something
+.parked/

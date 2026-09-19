@@ -1,0 +1,72 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Set preview</title>
+<!--
+  Dev harness: load one set through the real loadSet() path and look at it.
+
+  play/player/preview.html?set=courtroom&cam=cam_wide
+
+  It exists because the courtroom shipped for weeks with no lights in its .glb and
+  nothing noticed - the file parsed, the markers were there, the checks passed. The
+  only thing that catches that class of fault is a picture. ?cam= takes any cam_*
+  empty in the set; the panel lists what actually arrived, so a light that did not
+  make the export is visible as an absence rather than as a slightly flat render.
+-->
+<script type="importmap">
+{ "imports": { "three": "./vendor-r170/three.module.js", "three/addons/": "./vendor-r170/addons/" } }
+</script>
+<style>
+  html,body{margin:0;height:100%;background:#0a0a0b;overflow:hidden}
+  canvas{display:block}
+  #hud{position:fixed;top:0;left:0;padding:10px 14px;font:12px/1.5 ui-monospace,Menlo,monospace;
+       color:#cfcac2;background:#0009;white-space:pre;pointer-events:none;max-height:100%;overflow:hidden}
+</style>
+<div id="hud">loading…</div>
+<script type="module">
+import * as THREE from 'three';
+import { loadSet } from './sets.js';
+
+const p = new URLSearchParams(location.search);
+const kind = p.get('set') || 'courtroom';
+const wantCam = p.get('cam') || 'cam_wide';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;   // same as post.js
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const cam = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 200);
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix();
+});
+
+const set = await loadSet(kind, { quality: 'high' });
+scene.add(set.group);
+scene.background = set.bg;
+scene.fog = new THREE.FogExp2(set.fog.color, set.fog.density);
+
+const a = set.anchors[wantCam] || set.anchors['cam_wide'] || Object.values(set.anchors)[0];
+if (a) { cam.position.copy(a.pos); cam.lookAt(a.pos.clone().add(a.facing)); }
+else { cam.position.set(0, 2, -8); cam.lookAt(set.center); }
+
+const L = set.lights;
+const rows = L.practicals.map((l) => `  ${(l.name || '?').padEnd(15)}${l.type.replace('Light','').padEnd(12)}${l.intensity.toFixed(1)}`);
+document.getElementById('hud').textContent = [
+  `set        ${kind}`,
+  `camera     ${a ? wantCam : '(none - free)'}   of ${Object.keys(set.anchors).join(' ')}`,
+  `lights     ${L.practicals.length} from the file` + (L.practicals.length ? '' : '  <- FALLBACK IN USE'),
+  ...rows,
+  `key/fill/sun  ${[L.key, L.fill, L.sun].map((l) => l ? l.name || l.type : '-').join('  ')}`,
+  `hemi       ${L.hemi.intensity}`,
+  `marks      ${Object.entries(set.slots).map(([k, v]) => `${k}:${v.length}`).join(' ')}`,
+].join('\n');
+
+renderer.setAnimationLoop((t) => { set.update(t / 1000, 1 / 60, cam); renderer.render(scene, cam); });
+</script>
