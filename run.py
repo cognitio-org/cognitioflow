@@ -1740,13 +1740,23 @@ def _year_beside(text):
     m = _YEAR_BRACKET.search(text or "")
     return int(m.group(1)) if m else None
 
+_NOT_A_CASE = re.compile(r"(?i)^(art(icle)?s?\.?\s*\d|§|section\s*\d|chapter\s*\d|reg(ulation)?\.?\s*\d|dir(ective)?\.?\s*\d)")
+
 def _cases_in_notes(cid: str):
     """Cases named in the course's notes: *italic* names (house style) and the Case column of case-map tables,
     with the first citation seen, the year that citation carries, and every note that mentions them. No model."""
     found = {}
     def add(name, cite, n, year=None):
         name = re.sub(r"\s+", " ", name).strip(" *_.,;:")
+        # The same case is written three ways across notes: "Humblot", "Humblot C-112/84" and
+        # "Humblot, paras 14-16". Strip what is not the name, and keep the citation it carried.
+        name = re.sub(r"(?i)[,;]?\s*paras?\.?\s*\d+\s*(?:[-–]\s*\d+)?$", "", name).strip(" ,;")
+        tail = re.search(r"(?i)\(?\b(C[-‑]\d{1,4}/\d{2,4})\b\)?$", name)
+        if tail:
+            cite = cite or tail.group(1)
+            name = name[:tail.start()].strip(" ,;-–")
         if not name or not name[0].isupper() or len(name) > 80 or len(name.split()) > 8: return
+        if _NOT_A_CASE.match(name): return          # "Art 36" is a treaty article, not a case
         c = found.setdefault(name.casefold(), {"name": name, "cite": "", "year": None, "notes": []})
         if cite and not c["cite"]: c["cite"] = cite.strip()
         if year and not c["year"]: c["year"] = year
@@ -1773,6 +1783,19 @@ def _cases_in_notes(cid: str):
             # no citation to read: a bracketed (1979) written beside the name still counts, but a loose
             # "12/34" in running prose does not — that is a paragraph number as often as a year.
             add(m.group(1), cite, n, _year_in(cite) or _year_beside(tail))
+    # "Keck" and "Keck and Mithouard" with the same citation are one case, under the fuller name.
+    by_cite = {}
+    for key, c in list(found.items()):
+        if not c["cite"]: continue
+        first = by_cite.get(c["cite"])
+        if first is None: by_cite[c["cite"]] = key; continue
+        a, b = found[first], c
+        keep, drop = (a, b) if len(a["name"]) >= len(b["name"]) else (b, a)
+        keep["year"] = keep["year"] or drop["year"]
+        for note in drop["notes"]:
+            if all(x["id"] != note["id"] for x in keep["notes"]): keep["notes"].append(note)
+        found.pop(key if keep is a else first)
+        by_cite[c["cite"]] = next(k for k, v in found.items() if v is keep)
     return found
 
 @app.get("/api/courses/{cid}/cases")

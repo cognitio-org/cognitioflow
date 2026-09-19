@@ -49,6 +49,29 @@ def test_case_index_from_italics_and_case_map_tables(client):
     assert [n["title"] for n in by["Keck"]["notes"]] == ["Keck revisited"]
 
 
+
+def test_one_case_written_three_ways_is_one_entry(client):
+    """Notes name the same case as "Humblot", "Humblot C-112/84" and "Humblot, paras 14-16";
+    the index showed three. A treaty article is not a case at all."""
+    cid = _cid(client)
+    client.post(f"/api/courses/{cid}/notes", json={"title": "Tax", "body":
+        "*Humblot C-112/84* sets the test [LECTURE]\n"
+        "see *Humblot, paras 14-16* on the power rating\n"
+        "and *Art 110* with *Art 36* alongside\n"}).json()
+    client.post(f"/api/courses/{cid}/notes", json={"title": "Goods", "body":
+        "| Case | Citation | Rule |\n|---|---|---|\n| *Humblot* | C-112/84 | discriminatory taxation |\n"
+        "| *Keck and Mithouard* | C-267/91 | selling arrangements |\n"}).json()
+    client.post(f"/api/courses/{cid}/notes", json={"title": "Selling", "body":
+        "| Case | Citation | Rule |\n|---|---|---|\n| *Keck* | C-267/91 | the same case, shorter |\n"}).json()
+
+    by = {c["name"]: c for c in client.get(f"/api/courses/{cid}/cases").json()}
+    assert "Humblot" in by and len([n for n in by if n.startswith("Humblot")]) == 1
+    assert len(by["Humblot"]["notes"]) == 2                  # both notes reach the one entry
+    assert by["Humblot"]["cite"] == "C-112/84"
+    assert "Keck and Mithouard" in by and "Keck" not in by   # the fuller name wins
+    assert not [n for n in by if n.lower().startswith("art")]
+
+
 def test_case_index_empty_course(client):
     cid = client.post("/api/courses", json={"name": "Empty"}).json()["id"]
     assert client.get(f"/api/courses/{cid}/cases").json() == []
