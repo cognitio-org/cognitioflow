@@ -48,4 +48,4 @@ jobs:
           PR_CHECK_MODEL: ${{ vars.PR_CHECK_MODEL }}
         run: |
           if [ -n "$ANTHROPIC_API_KEY$OPENROUTER_API_KEY" ]; then pip install -q anthropic; fi
-          python scripts/pr_worthiness.py --repo "$GITHUB_REPOSITORY" --all --post --approve
+          python scripts/pr_worthiness.py --repo "$GITHUB_REPOSITORY" --all --post
