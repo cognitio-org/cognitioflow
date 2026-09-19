@@ -3,7 +3,7 @@
 A private study app for law — European Law and Property Law, University of Groningen. It runs in the cloud: open the
 address, sign in with Google, and everything you add is saved to your account and available on any device.
 
-**Open it:** https://cognitioflow-sarfwmfd3q-ez.a.run.app — sign in as the allow-listed Google account (anyone else is
+**Open it:** https://app.cognitioflow.ai — sign in as the allow-listed Google account (anyone else is
 turned away). In Chrome, **Install app** gives it a window of its own.
 
 | What | Where |

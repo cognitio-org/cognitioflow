@@ -9,7 +9,7 @@ after I tick it — hands the bytes to an open CognitioFlow tab, which uploads t
 password: both sides fetch `credentials: "same-origin"` inside tabs I am already signed into.
 
 - Extension folder: `/Users/matejmonteleone/dev/cognitioflow/extension/brightspace`
-- CognitioFlow app: `https://cognitioflow-sarfwmfd3q-ez.a.run.app` (Google sign-in, allow-listed account)
+- CognitioFlow app: `https://app.cognitioflow.ai` (Google sign-in, allow-listed account)
 - Brightspace: `https://brightspace.rug.nl`
 - Full technical spec, if you need it: `extension/brightspace/SPEC.md` in the same repo
 
@@ -43,7 +43,7 @@ All tests should pass. Report any failure verbatim.
 
 1. Open Brightspace in one tab and CognitioFlow in another, both signed in (I sign in, not you).
 2. Extension → **Options** (or `chrome://extensions` → Details → Extension options).
-3. **CognitioFlow address**: `https://cognitioflow-sarfwmfd3q-ez.a.run.app`
+3. **CognitioFlow address**: `https://app.cognitioflow.ai`
 4. Click **Grant** and accept the host permission prompt. Without it, uploads fail.
 5. Click **Detect** — it reads my enrolled courses from the Brightspace tab and my course list from the
    CognitioFlow tab, so nothing has to be typed twice.
