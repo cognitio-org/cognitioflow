@@ -197,7 +197,7 @@ jobs:
             echo "::notice::scripts/pr_worthiness.py is not on main yet; the check starts on PRs opened after it merges"; exit 0
           fi
           if [ -n "$ANTHROPIC_API_KEY$OPENROUTER_API_KEY" ]; then pip install -q anthropic; fi
-          python scripts/pr_worthiness.py --repo "$GITHUB_REPOSITORY" --pr "$PR" --tests "$TESTS" --post --approve
+          python scripts/pr_worthiness.py --repo "$GITHUB_REPOSITORY" --pr "$PR" --tests "$TESTS" --post
 
   deploy:
     needs: test
