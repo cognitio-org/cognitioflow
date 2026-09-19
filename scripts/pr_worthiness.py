@@ -7,8 +7,11 @@ PR worthiness check: is this pull request fit to deploy? It leaves one short com
   python3 scripts/pr_worthiness.py --pr 19 --tests success --post            # what CI runs after the tests
   python3 scripts/pr_worthiness.py --all --post                     # the 30-minute sweep over every open PR
 
-Approving: with --approve, an Approve verdict submits a GitHub approval (as github-actions[bot] in CI; GitHub never lets
-you approve your own PR) and a later Hold withdraws it. It approves; it never merges, so deploying stays a human step.
+Approving: --approve still exists but CI stopped passing it on 2026-09-19. main is protected and requires fast, test
+and worthiness, so this check gates merges as a required status check and never needed a review vote to do it.
+Approvals the bot cast before that change stay put: GitHub's dismiss-review endpoint is a no-op unless the repo
+requires pull-request reviews, and main deliberately requires status checks instead — so those stale APPROVED votes
+satisfy nothing and cannot be withdrawn. They age out as their PRs close. It never merges, either way.
 A PR that changes this checker or its workflows is always held for a person.
 
 Scoring
