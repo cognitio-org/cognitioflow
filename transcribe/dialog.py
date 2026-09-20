@@ -24,7 +24,7 @@ import os
 import time
 
 MODEL = os.environ.get("VOICE_DIALOG_MODEL", "")     # no default on purpose: an invented model id fails at the worst moment
-LOCATION = os.environ.get("VOICE_DIALOG_LOCATION", os.environ.get("VOICE_LOCATION", "global"))
+LOCATION = os.environ.get("VOICE_DIALOG_LOCATION", "europe-west4")   # probed 2026-09-20: the native-audio model is not served on "global"
 VOICE_NAME = os.environ.get("VOICE_DIALOG_VOICE", "Charon")   # a measured male voice; Vertex names its own
 LANGUAGE = "en-GB"
 MAX_SECONDS = float(os.environ.get("VOICE_DIALOG_MAX_SECONDS", str(14 * 60)))

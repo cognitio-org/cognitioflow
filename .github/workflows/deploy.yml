@@ -285,7 +285,7 @@ jobs:
             --port 8080 --cpu 1 --memory 1Gi --concurrency 20 \
             --min-instances 0 --max-instances 2 --cpu-boost \
             --set-secrets ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,DATABASE_URL=DATABASE_URL:latest,SESSION_SECRET=SESSION_SECRET:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest \
-            --set-env-vars CF_COMMIT=${GITHUB_SHA:0:12},ENV=production,STORAGE=gcs,GCS_BUCKET=cognitioflow-user-content,GCP_PROJECT=vigilant-axis-483119-r8,STT=hosted,STT_PROVIDER=google,STT_REGION=europe-west4,TTS=edge,EDGE_VOICE=en-GB-RyanNeural,ALLOWED_EMAILS=matej@mgms.eu \
+            --set-env-vars CF_COMMIT=${GITHUB_SHA:0:12},ENV=production,STORAGE=gcs,GCS_BUCKET=cognitioflow-user-content,GCP_PROJECT=vigilant-axis-483119-r8,STT=hosted,STT_PROVIDER=google,STT_REGION=europe-west4,TTS=edge,EDGE_VOICE=en-GB-RyanNeural,VOICE_DIALOG_MODEL=gemini-live-2.5-flash-native-audio,VOICE_DIALOG_LOCATION=europe-west4,ALLOWED_EMAILS=matej@mgms.eu \
             --labels "commit=${GITHUB_SHA:0:12}" \
             --quiet
 
