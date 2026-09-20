@@ -32,6 +32,7 @@ load_dotenv(".env.local", override=True)
 load_dotenv()
 
 import tts  # noqa: E402  (after the env files: tts reads TTS/TTS_LANGUAGE once, at import)
+import concepts as concepts_mod  # noqa: E402
 
 ROOT = Path(__file__).parent
 
@@ -559,6 +560,73 @@ def infer_weeks(cid: str):
     out = {"tagged": by_name + len(by_model), "by_name": by_name, "by_model": len(by_model)}
     if warning: out["warning"] = warning
     return out
+
+# ---------------------------------------------------------------- concepts: what a question is about
+
+CONCEPT_CHARS = 45000       # one week of one course; the cheap model's window, not a whole reader
+
+@app.get("/api/courses/{cid}/concepts")
+def list_concepts(cid: str, week: str = ""):
+    """What this course has been taught, as units a question can be asked about."""
+    q = ("SELECT id,name,kind,week,statement,limbs,traps,authority,method_tag,concept_id IS NULL AS unused "
+         "FROM concepts LEFT JOIN (SELECT DISTINCT concept_id FROM cards WHERE course_id=?) c ON c.concept_id=concepts.id "
+         "WHERE course_id=?")
+    args = [cid, cid]
+    if week:
+        q += " AND week=?"; args.append(week)
+    return rows(q + " ORDER BY week, name", *args)
+
+@app.delete("/api/concepts/{con_id}")
+def delete_concept(con_id: str):
+    with db() as d: d.execute("DELETE FROM concepts WHERE id=?", (con_id,))
+    return {"ok": True}
+
+class ConceptsIn(BaseModel): week: str = ""; file_id: Optional[str] = None
+
+@app.post("/api/courses/{cid}/concepts/extract")
+def extract_concepts(cid: str, body: ConceptsIn):
+    """Read one week's ticked material and record the concepts it teaches.
+
+    Every concept must quote the sentence it came from, and the quote is checked against the material
+    before anything is saved — a model that paraphrases there loses the entry. Cheap model only."""
+    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    week = (body.week or "").strip()
+    if body.file_id:
+        files_ = rows("SELECT id,name,text FROM files WHERE id=? AND course_id=?", body.file_id, cid)
+    elif week:
+        files_ = rows("SELECT id,name,text FROM files WHERE course_id=? AND week=? AND selected=1 ORDER BY name", cid, week)
+    else:
+        raise HTTPException(400, "give a week or a file")
+    material = "\n\n".join(f"=== {f['name']} ===\n{f['text']}" for f in files_ if (f["text"] or "").strip())[:CONCEPT_CHARS]
+    if not material.strip():
+        raise HTTPException(400, "nothing to read: those files carry no text yet")
+
+    m = ask_model(CHEAP_MODEL, max_tokens=4000, system=concepts_mod.EXTRACT_RULES,
+                  messages=[{"role": "user", "content": material}])
+    text = "".join(b.text for b in m.content if getattr(b, "type", "") == "text")
+    found, dropped = concepts_mod.parse(text, material)
+    if not found:
+        return {"saved": 0, "dropped": dropped or ["the model found nothing it could quote"], "model": m.model}
+
+    now = time.time()
+    source_file = files_[0]["id"] if body.file_id else ""
+    saved = 0
+    with db() as d:
+        for row in concepts_mod.rows_for_save(found, cid, week, now, source_file=source_file):
+            d.execute("INSERT INTO concepts(id,course_id,name,kind,week,statement,limbs,traps,authority,"
+                      "source_file,source_note,chunk_id,method_tag,created,updated) "
+                      "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING",
+                      (row[0], row[1], row[2], row[3], row[4], row[5], Jsonb(json.loads(row[6])),
+                       Jsonb(json.loads(row[7])), row[8], row[9], row[10], row[11], row[12], row[13], row[14]))
+            saved += 1
+    by_name = {c["name"].strip().lower(): c["id"] for c in rows("SELECT id,name FROM concepts WHERE course_id=?", cid)}
+    links = 0
+    with db() as d:
+        for a, b, relation in concepts_mod.pairs_for_links(found, by_name):
+            d.execute("INSERT INTO concept_links(id,a_id,b_id,relation,created) VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING",
+                      (uuid.uuid4().hex, a, b, relation, now))
+            links += 1
+    return {"saved": saved, "links": links, "dropped": dropped, "read": [f["name"] for f in files_], "model": m.model}
 
 # ---------------------------------------------------------------- syllabus in, weeks and topics out (Phase 13)
 SYLLABUS_CHARS = 60000   # a syllabus is five to fifteen pages; the cap is a guard against a whole reader being picked
