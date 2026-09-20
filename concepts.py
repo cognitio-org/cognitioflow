@@ -145,3 +145,85 @@ def pairs_for_links(concepts, by_name: dict) -> list:
             if b and b != a:
                 links.append((a, b, "confusable"))
     return links
+
+
+# ---------------------------------------------------------------- questions, written from the concept
+
+GENERATE_RULES = """You write revision material for a law student, from one concept he has been taught.
+
+You are given the concept as his course stated it: the rule, its limbs, the traps his material warns
+about, and the authority it rests on. Write only from that. Do not add a case, an article or a rule
+that is not in what you were given — anything you cite is checked against it, and a question citing
+something else is thrown away.
+
+Return ONLY JSON:
+{"cards": [{"front": "...", "back": "..."}],
+ "question": {"question": "...", "steps": ["..."], "model": "..."}}
+
+The cards (two or three):
+- One asks the rule and gets the rule back, in his course's own words.
+- Where the concept has limbs, one asks for the limbs in order.
+- Where the concept has a trap, one is built so that falling for the trap is the wrong answer.
+- A card is a question and its answer, never a topic. "Article 34" is not a card.
+
+The question is one applied problem, in the shape a two-hour written exam uses:
+- Short facts with named parties that force the concept to be used, not recited.
+- `steps` is the stappenplan the answer must walk: the checkpoints a marker looks for, in order.
+- `model` is the answer written the way a good student would, naming the authority at the right step.
+- Where the concept has limbs, at least one limb must be genuinely contestable on your facts. A
+  problem whose answer is obvious at every step teaches nothing.
+"""
+
+CITE = re.compile(r"(?i)\b(C[-\u2011]\d{1,4}/\d{2,4}|ECLI:[A-Z:0-9.]+|Art(?:icle)?\.?\s*\d+[a-z]?(?:\(\d+\))?)\b")
+
+
+def citations_ok(text: str, concept: dict) -> bool:
+    """Every case number and article in generated text must already appear in the concept it came
+    from. A model that reaches for another authority is reaching past the material, which is the
+    failure this whole layer exists to prevent."""
+    known = _norm(" ".join([concept.get("statement", ""), concept.get("authority", ""),
+                            " ".join(concept.get("limbs") or []), " ".join(concept.get("traps") or []),
+                            concept.get("name", "")]))
+    for found in CITE.findall(text or ""):
+        token = _norm(found).replace("article", "art").replace(".", "").replace(" ", "")
+        if token not in known.replace("article", "art").replace(".", "").replace(" ", ""):
+            return False
+    return True
+
+
+def clean_cards(payload, concept: dict, limit: int = 3) -> tuple:
+    """(cards, dropped) — each card a {front, back} that cites nothing the concept did not."""
+    items = (payload or {}).get("cards") if isinstance(payload, dict) else None
+    kept, dropped = [], []
+    for raw in (items or [])[:limit * 2]:
+        if not isinstance(raw, dict):
+            continue
+        front = re.sub(r"\s+", " ", str(raw.get("front", ""))).strip()
+        back = re.sub(r"\s+", " ", str(raw.get("back", ""))).strip()
+        if len(front) < 8 or len(back) < 8:
+            dropped.append("a card with no question or no answer")
+            continue
+        if not citations_ok(front + " " + back, concept):
+            dropped.append(f"a card citing an authority the concept does not carry: {front[:60]}")
+            continue
+        kept.append({"front": front[:400], "back": back[:1200]})
+    return kept[:limit], dropped
+
+
+def clean_question(payload, concept: dict) -> tuple:
+    """(question, why_not) — one applied problem with its stappenplan and model answer."""
+    q = (payload or {}).get("question") if isinstance(payload, dict) else None
+    if not isinstance(q, dict):
+        return None, "the reply carried no question"
+    text = re.sub(r"\s+", " ", str(q.get("question", ""))).strip()
+    model = re.sub(r"\s+", " ", str(q.get("model", ""))).strip()
+    steps = [re.sub(r"\s+", " ", str(x)).strip() for x in (q.get("steps") or []) if str(x).strip()][:8]
+    if len(text) < 40:
+        return None, "the problem had no facts"
+    if len(model) < 60:
+        return None, "the problem came without a model answer"
+    if len(steps) < 2:
+        return None, "the problem came without a stappenplan to mark against"
+    if not citations_ok(text + " " + model + " " + " ".join(steps), concept):
+        return None, "the problem cited an authority the concept does not carry"
+    return {"question": text[:2000], "steps": steps, "model": model[:4000]}, ""

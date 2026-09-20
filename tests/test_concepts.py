@@ -99,3 +99,72 @@ def test_the_model_cannot_pad_a_week_with_forty_concepts():
     many = {"concepts": [candidate(name=f"Concept {n}") for n in range(40)]}
     kept, _ = concepts.parse(many, MATERIAL)
     assert len(kept) == concepts.MAX_CONCEPTS
+
+
+# ---------------------------------------------------------------- questions written from a concept
+
+CONCEPT = {
+    "name": "Gebhard test",
+    "statement": "A national measure liable to hinder or make less attractive the exercise of a fundamental freedom must be justified.",
+    "authority": "C-55/94",
+    "limbs": ["applied in a non-discriminatory manner", "justified by an imperative requirement in the general interest",
+              "suitable for attaining the objective", "does not go beyond what is necessary"],
+    "traps": ["skipping the necessity limb once suitability is shown"],
+}
+
+
+def payload(front="State the Gebhard test.", back="Four conditions: non-discriminatory, justified, suitable, necessary.",
+            question=None, model=None, steps=None, cite=""):
+    q = {
+        "question": question or ("Ilse, a German architect, is refused registration in Italy unless she joins a local "
+                                 "chamber and sits an exam she has already passed at home. Advise her." + cite),
+        "steps": steps or ["identify the restriction", "apply the Gebhard conditions in order", "conclude on necessity"],
+        "model": model or ("The registration requirement is liable to make establishment less attractive, so C-55/94 "
+                           "applies: it is non-discriminatory, but the exam is not necessary where an equivalent "
+                           "qualification is already held." + cite),
+    }
+    return {"cards": [{"front": front + cite, "back": back}], "question": q}
+
+
+def test_a_card_and_a_problem_come_back_from_a_clean_reply():
+    cards, dropped = concepts.clean_cards(payload(), CONCEPT)
+    question, why = concepts.clean_question(payload(), CONCEPT)
+    assert len(cards) == 1 and not dropped
+    assert question and not why
+    assert len(question["steps"]) == 3 and "C-55/94" in question["model"]
+
+
+def test_a_card_citing_a_case_the_concept_never_carried_is_thrown_away():
+    """The guard that matters here: the model reaching past the course into what it happens to know."""
+    cards, dropped = concepts.clean_cards(payload(cite=" (see also C-120/78)"), CONCEPT)
+    assert cards == [] and dropped and "does not carry" in dropped[0]
+
+
+def test_a_problem_citing_an_unknown_article_is_refused():
+    question, why = concepts.clean_question(payload(model="Under Article 101 TFEU the exam is unlawful because it restricts competition between architects."), CONCEPT)
+    assert question is None and "does not carry" in why
+
+
+def test_the_authority_the_concept_does_carry_is_allowed_through():
+    question, why = concepts.clean_question(payload(model="C-55/94 governs: the requirement fails the necessity limb because an equivalent qualification is held."), CONCEPT)
+    assert question and not why
+
+
+def test_a_problem_without_a_stappenplan_is_not_markable():
+    question, why = concepts.clean_question(payload(steps=["think about it"]), CONCEPT)
+    assert question is None and "stappenplan" in why
+
+
+def test_a_problem_without_facts_is_not_a_problem():
+    question, why = concepts.clean_question(payload(question="Discuss Gebhard."), CONCEPT)
+    assert question is None and "facts" in why
+
+
+def test_a_problem_without_a_model_answer_is_refused():
+    question, why = concepts.clean_question(payload(model="It fails."), CONCEPT)
+    assert question is None and "model answer" in why
+
+
+def test_a_topic_is_not_a_card():
+    cards, dropped = concepts.clean_cards({"cards": [{"front": "Art 49", "back": "yes"}]}, CONCEPT)
+    assert cards == [] and dropped
