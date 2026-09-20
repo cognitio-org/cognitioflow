@@ -419,6 +419,9 @@ function initVoice(){
   $('#speakBtn').setAttribute('aria-pressed',speakOn?'true':'false'); $('#speakBtn').classList.toggle('primary',speakOn);
   if(!('speechSynthesis' in window) && !(window.CFVOICE||{}).server){$('#speakBtn').disabled=true}
   cfProbeMac().then(on=>{ cfMac=on; if(on){ $('#speakBtn').disabled=false; $('#speakBtn').title='Read replies aloud — using the voice on this Mac'; } });
+  // The buttons are built when this file parses, which is before /api/config has answered, so the
+  // live tutor was created hidden and stayed hidden. initVoice runs with cfg in hand: decide here.
+  const live=$('#dialogBtn'); if(live) live.hidden=!(cfg.voice&&cfg.voice.dialog);
 }
 /* ---- Gemini dictation (Phase 8): mic → 16 kHz PCM → this app's relay → Vertex AI; only text comes back ---- */
 let gem=null;
