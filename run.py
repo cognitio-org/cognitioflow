@@ -26,6 +26,7 @@ import schedule
 import storage
 import transcribe as stt
 from transcribe import live as voice
+from transcribe import dialog
 
 load_dotenv(".env.local", override=True)
 load_dotenv()
@@ -249,7 +250,7 @@ def healthz():
 
 @app.get("/api/config")
 def config(user: dict = Depends(current_user)): return {"email": user["email"], "model": MODEL, "cheap_model": CHEAP_MODEL, "strong_model": STRONG_MODEL, "models": MODELS,
-                      "has_key": bool(os.environ.get("ANTHROPIC_API_KEY")), "voice": {"gemini": voice.available(), **tts.describe()}}
+                      "has_key": bool(os.environ.get("ANTHROPIC_API_KEY")), "voice": {"gemini": voice.available(), "dialog": dialog.available(), **tts.describe()}}
 
 @app.websocket("/api/voice/live")
 async def voice_live(websocket: WebSocket, course: str = ""):
@@ -260,6 +261,37 @@ async def voice_live(websocket: WebSocket, course: str = ""):
     await websocket.accept()
     terms = await asyncio.to_thread(_glossary, course) if course else []
     await voice.relay(websocket, terms)
+
+SPOKEN_RULES = """You are speaking aloud with the student, not writing to them.
+
+- One idea per turn, under forty spoken words, then stop and let them answer.
+- Never read markdown, bullet points, headings or code aloud. Say the words a person would say.
+- Name the article and the case out loud ("Article thirty-four", "Dassonville"), and say when a point
+  is not in their own materials rather than filling the gap.
+- Ask a question back every few turns. A tutor checks whether the student followed.
+- If they interrupt you, stop and take their point. Do not restart the sentence you were on.
+"""
+
+@app.websocket("/api/voice/dialog")
+async def voice_dialog(websocket: WebSocket, course: str = ""):
+    """The spoken tutor: the whole turn stays inside Gemini Live, so it can be interrupted mid-sentence.
+    AuthMiddleware has already refused signed-out and cross-origin sockets. Only audio and transcript
+    text cross to the browser; the Vertex credentials never leave the server."""
+    if not dialog.available():
+        return await websocket.close(code=4404)
+    await websocket.accept()
+
+    def _system():
+        row = rows("SELECT * FROM courses WHERE id=?", course) if course else []
+        if not row:
+            return SPOKEN_RULES
+        text_parts, _images, _narrowed = build_context(course, "")
+        excerpts = ("\n\nTHE STUDENT'S OWN COURSE MATERIAL — answer from this and say when something is not in it:\n"
+                    + "\n\n".join(text_parts)[:40000]) if text_parts else "\n\nThe student has no files ticked. Say so when a question needs them."
+        return BASE_PROMPT + "\n" + (row[0]["tutor_prompt"] or "") + "\n" + SPOKEN_RULES + excerpts
+
+    system = await asyncio.to_thread(_system)
+    await dialog.relay(websocket, system)
 
 # courses
 @app.get("/api/courses")
