@@ -467,10 +467,18 @@ $('#micBtn').onclick=()=>{ if(listening && !gem){ recog?.stop(); return }  // th
   if(!recog) return; if(listening){recog.stop();return}
   cfHush(); listening=true; $('#micBtn').setAttribute('aria-pressed','true'); $('#micBtn').textContent='● Listening'; $('#q').value=''; recog.start(); };
 $('#costState').onclick=()=>{ sessionCost=0; localStorage.setItem('cf.cost',0); showCost() }; showCost();
+(function(){ if($('#convBtn')||!$('#speakBtn')) return;
+  const b=document.createElement('button'); b.className='btn small ghost'; b.id='convBtn'; b.type='button';
+  b.title='Hands-free: talk, pause, and it answers aloud, then listens again. Escape interrupts.';
+  b.textContent='💬 Conversation';
+  b.onclick=()=>{ convOn ? convStop('Conversation off') : convStart(); };
+  const hint=document.createElement('span'); hint.id='convHint'; hint.className='small muted'; hint.hidden=true;
+  hint.textContent=' talk, then pause · Esc interrupts';
+  $('#speakBtn').after(document.createTextNode(' '), b, hint); })();
 $('#speakBtn').onclick=()=>{ speakOn=!speakOn; localStorage.setItem('cf.speak',speakOn?'1':'0');
   $('#speakBtn').setAttribute('aria-pressed',speakOn?'true':'false'); $('#speakBtn').classList.toggle('primary',speakOn);
   if(!speakOn) cfHush(); else { if(lastSpeech) speak(lastSpeech); else toast('Replies will be read aloud — the tutor now writes a spoken version of each answer'); } };
-function speak(text){ if(!speakOn||!text||!text.trim()) return; cfSpeak(text,{serverMax:TUTOR_SERVER_CHARS}); }
+function speak(text){ if(!speakOn||!text||!text.trim()) return Promise.resolve(false); return cfSpeak(text,{serverMax:TUTOR_SERVER_CHARS}); }
 
 const DOWN=["define","definition","what is","list","summarise","summarize","recap","translate","when did","who is","how many"];
 const UP=["compare","contrast","irac","critique","conflict","diverge","exam answer","argue","reconcile","distinguish","apply to the facts","which outranks","is this caught","step by step","walk me through"];
@@ -479,6 +487,42 @@ function routeGuess(){ const sel=$('#modelSel').value; if(sel!=='auto'){ $('#rou
   if(m===window.CFCHEAP&&UP.some(k=>t.includes(k))) m=window.CFMODEL;
   $('#routeHint').textContent = t? '→ '+(m||'').replace('claude-','') : ''; }
 $('#q').addEventListener('input',routeGuess); document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setTimeout(routeGuess,0))); $('#modelSel').addEventListener('change',routeGuess);
+/* Conversation mode. The mic and the voice existed already but a human had to press something
+   between every turn, which is not a conversation. This runs the loop: listen until a pause, send,
+   speak the reply, listen again. The mic is closed while the tutor speaks — an open mic hears the
+   speakers and answers itself — so interrupting is Escape or a click, not talking over it. */
+let convOn=false, convRecog=null, convBusy=false;
+function convPaint(){ const b=$('#convBtn'); if(!b) return;
+  b.classList.toggle('primary',convOn); b.setAttribute('aria-pressed',convOn?'true':'false');
+  b.textContent=convOn?'● In conversation':'💬 Conversation';
+  const h=$('#convHint'); if(h) h.hidden=!convOn; }
+function convStop(why){ convOn=false; convBusy=false; try{ convRecog&&convRecog.stop() }catch(e){} cfHush(); convPaint(); if(why) toast(why); }
+function convListen(){ if(!convOn||convBusy) return;
+  try{ convRecog.start() }catch(e){}                      // already running: harmless
+  $('#q').placeholder='Listening — just talk'; }
+function convStart(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){ toast('Conversation needs Chrome or Safari'); return }
+  if(!speakOn){ $('#speakBtn').click() }                   // a conversation that cannot answer aloud is not one
+  convRecog=new SR(); convRecog.lang=(window.CFVOICE||{}).language||'en-GB';
+  convRecog.continuous=false; convRecog.interimResults=true;
+  let heard='';
+  convRecog.onresult=e=>{ heard=''; for(const r of e.results) heard+=r[0].transcript; $('#q').value=heard; };
+  convRecog.onerror=ev=>{ if(ev.error==='not-allowed'||ev.error==='service-not-allowed') return convStop('Microphone blocked — allow it in the address bar');
+    if(ev.error!=='no-speech'&&ev.error!=='aborted') toast('Mic: '+ev.error,'warn'); };
+  convRecog.onend=async()=>{
+    if(!convOn) return;
+    const said=(heard||'').trim(); heard='';
+    if(!said){ return convListen(); }                      // a pause with nothing in it: keep waiting
+    convBusy=true; $('#q').value=said; $('#q').placeholder='Thinking…';
+    try{ await send(); }catch(e){ toast('Turn failed: '+e.message,'warn') }
+    convBusy=false; if(convOn) convListen();               // the voice has finished; the floor is his again
+  };
+  convOn=true; convPaint(); convListen();
+  toast('Conversation on — talk, then pause. Escape interrupts.');
+}
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&convOn){ cfHush(); } });
+
 async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_key){toast('No Claude API key on the server — add it to .env.local and restart');return}
   addMsg('user',q); $('#q').value=''; $('#send').disabled=true; const d=addMsg('assistant','');
   try{ const r=await fetch(`/api/courses/${cid}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:q,mode,model:$('#modelSel').value,speech:speakOn})});
@@ -496,7 +540,7 @@ async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_
     if(mode==='notes'){ sv.click(); toast('Saved to Notes — open the Notes tab to edit'); }
   }
   if(d.dataset.model){ const u=d.dataset.usage?JSON.parse(d.dataset.usage):null; d.title='answered by '+d.dataset.model.replace('claude-','')+(u?` · ${u.cost==null?'cost unknown':'$'+u.cost.toFixed(4)} · ${(u.cache_read/1000).toFixed(1)}k cached, ${(u.in/1000).toFixed(1)}k new, ${u.out} out`:'') }
-  speak(lastSpeech); $('#send').disabled=false; $('#q').focus(); routeGuess(); }
+  const spoken=speak(lastSpeech); $('#send').disabled=false; $('#q').focus(); routeGuess(); return spoken; }
 $('#send').onclick=send; $('#q').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
 $('#clearChat').onclick=async()=>{if(confirm('Clear this course\'s conversation?')){await del(`/courses/${cid}/messages`);loadTutor()}};
 
