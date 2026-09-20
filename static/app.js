@@ -467,11 +467,67 @@ $('#micBtn').onclick=()=>{ if(listening && !gem){ recog?.stop(); return }  // th
   if(!recog) return; if(listening){recog.stop();return}
   cfHush(); listening=true; $('#micBtn').setAttribute('aria-pressed','true'); $('#micBtn').textContent='● Listening'; $('#q').value=''; recog.start(); };
 $('#costState').onclick=()=>{ sessionCost=0; localStorage.setItem('cf.cost',0); showCost() }; showCost();
+/* The spoken tutor: Gemini Live holds both halves of the turn, so the microphone stays open while it
+   talks and it stops the moment he does. The browser only moves audio: PCM16 up at 16 kHz, PCM16 back
+   at 24 kHz, played through one AudioContext queue so the pieces do not overlap or gap. */
+const DIALOG_RATE=24000;
+let dlg=null;
+function dialogPaint(on){ const b=$('#dialogBtn'); if(!b) return;
+  b.classList.toggle('primary',on); b.setAttribute('aria-pressed',on?'true':'false');
+  b.textContent=on?'● Speaking with you':'🎧 Live tutor'; }
+async function startDialog(){
+  if(dlg) return stopDialog();
+  if(convOn) convStop();                               // one loop at a time
+  let stream=null, ctx=null, node=null, ws=null, play=null, ended=false, playAt=0, heard='', spoken='';
+  const cleanup=()=>{ ended=true; try{node&&node.disconnect()}catch(e){} try{stream&&stream.getTracks().forEach(t=>t.stop())}catch(e){}
+    try{ctx&&ctx.close()}catch(e){} try{play&&play.close()}catch(e){} dlg=null; dialogPaint(false); $('#q').placeholder='Your answer — or "drill me on Art 34"'; };
+  try{
+    cfHush();
+    stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+    ctx=new AudioContext();
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([PCM_WORKLET],{type:'application/javascript'})));
+    node=new AudioWorkletNode(ctx,'pcm16k'); ctx.createMediaStreamSource(stream).connect(node);
+    play=new AudioContext({sampleRate:DIALOG_RATE});
+    ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/api/voice/dialog?course=${encodeURIComponent(cid||'')}`);
+    ws.binaryType='arraybuffer';
+    node.port.onmessage=e=>{ if(ws.readyState===1 && !ended) ws.send(e.data) };
+    ws.onmessage=e=>{
+      if(typeof e.data!=='string'){                      // the tutor's voice: queue it end to end
+        const pcm=new Int16Array(e.data); const buf=play.createBuffer(1,pcm.length,DIALOG_RATE);
+        const ch=buf.getChannelData(0); for(let i=0;i<pcm.length;i++) ch[i]=pcm[i]/32768;
+        const src=play.createBufferSource(); src.buffer=buf; src.connect(play.destination);
+        playAt=Math.max(playAt, play.currentTime); src.start(playAt); playAt+=buf.duration;
+        dlg && (dlg.sources=[...(dlg.sources||[]),src]);
+        return; }
+      let m; try{ m=JSON.parse(e.data) }catch(err){ return }
+      if(m.interrupted){                                  // he spoke over it: drop everything queued
+        (dlg?.sources||[]).forEach(s=>{try{s.stop()}catch(e){}}); if(dlg) dlg.sources=[]; playAt=0; }
+      if(m.said){ heard+=(heard?' ':'')+m.said; $('#q').value=heard; }
+      if(m.spoke){ spoken+=(spoken?' ':'')+m.spoke; $('#q').placeholder=m.spoke.slice(0,90); }
+      if(m.limit) toast('The live tutor stops at about fifteen minutes');
+      if(m.error){ toast(m.error+' Falling back to Conversation mode.'); cleanup(); convStart(); }
+      if(m.done){
+        if(m.cost_usd){ sessionCost+=m.cost_usd; localStorage.setItem('cf.cost',sessionCost); showCost(); }
+        if(heard) addMsg('user',heard); if(spoken) addMsg('assistant',spoken);   // the words stay on screen
+        cleanup(); } };
+    ws.onclose=()=>{ if(!ended) cleanup(); };
+    dlg={sources:[], stop(){ try{ if(ws.readyState===1) ws.send(JSON.stringify({stop:true})) }catch(e){}
+      (dlg?.sources||[]).forEach(s=>{try{s.stop()}catch(e){}}); setTimeout(()=>{ try{ws.close()}catch(e){} cleanup(); },800); }};
+    dialogPaint(true); $('#q').value=''; $('#q').placeholder='Talking — just speak, and talk over it when you want to';
+    toast('Live tutor on — interrupt it whenever you like');
+  }catch(e){ cleanup(); toast('The live tutor needs microphone access'); }
+}
+function stopDialog(){ if(dlg) dlg.stop(); }
+
 (function(){ if($('#convBtn')||!$('#speakBtn')) return;
   const b=document.createElement('button'); b.className='btn small ghost'; b.id='convBtn'; b.type='button';
   b.title='Hands-free: talk, pause, and it answers aloud, then listens again. Escape interrupts.';
   b.textContent='💬 Conversation';
   b.onclick=()=>{ convOn ? convStop('Conversation off') : convStart(); };
+  const d=document.createElement('button'); d.className='btn small ghost'; d.id='dialogBtn'; d.type='button';
+  d.title='Talk to the tutor with the microphone open — interrupt it mid-sentence. Costs about $1.40 an hour.';
+  d.textContent='🎧 Live tutor'; d.hidden=!(cfg.voice&&cfg.voice.dialog); d.onclick=startDialog;
+  $('#speakBtn').after(document.createTextNode(' '), d);
   const hint=document.createElement('span'); hint.id='convHint'; hint.className='small muted'; hint.hidden=true;
   hint.textContent=' talk, then pause · Esc interrupts';
   $('#speakBtn').after(document.createTextNode(' '), b, hint); })();
