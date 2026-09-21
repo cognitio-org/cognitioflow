@@ -628,6 +628,64 @@ def extract_concepts(cid: str, body: ConceptsIn):
             links += 1
     return {"saved": saved, "links": links, "dropped": dropped, "read": [f["name"] for f in files_], "model": m.model}
 
+class GenerateIn(BaseModel): week: str = ""; concept_id: Optional[str] = None; limit: int = 8
+
+@app.post("/api/courses/{cid}/concepts/generate")
+def generate_from_concepts(cid: str, body: GenerateIn):
+    """Write cards and one applied problem per concept, from the concept alone.
+
+    The concept was already checked against the material when it was extracted, so a question written
+    from it inherits that grounding. Anything the model cites beyond what the concept carries is
+    thrown away rather than saved — reaching for another authority is reaching past the course."""
+    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    q = ("SELECT * FROM concepts WHERE course_id=? AND id NOT IN "
+         "(SELECT DISTINCT concept_id FROM cards WHERE course_id=? AND concept_id IS NOT NULL)")
+    args = [cid, cid]
+    if body.concept_id:
+        q, args = "SELECT * FROM concepts WHERE course_id=? AND id=?", [cid, body.concept_id]
+    elif body.week:
+        q += " AND week=?"; args.append(body.week)
+    todo = rows(q + " ORDER BY week, name", *args)[:max(1, min(body.limit, 20))]
+    if not todo: return {"concepts": 0, "cards": 0, "questions": 0, "note": "every concept here already has cards"}
+
+    made_cards = made_questions = 0
+    dropped, now = [], time.time()
+    for con in todo:
+        concept = {"name": con["name"], "statement": con["statement"], "authority": con["authority"] or "",
+                   "limbs": con["limbs"] or [], "traps": con["traps"] or []}
+        brief = json.dumps({"concept": con["name"], "kind": con["kind"], **concept}, ensure_ascii=False)
+        try:
+            m = ask_model(CHEAP_MODEL, max_tokens=2500, system=concepts_mod.GENERATE_RULES,
+                          messages=[{"role": "user", "content": brief}])
+        except HTTPException as e:
+            dropped.append(f"{con['name']}: {e.detail}"); continue
+        text = "".join(b.text for b in m.content if getattr(b, "type", "") == "text")
+        try:
+            payload = json.loads(text[text.find("{"): text.rfind("}") + 1])
+        except ValueError:
+            dropped.append(f"{con['name']}: the reply was not JSON"); continue
+
+        cards, why = concepts_mod.clean_cards(payload, concept)
+        dropped.extend(f"{con['name']}: {w}" for w in why)
+        with db() as d:
+            for card in cards:
+                d.execute("INSERT INTO cards(id,course_id,front,back,source,ease,interval,reps,due,created,week,concept_id) "
+                          "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                          (uuid.uuid4().hex, cid, card["front"], card["back"], con["name"], 2.5, 0, 0,
+                           date.today().isoformat(), now, con["week"] or "", con["id"]))
+                made_cards += 1
+        question, why_not = concepts_mod.clean_question(payload, concept)
+        if question:
+            with db() as d:
+                d.execute("INSERT INTO essay_questions(id,course_id,week,question,model,source,created,kind,steps,concept_id) "
+                          "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                          (uuid.uuid4().hex, cid, con["week"] or "", question["question"], question["model"],
+                           con["name"], now, "problem", Jsonb([{"step": s} for s in question["steps"]]), con["id"]))
+            made_questions += 1
+        elif why_not:
+            dropped.append(f"{con['name']}: {why_not}")
+    return {"concepts": len(todo), "cards": made_cards, "questions": made_questions, "dropped": dropped}
+
 # ---------------------------------------------------------------- syllabus in, weeks and topics out (Phase 13)
 SYLLABUS_CHARS = 60000   # a syllabus is five to fifteen pages; the cap is a guard against a whole reader being picked
 
