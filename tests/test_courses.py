@@ -314,3 +314,23 @@ def test_delete_empty_course_needs_no_force_but_last_course_is_kept(client, pg):
     r = client.delete("/api/courses/eu?force=1")
     assert r.status_code == 409 and "only course" in r.json()["detail"]
     assert pg.execute("SELECT COUNT(*) FROM courses").fetchone()[0] == 1
+
+
+def test_the_tutor_is_told_to_answer_in_the_shape_of_the_question():
+    import run
+    """A greeting used to come back as a formatted menu with numbered options, and a long reply ran
+    into the cap and stopped mid-sentence. Both are prompt problems, so the prompt has to keep saying
+    so — these rules are load-bearing, not decoration."""
+    base = run.BASE_PROMPT.lower()
+    assert "shape of the question" in base
+    assert "does not become a document" in base
+    assert "menu" in base                       # do not offer one unless asked
+    assert "250 words" in base                  # under the cap, so replies finish
+    assert "mode is a default, not a cage" in base
+
+
+def test_drill_mode_still_drills_but_can_hold_a_conversation():
+    import run
+    drill = run.MODES["drill"].lower()
+    assert "one question" in drill and "correct" in drill
+    assert "greeting" in drill and "return to drilling" in drill

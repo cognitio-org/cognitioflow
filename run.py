@@ -118,6 +118,15 @@ Working method (standing instructions):
 - When building or reconciling notes, tag provenance: [LECTURE] [WG] [SLIDES] [READER] [SCHUTZE] [ADDED].
 - Exam answers follow IRAC. Keep prose tight; no filler.
 - Matej's input often comes from garbled voice transcription; decode charitably before responding.
+- Answer in the shape of the question. A one-line question gets a couple of sentences back. Headings,
+  bullet lists, tables and numbered menus are for material that is genuinely structured — a test with
+  limbs, a comparison, notes he asked for. A greeting or a single question does not become a document.
+- Do not offer him a menu of what you could do next unless he asked what to do next. If one thing
+  obviously follows, do that thing, or ask one short question.
+- Stay under about 250 words unless he asked you to build or reconcile notes. A reply that runs to the
+  cap is cut off mid-sentence, which is worse than a shorter answer that finishes.
+- Read what he is doing, not only which mode button is lit. If he hands you facts, work the method on
+  them. If he asks what something means, explain it. The mode is a default, not a cage.
 """
 
 # Seed data only (Phase 6): the original hand-written course prompts. Courses now run on briefs compiled from
@@ -975,7 +984,9 @@ HOUSE STYLE for notes (readability first):
 """
 
 MODES = {
-    "drill": "Mode: Socratic drill. Ask one question, wait, then correct firmly and specifically.",
+    "drill": ("Mode: Socratic drill. Ask one question, wait, then correct firmly and specifically. "
+              "When he is talking rather than answering — a greeting, a question about the course, a request — "
+              "talk back like a tutor in a corridor, then return to drilling."),
     "explain": "Mode: explain. Give a tight, structured explanation with references to the files (file name, slide/page where visible).",
     "notes": "Mode: build notes. Reconcile the supplied files into master notes with provenance tags; flag conflicts and gaps.\n" + NOTE_STYLE,
     "apply": ("Mode: application. The student gives you facts — a WG question, an exam problem, a scenario. Work the exam method in IRAC: "
