@@ -587,10 +587,13 @@ async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_
   try{ const r=await fetch(`/api/courses/${cid}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:q,mode,model:$('#modelSel').value,speech:speakOn})});
     const rd=r.body.getReader(); const td=new TextDecoder(); let buf='';
     while(true){const {value,done}=await rd.read(); if(done) break; buf+=td.decode(value,{stream:true}); const lines=buf.split('\n\n'); buf=lines.pop();
-      for(const l of lines){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; const j=JSON.parse(p); if(j.model){d.dataset.model=j.model; continue} if(j.reading){d.dataset.reading=JSON.stringify(j.reading); showReading(j.reading); continue} if(j.usage){d.dataset.usage=JSON.stringify(j.usage); sessionCost+=(j.usage.cost||0); localStorage.setItem('cf.cost',sessionCost); showCost(); continue} if(j.error){d.textContent+='\n[error] '+j.error; d.style.borderLeftColor='var(--warn)'} else d.textContent+=j.t; $('#chat').scrollTop=$('#chat').scrollHeight; } }
+      for(const l of lines){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; const j=JSON.parse(p); if(j.model){d.dataset.model=j.model; continue} if(j.reading){d.dataset.reading=JSON.stringify(j.reading); showReading(j.reading); continue} if(j.usage){d.dataset.usage=JSON.stringify(j.usage); sessionCost+=(j.usage.cost||0); localStorage.setItem('cf.cost',sessionCost); showCost(); continue} if(j.unverified){d.dataset.unverified=JSON.stringify(j.unverified); continue} if(j.error){d.textContent+='\n[error] '+j.error; d.style.borderLeftColor='var(--warn)'} else d.textContent+=j.t; $('#chat').scrollTop=$('#chat').scrollHeight; } }
   }catch(e){d.textContent+='\n[error] '+e.message}
   let raw=d.textContent; const sm=raw.match(/<speech>([\s\S]*?)<\/speech>\s*$/); if(sm){ d.dataset.speech=sm[1].trim(); raw=raw.replace(sm[0],'').trim() } await render(d,raw);
   lastSpeech=d.dataset.speech||raw.replace(/```[\s\S]*?```/g,' (see the diagram on screen) ');
+  if(d.dataset.unverified){   // cited by the tutor, found in none of the ticked files: check before relying on it
+    const w=document.createElement('div'); w.className='small unverified'; w.style.cssText='margin-top:.4rem;color:var(--warn)';
+    w.textContent='Not in your materials: '+JSON.parse(d.dataset.unverified).join(', ')+' — check before you rely on it.'; d.appendChild(w) }
   if(raw && !raw.startsWith('[error]')){
     const act=document.createElement('div'); act.className='small'; act.style.marginTop='.4rem';
     const sv=document.createElement('button'); sv.className='btn small ghost'; sv.textContent='Save as note';
