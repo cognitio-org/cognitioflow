@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response, Streamin
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import citecheck
 import embed
 import essay
 import llm
@@ -1044,6 +1045,14 @@ def chat(cid: str, body: ChatIn):
         full = "".join(out)
         if full:
             with db() as d: d.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uuid.uuid4().hex, cid, "assistant", full, time.time()))
+            # An invented ECLI reads exactly like a real one. Every case, ECLI and article the answer cites is
+            # looked up in the full text of the ticked files - not only the passages sent - and the ones found
+            # nowhere are named under the answer. With nothing ticked there is nothing to check against, so
+            # nothing is flagged; the prompt already tells the tutor to say so.
+            sources = [r["text"] for r in rows("SELECT text FROM files WHERE course_id=? AND selected=1", cid) if r["text"]]
+            missing = citecheck.unverified(full, sources + text_parts) if sources else []
+            if missing:
+                yield f"data: {json.dumps({'unverified': [c['raw'] for c in missing]})}\n\n"
         yield "data: [DONE]\n\n"
     return StreamingResponse(gen(), media_type="text/event-stream")
 
