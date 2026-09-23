@@ -10,7 +10,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY run.py llm.py auth.py storage.py migrate.py embed.py retrieval.py schedule.py oral.py essay.py tts.py course_brief.py concepts.py ./
+COPY run.py llm.py auth.py storage.py migrate.py embed.py retrieval.py schedule.py oral.py essay.py tts.py course_brief.py concepts.py citecheck.py spacing.py ./
 COPY transcribe/ transcribe/
 COPY scripts/check_env.py scripts/start.sh scripts/
 COPY static/ static/
