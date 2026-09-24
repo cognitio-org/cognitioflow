@@ -394,6 +394,32 @@ async function cfSpeak(text,{serverMax=Infinity}={}){   // resolves true when fu
     if(!ok) return cfBrowser(parts.slice(i),run);             // playback refused (autoplay rules): same rule
   }
   return true; }
+/* Voice phase 2: a voice that is fed while the answer is still being written. send() pushes each finished
+   sentence of the <speech> block as it streams in, so the first one plays after about fifteen words instead
+   of forty; the next is fetched while this one plays. Same fallbacks as cfSpeak: no server voice, or a
+   failed sentence, and the browser reads the rest. Resolves true when all of it was heard. */
+function cfQueue(){
+  cfHush(); const run=cfRun, items=[], blobs=[]; let closed=false, wake=null, cur=0, browser=!(window.CFVOICE||{}).server&&!cfMac;
+  const poke=()=>{ const w=wake; wake=null; if(w) w(); };
+  const fetchAt=i=>{ if(!browser&&i<items.length&&!blobs[i]) blobs[i]=cfFetch(items[i]); };
+  const done=(async()=>{
+    for(let i=0;;i++){ cur=i;
+      while(i>=items.length&&!closed) await new Promise(r=>{ wake=r; });
+      if(run!==cfRun) return false; if(i>=items.length) return true;
+      if(browser) { if(!await cfBrowser([items[i]],run)) return false; continue; }
+      fetchAt(i); const blob=await blobs[i]; if(run!==cfRun) return false; fetchAt(i+1);
+      if(!blob){ browser=true; i--; continue; }                     // 204 or an error: the browser reads this one and the rest
+      const src=URL.createObjectURL(blob);
+      const ok=await cfWait(fin=>{ cfAudio=new Audio(src); cfAudio.onended=()=>fin(true); cfAudio.onerror=()=>fin(false);
+        cfAudio.play().catch(()=>fin(false)); }, 60000);
+      URL.revokeObjectURL(src); if(run!==cfRun) return false; cfAudio=null;
+      if(!ok){ browser=true; i--; }                                 // autoplay refused: same rule
+    } })();
+  return { push(t){ if(closed) return; for(const c of cfChunks(cfClean(t))) items.push(c); fetchAt(cur); fetchAt(cur+1); poke(); },   // the next sentence is fetched while this one plays
+           close(){ closed=true; poke(); }, done }; }
+/* Waking the server costs nothing and a cold Cloud Run start costs seconds, so the moment he reaches for the
+   voice (turns it on, starts a conversation, presses to talk) the instance is asked to wake. At most once a minute. */
+let cfWarmAt=0; function cfWarm(){ if(Date.now()-cfWarmAt<60000) return; cfWarmAt=Date.now(); fetch('/health',{cache:'no-store'}).catch(()=>{}); }
 function showReading(r){
   /* Which of your own materials answered the last question, and what did not fit. */
   const box=$('#ctxAnswer'); if(!box) return;
@@ -478,7 +504,8 @@ const PTT_HOLD_MS=250, PTT_TAIL_MS=150;   // a tap is not a hold; keep listening
 let ptt=null;   // {timer, on}
 const pttScreen=()=>document.getElementById('tutor')?.classList.contains('active');
 const pttFree=el=>!el||el===document.body||(el.id==='q'&&!el.value.trim());
-function pttDown(){ if(ptt) return; ptt={on:false, timer:setTimeout(()=>{ if(!ptt) return; ptt.on=true;
+function pttDown(){ if(ptt) return; cfWarm(); if(convOn){ cfHush(); return; }   // in a conversation the mic is already open: pressing only interrupts
+  ptt={on:false, timer:setTimeout(()=>{ if(!ptt) return; ptt.on=true;
     if(recog) recog.continuous=true;                     // a thinking pause mid-hold must not end the turn
     if(!listening) $('#micBtn').click(); },PTT_HOLD_MS)}; }
 function pttUp(cancel){ if(!ptt) return; const p=ptt; ptt=null; clearTimeout(p.timer); if(!p.on) return;
@@ -562,9 +589,13 @@ function stopDialog(){ if(dlg) dlg.stop(); }
   d.textContent='🎧 Live tutor'; d.hidden=!(cfg.voice&&cfg.voice.dialog); d.onclick=startDialog;
   $('#speakBtn').after(document.createTextNode(' '), d);
   const hint=document.createElement('span'); hint.id='convHint'; hint.className='small muted'; hint.hidden=true;
-  hint.textContent=' talk, then pause · Esc interrupts';
+  hint.textContent=' talk, then pause · ';
+  const bi=document.createElement('button'); bi.type='button'; bi.className='btn small ghost'; bi.id='bargeBtn';
+  const bp=()=>{ bi.textContent=convBargeOn()?'interrupt by voice: on':'interrupt by voice: off'; bi.setAttribute('aria-pressed',convBargeOn()?'true':'false'); };
+  bi.title='On: talking over the tutor stops it. Turn off if it stops itself on loud speakers — Escape and holding Space still work.';
+  bi.onclick=()=>{ localStorage.setItem('cf.bargeIn',convBargeOn()?'0':'1'); bp(); }; bp(); hint.append(bi);
   $('#speakBtn').after(document.createTextNode(' '), b, hint); })();
-$('#speakBtn').onclick=()=>{ speakOn=!speakOn; localStorage.setItem('cf.speak',speakOn?'1':'0');
+$('#speakBtn').onclick=()=>{ speakOn=!speakOn; if(speakOn) cfWarm(); localStorage.setItem('cf.speak',speakOn?'1':'0');
   $('#speakBtn').setAttribute('aria-pressed',speakOn?'true':'false'); $('#speakBtn').classList.toggle('primary',speakOn);
   if(!speakOn) cfHush(); else { if(lastSpeech) speak(lastSpeech); else toast('Replies will be read aloud — the tutor now writes a spoken version of each answer'); } };
 const CF_SPEECH=/<speech>[\s\S]*?(?:<\/speech>|$)\s*/;
@@ -579,48 +610,78 @@ function routeGuess(){ const sel=$('#modelSel').value; if(sel!=='auto'){ $('#rou
 $('#q').addEventListener('input',routeGuess); document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setTimeout(routeGuess,0))); $('#modelSel').addEventListener('change',routeGuess);
 /* Conversation mode. The mic and the voice existed already but a human had to press something
    between every turn, which is not a conversation. This runs the loop: listen until a pause, send,
-   speak the reply, listen again. The mic is closed while the tutor speaks — an open mic hears the
-   speakers and answers itself — so interrupting is Escape or a click, not talking over it. */
-let convOn=false, convRecog=null, convBusy=false;
+   speak the reply, listen again. Recognition stays closed while the tutor speaks (an open recogniser hears
+   the speakers and answers itself); voice phase 3 adds a level meter that does listen then, learns how loud
+   the tutor's own voice comes back through the mic, and interrupts when he is clearly louder than that
+   for 300 ms. Headphones make it certain; on speakers the learned echo level is what keeps it honest.
+   His turn ends after 1.1 s of quiet, or 2.5 s when he stopped on "and", "because", "um"... */
+let convOn=false, convRecog=null, convBusy=false, convMic=null;
+const CONV_QUIET_MS=1100, CONV_TRAIL_MS=2500;
+const CONV_TRAIL=/\b(and|but|so|because|or|um+|uh+|erm*|like|then|which|that|if|whether|the|a|an|of|to|in|is)\s*$/i;
+async function convMicOpen(){ if(convMic) return;
+  try{ const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false}});
+    const ctx=new AudioContext(); ctx.resume().catch(()=>{}); const an=ctx.createAnalyser(); an.fftSize=1024;
+    ctx.createMediaStreamSource(stream).connect(an); convMic={stream,ctx,an,buf:new Float32Array(an.fftSize)};
+    if(!convOn) convMicClose(); }catch(e){ convMic=null; } }   // no meter: Escape, a click or holding Space still interrupt
+function convMicClose(){ const m=convMic; convMic=null; if(!m) return; try{ m.stream.getTracks().forEach(t=>t.stop()) }catch(e){} try{ m.ctx.close() }catch(e){} }
+function convLevel(){ const m=convMic; m.an.getFloatTimeDomainData(m.buf); let s=0; for(const v of m.buf) s+=v*v; return Math.sqrt(s/m.buf.length); }
+function convBargeOn(){ return localStorage.getItem('cf.bargeIn')!=='0'; }   // a declaration: the button that reads it is built earlier in the file
+function convGuard(){   // runs while a reply is on its way; returns its own off switch
+  let echo=0, playStart=0, loudSince=0;
+  const iv=setInterval(()=>{ if(!convMic||!convBargeOn()) return;
+    const now=Date.now(), playing=!!cfAudio||!!(window.speechSynthesis&&speechSynthesis.speaking);
+    if(!playing){ loudSince=0; return }
+    const l=convLevel(); if(!playStart) playStart=now;
+    if(now-playStart<400){ echo=Math.max(echo,l); return }        // the first 400 ms of the voice teach it what its own echo sounds like
+    if(l>Math.max(0.04,echo*2.5)){ if(!loudSince) loudSince=now; else if(now-loudSince>=300){ clearInterval(iv); cfHush(); convBusy=false; convListen(); } }
+    else loudSince=0; },50);
+  return ()=>clearInterval(iv); }
 function convPaint(){ const b=$('#convBtn'); if(!b) return;
   b.classList.toggle('primary',convOn); b.setAttribute('aria-pressed',convOn?'true':'false');
   b.textContent=convOn?'● In conversation':'💬 Conversation';
   const h=$('#convHint'); if(h) h.hidden=!convOn; }
-function convStop(why){ convOn=false; convBusy=false; try{ convRecog&&convRecog.stop() }catch(e){} cfHush(); convPaint(); if(why) toast(why); }
+function convStop(why){ convOn=false; convBusy=false; try{ convRecog&&convRecog.stop() }catch(e){} convMicClose(); cfHush(); convPaint(); if(why) toast(why); }
 function convListen(){ if(!convOn||convBusy) return;
   try{ convRecog.start() }catch(e){}                      // already running: harmless
   $('#q').placeholder='Listening — just talk'; }
 function convStart(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(!SR){ toast('Conversation needs Chrome or Safari'); return }
-  if(!speakOn){ $('#speakBtn').click() }                   // a conversation that cannot answer aloud is not one
+  if(!speakOn){ $('#speakBtn').click() } cfWarm();         // a conversation that cannot answer aloud is not one
   convRecog=new SR(); convRecog.lang=(window.CFVOICE||{}).language||'en-GB';
-  convRecog.continuous=false; convRecog.interimResults=true;
-  let heard='';
-  convRecog.onresult=e=>{ heard=''; for(const r of e.results) heard+=r[0].transcript; $('#q').value=heard; };
+  convRecog.continuous=true; convRecog.interimResults=true;   // the turn ends on our quiet timer, not the recogniser's first pause
+  let heard='', quiet=null;
+  convRecog.onresult=e=>{ heard=''; for(const r of e.results) heard+=r[0].transcript; $('#q').value=heard;
+    clearTimeout(quiet); quiet=setTimeout(()=>{ try{ convRecog.stop() }catch(x){} }, CONV_TRAIL.test(heard.trim())?CONV_TRAIL_MS:CONV_QUIET_MS); };
   convRecog.onerror=ev=>{ if(ev.error==='not-allowed'||ev.error==='service-not-allowed') return convStop('Microphone blocked — allow it in the address bar');
     if(ev.error!=='no-speech'&&ev.error!=='aborted') toast('Mic: '+ev.error,'warn'); };
   convRecog.onend=async()=>{
-    if(!convOn) return;
+    clearTimeout(quiet); if(!convOn) return;
     const said=(heard||'').trim(); heard='';
     if(!said){ return convListen(); }                      // a pause with nothing in it: keep waiting
     convBusy=true; $('#q').value=said; $('#q').placeholder='Thinking…';
+    const guardOff=convGuard();
     try{ await send(); }catch(e){ toast('Turn failed: '+e.message,'warn') }
-    convBusy=false; if(convOn) convListen();               // the voice has finished; the floor is his again
+    guardOff(); convBusy=false; if(convOn) convListen();               // the voice has finished; the floor is his again
   };
-  convOn=true; convPaint(); convListen();
-  toast('Conversation on — talk, then pause. Escape interrupts.');
+  convOn=true; convPaint(); convListen(); convMicOpen();
+  toast('Conversation on — talk, then pause. Talk over it, hold Space or press Escape to interrupt.');
 }
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&convOn){ cfHush(); } });
 
 async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_key){toast('No Claude API key on the server — add it to .env.local and restart');return}
-  addMsg('user',q); $('#q').value=''; $('#send').disabled=true; const d=addMsg('assistant',''); let acc='', early=null;
+  addMsg('user',q); $('#q').value=''; $('#send').disabled=true; const d=addMsg('assistant',''); let acc='', early=null, spk=null, said=0;
   try{ const r=await fetch(`/api/courses/${cid}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:q,mode,model:$('#modelSel').value,speech:speakOn})});
     const rd=r.body.getReader(); const td=new TextDecoder(); let buf='';
     while(true){const {value,done}=await rd.read(); if(done) break; buf+=td.decode(value,{stream:true}); const lines=buf.split('\n\n'); buf=lines.pop();
       for(const l of lines){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; const j=JSON.parse(p); if(j.model){d.dataset.model=j.model; continue} if(j.reading){d.dataset.reading=JSON.stringify(j.reading); showReading(j.reading); continue} if(j.usage){d.dataset.usage=JSON.stringify(j.usage); sessionCost+=(j.usage.cost||0); localStorage.setItem('cf.cost',sessionCost); showCost(); continue} if(j.unverified){d.dataset.unverified=JSON.stringify(j.unverified); continue} if(j.error){d.textContent+='\n[error] '+j.error; d.style.borderLeftColor='var(--warn)'} else { acc+=j.t; d.textContent=acc.replace(CF_SPEECH,'');   // the spoken part is for the ear: it never shows, and it is spoken the moment it closes, while the written answer is still arriving
-        if(speakOn&&!early){ const m=acc.match(/<speech>([\s\S]*?)<\/speech>/); if(m&&m[1].trim()){ d.dataset.speech=m[1].trim(); early=speak(d.dataset.speech); } } } $('#chat').scrollTop=$('#chat').scrollHeight; } }
+        if(speakOn&&!(spk&&spk.closed)){ const m=acc.match(/<speech>([\s\S]*?)(<\/speech>|$)/);   // speak each sentence of it as soon as it is whole
+          if(m){ if(!spk){ spk=cfQueue(); spk.closed=false; early=spk.done; }
+            const rest=m[1].slice(said), cut=m[2]?rest.length:(()=>{ let k=-1; for(const x of rest.matchAll(/[.!?](?=\s)/g)) k=x.index+1; return k>=40?k:-1 })();
+            if(cut>0){ spk.push(rest.slice(0,cut)); said+=cut; }
+            if(m[2]){ spk.close(); spk.closed=true; d.dataset.speech=m[1].trim(); } } } } $('#chat').scrollTop=$('#chat').scrollHeight; } }
   }catch(e){d.textContent+='\n[error] '+e.message}
+  if(spk&&!spk.closed){ const m=acc.match(/<speech>([\s\S]*)/); if(m) spk.push(m[1].slice(said)); spk.close(); spk.closed=true; }
   let raw=d.textContent; const sm=raw.match(/<speech>([\s\S]*?)<\/speech>\s*$/); if(sm){ d.dataset.speech=sm[1].trim(); raw=raw.replace(sm[0],'').trim() } await render(d,raw);
   lastSpeech=d.dataset.speech||raw.replace(/```[\s\S]*?```/g,' (see the diagram on screen) ');
   if(d.dataset.unverified){   // cited by the tutor, found in none of the ticked files: check before relying on it
