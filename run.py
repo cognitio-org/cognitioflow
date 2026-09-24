@@ -1019,36 +1019,70 @@ def clear_messages(cid: str):
     with db() as d: d.execute("DELETE FROM messages WHERE course_id=?", (cid,))
     return {"ok": True}
 
-@app.post("/api/courses/{cid}/chat")
-def chat(cid: str, body: ChatIn):
-    course = rows("SELECT * FROM courses WHERE id=?", cid)
-    if not course: raise HTTPException(404)
-    course = course[0]
-    text_parts, images, narrowed = build_context(cid, body.message)
-    system = [{"type": "text", "text": BASE_PROMPT + "\n" + (course["tutor_prompt"] or "") + "\n" + MODES.get(body.mode, MODES["drill"])}]
-    log.debug("tutor system prompt (course %s, mode %s):\n%s", cid, body.mode, system[0]["text"])
+def _tutor_prompt(cid: str, course, mode: str, speech: bool, question: str):
+    """The system blocks and history a tutor turn sends. One builder, so the voice's cache warm-up
+    (/warm) writes exactly the prefix the next real turn will read."""
+    text_parts, images, narrowed = build_context(cid, question)
+    system = [{"type": "text", "text": BASE_PROMPT + "\n" + (course["tutor_prompt"] or "") + "\n" + MODES.get(mode, MODES["drill"])}]
+    log.debug("tutor system prompt (course %s, mode %s):\n%s", cid, mode, system[0]["text"])
     if text_parts:
         heading = "COURSE PASSAGES (from the files you ticked; quote them):" if narrowed else "COURSE FILES:"
         trimmed = f"\n\n[Not included for this question: {', '.join(narrowed['trimmed'])}. Ask to read everything if you need them.]" if (narrowed and narrowed["trimmed"]) else ""
         system.append({"type": "text", "text": heading + "\n" + "\n\n".join(text_parts) + trimmed, "cache_control": {"type": "ephemeral"}})
     else:
         system.append({"type": "text", "text": "COURSE FILES: none selected. Say so if the question needs them."})
-    if body.speech:   # after the cached blocks, so turning the voice on does not throw the file cache away
+    if speech:   # after the cached blocks, so turning the voice on does not throw the file cache away
         system.append({"type": "text", "text": VOICE_RULE})
     history = [{"role": m["role"], "content": m["content"]} for m in messages(cid)][-30:]
     if history:   # the conversation so far is cached too: measured 2026-09-24, ~12k history tokens were re-sent uncached on every turn
         history[-1] = {"role": history[-1]["role"], "content": [{"type": "text", "text": history[-1]["content"], "cache_control": {"type": "ephemeral"}}]}
+    return system, history, images, narrowed
+
+
+def _turn_model(mode: str, model: Optional[str], message: str, speech: bool) -> str:
+    chosen = pick_model(mode, model, message)
+    if speech and (model or "auto") == "auto":
+        # A spoken turn is a conversation, and a pause is the failure. Measured on the live site 2026-09-24 with
+        # the European Law files: Sonnet had its spoken part ready at 16 s cold and 8.4 s warm; Haiku at 2.0 s cold.
+        # A model he picks by hand still wins.
+        chosen = CHEAP_MODEL
+    return chosen
+
+
+class WarmIn(BaseModel): mode: str = "drill"; model: Optional[str] = None
+
+
+@app.post("/api/courses/{cid}/warm")
+def warm(cid: str, body: WarmIn):
+    """Load the course into Claude's prompt cache the moment he reaches for the voice, so his first spoken
+    question reads it instead of writing it. Measured live 2026-09-24: first spoken turn after a quiet spell
+    10 s (cache write, 54k tokens), the next 1.9 s (cache read). One token out; about $0.07 on Haiku when the
+    cache was cold, about half a cent when it was already warm. The page calls it at most every 4 minutes."""
+    course = rows("SELECT * FROM courses WHERE id=?", cid)
+    if not course: raise HTTPException(404)
+    if RETRIEVAL and embed.ready():   # each question gets its own passages, so there is no shared prefix to warm
+        return {"warmed": False, "why": "retrieval narrows the files per question"}
+    system, history, _, _ = _tutor_prompt(cid, course[0], body.mode, True, "")
+    chosen = _turn_model(body.mode, body.model, "", True)
+    try:
+        r = client().messages.create(model=llm.resolve(chosen), max_tokens=1, system=system,
+                                     messages=history + [{"role": "user", "content": "(loading the course; reply with one word)"}])
+    except Exception as e:
+        return {"warmed": False, "why": f"{type(e).__name__}: {e}"[:200]}
+    return {"warmed": True, "model": chosen, "usage": llm.usage(r, "warm")}
+
+
+@app.post("/api/courses/{cid}/chat")
+def chat(cid: str, body: ChatIn):
+    course = rows("SELECT * FROM courses WHERE id=?", cid)
+    if not course: raise HTTPException(404)
+    system, history, images, narrowed = _tutor_prompt(cid, course[0], body.mode, body.speech, body.message)
     user_content = images + [{"type": "text", "text": body.message}] if images else body.message
     with db() as d: d.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uuid.uuid4().hex, cid, "user", body.message, time.time()))
 
     def gen():
         out = []
-        chosen = pick_model(body.mode, body.model, body.message)
-        if body.speech and (body.model or "auto") == "auto":
-            # A spoken turn is a conversation, and a pause is the failure. Measured on the live site 2026-09-24 with
-            # the European Law files: Sonnet had its spoken part ready at 16 s cold and 8.4 s warm; Haiku at 2.0 s cold.
-            # A model he picks by hand still wins.
-            chosen = CHEAP_MODEL
+        chosen = _turn_model(body.mode, body.model, body.message, body.speech)
         yield f"data: {json.dumps({'model': chosen})}\n\n"
         if narrowed:
             yield f"data: {json.dumps({'reading': {'used': narrowed['used'], 'trimmed': narrowed['trimmed'], 'chars': narrowed['chars']}})}\n\n"
@@ -1073,7 +1107,7 @@ def chat(cid: str, body: ChatIn):
             # nowhere are named under the answer. With nothing ticked there is nothing to check against, so
             # nothing is flagged; the prompt already tells the tutor to say so.
             sources = [r["text"] for r in rows("SELECT text FROM files WHERE course_id=? AND selected=1", cid) if r["text"]]
-            missing = citecheck.unverified(full, sources + text_parts) if sources else []
+            missing = citecheck.unverified(full, sources) if sources else []   # the full ticked files already hold every passage sent
             if missing:
                 yield f"data: {json.dumps({'unverified': [c['raw'] for c in missing]})}\n\n"
         yield "data: [DONE]\n\n"

@@ -288,7 +288,8 @@ $('#fileInput').addEventListener('change',e=>upload([...e.target.files]));
 const drop=$('#drop'); ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')})); ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')})); drop.addEventListener('drop',e=>upload([...e.dataTransfer.files])); drop.querySelector('label').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#fileInput').click()}});
 
 /* tutor */
-async function loadTutor(){ const fs=await api(`/courses/${cid}/files`); const sel=fs.filter(f=>f.selected); $('#tutorSub').textContent=`${C().name} · auto-routing: notes and cards on ${(cfg.cheap_model||'').replace('claude-','')}, drilling on ${(cfg.model||'').replace('claude-','')}`;
+async function loadTutor(){ if(speakOn) cfWarm();   // the voice is already on: have the course ready before he speaks
+  const fs=await api(`/courses/${cid}/files`); const sel=fs.filter(f=>f.selected); $('#tutorSub').textContent=`${C().name} · auto-routing: notes and cards on ${(cfg.cheap_model||'').replace('claude-','')}, drilling on ${(cfg.model||'').replace('claude-','')}`;
   $('#ctxList').innerHTML=sel.length?sel.map(f=>`<li><span>${esc(f.name)}</span></li>`).join(''):'<li class="muted">No files ticked in Files.</li>';
   const chars=sel.reduce((a,f)=>a+(f.chars||0),0); $('#ctxSize').textContent=chars?`≈ ${Math.round(chars/4/1000)}k tokens of text per message${chars>180000?' — over budget, later files will be truncated':''}`:'';
   const ms=await api(`/courses/${cid}/messages`); const ch=$('#chat'); ch.innerHTML=''; ms.forEach(m=>{const d=addMsg(m.role,m.content); if(m.role==='assistant') render(d,m.content)}); if(!ms.length) addMsg('assistant',`Tutor for ${C().name}. Tick files in Files, then ask — or say "drill me on ${sel[0]?sel[0].name.replace(/\.\w+$/,''):'this week'}".`); ch.scrollTop=ch.scrollHeight;
@@ -422,7 +423,16 @@ function cfQueue(){
            close(){ if(closed) return; if(tail){ items.push(tail); fetchAt(items.length-1); tail=''; } closed=true; poke(); }, done }; }
 /* Waking the server costs nothing and a cold Cloud Run start costs seconds, so the moment he reaches for the
    voice (turns it on, starts a conversation, presses to talk) the instance is asked to wake. At most once a minute. */
-let cfWarmAt=0; function cfWarm(){ if(Date.now()-cfWarmAt<60000) return; cfWarmAt=Date.now(); fetch('/health',{cache:'no-store'}).catch(()=>{}); }
+let cfWarmAt=0; const cfPrimed={};
+function cfWarm(){ const now=Date.now();
+  if(now-cfWarmAt>=60000){ cfWarmAt=now; fetch('/health',{cache:'no-store'}).catch(()=>{}); }
+  /* ...and load this course into Claude's cache, so the first spoken question reads it instead of writing it
+     (live: 10 s cold, 1.9 s warm). The cache lives about five minutes; every four is enough. */
+  const model=$('#modelSel')?.value||'auto', k=cid+'|'+mode+'|'+model;
+  if(!cid||now-(cfPrimed[k]||0)<240000) return; cfPrimed[k]=now;
+  fetch(`/api/courses/${cid}/warm`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,model})})
+    .then(r=>r.ok?r.json():null).then(j=>{ if(j&&j.usage&&j.usage.cost){ sessionCost+=j.usage.cost; localStorage.setItem('cf.cost',sessionCost); showCost(); } })
+    .catch(()=>{}); }
 function showReading(r){
   /* Which of your own materials answered the last question, and what did not fit. */
   const box=$('#ctxAnswer'); if(!box) return;
