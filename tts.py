@@ -168,10 +168,15 @@ def say(text: str):
     return None
 
 
+_google_client = None
+
+
 def _google(line: str):
+    global _google_client
     from google.cloud import texttospeech as t
-    client = t.TextToSpeechClient()
-    audio = client.synthesize_speech(
+    if _google_client is None:   # one channel for the life of the instance: a new client per sentence is a new TLS handshake
+        _google_client = t.TextToSpeechClient()
+    audio = _google_client.synthesize_speech(
         input=t.SynthesisInput(text=line),
         voice=t.VoiceSelectionParams(language_code=LANGUAGE, name=os.environ.get("TTS_VOICE", "en-GB-Chirp3-HD-Charon")),
         audio_config=t.AudioConfig(audio_encoding=t.AudioEncoding.MP3, speaking_rate=1.05),

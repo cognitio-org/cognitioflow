@@ -54,3 +54,54 @@ def test_voice_sockets_are_allowed_an_hour_on_cloud_run():
     # WebSockets obey the service request timeout, which defaults to 5 minutes; dictation expects 9.5 and the live tutor 14
     with open(os.path.join(ROOT, ".github", "workflows", "deploy.yml")) as f:
         assert "--timeout 3600" in f.read()
+
+
+def _model_used(client, speech, model):
+    cid = client.post("/api/courses", json={"name": "Voice Model Law"}).json()["id"]
+
+    class FakeStream:
+        text_stream = iter(["<speech>Yes.</speech>ok"])
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    fake = mock.MagicMock()
+    fake.messages.stream.return_value = FakeStream()
+    with mock.patch.object(run, "client", return_value=fake):
+        client.post(f"/api/courses/{cid}/chat", json={"message": "primacy?", "mode": "explain", "speech": speech, "model": model})
+    return fake.messages.stream.call_args.kwargs["model"]
+
+
+def test_a_spoken_turn_on_auto_uses_the_fast_model(client):
+    # measured on the live site: Sonnet's spoken part was ready at 16 s cold, Haiku's at 2.0 s
+    assert _model_used(client, True, "auto") == run.llm.resolve(run.CHEAP_MODEL)
+
+
+def test_a_model_he_picks_still_wins_and_typed_turns_are_unchanged(client):
+    assert _model_used(client, True, run.MODEL) == run.llm.resolve(run.MODEL)
+    assert _model_used(client, False, "auto") == run.llm.resolve(run.pick_model("explain", "auto", "primacy?"))
+
+
+def test_the_conversation_so_far_is_cached(client):
+    cid, _, _ = _chat(client, speech=True)
+
+    class FakeStream:
+        text_stream = iter(["again"])
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    fake = mock.MagicMock()
+    fake.messages.stream.return_value = FakeStream()
+    with mock.patch.object(run, "client", return_value=fake):
+        client.post(f"/api/courses/{cid}/chat", json={"message": "and primacy?", "mode": "explain"})
+    msgs = fake.messages.stream.call_args.kwargs["messages"]
+    assert msgs[-2]["content"][0]["cache_control"] == {"type": "ephemeral"}   # the last message before this question
+    assert isinstance(msgs[-1]["content"], str)
+
+
+def test_the_deployed_voice_is_google_and_its_library_ships():
+    # Edge TTS is unofficial and measured 1.4-2 s a sentence from europe-west4; Chirp 3 HD measured 0.8-1 s.
+    # Without the library the google backend raises on import, say() swallows it, and he hears the robot voice.
+    with open(os.path.join(ROOT, ".github", "workflows", "deploy.yml")) as f:
+        assert "TTS=google" in f.read()
+    with open(os.path.join(ROOT, "requirements.txt")) as f:
+        assert "google-cloud-texttospeech" in f.read()

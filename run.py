@@ -1004,8 +1004,11 @@ MODES = {
 # Claude to write it.
 VOICE_RULE = ("VOICE IS ON: he is listening, not reading. Open your reply with <speech>...</speech>: what you would "
               "say to him out loud, at most 40 words, in plain spoken sentences - no markdown, no lists, no provenance "
-              "tags, case names said as a person says them. Then close the tag and write your answer for the screen "
-              "as usual. The spoken part asks or answers; the screen carries the rules, articles and cases.")
+              "tags, case names said as a person says them. Then close the tag and write the screen part as a compact "
+              "visual card he can glance at while you talk: a one-line **bold rule**, the deciding *case* with its "
+              "citation, and - when the structure has parts or steps - a small table or a ```mermaid flowchart. "
+              "No preamble, no repeating the spoken part. The spoken part asks or answers; the screen carries the "
+              "rules, articles and cases.")
 SPEECH_BLOCK = re.compile(r"<speech>[\s\S]*?(?:</speech>|$)\s*")
 
 @app.get("/api/courses/{cid}/messages")
@@ -1033,12 +1036,19 @@ def chat(cid: str, body: ChatIn):
     if body.speech:   # after the cached blocks, so turning the voice on does not throw the file cache away
         system.append({"type": "text", "text": VOICE_RULE})
     history = [{"role": m["role"], "content": m["content"]} for m in messages(cid)][-30:]
+    if history:   # the conversation so far is cached too: measured 2026-09-24, ~12k history tokens were re-sent uncached on every turn
+        history[-1] = {"role": history[-1]["role"], "content": [{"type": "text", "text": history[-1]["content"], "cache_control": {"type": "ephemeral"}}]}
     user_content = images + [{"type": "text", "text": body.message}] if images else body.message
     with db() as d: d.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uuid.uuid4().hex, cid, "user", body.message, time.time()))
 
     def gen():
         out = []
         chosen = pick_model(body.mode, body.model, body.message)
+        if body.speech and (body.model or "auto") == "auto":
+            # A spoken turn is a conversation, and a pause is the failure. Measured on the live site 2026-09-24 with
+            # the European Law files: Sonnet had its spoken part ready at 16 s cold and 8.4 s warm; Haiku at 2.0 s cold.
+            # A model he picks by hand still wins.
+            chosen = CHEAP_MODEL
         yield f"data: {json.dumps({'model': chosen})}\n\n"
         if narrowed:
             yield f"data: {json.dumps({'reading': {'used': narrowed['used'], 'trimmed': narrowed['trimmed'], 'chars': narrowed['chars']}})}\n\n"

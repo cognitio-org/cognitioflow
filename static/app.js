@@ -415,8 +415,11 @@ function cfQueue(){
       URL.revokeObjectURL(src); if(run!==cfRun) return false; cfAudio=null;
       if(!ok){ browser=true; i--; }                                 // autoplay refused: same rule
     } })();
-  return { push(t){ if(closed) return; for(const c of cfChunks(cfClean(t))) items.push(c); fetchAt(cur); fetchAt(cur+1); poke(); },   // the next sentence is fetched while this one plays
-           close(){ closed=true; poke(); }, done }; }
+  let tail='';   // everything after the first sentence, spoken as ONE piece: each piece costs a round trip and a seam you can hear
+  return { push(t){ if(closed) return; const cs=cfChunks(cfClean(t)); if(!cs.length) return;
+             if(!items.length){ items.push(cs.shift()); fetchAt(0); }   // the first sentence alone, so the voice starts early
+             tail=(tail+' '+cs.join(' ')).trim(); poke(); },
+           close(){ if(closed) return; if(tail){ items.push(tail); fetchAt(items.length-1); tail=''; } closed=true; poke(); }, done }; }
 /* Waking the server costs nothing and a cold Cloud Run start costs seconds, so the moment he reaches for the
    voice (turns it on, starts a conversation, presses to talk) the instance is asked to wake. At most once a minute. */
 let cfWarmAt=0; function cfWarm(){ if(Date.now()-cfWarmAt<60000) return; cfWarmAt=Date.now(); fetch('/health',{cache:'no-store'}).catch(()=>{}); }
@@ -598,6 +601,11 @@ function stopDialog(){ if(dlg) dlg.stop(); }
 $('#speakBtn').onclick=()=>{ speakOn=!speakOn; if(speakOn) cfWarm(); localStorage.setItem('cf.speak',speakOn?'1':'0');
   $('#speakBtn').setAttribute('aria-pressed',speakOn?'true':'false'); $('#speakBtn').classList.toggle('primary',speakOn);
   if(!speakOn) cfHush(); else { if(lastSpeech) speak(lastSpeech); else toast('Replies will be read aloud — the tutor now writes a spoken version of each answer'); } };
+function cfLive(d,t){ d._live=t; if(d._liveT) return;   // at most every 120 ms: formatted as it streams, the final render() adds the diagrams
+  d._liveT=setTimeout(()=>{ d._liveT=null; const txt=d._live||'';
+    if(!window.marked){ d.textContent=txt; return }
+    d.classList.add('md'); d.innerHTML=marked.parse(txt.replace(/```(?:mermaid|svg)[\s\S]*?(?:```|$)/g,'\n\n*drawing the diagram…*\n\n'),{breaks:true});
+    $('#chat').scrollTop=$('#chat').scrollHeight; },120); }
 const CF_SPEECH=/<speech>[\s\S]*?(?:<\/speech>|$)\s*/;
 function speak(text){ if(!speakOn||!text||!text.trim()) return Promise.resolve(false); return cfSpeak(text,{serverMax:TUTOR_SERVER_CHARS}); }
 
@@ -670,19 +678,20 @@ function convStart(){
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&convOn){ cfHush(); } });
 
 async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_key){toast('No Claude API key on the server — add it to .env.local and restart');return}
-  addMsg('user',q); $('#q').value=''; $('#send').disabled=true; const d=addMsg('assistant',''); let acc='', early=null, spk=null, said=0;
+  addMsg('user',q); $('#q').value=''; $('#send').disabled=true; const d=addMsg('assistant',''); let acc='', err='', early=null, spk=null, said=0;
   try{ const r=await fetch(`/api/courses/${cid}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:q,mode,model:$('#modelSel').value,speech:speakOn})});
     const rd=r.body.getReader(); const td=new TextDecoder(); let buf='';
     while(true){const {value,done}=await rd.read(); if(done) break; buf+=td.decode(value,{stream:true}); const lines=buf.split('\n\n'); buf=lines.pop();
-      for(const l of lines){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; const j=JSON.parse(p); if(j.model){d.dataset.model=j.model; continue} if(j.reading){d.dataset.reading=JSON.stringify(j.reading); showReading(j.reading); continue} if(j.usage){d.dataset.usage=JSON.stringify(j.usage); sessionCost+=(j.usage.cost||0); localStorage.setItem('cf.cost',sessionCost); showCost(); continue} if(j.unverified){d.dataset.unverified=JSON.stringify(j.unverified); continue} if(j.error){d.textContent+='\n[error] '+j.error; d.style.borderLeftColor='var(--warn)'} else { acc+=j.t; d.textContent=acc.replace(CF_SPEECH,'');   // the spoken part is for the ear: it never shows, and it is spoken the moment it closes, while the written answer is still arriving
+      for(const l of lines){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; const j=JSON.parse(p); if(j.model){d.dataset.model=j.model; continue} if(j.reading){d.dataset.reading=JSON.stringify(j.reading); showReading(j.reading); continue} if(j.usage){d.dataset.usage=JSON.stringify(j.usage); sessionCost+=(j.usage.cost||0); localStorage.setItem('cf.cost',sessionCost); showCost(); continue} if(j.unverified){d.dataset.unverified=JSON.stringify(j.unverified); continue} if(j.error){err+='\n[error] '+j.error; d.style.borderLeftColor='var(--warn)'; cfLive(d,acc.replace(CF_SPEECH,'')+err)} else { acc+=j.t; cfLive(d,acc.replace(CF_SPEECH,''));   // the spoken part is for the ear: it never shows, and it is spoken the moment it closes, while the written answer is still arriving
         if(speakOn&&!(spk&&spk.closed)){ const m=acc.match(/<speech>([\s\S]*?)(<\/speech>|$)/);   // speak each sentence of it as soon as it is whole
           if(m){ if(!spk){ spk=cfQueue(); spk.closed=false; early=spk.done; }
             const rest=m[1].slice(said), cut=m[2]?rest.length:(()=>{ let k=-1; for(const x of rest.matchAll(/[.!?](?=\s)/g)) k=x.index+1; return k>=40?k:-1 })();
             if(cut>0){ spk.push(rest.slice(0,cut)); said+=cut; }
             if(m[2]){ spk.close(); spk.closed=true; d.dataset.speech=m[1].trim(); } } } } $('#chat').scrollTop=$('#chat').scrollHeight; } }
-  }catch(e){d.textContent+='\n[error] '+e.message}
+  }catch(e){err+='\n[error] '+e.message}
+  clearTimeout(d._liveT); d._liveT=null;
   if(spk&&!spk.closed){ const m=acc.match(/<speech>([\s\S]*)/); if(m) spk.push(m[1].slice(said)); spk.close(); spk.closed=true; }
-  let raw=d.textContent; const sm=raw.match(/<speech>([\s\S]*?)<\/speech>\s*$/); if(sm){ d.dataset.speech=sm[1].trim(); raw=raw.replace(sm[0],'').trim() } await render(d,raw);
+  let raw=(acc.replace(CF_SPEECH,'')+err).trim(); const sm=raw.match(/<speech>([\s\S]*?)<\/speech>\s*$/); if(sm){ d.dataset.speech=sm[1].trim(); raw=raw.replace(sm[0],'').trim() } await render(d,raw);
   lastSpeech=d.dataset.speech||raw.replace(/```[\s\S]*?```/g,' (see the diagram on screen) ');
   if(d.dataset.unverified){   // cited by the tutor, found in none of the ticked files: check before relying on it
     const w=document.createElement('div'); w.className='small unverified'; w.style.cssText='margin-top:.4rem;color:var(--warn)';
