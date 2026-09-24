@@ -34,7 +34,14 @@ def _same(cited: dict, known: dict) -> bool:
     return cited["norm"] == known["norm"]
 
 
+def _bare_case(norm: str, text: str) -> bool:
+    """Cases before 1989 have no C- prefix: a reader cites Simmenthal as "Case 106/77", the tutor as "C-106/77"."""
+    return re.search(r"(?<![\d/])" + re.escape(norm[2:]) + r"(?![\d/])", text) is not None
+
+
 def unverified(answer: str, sources: list[str]) -> list[dict]:
     """The citations in `answer` that appear in none of `sources`."""
     known = [c for s in sources for c in find_citations(s)]
-    return [c for c in find_citations(answer) if not any(_same(c, k) for k in known)]
+    text = "\n".join(sources)
+    return [c for c in find_citations(answer)
+            if not any(_same(c, k) for k in known) and not (c["kind"] == "case" and _bare_case(c["norm"], text))]
