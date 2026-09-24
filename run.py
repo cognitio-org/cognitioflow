@@ -249,7 +249,7 @@ def rows(q, *a):
         return list(c.execute(q, a).fetchall())
 
 @app.get("/")
-def index(): return FileResponse(ROOT / "static" / "index.html")
+def index(): return FileResponse(ROOT / "static" / "index.html", headers={"Cache-Control": "no-cache"})
 
 @app.get("/health")
 @app.get("/healthz")  # local only: Cloud Run reserves paths ending in z and answers /healthz with its own 404
@@ -2891,7 +2891,18 @@ def stats(cid: str):
             "streak": streak, "streak_frozen": frozen,
             "files": files_n["n"], "file_chars": files_n["total_chars"], "study_minutes": minutes, "questions_asked": msgs}
 
-app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
+class AppFiles(StaticFiles):
+    """The app's own page, script and styles revalidate by ETag on every load (a 304 when nothing changed).
+    Without a Cache-Control header Chrome guesses a lifetime from Last-Modified, and on 2026-09-24 a tab
+    opened after a deploy was found running the previous app.js - the new voice code was live and not
+    running. The 3D player below already did this; /static never did."""
+    def file_response(self, full_path, stat_result, scope, status_code=200):
+        resp = super().file_response(full_path, stat_result, scope, status_code)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
+app.mount("/static", AppFiles(directory=ROOT / "static"), name="static")
 class PlayerFiles(StaticFiles):
     """The 3D player: not under /static (public), so AuthMiddleware holds it behind sign-in. Game JSON is not served here.
     Folders named with their version (vendor-r170/, fonts-v1/, assets-v1/: three.js, fonts and glTF sets) never change
