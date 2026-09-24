@@ -1003,8 +1003,10 @@ MODES = {
 # for this block since the voice was added (app.js sends speech: true); nothing on the server asked
 # Claude to write it.
 VOICE_RULE = ("VOICE IS ON: he is listening, not reading. Open your reply with <speech>...</speech>: what you would "
-              "say to him out loud, at most 40 words, in plain spoken sentences - no markdown, no lists, no provenance "
-              "tags, case names said as a person says them. Then close the tag and write the screen part as a compact "
+              "say to him out loud, AT MOST 40 WORDS - two or three short sentences, the warmth fits inside that - in plain spoken sentences - no markdown, no lists, no provenance "
+              "tags, case names said as a person says them. Sound like a warm, encouraging tutor sitting next to him: "
+              "contractions, a natural rhythm, a quick friendly word when it fits (\"Good question.\", \"Nearly -\"), never "
+              "curt or clipped. Then close the tag and write the screen part as a compact "
               "visual card he can glance at while you talk: a one-line **bold rule**, the deciding *case* with its "
               "citation, and - when the structure has parts or steps - a small table or a ```mermaid flowchart. "
               "No preamble, no repeating the spoken part. The spoken part asks or answers; the screen carries the "
@@ -1467,12 +1469,12 @@ def court_reply(cid: str, r: CourtReplyIn):
 
 
 # ---------------------------------------------------------------- oral revision (Phase 11c)
-class SpeakIn(BaseModel): text: str
+class SpeakIn(BaseModel): text: str; voice: Optional[str] = None   # a name from tts.GOOGLE_VOICES; anything else is ignored
 
 @app.post("/api/speak")
 def speak(s: SpeakIn):
     """One spoken line. 204 means 'no server voice configured' — the page then speaks for itself."""
-    out = tts.say(s.text)
+    out = tts.say(s.text, s.voice)
     if not out: return Response(status_code=204)
     audio, media = out
     return Response(content=audio, media_type=media, headers={"Cache-Control": "no-store"})

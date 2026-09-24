@@ -138,12 +138,28 @@ def available() -> bool:
     return False
 
 
+# The voices the page may pick between (Google Chirp 3 HD, en-GB). A short list on purpose: the name travels
+# from the browser, so only these are ever passed on. Charon was the only voice until 2026-09-24.
+GOOGLE_VOICES = [("Charon", "m"), ("Achird", "m"), ("Iapetus", "m"), ("Kore", "f"), ("Aoede", "f"), ("Sulafat", "f")]
+
+
+def voice_name(choice: str = None) -> str:
+    """A chosen voice when it is on the list, else the configured default."""
+    names = {n.lower(): n for n, _ in GOOGLE_VOICES}
+    pick = names.get((choice or "").strip().lower())
+    return f"{LANGUAGE}-Chirp3-HD-{pick}" if pick else os.environ.get("TTS_VOICE", "en-GB-Chirp3-HD-Charon")
+
+
 def describe() -> dict:
-    """What the page needs to know: whether to ask the server for audio, or speak for itself."""
-    return {"backend": BACKEND, "server": available(), "language": LANGUAGE}
+    """What the page needs to know: whether to ask the server for audio, or speak for itself, and which voices it can offer."""
+    out = {"backend": BACKEND, "server": available(), "language": LANGUAGE}
+    if BACKEND == "google":
+        out["voices"] = [{"id": n, "gender": g} for n, g in GOOGLE_VOICES]
+        out["voice"] = voice_name().rsplit("-", 1)[-1]
+    return out
 
 
-def say(text: str):
+def say(text: str, voice: str = None):
     """
     Returns (audio_bytes, media_type), or None when the page should use its own voice — which is also
     what happens if a paid backend is selected but not configured, so a missing key degrades to a
@@ -154,7 +170,7 @@ def say(text: str):
         return None
     try:
         if BACKEND == "google":
-            return _google(line)
+            return _google(line, voice)
         if BACKEND == "elevenlabs":
             return _elevenlabs(line)
         if BACKEND == "edge":
@@ -171,14 +187,14 @@ def say(text: str):
 _google_client = None
 
 
-def _google(line: str):
+def _google(line: str, voice: str = None):
     global _google_client
     from google.cloud import texttospeech as t
     if _google_client is None:   # one channel for the life of the instance: a new client per sentence is a new TLS handshake
         _google_client = t.TextToSpeechClient()
     audio = _google_client.synthesize_speech(
         input=t.SynthesisInput(text=line),
-        voice=t.VoiceSelectionParams(language_code=LANGUAGE, name=os.environ.get("TTS_VOICE", "en-GB-Chirp3-HD-Charon")),
+        voice=t.VoiceSelectionParams(language_code=LANGUAGE, name=voice_name(voice)),
         audio_config=t.AudioConfig(audio_encoding=t.AudioEncoding.MP3, speaking_rate=1.05),
     )
     return audio.audio_content, "audio/mpeg"
