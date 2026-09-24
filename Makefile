@@ -6,7 +6,7 @@ dev:
 	uvicorn run:app --reload --env-file .env.local --port $(PORT)
 
 test:
-	pytest tests/ -v --tb=short
+	pytest tests/ -v --tb=short -o faulthandler_timeout=300   # a test still running after 5 min prints where it is stuck
 
 migrate:
 	python -m migrate

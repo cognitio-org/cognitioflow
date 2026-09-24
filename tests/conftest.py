@@ -11,6 +11,20 @@ import sys
 
 # Set DATABASE_URL before importing run so the pool connects to the right DB
 os.environ.setdefault("DATABASE_URL", "postgresql://cf:cf@localhost:5432/cognitioflow")
+
+
+def _harden(url: str) -> str:
+    """No test may wait on the network forever. On 2026-09-24 two deploys in a row froze inside
+    test_storage_api for 18 minutes until the 35-minute job limit cancelled them: a database call with no
+    time limit against a Neon branch in eu-central-1. libpq's connect timeout and TCP keepalives turn a
+    dead link into an error in about half a minute. Client-side only, so Neon's pooler accepts them
+    (it rejects server `options` in the URL; lock and statement limits are SET on connect instead)."""
+    if "keepalives=" in url:
+        return url
+    return url + ("&" if "?" in url else "?") + "connect_timeout=15&keepalives=1&keepalives_idle=15&keepalives_interval=5&keepalives_count=3"
+
+
+os.environ["DATABASE_URL"] = _harden(os.environ["DATABASE_URL"])   # the app's own pool reads it at import, below
 os.environ.setdefault("ANTHROPIC_API_KEY", "sk-ant-test-key")
 # Phase 4: tests run with the dev bypass; tests/test_auth.py turns auth back on per test
 os.environ.setdefault("AUTH", "off")
@@ -35,6 +49,16 @@ import migrate
 
 def _pg_url() -> str:
     return os.environ["DATABASE_URL"]
+
+
+def _bounded(conn):
+    """A TRUNCATE queued behind a lock, or a statement that never returns, fails in a minute instead of
+    holding the whole CI job until it is cancelled."""
+    conn.execute("SET lock_timeout = '60s'")
+    conn.execute("SET statement_timeout = '180s'")
+    if not conn.autocommit:
+        conn.commit()
+    return conn
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -75,7 +99,7 @@ def _truncate_conn(apply_migrations):
     """One connection for the per-test cleanup. In CI the database is a Neon branch across the Atlantic,
     and opening a fresh TLS connection after every test is slow. Holder list so a dropped connection
     can be replaced for the rest of the session."""
-    holder = [psycopg.connect(_pg_url(), autocommit=True)]
+    holder = [_bounded(psycopg.connect(_pg_url(), autocommit=True))]
     yield holder
     holder[0].close()
 
@@ -88,7 +112,7 @@ def clean_tables(_truncate_conn):
         _truncate_conn[0].execute(_TRUNCATE)
     except psycopg.OperationalError:  # the server dropped the connection (idle timeout, compute restart)
         _truncate_conn[0].close()
-        _truncate_conn[0] = psycopg.connect(_pg_url(), autocommit=True)
+        _truncate_conn[0] = _bounded(psycopg.connect(_pg_url(), autocommit=True))
         _truncate_conn[0].execute(_TRUNCATE)
 
 
@@ -104,4 +128,5 @@ def client():
 def pg():
     """Direct psycopg connection for assertions."""
     with psycopg.connect(_pg_url()) as conn:
+        _bounded(conn)
         yield conn
