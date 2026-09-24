@@ -96,3 +96,12 @@ def test_the_conversation_so_far_is_cached(client):
     msgs = fake.messages.stream.call_args.kwargs["messages"]
     assert msgs[-2]["content"][0]["cache_control"] == {"type": "ephemeral"}   # the last message before this question
     assert isinstance(msgs[-1]["content"], str)
+
+
+def test_the_deployed_voice_is_google_and_its_library_ships():
+    # Edge TTS is unofficial and measured 1.4-2 s a sentence from europe-west4; Chirp 3 HD measured 0.8-1 s.
+    # Without the library the google backend raises on import, say() swallows it, and he hears the robot voice.
+    with open(os.path.join(ROOT, ".github", "workflows", "deploy.yml")) as f:
+        assert "TTS=google" in f.read()
+    with open(os.path.join(ROOT, "requirements.txt")) as f:
+        assert "google-cloud-texttospeech" in f.read()
