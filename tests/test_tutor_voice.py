@@ -105,3 +105,34 @@ def test_the_deployed_voice_is_google_and_its_library_ships():
         assert "TTS=google" in f.read()
     with open(os.path.join(ROOT, "requirements.txt")) as f:
         assert "google-cloud-texttospeech" in f.read()
+
+
+def test_the_warm_up_writes_exactly_the_prefix_the_next_spoken_turn_reads(client):
+    cid = client.post("/api/courses", json={"name": "Warm Law"}).json()["id"]
+    client.post(f"/api/courses/{cid}/files", files={"file": ("wg1.txt", io.BytesIO(b"Costa v ENEL, Case 6/64."), "text/plain")})
+    fake = mock.MagicMock()
+    fake.messages.create.return_value = mock.MagicMock()
+
+    class FakeStream:
+        text_stream = iter(["<speech>Primacy.</speech>ok"])
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    fake.messages.stream.return_value = FakeStream()
+    with mock.patch.object(run, "client", return_value=fake), mock.patch.object(run.llm, "usage", return_value={"cost": 0.07}), \
+         mock.patch.object(run, "RETRIEVAL", False):
+        w = client.post(f"/api/courses/{cid}/warm", json={"mode": "explain", "model": "auto"}).json()
+        client.post(f"/api/courses/{cid}/chat", json={"message": "primacy?", "mode": "explain", "speech": True, "model": "auto"})
+    assert w["warmed"] is True and w["usage"]["cost"] == 0.07
+    warm_call, turn_call = fake.messages.create.call_args.kwargs, fake.messages.stream.call_args.kwargs
+    assert warm_call["max_tokens"] == 1
+    assert warm_call["model"] == turn_call["model"] == run.llm.resolve(run.CHEAP_MODEL)
+    assert warm_call["system"] == turn_call["system"]                       # the cached files and voice rule, identical
+    assert warm_call["messages"][:-1] == turn_call["messages"][:-1]         # the cached history, identical
+
+
+def test_no_warm_up_when_each_question_gets_its_own_passages(client):
+    cid = client.post("/api/courses", json={"name": "Narrow Law"}).json()["id"]
+    with mock.patch.object(run, "RETRIEVAL", True), mock.patch.object(run.embed, "ready", return_value=True):
+        assert client.post(f"/api/courses/{cid}/warm", json={"mode": "drill"}).json()["warmed"] is False
+    assert client.post("/api/courses/nope/warm", json={}).status_code == 404
