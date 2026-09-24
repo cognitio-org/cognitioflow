@@ -241,7 +241,7 @@ class NoteIn(BaseModel): title: str = "Untitled"; body: str = ""
 class CardIn(BaseModel): front: str; back: str; source: str = ""; week: str = ""
 class ReviewIn(BaseModel): rating: int  # 0 again, 1 hard, 2 good, 3 easy
 class SessionIn(BaseModel): day: str; topic: str; minutes: int = 60
-class ChatIn(BaseModel): message: str; mode: str = "drill"; model: Optional[str] = None  # model="auto" or explicit
+class ChatIn(BaseModel): message: str; mode: str = "drill"; model: Optional[str] = None; speech: bool = False  # model="auto" or explicit; speech=voice is on
 class GenIn(BaseModel): file_id: Optional[str] = None; count: int = 8; model: Optional[str] = None
 
 def rows(q, *a):
@@ -997,6 +997,17 @@ MODES = {
               "anything outside the ticked files [OUTSIDE FILES]. Finish with a 'Bottom line' of two sentences."),
 }
 
+# Voice on: the page speaks the <speech> block the moment it closes, while the written answer is still
+# streaming. Before this, the page waited for the whole answer and then read all of it aloud, markdown
+# included, and anything over 1,500 characters went to the robotic browser voice. The page has asked
+# for this block since the voice was added (app.js sends speech: true); nothing on the server asked
+# Claude to write it.
+VOICE_RULE = ("VOICE IS ON: he is listening, not reading. Open your reply with <speech>...</speech>: what you would "
+              "say to him out loud, at most 40 words, in plain spoken sentences - no markdown, no lists, no provenance "
+              "tags, case names said as a person says them. Then close the tag and write your answer for the screen "
+              "as usual. The spoken part asks or answers; the screen carries the rules, articles and cases.")
+SPEECH_BLOCK = re.compile(r"<speech>[\s\S]*?(?:</speech>|$)\s*")
+
 @app.get("/api/courses/{cid}/messages")
 def messages(cid: str): return rows("SELECT id,role,content,created FROM messages WHERE course_id=? ORDER BY created", cid)
 
@@ -1019,6 +1030,8 @@ def chat(cid: str, body: ChatIn):
         system.append({"type": "text", "text": heading + "\n" + "\n\n".join(text_parts) + trimmed, "cache_control": {"type": "ephemeral"}})
     else:
         system.append({"type": "text", "text": "COURSE FILES: none selected. Say so if the question needs them."})
+    if body.speech:   # after the cached blocks, so turning the voice on does not throw the file cache away
+        system.append({"type": "text", "text": VOICE_RULE})
     history = [{"role": m["role"], "content": m["content"]} for m in messages(cid)][-30:]
     user_content = images + [{"type": "text", "text": body.message}] if images else body.message
     with db() as d: d.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uuid.uuid4().hex, cid, "user", body.message, time.time()))
@@ -1042,7 +1055,7 @@ def chat(cid: str, body: ChatIn):
                 yield f"data: {json.dumps({'usage': llm.usage(s.get_final_message(), body.mode)})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
-        full = "".join(out)
+        full = SPEECH_BLOCK.sub("", "".join(out)).strip()   # the spoken part was for the ear; the record keeps the written answer
         if full:
             with db() as d: d.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uuid.uuid4().hex, cid, "assistant", full, time.time()))
             # An invented ECLI reads exactly like a real one. Every case, ECLI and article the answer cites is
