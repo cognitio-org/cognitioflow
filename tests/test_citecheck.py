@@ -22,3 +22,9 @@ def test_a_citation_in_the_materials_is_verified_and_an_invented_one_is_not():
 def test_an_article_without_instrument_matches_any_instrument_but_a_wrong_one_does_not():
     assert citecheck.unverified("Art. 267 applies", ["Article 267 TFEU"]) == []
     assert len(citecheck.unverified("Art. 267 TEU", ["Article 267 TFEU"])) == 1
+
+
+def test_an_old_case_cited_with_a_prefix_matches_the_bare_number_in_the_reader():
+    # found live on 2026-09-24: the tutor wrote Simmenthal as C-106/77, the reader has "Case 106/77"
+    assert citecheck.unverified("Simmenthal (C-106/77)", ["Simmenthal, Case 106/77, para 24"]) == []
+    assert len(citecheck.unverified("C-106/77", ["Case 1106/77 and 106/771"])) == 1   # a longer number is not a match
