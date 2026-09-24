@@ -411,7 +411,7 @@ function initVoice(){
   if(!SR){$('#micBtn').disabled=true;$('#micBtn').title='Dictation needs Chrome or Safari';}
   else{ recog=new SR(); recog.lang='en-GB'; recog.continuous=false; recog.interimResults=true;
     recog.onresult=e=>{let t='';for(const r of e.results)t+=r[0].transcript;$('#q').value=t;};
-    recog.onend=()=>{listening=false;$('#micBtn').setAttribute('aria-pressed','false');$('#micBtn').textContent='🎙 Talk';
+    recog.onend=()=>{listening=false;recog.continuous=false;$('#micBtn').setAttribute('aria-pressed','false');$('#micBtn').textContent='🎙 Talk';
       if($('#q').value.trim()) send();};
     recog.onerror=e=>{listening=false;$('#micBtn').textContent='🎙 Talk';toast('Mic: '+e.error,'warn')};
   }
@@ -469,6 +469,36 @@ $('#micBtn').onclick=()=>{ if(listening && !gem){ recog?.stop(); return }  // th
   if(cfg.voice?.gemini && currentMicMode()==='gemini'){ return gem ? gem.stop() : startGemini(); }
   if(!recog) return; if(listening){recog.stop();return}
   cfHush(); listening=true; $('#micBtn').setAttribute('aria-pressed','true'); $('#micBtn').textContent='● Listening'; $('#q').value=''; recog.start(); };
+/* Push-to-talk (voice phase 1): hold Space on the Tutor screen, or hold the button on a phone. Holding is the
+   interruption — pressing silences the tutor first — and letting go sends. It drives the Talk button, so the
+   browser mic and Gemini dictation both work. It only takes Space when nothing else wants it: the page, or an
+   EMPTY question box (a leading space is never typed on purpose). A box with text in it, a focused button,
+   Recall's flashcards and the book's tilt keep Space exactly as before. A tap under 250 ms is not a hold. */
+const PTT_HOLD_MS=250, PTT_TAIL_MS=150;   // a tap is not a hold; keep listening a beat so the last syllable lands
+let ptt=null;   // {timer, on}
+const pttScreen=()=>document.getElementById('tutor')?.classList.contains('active');
+const pttFree=el=>!el||el===document.body||(el.id==='q'&&!el.value.trim());
+function pttDown(){ if(ptt) return; ptt={on:false, timer:setTimeout(()=>{ if(!ptt) return; ptt.on=true;
+    if(recog) recog.continuous=true;                     // a thinking pause mid-hold must not end the turn
+    if(!listening) $('#micBtn').click(); },PTT_HOLD_MS)}; }
+function pttUp(cancel){ if(!ptt) return; const p=ptt; ptt=null; clearTimeout(p.timer); if(!p.on) return;
+  setTimeout(()=>{ if(!listening) return;
+    if(cancel&&recog&&!gem){ $('#q').value=''; recog.abort(); return; }   // Esc: nothing is sent
+    $('#micBtn').click(); },cancel?0:PTT_TAIL_MS); }
+window.addEventListener('keydown',e=>{
+  if(e.code==='Escape'&&ptt){ pttUp(true); return; }
+  if(e.code!=='Space'||e.ctrlKey||e.metaKey||e.altKey||!pttScreen()||!pttFree(document.activeElement)) return;
+  e.preventDefault(); e.stopImmediatePropagation();      // no scroll, no stray space, no other Space handler
+  if(!e.repeat) pttDown(); },true);
+window.addEventListener('keyup',e=>{ if(e.code==='Space'&&ptt){ e.preventDefault(); pttUp(false); } },true);
+window.addEventListener('blur',()=>pttUp(true)); document.addEventListener('visibilitychange',()=>{ if(document.hidden) pttUp(true) });
+(()=>{ const b=document.createElement('button'); b.type='button'; b.id='pttBtn'; b.className='btn small ghost';
+  b.textContent='✋ Hold to talk'; b.title='Hold to talk, let go to send — or hold Space on the keyboard';
+  b.style.cssText='touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;min-height:32px';
+  b.addEventListener('pointerdown',e=>{ e.preventDefault(); try{ b.setPointerCapture(e.pointerId) }catch(err){} pttDown(); });
+  b.addEventListener('pointerup',()=>pttUp(false)); b.addEventListener('pointercancel',()=>pttUp(true));
+  b.addEventListener('contextmenu',e=>e.preventDefault());   // a long press on a phone is a hold, not a menu
+  $('#micBtn').after(document.createTextNode(' '), b); })();
 $('#costState').onclick=()=>{ sessionCost=0; localStorage.setItem('cf.cost',0); showCost() }; showCost();
 /* The spoken tutor: Gemini Live holds both halves of the turn, so the microphone stays open while it
    talks and it stops the moment he does. The browser only moves audio: PCM16 up at 16 kHz, PCM16 back
