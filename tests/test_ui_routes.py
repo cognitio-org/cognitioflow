@@ -582,9 +582,9 @@ def test_speech_and_card_grading_share_one_cached_prompt(client, fake):
 
 def test_speak_returns_audio_or_tells_the_page_to_speak_itself(client, monkeypatch):
     import tts
-    monkeypatch.setattr(tts, "say", lambda text: None)
+    monkeypatch.setattr(tts, "say", lambda text, voice=None: None)
     assert client.post("/api/speak", json={"text": "Hello."}).status_code == 204
-    monkeypatch.setattr(tts, "say", lambda text: (b"ID3fake-mp3", "audio/mpeg"))
+    monkeypatch.setattr(tts, "say", lambda text, voice=None: (b"ID3fake-mp3", "audio/mpeg"))
     r = client.post("/api/speak", json={"text": "Hello."})
     assert r.status_code == 200 and r.content == b"ID3fake-mp3"
     assert r.headers["content-type"] == "audio/mpeg" and r.headers["cache-control"] == "no-store"

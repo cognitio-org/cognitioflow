@@ -326,6 +326,18 @@ async function render(d,raw){
              for(const stray of document.querySelectorAll('body>div[id^="dmm"],body>svg[id^="mm"]')) stray.remove() } }
   if(d.closest('#chat')) $('#chat').scrollTop=$('#chat').scrollHeight;
 }
+/* What he is saying, live, as a bubble in the conversation (not only in the box). It turns into his message
+   when it is sent, marked 🎙 so a spoken prompt reads differently from a typed one. */
+let cfFromVoice=false;
+function cfHeard(t){ $('#q').value=t; const ch=$('#chat'); let b=ch.querySelector('.msg.user.live');
+  if(!String(t||'').trim()){ if(b) b.remove(); return }
+  cfFromVoice=true; if(!b){ b=document.createElement('div'); b.className='msg user live spoken'; ch.appendChild(b) }
+  b.textContent=t; ch.scrollTop=ch.scrollHeight; }
+function cfHeardClear(){ $('#chat')?.querySelector('.msg.user.live')?.remove() }
+/* The tutor's spoken line, shown as a caption on its answer while it is spoken. */
+function cfSaid(d){ if(!d.dataset.said) return; let el=d.querySelector(':scope > .said');
+  if(!el){ el=document.createElement('div'); el.className='said'; el.setAttribute('aria-label','Spoken'); d.prepend(el) }
+  el.textContent=d.dataset.said; }
 function addMsg(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;$('#chat').appendChild(d);$('#chat').scrollTop=$('#chat').scrollHeight;return d}
 const MODE_UI={
   drill:{hint:'Drill: one question at a time, firm correction. Reply with your answer, or say what to drill.',ph:'Your answer — or "drill me on Art 34"'},
@@ -364,7 +376,8 @@ function cfBrowser(parts,run){
     u.onerror=()=>fin(false);
     if(i===parts.length-1){ voiceUtter=u; u.onend=()=>fin(true); }   // keep the last one referenced until it ends
     speechSynthesis.speak(u); }), 3000+parts.join(' ').length*120); }
-const cfServerFetch=s=>fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:s})})
+let cfVoice=(()=>{ try{ return localStorage.getItem('cf.voice')||'' }catch(e){ return '' } })();
+const cfServerFetch=s=>fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:s,voice:cfVoice||undefined})})
   .then(r=>r.ok&&r.status!==204&&/^audio\//.test(r.headers.get('content-type')||'')?r.blob():null).catch(()=>null);
 /* Voicebox on this Mac, reached through the local bridge (~/.cognitio/voicebridge.py). It is only
    there when he studies at the Mac, so it is probed once and never blocks: the server voice and
@@ -449,9 +462,9 @@ function initVoice(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(!SR){$('#micBtn').disabled=true;$('#micBtn').title='Dictation needs Chrome or Safari';}
   else{ recog=new SR(); recog.lang='en-GB'; recog.continuous=false; recog.interimResults=true;
-    recog.onresult=e=>{let t='';for(const r of e.results)t+=r[0].transcript;$('#q').value=t;};
+    recog.onresult=e=>{let t='';for(const r of e.results)t+=r[0].transcript;cfHeard(t);};
     recog.onend=()=>{listening=false;recog.continuous=false;$('#micBtn').setAttribute('aria-pressed','false');$('#micBtn').textContent='🎙 Talk';
-      if($('#q').value.trim()) send();};
+      if($('#q').value.trim()) send(); else cfHeardClear();};
     recog.onerror=e=>{listening=false;$('#micBtn').textContent='🎙 Talk';toast('Mic: '+e.error,'warn')};
   }
   if(cfg.voice?.gemini){ $('#micMode').hidden=false; document.querySelectorAll('#micMode [data-mic]').forEach(b=>b.onclick=()=>setMicMode(b.dataset.mic)); setMicMode(currentMicMode()); }
@@ -461,6 +474,14 @@ function initVoice(){
   // The buttons are built when this file parses, which is before /api/config has answered, so the
   // live tutor was created hidden and stayed hidden. initVoice runs with cfg in hand: decide here.
   const live=$('#dialogBtn'); if(live) live.hidden=!(cfg.voice&&cfg.voice.dialog);
+  const vs=(cfg.voice||{}).voices;
+  if(vs&&vs.length&&!$('#voiceSel')){   // pick the tutor's voice; each change plays a short sample in it
+    const sel=document.createElement('select'); sel.id='voiceSel'; sel.className='small'; sel.setAttribute('aria-label','Tutor voice'); sel.title='The tutor’s voice — changing it plays a sample';
+    sel.innerHTML=vs.map(v=>`<option value="${v.id}">${v.id} ${v.gender==='f'?'♀':'♂'}</option>`).join('');
+    sel.value=vs.some(v=>v.id===cfVoice)?cfVoice:(cfg.voice.voice||vs[0].id);
+    sel.onchange=()=>{ cfVoice=sel.value; try{ localStorage.setItem('cf.voice',cfVoice) }catch(e){}
+      cfSpeak(`Hi, I'm ${cfVoice}. Shall we start with direct effect, or would you rather I test you?`); };
+    $('#speakBtn').after(document.createTextNode(' '), sel); }
 }
 /* ---- Gemini dictation (Phase 8): mic → 16 kHz PCM → this app's relay → Vertex AI; only text comes back ---- */
 let gem=null;
@@ -479,7 +500,7 @@ async function startGemini(){
     clearTimeout(guard); gem=null; listening=false; btn.setAttribute('aria-pressed','false'); btn.textContent='🎙 Talk'; };
   const fallback=message=>{ cleanup(); toast(message);
     if(recog && !gotText){ listening=true; btn.setAttribute('aria-pressed','true'); btn.textContent='● Listening'; $('#q').value=''; recog.start(); } };
-  const finish=()=>{ if(finished) return; finished=true; cleanup(); if($('#q').value.trim()) send(); };
+  const finish=()=>{ if(finished) return; finished=true; cleanup(); if($('#q').value.trim()) send(); else cfHeardClear(); };
   try{
     cfHush();
     stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
@@ -490,10 +511,10 @@ async function startGemini(){
     ws.binaryType='arraybuffer';
     node.port.onmessage=e=>{ if(ws.readyState===1 && !stopped) ws.send(e.data) };
     ws.onmessage=e=>{ let m; try{ m=JSON.parse(e.data) }catch(err){ return }
-      if('interim' in m || 'final' in m){ gotText=true; $('#q').value=('final' in m)?m.final:m.interim; }
+      if('interim' in m || 'final' in m){ gotText=true; cfHeard(('final' in m)?m.final:m.interim); }
       if(m.limit){ toast('Gemini dictation stops at about ten minutes'); gem&&gem.stop(); }
       if(m.error){ finished=true; fallback(m.error+' Using the browser mic.'); }
-      if('done' in m){ if(m.done) $('#q').value=m.done;
+      if('done' in m){ if(m.done) cfHeard(m.done);
         if(m.cost_usd){ sessionCost+=m.cost_usd; localStorage.setItem('cf.cost',sessionCost); showCost(); }
         finish(); } };
     ws.onclose=()=>{ if(finished) return; if(stopped) finish(); else { finished=true; fallback('Gemini dictation is unavailable. Using the browser mic.'); } };
@@ -523,7 +544,7 @@ function pttDown(){ if(ptt) return; cfWarm(); if(convOn){ cfHush(); return; }   
     if(!listening) $('#micBtn').click(); },PTT_HOLD_MS)}; }
 function pttUp(cancel){ if(!ptt) return; const p=ptt; ptt=null; clearTimeout(p.timer); if(!p.on) return;
   setTimeout(()=>{ if(!listening) return;
-    if(cancel&&recog&&!gem){ $('#q').value=''; recog.abort(); return; }   // Esc: nothing is sent
+    if(cancel&&recog&&!gem){ cfHeard(''); recog.abort(); return; }   // Esc: nothing is sent
     $('#micBtn').click(); },cancel?0:PTT_TAIL_MS); }
 window.addEventListener('keydown',e=>{
   if(e.code==='Escape'&&ptt){ pttUp(true); return; }
@@ -614,7 +635,7 @@ $('#speakBtn').onclick=()=>{ speakOn=!speakOn; if(speakOn) cfWarm(); localStorag
 function cfLive(d,t){ d._live=t; if(d._liveT) return;   // at most every 120 ms: formatted as it streams, the final render() adds the diagrams
   d._liveT=setTimeout(()=>{ d._liveT=null; const txt=d._live||'';
     if(!window.marked){ d.textContent=txt; return }
-    d.classList.add('md'); d.innerHTML=marked.parse(txt.replace(/```(?:mermaid|svg)[\s\S]*?(?:```|$)/g,'\n\n*drawing the diagram…*\n\n'),{breaks:true});
+    d.classList.add('md'); d.innerHTML=marked.parse(txt.replace(/```(?:mermaid|svg)[\s\S]*?(?:```|$)/g,'\n\n*drawing the diagram…*\n\n'),{breaks:true}); cfSaid(d);
     $('#chat').scrollTop=$('#chat').scrollHeight; },120); }
 const CF_SPEECH=/<speech>[\s\S]*?(?:<\/speech>|$)\s*/;
 function speak(text){ if(!speakOn||!text||!text.trim()) return Promise.resolve(false); return cfSpeak(text,{serverMax:TUTOR_SERVER_CHARS}); }
@@ -625,7 +646,7 @@ function routeGuess(){ const sel=$('#modelSel').value; if(sel!=='auto'){ $('#rou
   if(m===window.CFMODEL&&(mode==='drill'||mode==='explain')&&t.length<90&&DOWN.some(k=>t.startsWith(k)||t.slice(0,40).includes(k))&&!UP.some(k=>t.includes(k))) m=window.CFCHEAP;
   if(m===window.CFCHEAP&&UP.some(k=>t.includes(k))) m=window.CFMODEL;
   $('#routeHint').textContent = t? '→ '+(m||'').replace('claude-','') : ''; }
-$('#q').addEventListener('input',routeGuess); document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setTimeout(routeGuess,0))); $('#modelSel').addEventListener('change',routeGuess);
+$('#q').addEventListener('input',routeGuess); $('#q').addEventListener('input',()=>{ cfFromVoice=false; cfHeardClear() }); document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setTimeout(routeGuess,0))); $('#modelSel').addEventListener('change',routeGuess);
 /* Conversation mode. The mic and the voice existed already but a human had to press something
    between every turn, which is not a conversation. This runs the loop: listen until a pause, send,
    speak the reply, listen again. Recognition stays closed while the tutor speaks (an open recogniser hears
@@ -669,14 +690,14 @@ function convStart(){
   convRecog=new SR(); convRecog.lang=(window.CFVOICE||{}).language||'en-GB';
   convRecog.continuous=true; convRecog.interimResults=true;   // the turn ends on our quiet timer, not the recogniser's first pause
   let heard='', quiet=null;
-  convRecog.onresult=e=>{ heard=''; for(const r of e.results) heard+=r[0].transcript; $('#q').value=heard;
+  convRecog.onresult=e=>{ heard=''; for(const r of e.results) heard+=r[0].transcript; cfHeard(heard);
     clearTimeout(quiet); quiet=setTimeout(()=>{ try{ convRecog.stop() }catch(x){} }, CONV_TRAIL.test(heard.trim())?CONV_TRAIL_MS:CONV_QUIET_MS); };
   convRecog.onerror=ev=>{ if(ev.error==='not-allowed'||ev.error==='service-not-allowed') return convStop('Microphone blocked — allow it in the address bar');
     if(ev.error!=='no-speech'&&ev.error!=='aborted') toast('Mic: '+ev.error,'warn'); };
   convRecog.onend=async()=>{
     clearTimeout(quiet); if(!convOn) return;
     const said=(heard||'').trim(); heard='';
-    if(!said){ return convListen(); }                      // a pause with nothing in it: keep waiting
+    if(!said){ cfHeardClear(); return convListen(); }                      // a pause with nothing in it: keep waiting
     convBusy=true; $('#q').value=said; $('#q').placeholder='Thinking…';
     const guardOff=convGuard();
     try{ await send(); }catch(e){ toast('Turn failed: '+e.message,'warn') }
@@ -688,20 +709,21 @@ function convStart(){
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&convOn){ cfHush(); } });
 
 async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_key){toast('No Claude API key on the server — add it to .env.local and restart');return}
-  addMsg('user',q); $('#q').value=''; $('#send').disabled=true; const d=addMsg('assistant',''); let acc='', err='', early=null, spk=null, said=0;
+  cfHeardClear(); const um=addMsg('user',q); if(cfFromVoice){ um.classList.add('spoken'); um.title='Spoken' } cfFromVoice=false;
+  $('#q').value=''; $('#send').disabled=true; const d=addMsg('assistant',''); let acc='', err='', early=null, spk=null, said=0;
   try{ const r=await fetch(`/api/courses/${cid}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:q,mode,model:$('#modelSel').value,speech:speakOn})});
     const rd=r.body.getReader(); const td=new TextDecoder(); let buf='';
     while(true){const {value,done}=await rd.read(); if(done) break; buf+=td.decode(value,{stream:true}); const lines=buf.split('\n\n'); buf=lines.pop();
       for(const l of lines){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; const j=JSON.parse(p); if(j.model){d.dataset.model=j.model; continue} if(j.reading){d.dataset.reading=JSON.stringify(j.reading); showReading(j.reading); continue} if(j.usage){d.dataset.usage=JSON.stringify(j.usage); sessionCost+=(j.usage.cost||0); localStorage.setItem('cf.cost',sessionCost); showCost(); continue} if(j.unverified){d.dataset.unverified=JSON.stringify(j.unverified); continue} if(j.error){err+='\n[error] '+j.error; d.style.borderLeftColor='var(--warn)'; cfLive(d,acc.replace(CF_SPEECH,'')+err)} else { acc+=j.t; cfLive(d,acc.replace(CF_SPEECH,''));   // the spoken part is for the ear: it never shows, and it is spoken the moment it closes, while the written answer is still arriving
         if(speakOn&&!(spk&&spk.closed)){ const m=acc.match(/<speech>([\s\S]*?)(<\/speech>|$)/);   // speak each sentence of it as soon as it is whole
-          if(m){ if(!spk){ spk=cfQueue(); spk.closed=false; early=spk.done; }
+          if(m){ d.dataset.said=m[1].trim(); if(!spk){ spk=cfQueue(); spk.closed=false; early=spk.done; }
             const rest=m[1].slice(said), cut=m[2]?rest.length:(()=>{ let k=-1; for(const x of rest.matchAll(/[.!?](?=\s)/g)) k=x.index+1; return k>=40?k:-1 })();
             if(cut>0){ spk.push(rest.slice(0,cut)); said+=cut; }
             if(m[2]){ spk.close(); spk.closed=true; d.dataset.speech=m[1].trim(); } } } } $('#chat').scrollTop=$('#chat').scrollHeight; } }
   }catch(e){err+='\n[error] '+e.message}
   clearTimeout(d._liveT); d._liveT=null;
   if(spk&&!spk.closed){ const m=acc.match(/<speech>([\s\S]*)/); if(m) spk.push(m[1].slice(said)); spk.close(); spk.closed=true; }
-  let raw=(acc.replace(CF_SPEECH,'')+err).trim(); const sm=raw.match(/<speech>([\s\S]*?)<\/speech>\s*$/); if(sm){ d.dataset.speech=sm[1].trim(); raw=raw.replace(sm[0],'').trim() } await render(d,raw);
+  let raw=(acc.replace(CF_SPEECH,'')+err).trim(); const sm=raw.match(/<speech>([\s\S]*?)<\/speech>\s*$/); if(sm){ d.dataset.speech=sm[1].trim(); raw=raw.replace(sm[0],'').trim() } await render(d,raw); cfSaid(d);
   lastSpeech=d.dataset.speech||raw.replace(/```[\s\S]*?```/g,' (see the diagram on screen) ');
   if(d.dataset.unverified){   // cited by the tutor, found in none of the ticked files: check before relying on it
     const w=document.createElement('div'); w.className='small unverified'; w.style.cssText='margin-top:.4rem;color:var(--warn)';

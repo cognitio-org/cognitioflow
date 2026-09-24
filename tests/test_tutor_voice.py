@@ -136,3 +136,23 @@ def test_no_warm_up_when_each_question_gets_its_own_passages(client):
     with mock.patch.object(run, "RETRIEVAL", True), mock.patch.object(run.embed, "ready", return_value=True):
         assert client.post(f"/api/courses/{cid}/warm", json={"mode": "drill"}).json()["warmed"] is False
     assert client.post("/api/courses/nope/warm", json={}).status_code == 404
+
+
+def test_only_listed_voices_reach_google_and_the_rest_fall_back_to_the_default(monkeypatch):
+    import tts
+    monkeypatch.delenv("TTS_VOICE", raising=False)
+    assert tts.voice_name("kore") == "en-GB-Chirp3-HD-Kore"
+    assert tts.voice_name("../../etc") == tts.voice_name(None) == "en-GB-Chirp3-HD-Charon"
+
+
+def test_the_page_is_told_which_voices_it_can_offer(monkeypatch):
+    import tts
+    monkeypatch.setattr(tts, "BACKEND", "google")
+    d = tts.describe()
+    assert {v["id"] for v in d["voices"]} >= {"Charon", "Kore"} and d["voice"] == "Charon"
+
+
+def test_the_chosen_voice_travels_with_each_spoken_line(client):
+    with mock.patch.object(run.tts, "say", return_value=(b"ID3", "audio/mpeg")) as say:
+        r = client.post("/api/speak", json={"text": "Good question.", "voice": "Aoede"})
+    assert r.status_code == 200 and say.call_args.args == ("Good question.", "Aoede")
