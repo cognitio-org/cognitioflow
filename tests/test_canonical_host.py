@@ -63,3 +63,12 @@ def test_the_cloud_run_url_and_localhost_are_left_alone(client):
 def test_it_is_off_unless_a_canonical_host_is_configured(unset):
     # the default, and what every test and local hostname sees
     assert unset.get("/health", headers={"host": "cognitioflow.example"}).status_code == 200
+
+
+def test_the_deployed_service_is_told_its_canonical_host():
+    # The middleware is off unless CANONICAL_HOST is set, and the deploy step's --set-env-vars
+    # replaces every variable on each release - so a value set by hand in the console is wiped by
+    # the next merge. From 2026-09-19 to 2026-09-23 it was never set at all, and sign-in at
+    # cognitioflow.ai failed with redirect_uri_mismatch. The deploy file is the only place it can live.
+    with open(os.path.join(ROOT, ".github", "workflows", "deploy.yml")) as f:
+        assert "CANONICAL_HOST=cognitioflow.ai" in f.read()

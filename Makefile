@@ -9,7 +9,7 @@ dev:
 # rather than a separate one — CI calls `make test` and nothing else, and 38 tests that
 # only ever ran in scripts/check.sh would be 38 tests CI never sees.
 test:
-	pytest tests/ research/ -v --tb=short
+	pytest tests/ research/ -v --tb=short -o faulthandler_timeout=300   # a test still running after 5 min prints where it is stuck
 
 migrate:
 	python -m migrate

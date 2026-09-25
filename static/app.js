@@ -2,6 +2,11 @@
 // drops under the swarm's 800-line edit limit and free models can maintain it.
 // Nothing here was rewritten: render() -> chipify() -> priomark() are byte-identical.
 const $=s=>document.querySelector(s); const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+/* The day as this Mac reckons it. toISOString() is UTC, so between midnight and 02:00 Amsterdam
+   time it named yesterday, and the planner marked the wrong day "Today". */
+const todayISO=(d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const addDays=(iso,n)=>{const d=new Date(iso+'T00:00:00'); d.setDate(d.getDate()+n); return todayISO(d)};
+const mondayOf=iso=>{const d=new Date(iso+'T00:00:00'); return addDays(iso, -((d.getDay()+6)%7))};
 const api=async(p,o={})=>{const r=await fetch('/api'+p,o); if(!r.ok){let m=r.statusText; try{m=(await r.json()).detail||m}catch{} throw new Error(m)} return r.json()};
 const post=(p,b)=>api(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});
 const put=(p,b)=>api(p,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
@@ -181,7 +186,7 @@ async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle'
   else if(s.cards===0){next='Generate a first deck';body='Pick a file in Recall and let the tutor write cards from it.';go='recall'}
   else{next='Drill with the tutor';body='Ask for one question on your weakest topic.';go='tutor'}
   $('#h-next').textContent=next; $('#h-nextBody').textContent=body; $('#h-go').onclick=()=>show(go);
-  const ss=(await api('/sessions')).filter(x=>x.day===new Date().toISOString().slice(0,10));
+  const ss=await api(`/sessions?start=${todayISO()}&end=${todayISO()}`);
   $('#h-today').innerHTML=ss.length?ss.map(x=>`<li style="padding:.35rem 0;border-bottom:1px solid var(--rule)" class="small">${esc(x.course)} — ${esc(x.topic)} <span class="tag ${x.done?'ok':''}">${x.done?'done':x.minutes+' min'}</span></li>`).join(''):'<li class="small muted">Nothing planned for today.</li>';
 }
 
@@ -283,7 +288,8 @@ $('#fileInput').addEventListener('change',e=>upload([...e.target.files]));
 const drop=$('#drop'); ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')})); ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')})); drop.addEventListener('drop',e=>upload([...e.dataTransfer.files])); drop.querySelector('label').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#fileInput').click()}});
 
 /* tutor */
-async function loadTutor(){ const fs=await api(`/courses/${cid}/files`); const sel=fs.filter(f=>f.selected); $('#tutorSub').textContent=`${C().name} · auto-routing: notes and cards on ${(cfg.cheap_model||'').replace('claude-','')}, drilling on ${(cfg.model||'').replace('claude-','')}`;
+async function loadTutor(){ if(speakOn) cfWarm();   // the voice is already on: have the course ready before he speaks
+  const fs=await api(`/courses/${cid}/files`); const sel=fs.filter(f=>f.selected); $('#tutorSub').textContent=`${C().name} · auto-routing: notes and cards on ${(cfg.cheap_model||'').replace('claude-','')}, drilling on ${(cfg.model||'').replace('claude-','')}`;
   $('#ctxList').innerHTML=sel.length?sel.map(f=>`<li><span>${esc(f.name)}</span></li>`).join(''):'<li class="muted">No files ticked in Files.</li>';
   const chars=sel.reduce((a,f)=>a+(f.chars||0),0); $('#ctxSize').textContent=chars?`≈ ${Math.round(chars/4/1000)}k tokens of text per message${chars>180000?' — over budget, later files will be truncated':''}`:'';
   const ms=await api(`/courses/${cid}/messages`); const ch=$('#chat'); ch.innerHTML=''; ms.forEach(m=>{const d=addMsg(m.role,m.content); if(m.role==='assistant') render(d,m.content)}); if(!ms.length) addMsg('assistant',`Tutor for ${C().name}. Tick files in Files, then ask — or say "drill me on ${sel[0]?sel[0].name.replace(/\.\w+$/,''):'this week'}".`); ch.scrollTop=ch.scrollHeight;
@@ -320,6 +326,18 @@ async function render(d,raw){
              for(const stray of document.querySelectorAll('body>div[id^="dmm"],body>svg[id^="mm"]')) stray.remove() } }
   if(d.closest('#chat')) $('#chat').scrollTop=$('#chat').scrollHeight;
 }
+/* What he is saying, live, as a bubble in the conversation (not only in the box). It turns into his message
+   when it is sent, marked 🎙 so a spoken prompt reads differently from a typed one. */
+let cfFromVoice=false;
+function cfHeard(t){ $('#q').value=t; const ch=$('#chat'); let b=ch.querySelector('.msg.user.live');
+  if(!String(t||'').trim()){ if(b) b.remove(); return }
+  cfFromVoice=true; if(!b){ b=document.createElement('div'); b.className='msg user live spoken'; ch.appendChild(b) }
+  b.textContent=t; ch.scrollTop=ch.scrollHeight; }
+function cfHeardClear(){ $('#chat')?.querySelector('.msg.user.live')?.remove() }
+/* The tutor's spoken line, shown as a caption on its answer while it is spoken. */
+function cfSaid(d){ if(!d.dataset.said) return; let el=d.querySelector(':scope > .said');
+  if(!el){ el=document.createElement('div'); el.className='said'; el.setAttribute('aria-label','Spoken'); d.prepend(el) }
+  el.textContent=d.dataset.said; }
 function addMsg(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;$('#chat').appendChild(d);$('#chat').scrollTop=$('#chat').scrollHeight;return d}
 const MODE_UI={
   drill:{hint:'Drill: one question at a time, firm correction. Reply with your answer, or say what to drill.',ph:'Your answer — or "drill me on Art 34"'},
@@ -358,7 +376,8 @@ function cfBrowser(parts,run){
     u.onerror=()=>fin(false);
     if(i===parts.length-1){ voiceUtter=u; u.onend=()=>fin(true); }   // keep the last one referenced until it ends
     speechSynthesis.speak(u); }), 3000+parts.join(' ').length*120); }
-const cfServerFetch=s=>fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:s})})
+let cfVoice=(()=>{ try{ return localStorage.getItem('cf.voice')||'' }catch(e){ return '' } })();
+const cfServerFetch=s=>fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:s,voice:cfVoice||undefined})})
   .then(r=>r.ok&&r.status!==204&&/^audio\//.test(r.headers.get('content-type')||'')?r.blob():null).catch(()=>null);
 /* Voicebox on this Mac, reached through the local bridge (~/.cognitio/voicebridge.py). It is only
    there when he studies at the Mac, so it is probed once and never blocks: the server voice and
@@ -389,6 +408,44 @@ async function cfSpeak(text,{serverMax=Infinity}={}){   // resolves true when fu
     if(!ok) return cfBrowser(parts.slice(i),run);             // playback refused (autoplay rules): same rule
   }
   return true; }
+/* Voice phase 2: a voice that is fed while the answer is still being written. send() pushes each finished
+   sentence of the <speech> block as it streams in, so the first one plays after about fifteen words instead
+   of forty; the next is fetched while this one plays. Same fallbacks as cfSpeak: no server voice, or a
+   failed sentence, and the browser reads the rest. Resolves true when all of it was heard. */
+function cfQueue(){
+  cfHush(); const run=cfRun, items=[], blobs=[]; let closed=false, wake=null, cur=0, browser=!(window.CFVOICE||{}).server&&!cfMac;
+  const poke=()=>{ const w=wake; wake=null; if(w) w(); };
+  const fetchAt=i=>{ if(!browser&&i<items.length&&!blobs[i]) blobs[i]=cfFetch(items[i]); };
+  const done=(async()=>{
+    for(let i=0;;i++){ cur=i;
+      while(i>=items.length&&!closed) await new Promise(r=>{ wake=r; });
+      if(run!==cfRun) return false; if(i>=items.length) return true;
+      if(browser) { if(!await cfBrowser([items[i]],run)) return false; continue; }
+      fetchAt(i); const blob=await blobs[i]; if(run!==cfRun) return false; fetchAt(i+1);
+      if(!blob){ browser=true; i--; continue; }                     // 204 or an error: the browser reads this one and the rest
+      const src=URL.createObjectURL(blob);
+      const ok=await cfWait(fin=>{ cfAudio=new Audio(src); cfAudio.onended=()=>fin(true); cfAudio.onerror=()=>fin(false);
+        cfAudio.play().catch(()=>fin(false)); }, 60000);
+      URL.revokeObjectURL(src); if(run!==cfRun) return false; cfAudio=null;
+      if(!ok){ browser=true; i--; }                                 // autoplay refused: same rule
+    } })();
+  let tail='';   // everything after the first sentence, spoken as ONE piece: each piece costs a round trip and a seam you can hear
+  return { push(t){ if(closed) return; const cs=cfChunks(cfClean(t)); if(!cs.length) return;
+             if(!items.length){ items.push(cs.shift()); fetchAt(0); }   // the first sentence alone, so the voice starts early
+             tail=(tail+' '+cs.join(' ')).trim(); poke(); },
+           close(){ if(closed) return; if(tail){ items.push(tail); fetchAt(items.length-1); tail=''; } closed=true; poke(); }, done }; }
+/* Waking the server costs nothing and a cold Cloud Run start costs seconds, so the moment he reaches for the
+   voice (turns it on, starts a conversation, presses to talk) the instance is asked to wake. At most once a minute. */
+let cfWarmAt=0; const cfPrimed={};
+function cfWarm(){ const now=Date.now();
+  if(now-cfWarmAt>=60000){ cfWarmAt=now; fetch('/health',{cache:'no-store'}).catch(()=>{}); }
+  /* ...and load this course into Claude's cache, so the first spoken question reads it instead of writing it
+     (live: 10 s cold, 1.9 s warm). The cache lives about five minutes; every four is enough. */
+  const model=$('#modelSel')?.value||'auto', k=cid+'|'+mode+'|'+model;
+  if(!cid||now-(cfPrimed[k]||0)<240000) return; cfPrimed[k]=now;
+  fetch(`/api/courses/${cid}/warm`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,model})})
+    .then(r=>r.ok?r.json():null).then(j=>{ if(j&&j.usage&&j.usage.cost){ sessionCost+=j.usage.cost; localStorage.setItem('cf.cost',sessionCost); showCost(); } })
+    .catch(()=>{}); }
 function showReading(r){
   /* Which of your own materials answered the last question, and what did not fit. */
   const box=$('#ctxAnswer'); if(!box) return;
@@ -405,15 +462,26 @@ function initVoice(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(!SR){$('#micBtn').disabled=true;$('#micBtn').title='Dictation needs Chrome or Safari';}
   else{ recog=new SR(); recog.lang='en-GB'; recog.continuous=false; recog.interimResults=true;
-    recog.onresult=e=>{let t='';for(const r of e.results)t+=r[0].transcript;$('#q').value=t;};
-    recog.onend=()=>{listening=false;$('#micBtn').setAttribute('aria-pressed','false');$('#micBtn').textContent='🎙 Talk';
-      if($('#q').value.trim()) send();};
+    recog.onresult=e=>{let t='';for(const r of e.results)t+=r[0].transcript;cfHeard(t);};
+    recog.onend=()=>{listening=false;recog.continuous=false;$('#micBtn').setAttribute('aria-pressed','false');$('#micBtn').textContent='🎙 Talk';
+      if($('#q').value.trim()) send(); else cfHeardClear();};
     recog.onerror=e=>{listening=false;$('#micBtn').textContent='🎙 Talk';toast('Mic: '+e.error,'warn')};
   }
   if(cfg.voice?.gemini){ $('#micMode').hidden=false; document.querySelectorAll('#micMode [data-mic]').forEach(b=>b.onclick=()=>setMicMode(b.dataset.mic)); setMicMode(currentMicMode()); }
   $('#speakBtn').setAttribute('aria-pressed',speakOn?'true':'false'); $('#speakBtn').classList.toggle('primary',speakOn);
   if(!('speechSynthesis' in window) && !(window.CFVOICE||{}).server){$('#speakBtn').disabled=true}
   cfProbeMac().then(on=>{ cfMac=on; if(on){ $('#speakBtn').disabled=false; $('#speakBtn').title='Read replies aloud — using the voice on this Mac'; } });
+  // The buttons are built when this file parses, which is before /api/config has answered, so the
+  // live tutor was created hidden and stayed hidden. initVoice runs with cfg in hand: decide here.
+  const live=$('#dialogBtn'); if(live) live.hidden=!(cfg.voice&&cfg.voice.dialog);
+  const vs=(cfg.voice||{}).voices;
+  if(vs&&vs.length&&!$('#voiceSel')){   // pick the tutor's voice; each change plays a short sample in it
+    const sel=document.createElement('select'); sel.id='voiceSel'; sel.className='small'; sel.setAttribute('aria-label','Tutor voice'); sel.title='The tutor’s voice — changing it plays a sample';
+    sel.innerHTML=vs.map(v=>`<option value="${v.id}">${v.id} ${v.gender==='f'?'♀':'♂'}</option>`).join('');
+    sel.value=vs.some(v=>v.id===cfVoice)?cfVoice:(cfg.voice.voice||vs[0].id);
+    sel.onchange=()=>{ cfVoice=sel.value; try{ localStorage.setItem('cf.voice',cfVoice) }catch(e){}
+      cfSpeak(`Hi, I'm ${cfVoice}. Shall we start with direct effect, or would you rather I test you?`); };
+    $('#speakBtn').after(document.createTextNode(' '), sel); }
 }
 /* ---- Gemini dictation (Phase 8): mic → 16 kHz PCM → this app's relay → Vertex AI; only text comes back ---- */
 let gem=null;
@@ -432,21 +500,21 @@ async function startGemini(){
     clearTimeout(guard); gem=null; listening=false; btn.setAttribute('aria-pressed','false'); btn.textContent='🎙 Talk'; };
   const fallback=message=>{ cleanup(); toast(message);
     if(recog && !gotText){ listening=true; btn.setAttribute('aria-pressed','true'); btn.textContent='● Listening'; $('#q').value=''; recog.start(); } };
-  const finish=()=>{ if(finished) return; finished=true; cleanup(); if($('#q').value.trim()) send(); };
+  const finish=()=>{ if(finished) return; finished=true; cleanup(); if($('#q').value.trim()) send(); else cfHeardClear(); };
   try{
     cfHush();
     stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
-    ctx=new AudioContext();
+    ctx=new AudioContext(); ctx.resume().catch(()=>{});   // iOS starts an AudioContext created after the mic prompt suspended, and a suspended one hears nothing
     await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([PCM_WORKLET],{type:'application/javascript'})));
     node=new AudioWorkletNode(ctx,'pcm16k'); ctx.createMediaStreamSource(stream).connect(node);
     ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/api/voice/live?course=${encodeURIComponent(cid||'')}`);
     ws.binaryType='arraybuffer';
     node.port.onmessage=e=>{ if(ws.readyState===1 && !stopped) ws.send(e.data) };
     ws.onmessage=e=>{ let m; try{ m=JSON.parse(e.data) }catch(err){ return }
-      if('interim' in m || 'final' in m){ gotText=true; $('#q').value=('final' in m)?m.final:m.interim; }
+      if('interim' in m || 'final' in m){ gotText=true; cfHeard(('final' in m)?m.final:m.interim); }
       if(m.limit){ toast('Gemini dictation stops at about ten minutes'); gem&&gem.stop(); }
       if(m.error){ finished=true; fallback(m.error+' Using the browser mic.'); }
-      if('done' in m){ if(m.done) $('#q').value=m.done;
+      if('done' in m){ if(m.done) cfHeard(m.done);
         if(m.cost_usd){ sessionCost+=m.cost_usd; localStorage.setItem('cf.cost',sessionCost); showCost(); }
         finish(); } };
     ws.onclose=()=>{ if(finished) return; if(stopped) finish(); else { finished=true; fallback('Gemini dictation is unavailable. Using the browser mic.'); } };
@@ -461,11 +529,116 @@ $('#micBtn').onclick=()=>{ if(listening && !gem){ recog?.stop(); return }  // th
   if(cfg.voice?.gemini && currentMicMode()==='gemini'){ return gem ? gem.stop() : startGemini(); }
   if(!recog) return; if(listening){recog.stop();return}
   cfHush(); listening=true; $('#micBtn').setAttribute('aria-pressed','true'); $('#micBtn').textContent='● Listening'; $('#q').value=''; recog.start(); };
+/* Push-to-talk (voice phase 1): hold Space on the Tutor screen, or hold the button on a phone. Holding is the
+   interruption — pressing silences the tutor first — and letting go sends. It drives the Talk button, so the
+   browser mic and Gemini dictation both work. It only takes Space when nothing else wants it: the page, or an
+   EMPTY question box (a leading space is never typed on purpose). A box with text in it, a focused button,
+   Recall's flashcards and the book's tilt keep Space exactly as before. A tap under 250 ms is not a hold. */
+const PTT_HOLD_MS=250, PTT_TAIL_MS=150;   // a tap is not a hold; keep listening a beat so the last syllable lands
+let ptt=null;   // {timer, on}
+const pttScreen=()=>document.getElementById('tutor')?.classList.contains('active');
+const pttFree=el=>!el||el===document.body||(el.id==='q'&&!el.value.trim());
+function pttDown(){ if(ptt) return; cfWarm(); if(convOn){ cfHush(); return; }   // in a conversation the mic is already open: pressing only interrupts
+  ptt={on:false, timer:setTimeout(()=>{ if(!ptt) return; ptt.on=true;
+    if(recog) recog.continuous=true;                     // a thinking pause mid-hold must not end the turn
+    if(!listening) $('#micBtn').click(); },PTT_HOLD_MS)}; }
+function pttUp(cancel){ if(!ptt) return; const p=ptt; ptt=null; clearTimeout(p.timer); if(!p.on) return;
+  setTimeout(()=>{ if(!listening) return;
+    if(cancel&&recog&&!gem){ cfHeard(''); recog.abort(); return; }   // Esc: nothing is sent
+    $('#micBtn').click(); },cancel?0:PTT_TAIL_MS); }
+window.addEventListener('keydown',e=>{
+  if(e.code==='Escape'&&ptt){ pttUp(true); return; }
+  if(e.code!=='Space'||e.ctrlKey||e.metaKey||e.altKey||!pttScreen()||!pttFree(document.activeElement)) return;
+  e.preventDefault(); e.stopImmediatePropagation();      // no scroll, no stray space, no other Space handler
+  if(!e.repeat) pttDown(); },true);
+window.addEventListener('keyup',e=>{ if(e.code==='Space'&&ptt){ e.preventDefault(); pttUp(false); } },true);
+window.addEventListener('blur',()=>pttUp(true)); document.addEventListener('visibilitychange',()=>{ if(document.hidden) pttUp(true) });
+(()=>{ const b=document.createElement('button'); b.type='button'; b.id='pttBtn'; b.className='btn small ghost';
+  b.textContent='✋ Hold to talk'; b.title='Hold to talk, let go to send — or hold Space on the keyboard';
+  b.style.cssText='touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;min-height:32px';
+  b.addEventListener('pointerdown',e=>{ e.preventDefault(); try{ b.setPointerCapture(e.pointerId) }catch(err){} pttDown(); });
+  b.addEventListener('pointerup',()=>pttUp(false)); b.addEventListener('pointercancel',()=>pttUp(true));
+  b.addEventListener('contextmenu',e=>e.preventDefault());   // a long press on a phone is a hold, not a menu
+  $('#micBtn').after(document.createTextNode(' '), b); })();
 $('#costState').onclick=()=>{ sessionCost=0; localStorage.setItem('cf.cost',0); showCost() }; showCost();
-$('#speakBtn').onclick=()=>{ speakOn=!speakOn; localStorage.setItem('cf.speak',speakOn?'1':'0');
+/* The spoken tutor: Gemini Live holds both halves of the turn, so the microphone stays open while it
+   talks and it stops the moment he does. The browser only moves audio: PCM16 up at 16 kHz, PCM16 back
+   at 24 kHz, played through one AudioContext queue so the pieces do not overlap or gap. */
+const DIALOG_RATE=24000;
+let dlg=null;
+function dialogPaint(on){ const b=$('#dialogBtn'); if(!b) return;
+  b.classList.toggle('primary',on); b.setAttribute('aria-pressed',on?'true':'false');
+  b.textContent=on?'● Speaking with you':'🎧 Live tutor'; }
+async function startDialog(){
+  if(dlg) return stopDialog();
+  if(convOn) convStop();                               // one loop at a time
+  let stream=null, ctx=null, node=null, ws=null, play=null, ended=false, playAt=0, heard='', spoken='';
+  const cleanup=()=>{ ended=true; try{node&&node.disconnect()}catch(e){} try{stream&&stream.getTracks().forEach(t=>t.stop())}catch(e){}
+    try{ctx&&ctx.close()}catch(e){} try{play&&play.close()}catch(e){} dlg=null; dialogPaint(false); $('#q').placeholder='Your answer — or "drill me on Art 34"'; };
+  try{
+    cfHush();
+    stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+    ctx=new AudioContext(); ctx.resume().catch(()=>{});   // iOS starts an AudioContext created after the mic prompt suspended, and a suspended one hears nothing
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([PCM_WORKLET],{type:'application/javascript'})));
+    node=new AudioWorkletNode(ctx,'pcm16k'); ctx.createMediaStreamSource(stream).connect(node);
+    play=new AudioContext({sampleRate:DIALOG_RATE}); play.resume().catch(()=>{});
+    ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/api/voice/dialog?course=${encodeURIComponent(cid||'')}`);
+    ws.binaryType='arraybuffer';
+    node.port.onmessage=e=>{ if(ws.readyState===1 && !ended) ws.send(e.data) };
+    ws.onmessage=e=>{
+      if(typeof e.data!=='string'){                      // the tutor's voice: queue it end to end
+        const pcm=new Int16Array(e.data); const buf=play.createBuffer(1,pcm.length,DIALOG_RATE);
+        const ch=buf.getChannelData(0); for(let i=0;i<pcm.length;i++) ch[i]=pcm[i]/32768;
+        const src=play.createBufferSource(); src.buffer=buf; src.connect(play.destination);
+        playAt=Math.max(playAt, play.currentTime); src.start(playAt); playAt+=buf.duration;
+        dlg && (dlg.sources=[...(dlg.sources||[]),src]);
+        return; }
+      let m; try{ m=JSON.parse(e.data) }catch(err){ return }
+      if(m.interrupted){                                  // he spoke over it: drop everything queued
+        (dlg?.sources||[]).forEach(s=>{try{s.stop()}catch(e){}}); if(dlg) dlg.sources=[]; playAt=0; }
+      if(m.said){ heard+=(heard?' ':'')+m.said; $('#q').value=heard; }
+      if(m.spoke){ spoken+=(spoken?' ':'')+m.spoke; $('#q').placeholder=m.spoke.slice(0,90); }
+      if(m.limit) toast('The live tutor stops at about fifteen minutes');
+      if(m.error){ toast(m.error+' Falling back to Conversation mode.'); cleanup(); convStart(); }
+      if(m.done){
+        if(m.cost_usd){ sessionCost+=m.cost_usd; localStorage.setItem('cf.cost',sessionCost); showCost(); }
+        if(heard) addMsg('user',heard); if(spoken) addMsg('assistant',spoken);   // the words stay on screen
+        cleanup(); } };
+    ws.onclose=()=>{ if(!ended) cleanup(); };
+    dlg={sources:[], stop(){ try{ if(ws.readyState===1) ws.send(JSON.stringify({stop:true})) }catch(e){}
+      (dlg?.sources||[]).forEach(s=>{try{s.stop()}catch(e){}}); setTimeout(()=>{ try{ws.close()}catch(e){} cleanup(); },800); }};
+    dialogPaint(true); $('#q').value=''; $('#q').placeholder='Talking — just speak, and talk over it when you want to';
+    toast('Live tutor on — interrupt it whenever you like');
+  }catch(e){ cleanup(); toast('The live tutor needs microphone access'); }
+}
+function stopDialog(){ if(dlg) dlg.stop(); }
+
+(function(){ if($('#convBtn')||!$('#speakBtn')) return;
+  const b=document.createElement('button'); b.className='btn small ghost'; b.id='convBtn'; b.type='button';
+  b.title='Hands-free: talk, pause, and it answers aloud, then listens again. Escape interrupts.';
+  b.textContent='💬 Conversation';
+  b.onclick=()=>{ convOn ? convStop('Conversation off') : convStart(); };
+  const d=document.createElement('button'); d.className='btn small ghost'; d.id='dialogBtn'; d.type='button';
+  d.title='Talk to the tutor with the microphone open — interrupt it mid-sentence. Costs about $1.40 an hour.';
+  d.textContent='🎧 Live tutor'; d.hidden=!(cfg.voice&&cfg.voice.dialog); d.onclick=startDialog;
+  $('#speakBtn').after(document.createTextNode(' '), d);
+  const hint=document.createElement('span'); hint.id='convHint'; hint.className='small muted'; hint.hidden=true;
+  hint.textContent=' talk, then pause · ';
+  const bi=document.createElement('button'); bi.type='button'; bi.className='btn small ghost'; bi.id='bargeBtn';
+  const bp=()=>{ bi.textContent=convBargeOn()?'interrupt by voice: on':'interrupt by voice: off'; bi.setAttribute('aria-pressed',convBargeOn()?'true':'false'); };
+  bi.title='On: talking over the tutor stops it. Turn off if it stops itself on loud speakers — Escape and holding Space still work.';
+  bi.onclick=()=>{ localStorage.setItem('cf.bargeIn',convBargeOn()?'0':'1'); bp(); }; bp(); hint.append(bi);
+  $('#speakBtn').after(document.createTextNode(' '), b, hint); })();
+$('#speakBtn').onclick=()=>{ speakOn=!speakOn; if(speakOn) cfWarm(); localStorage.setItem('cf.speak',speakOn?'1':'0');
   $('#speakBtn').setAttribute('aria-pressed',speakOn?'true':'false'); $('#speakBtn').classList.toggle('primary',speakOn);
   if(!speakOn) cfHush(); else { if(lastSpeech) speak(lastSpeech); else toast('Replies will be read aloud — the tutor now writes a spoken version of each answer'); } };
-function speak(text){ if(!speakOn||!text||!text.trim()) return; cfSpeak(text,{serverMax:TUTOR_SERVER_CHARS}); }
+function cfLive(d,t){ d._live=t; if(d._liveT) return;   // at most every 120 ms: formatted as it streams, the final render() adds the diagrams
+  d._liveT=setTimeout(()=>{ d._liveT=null; const txt=d._live||'';
+    if(!window.marked){ d.textContent=txt; return }
+    d.classList.add('md'); d.innerHTML=marked.parse(txt.replace(/```(?:mermaid|svg)[\s\S]*?(?:```|$)/g,'\n\n*drawing the diagram…*\n\n'),{breaks:true}); cfSaid(d);
+    $('#chat').scrollTop=$('#chat').scrollHeight; },120); }
+const CF_SPEECH=/<speech>[\s\S]*?(?:<\/speech>|$)\s*/;
+function speak(text){ if(!speakOn||!text||!text.trim()) return Promise.resolve(false); return cfSpeak(text,{serverMax:TUTOR_SERVER_CHARS}); }
 
 const DOWN=["define","definition","what is","list","summarise","summarize","recap","translate","when did","who is","how many"];
 const UP=["compare","contrast","irac","critique","conflict","diverge","exam answer","argue","reconcile","distinguish","apply to the facts","which outranks","is this caught","step by step","walk me through"];
@@ -473,16 +646,88 @@ function routeGuess(){ const sel=$('#modelSel').value; if(sel!=='auto'){ $('#rou
   if(m===window.CFMODEL&&(mode==='drill'||mode==='explain')&&t.length<90&&DOWN.some(k=>t.startsWith(k)||t.slice(0,40).includes(k))&&!UP.some(k=>t.includes(k))) m=window.CFCHEAP;
   if(m===window.CFCHEAP&&UP.some(k=>t.includes(k))) m=window.CFMODEL;
   $('#routeHint').textContent = t? '→ '+(m||'').replace('claude-','') : ''; }
-$('#q').addEventListener('input',routeGuess); document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setTimeout(routeGuess,0))); $('#modelSel').addEventListener('change',routeGuess);
+$('#q').addEventListener('input',routeGuess); $('#q').addEventListener('input',()=>{ cfFromVoice=false; cfHeardClear() }); document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>setTimeout(routeGuess,0))); $('#modelSel').addEventListener('change',routeGuess);
+/* Conversation mode. The mic and the voice existed already but a human had to press something
+   between every turn, which is not a conversation. This runs the loop: listen until a pause, send,
+   speak the reply, listen again. Recognition stays closed while the tutor speaks (an open recogniser hears
+   the speakers and answers itself); voice phase 3 adds a level meter that does listen then, learns how loud
+   the tutor's own voice comes back through the mic, and interrupts when he is clearly louder than that
+   for 300 ms. Headphones make it certain; on speakers the learned echo level is what keeps it honest.
+   His turn ends after 1.1 s of quiet, or 2.5 s when he stopped on "and", "because", "um"... */
+let convOn=false, convRecog=null, convBusy=false, convMic=null;
+const CONV_QUIET_MS=1100, CONV_TRAIL_MS=2500;
+const CONV_TRAIL=/\b(and|but|so|because|or|um+|uh+|erm*|like|then|which|that|if|whether|the|a|an|of|to|in|is)\s*$/i;
+async function convMicOpen(){ if(convMic) return;
+  try{ const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false}});
+    const ctx=new AudioContext(); ctx.resume().catch(()=>{}); const an=ctx.createAnalyser(); an.fftSize=1024;
+    ctx.createMediaStreamSource(stream).connect(an); convMic={stream,ctx,an,buf:new Float32Array(an.fftSize)};
+    if(!convOn) convMicClose(); }catch(e){ convMic=null; } }   // no meter: Escape, a click or holding Space still interrupt
+function convMicClose(){ const m=convMic; convMic=null; if(!m) return; try{ m.stream.getTracks().forEach(t=>t.stop()) }catch(e){} try{ m.ctx.close() }catch(e){} }
+function convLevel(){ const m=convMic; m.an.getFloatTimeDomainData(m.buf); let s=0; for(const v of m.buf) s+=v*v; return Math.sqrt(s/m.buf.length); }
+function convBargeOn(){ return localStorage.getItem('cf.bargeIn')!=='0'; }   // a declaration: the button that reads it is built earlier in the file
+function convGuard(){   // runs while a reply is on its way; returns its own off switch
+  let echo=0, playStart=0, loudSince=0;
+  const iv=setInterval(()=>{ if(!convMic||!convBargeOn()) return;
+    const now=Date.now(), playing=!!cfAudio||!!(window.speechSynthesis&&speechSynthesis.speaking);
+    if(!playing){ loudSince=0; return }
+    const l=convLevel(); if(!playStart) playStart=now;
+    if(now-playStart<400){ echo=Math.max(echo,l); return }        // the first 400 ms of the voice teach it what its own echo sounds like
+    if(l>Math.max(0.04,echo*2.5)){ if(!loudSince) loudSince=now; else if(now-loudSince>=300){ clearInterval(iv); cfHush(); convBusy=false; convListen(); } }
+    else loudSince=0; },50);
+  return ()=>clearInterval(iv); }
+function convPaint(){ const b=$('#convBtn'); if(!b) return;
+  b.classList.toggle('primary',convOn); b.setAttribute('aria-pressed',convOn?'true':'false');
+  b.textContent=convOn?'● In conversation':'💬 Conversation';
+  const h=$('#convHint'); if(h) h.hidden=!convOn; }
+function convStop(why){ convOn=false; convBusy=false; try{ convRecog&&convRecog.stop() }catch(e){} convMicClose(); cfHush(); convPaint(); if(why) toast(why); }
+function convListen(){ if(!convOn||convBusy) return;
+  try{ convRecog.start() }catch(e){}                      // already running: harmless
+  $('#q').placeholder='Listening — just talk'; }
+function convStart(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){ toast('Conversation needs Chrome or Safari'); return }
+  if(!speakOn){ $('#speakBtn').click() } cfWarm();         // a conversation that cannot answer aloud is not one
+  convRecog=new SR(); convRecog.lang=(window.CFVOICE||{}).language||'en-GB';
+  convRecog.continuous=true; convRecog.interimResults=true;   // the turn ends on our quiet timer, not the recogniser's first pause
+  let heard='', quiet=null;
+  convRecog.onresult=e=>{ heard=''; for(const r of e.results) heard+=r[0].transcript; cfHeard(heard);
+    clearTimeout(quiet); quiet=setTimeout(()=>{ try{ convRecog.stop() }catch(x){} }, CONV_TRAIL.test(heard.trim())?CONV_TRAIL_MS:CONV_QUIET_MS); };
+  convRecog.onerror=ev=>{ if(ev.error==='not-allowed'||ev.error==='service-not-allowed') return convStop('Microphone blocked — allow it in the address bar');
+    if(ev.error!=='no-speech'&&ev.error!=='aborted') toast('Mic: '+ev.error,'warn'); };
+  convRecog.onend=async()=>{
+    clearTimeout(quiet); if(!convOn) return;
+    const said=(heard||'').trim(); heard='';
+    if(!said){ cfHeardClear(); return convListen(); }                      // a pause with nothing in it: keep waiting
+    convBusy=true; $('#q').value=said; $('#q').placeholder='Thinking…';
+    const guardOff=convGuard();
+    try{ await send(); }catch(e){ toast('Turn failed: '+e.message,'warn') }
+    guardOff(); convBusy=false; if(convOn) convListen();               // the voice has finished; the floor is his again
+  };
+  convOn=true; convPaint(); convListen(); convMicOpen();
+  toast('Conversation on — talk, then pause. Talk over it, hold Space or press Escape to interrupt.');
+}
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&convOn){ cfHush(); } });
+
 async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_key){toast('No Claude API key on the server — add it to .env.local and restart');return}
-  addMsg('user',q); $('#q').value=''; $('#send').disabled=true; const d=addMsg('assistant','');
+  cfHeardClear(); const um=addMsg('user',q); if(cfFromVoice){ um.classList.add('spoken'); um.title='Spoken' } cfFromVoice=false;
+  $('#q').value=''; $('#send').disabled=true; const d=addMsg('assistant',''); let acc='', err='', early=null, spk=null, said=0;
   try{ const r=await fetch(`/api/courses/${cid}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:q,mode,model:$('#modelSel').value,speech:speakOn})});
     const rd=r.body.getReader(); const td=new TextDecoder(); let buf='';
     while(true){const {value,done}=await rd.read(); if(done) break; buf+=td.decode(value,{stream:true}); const lines=buf.split('\n\n'); buf=lines.pop();
-      for(const l of lines){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; const j=JSON.parse(p); if(j.model){d.dataset.model=j.model; continue} if(j.reading){d.dataset.reading=JSON.stringify(j.reading); showReading(j.reading); continue} if(j.usage){d.dataset.usage=JSON.stringify(j.usage); sessionCost+=(j.usage.cost||0); localStorage.setItem('cf.cost',sessionCost); showCost(); continue} if(j.error){d.textContent+='\n[error] '+j.error; d.style.borderLeftColor='var(--warn)'} else d.textContent+=j.t; $('#chat').scrollTop=$('#chat').scrollHeight; } }
-  }catch(e){d.textContent+='\n[error] '+e.message}
-  let raw=d.textContent; const sm=raw.match(/<speech>([\s\S]*?)<\/speech>\s*$/); if(sm){ d.dataset.speech=sm[1].trim(); raw=raw.replace(sm[0],'').trim() } await render(d,raw);
+      for(const l of lines){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; const j=JSON.parse(p); if(j.model){d.dataset.model=j.model; continue} if(j.reading){d.dataset.reading=JSON.stringify(j.reading); showReading(j.reading); continue} if(j.usage){d.dataset.usage=JSON.stringify(j.usage); sessionCost+=(j.usage.cost||0); localStorage.setItem('cf.cost',sessionCost); showCost(); continue} if(j.unverified){d.dataset.unverified=JSON.stringify(j.unverified); continue} if(j.error){err+='\n[error] '+j.error; d.style.borderLeftColor='var(--warn)'; cfLive(d,acc.replace(CF_SPEECH,'')+err)} else { acc+=j.t; cfLive(d,acc.replace(CF_SPEECH,''));   // the spoken part is for the ear: it never shows, and it is spoken the moment it closes, while the written answer is still arriving
+        if(speakOn&&!(spk&&spk.closed)){ const m=acc.match(/<speech>([\s\S]*?)(<\/speech>|$)/);   // speak each sentence of it as soon as it is whole
+          if(m){ d.dataset.said=m[1].trim(); if(!spk){ spk=cfQueue(); spk.closed=false; early=spk.done; }
+            const rest=m[1].slice(said), cut=m[2]?rest.length:(()=>{ let k=-1; for(const x of rest.matchAll(/[.!?](?=\s)/g)) k=x.index+1; return k>=40?k:-1 })();
+            if(cut>0){ spk.push(rest.slice(0,cut)); said+=cut; }
+            if(m[2]){ spk.close(); spk.closed=true; d.dataset.speech=m[1].trim(); } } } } $('#chat').scrollTop=$('#chat').scrollHeight; } }
+  }catch(e){err+='\n[error] '+e.message}
+  clearTimeout(d._liveT); d._liveT=null;
+  if(spk&&!spk.closed){ const m=acc.match(/<speech>([\s\S]*)/); if(m) spk.push(m[1].slice(said)); spk.close(); spk.closed=true; }
+  let raw=(acc.replace(CF_SPEECH,'')+err).trim(); const sm=raw.match(/<speech>([\s\S]*?)<\/speech>\s*$/); if(sm){ d.dataset.speech=sm[1].trim(); raw=raw.replace(sm[0],'').trim() } await render(d,raw); cfSaid(d);
   lastSpeech=d.dataset.speech||raw.replace(/```[\s\S]*?```/g,' (see the diagram on screen) ');
+  if(d.dataset.unverified){   // cited by the tutor, found in none of the ticked files: check before relying on it
+    const w=document.createElement('div'); w.className='small unverified'; w.style.cssText='margin-top:.4rem;color:var(--warn)';
+    w.textContent='Not in your materials: '+JSON.parse(d.dataset.unverified).join(', ')+' — check before you rely on it.'; d.appendChild(w) }
   if(raw && !raw.startsWith('[error]')){
     const act=document.createElement('div'); act.className='small'; act.style.marginTop='.4rem';
     const sv=document.createElement('button'); sv.className='btn small ghost'; sv.textContent='Save as note';
@@ -491,7 +736,7 @@ async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_
     if(mode==='notes'){ sv.click(); toast('Saved to Notes — open the Notes tab to edit'); }
   }
   if(d.dataset.model){ const u=d.dataset.usage?JSON.parse(d.dataset.usage):null; d.title='answered by '+d.dataset.model.replace('claude-','')+(u?` · ${u.cost==null?'cost unknown':'$'+u.cost.toFixed(4)} · ${(u.cache_read/1000).toFixed(1)}k cached, ${(u.in/1000).toFixed(1)}k new, ${u.out} out`:'') }
-  speak(lastSpeech); $('#send').disabled=false; $('#q').focus(); routeGuess(); }
+  const spoken=early||speak(lastSpeech); $('#send').disabled=false; $('#q').focus(); routeGuess(); return spoken; }
 $('#send').onclick=send; $('#q').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
 $('#clearChat').onclick=async()=>{if(confirm('Clear this course\'s conversation?')){await del(`/courses/${cid}/messages`);loadTutor()}};
 
@@ -1340,20 +1585,58 @@ async function runPlan(replace){const b=$('#autoPlan'); b.disabled=true; $('#reP
   b.disabled=false; $('#rePlan').disabled=false}
 $('#autoPlan').onclick=()=>runPlan(false); $('#rePlan').onclick=()=>{if(confirm('Discard unfinished sessions from today onward and plan again?')) runPlan(true)};
 function sessIcon(t){ t=t.toLowerCase(); if(/pre-?read|read /.test(t))return['📖','pre-read']; if(/reconcile|lecture/.test(t))return['🎧','lecture']; if(/recall|card|drill|review/.test(t))return['🎴','recall']; if(/exam|irac|mock/.test(t))return['📝','exam']; return['•','study']; }
-async function loadPlanner(){ const ss=await api('/sessions'); if(!$('#sDay').value) $('#sDay').value=new Date().toISOString().slice(0,10);
-  const today=new Date().toISOString().slice(0,10);
-  if(!ss.length){ $('#agenda').innerHTML='<div class="empty">Nothing planned. Use <b>Auto-plan week</b> to lay out pre-reads, reconciles and recall around your lectures.</div>'; $('#planSub').textContent='All courses'; return; }
-  const days={}; ss.forEach(s=>{ (days[s.day]=days[s.day]||[]).push(s) });
-  const dl=Object.keys(days).sort();
+let planWeek='';        // Monday of the week on screen
+function planNav(){ if($('#planNav')) return;
+  const bar=document.createElement('span'); bar.id='planNav'; bar.className='small';
+  bar.innerHTML='<button class="btn small ghost" id="planPrev" title="Previous week" aria-label="Previous week">‹</button> '+
+                '<span id="planWeekLab" class="muted"></span> '+
+                '<button class="btn small ghost" id="planNext" title="Next week" aria-label="Next week">›</button> '+
+                '<button class="btn small ghost" id="planThis" title="Jump to the week you are in">This week</button>';
+  $('#planner .head').insertBefore(bar, $('#planner .head').lastElementChild);
+  $('#planPrev').onclick=()=>{planWeek=addDays(planWeek,-7); loadPlanner()};
+  $('#planNext').onclick=()=>{planWeek=addDays(planWeek,7); loadPlanner()};
+  $('#planThis').onclick=()=>{planWeek=mondayOf(todayISO()); loadPlanner()}; }
+
+async function loadPlanner(){ planNav();
+  const today=todayISO(); if(!$('#sDay').value) $('#sDay').value=today;
+  if(!planWeek) planWeek=mondayOf(today);
+  const weekEnd=addDays(planWeek,6);
+  const [ss,before]=await Promise.all([ api(`/sessions?start=${planWeek}&end=${weekEnd}`),
+                                        api(`/sessions?end=${addDays(today,-1)}`) ]);
+  const missed=before.filter(s=>!s.done);
   const fmt=d=>{ const dt=new Date(d+'T00:00:00'); return [dt.toLocaleDateString('en-GB',{weekday:'long'}), dt.toLocaleDateString('en-GB',{day:'numeric',month:'short'})]; };
-  $('#agenda').innerHTML=dl.map(d=>{ const g=days[d]; const [dow,date]=fmt(d); const mins=g.reduce((a,s)=>a+s.minutes,0); const done=g.filter(s=>s.done).length;
+  const weekLab=`${fmt(planWeek)[1]} – ${fmt(weekEnd)[1]}`;
+  $('#planWeekLab').textContent = planWeek===mondayOf(today) ? `This week · ${weekLab}` : weekLab;
+  $('#planThis').hidden = planWeek===mondayOf(today);
+
+  let html='';
+  if(missed.length){ const mins=missed.reduce((a,s)=>a+s.minutes,0);
+    html+=`<div class="day missedblock"><div class="dayhd"><span class="dow">Missed</span><span class="date">before today</span>`+
+          `<span class="sum">${missed.length} session${missed.length>1?'s':''} · ${mins} min</span>`+
+          `<button class="btn small" id="moveAll" title="Carry all of them to today">Move all to today</button></div>`+
+      missed.slice(0,8).map(s=>{ const [ic]=sessIcon(s.topic); const [,d]=fmt(s.day);
+        return `<div class="sess"><div class="chk" data-sess="${s.id}" title="Mark done">✓</div><div class="ic">${ic}</div>`+
+               `<div class="body"><div class="top"><span class="tp">${esc(s.topic)}</span></div><div class="meta">${esc(s.course)} · ${s.minutes} min · planned ${d}</div></div>`+
+               `<div class="act"><button class="btn small ghost" data-movesess="${s.id}" title="Move to today">→ today</button>`+
+               `<button class="btn small ghost" data-delsess="${s.id}" title="Remove">×</button></div></div>`; }).join('')+
+      (missed.length>8?`<div class="sess"><div class="ic">·</div><div class="body"><div class="meta">and ${missed.length-8} more</div></div></div>`:'')+
+      `</div>`; }
+
+  const days={}; ss.forEach(s=>{ (days[s.day]=days[s.day]||[]).push(s) });
+  for(let i=0;i<7;i++){ const d=addDays(planWeek,i), g=days[d]||[]; const [dow,date]=fmt(d);
+    const mins=g.reduce((a,s)=>a+s.minutes,0), done=g.filter(s=>s.done).length;
     const cls=d===today?'today':(d<today?'past':'');
-    return `<div class="day ${cls}"><div class="dayhd"><span class="dow">${dow}</span><span class="date">${date}</span>${d===today?'<span class="todaymark">Today</span>':''}<span class="sum">${done}/${g.length} done · ${mins} min</span></div>`+
-      g.map(s=>{ const [ic]=sessIcon(s.topic); return `<div class="sess ${s.done?'done':''}"><div class="chk" data-sess="${s.id}" title="${s.done?'Mark not done':'Mark done'}">✓</div><div class="ic">${ic}</div><div class="body"><div class="top"><span class="tp">${esc(s.topic)}</span></div><div class="meta">${esc(s.course)} · ${s.minutes} min</div></div><div class="act"><button class="btn small ghost" data-delsess="${s.id}" title="Remove">×</button></div></div>`; }).join('')+`</div>`;
-  }).join('');
-  const total=ss.reduce((a,s)=>a+s.minutes,0), left=ss.filter(s=>!s.done).length;
-  $('#planSub').textContent=`${left} to do · ${(total/60).toFixed(1)} h planned`;
+    html+=`<div class="day ${cls}"><div class="dayhd"><span class="dow">${dow}</span><span class="date">${date}</span>${d===today?'<span class="todaymark">Today</span>':''}`+
+          `<span class="sum">${g.length?`${done}/${g.length} done · ${mins} min`:'nothing planned'}</span></div>`+
+      g.map(s=>{ const [ic]=sessIcon(s.topic); return `<div class="sess ${s.done?'done':''}"><div class="chk" data-sess="${s.id}" title="${s.done?'Mark not done':'Mark done'}">✓</div><div class="ic">${ic}</div><div class="body"><div class="top"><span class="tp">${esc(s.topic)}</span></div><div class="meta">${esc(s.course)} · ${s.minutes} min</div></div><div class="act"><button class="btn small ghost" data-delsess="${s.id}" title="Remove">×</button></div></div>`; }).join('')+`</div>`; }
+  $('#agenda').innerHTML=html;
+
+  const left=ss.filter(s=>!s.done).length, total=ss.reduce((a,s)=>a+s.minutes,0);
+  $('#planSub').textContent=`${left} to do this week · ${(total/60).toFixed(1)} h planned`+(missed.length?` · ${missed.length} missed`:'');
   document.querySelectorAll('[data-sess]').forEach(b=>b.onclick=async()=>{await post(`/sessions/${b.dataset.sess}/toggle`);loadPlanner()}); keyable($('#agenda'));
+  document.querySelectorAll('[data-movesess]').forEach(b=>b.onclick=async()=>{ await post(`/sessions/${b.dataset.movesess}/move`,{day:today}); toast('Moved to today'); loadPlanner()});
+  if($('#moveAll')) $('#moveAll').onclick=async()=>{ for(const s of missed) await post(`/sessions/${s.id}/move`,{day:today});
+    toast(`${missed.length} session(s) moved to today`); loadPlanner()};
   document.querySelectorAll('[data-delsess]').forEach(b=>b.onclick=async()=>{
     if(!confirm(`Remove this session?\n\n${b.closest('.sess').querySelector('.tp').textContent}`)) return;
     await del(`/sessions/${b.dataset.delsess}`); loadPlanner()}); }

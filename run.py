@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response, Streamin
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import citecheck
 import embed
 import essay
 import llm
@@ -26,11 +27,13 @@ import schedule
 import storage
 import transcribe as stt
 from transcribe import live as voice
+from transcribe import dialog
 
 load_dotenv(".env.local", override=True)
 load_dotenv()
 
 import tts  # noqa: E402  (after the env files: tts reads TTS/TTS_LANGUAGE once, at import)
+import concepts as concepts_mod  # noqa: E402
 
 ROOT = Path(__file__).parent
 
@@ -116,6 +119,15 @@ Working method (standing instructions):
 - When building or reconciling notes, tag provenance: [LECTURE] [WG] [SLIDES] [READER] [SCHUTZE] [ADDED].
 - Exam answers follow IRAC. Keep prose tight; no filler.
 - Matej's input often comes from garbled voice transcription; decode charitably before responding.
+- Answer in the shape of the question. A one-line question gets a couple of sentences back. Headings,
+  bullet lists, tables and numbered menus are for material that is genuinely structured — a test with
+  limbs, a comparison, notes he asked for. A greeting or a single question does not become a document.
+- Do not offer him a menu of what you could do next unless he asked what to do next. If one thing
+  obviously follows, do that thing, or ask one short question.
+- Stay under about 250 words unless he asked you to build or reconcile notes. A reply that runs to the
+  cap is cut off mid-sentence, which is worse than a shorter answer that finishes.
+- Read what he is doing, not only which mode button is lit. If he hands you facts, work the method on
+  them. If he asks what something means, explain it. The mode is a default, not a cage.
 """
 
 # Seed data only (Phase 6): the original hand-written course prompts. Courses now run on briefs compiled from
@@ -229,7 +241,7 @@ class NoteIn(BaseModel): title: str = "Untitled"; body: str = ""
 class CardIn(BaseModel): front: str; back: str; source: str = ""; week: str = ""
 class ReviewIn(BaseModel): rating: int  # 0 again, 1 hard, 2 good, 3 easy
 class SessionIn(BaseModel): day: str; topic: str; minutes: int = 60
-class ChatIn(BaseModel): message: str; mode: str = "drill"; model: Optional[str] = None  # model="auto" or explicit
+class ChatIn(BaseModel): message: str; mode: str = "drill"; model: Optional[str] = None; speech: bool = False  # model="auto" or explicit; speech=voice is on
 class GenIn(BaseModel): file_id: Optional[str] = None; count: int = 8; model: Optional[str] = None
 
 def rows(q, *a):
@@ -237,7 +249,7 @@ def rows(q, *a):
         return list(c.execute(q, a).fetchall())
 
 @app.get("/")
-def index(): return FileResponse(ROOT / "static" / "index.html")
+def index(): return FileResponse(ROOT / "static" / "index.html", headers={"Cache-Control": "no-cache"})
 
 @app.get("/health")
 @app.get("/healthz")  # local only: Cloud Run reserves paths ending in z and answers /healthz with its own 404
@@ -249,7 +261,7 @@ def healthz():
 
 @app.get("/api/config")
 def config(user: dict = Depends(current_user)): return {"email": user["email"], "model": MODEL, "cheap_model": CHEAP_MODEL, "strong_model": STRONG_MODEL, "models": MODELS,
-                      "has_key": bool(os.environ.get("ANTHROPIC_API_KEY")), "voice": {"gemini": voice.available(), **tts.describe()}}
+                      "has_key": bool(os.environ.get("ANTHROPIC_API_KEY")), "voice": {"gemini": voice.available(), "dialog": dialog.available(), **tts.describe()}}
 
 @app.websocket("/api/voice/live")
 async def voice_live(websocket: WebSocket, course: str = ""):
@@ -260,6 +272,37 @@ async def voice_live(websocket: WebSocket, course: str = ""):
     await websocket.accept()
     terms = await asyncio.to_thread(_glossary, course) if course else []
     await voice.relay(websocket, terms)
+
+SPOKEN_RULES = """You are speaking aloud with the student, not writing to them.
+
+- One idea per turn, under forty spoken words, then stop and let them answer.
+- Never read markdown, bullet points, headings or code aloud. Say the words a person would say.
+- Name the article and the case out loud ("Article thirty-four", "Dassonville"), and say when a point
+  is not in their own materials rather than filling the gap.
+- Ask a question back every few turns. A tutor checks whether the student followed.
+- If they interrupt you, stop and take their point. Do not restart the sentence you were on.
+"""
+
+@app.websocket("/api/voice/dialog")
+async def voice_dialog(websocket: WebSocket, course: str = ""):
+    """The spoken tutor: the whole turn stays inside Gemini Live, so it can be interrupted mid-sentence.
+    AuthMiddleware has already refused signed-out and cross-origin sockets. Only audio and transcript
+    text cross to the browser; the Vertex credentials never leave the server."""
+    if not dialog.available():
+        return await websocket.close(code=4404)
+    await websocket.accept()
+
+    def _system():
+        row = rows("SELECT * FROM courses WHERE id=?", course) if course else []
+        if not row:
+            return SPOKEN_RULES
+        text_parts, _images, _narrowed = build_context(course, "")
+        excerpts = ("\n\nTHE STUDENT'S OWN COURSE MATERIAL — answer from this and say when something is not in it:\n"
+                    + "\n\n".join(text_parts)[:40000]) if text_parts else "\n\nThe student has no files ticked. Say so when a question needs them."
+        return BASE_PROMPT + "\n" + (row[0]["tutor_prompt"] or "") + "\n" + SPOKEN_RULES + excerpts
+
+    system = await asyncio.to_thread(_system)
+    await dialog.relay(websocket, system)
 
 # courses
 @app.get("/api/courses")
@@ -527,6 +570,131 @@ def infer_weeks(cid: str):
     out = {"tagged": by_name + len(by_model), "by_name": by_name, "by_model": len(by_model)}
     if warning: out["warning"] = warning
     return out
+
+# ---------------------------------------------------------------- concepts: what a question is about
+
+CONCEPT_CHARS = 45000       # one week of one course; the cheap model's window, not a whole reader
+
+@app.get("/api/courses/{cid}/concepts")
+def list_concepts(cid: str, week: str = ""):
+    """What this course has been taught, as units a question can be asked about."""
+    q = ("SELECT id,name,kind,week,statement,limbs,traps,authority,method_tag,concept_id IS NULL AS unused "
+         "FROM concepts LEFT JOIN (SELECT DISTINCT concept_id FROM cards WHERE course_id=?) c ON c.concept_id=concepts.id "
+         "WHERE course_id=?")
+    args = [cid, cid]
+    if week:
+        q += " AND week=?"; args.append(week)
+    return rows(q + " ORDER BY week, name", *args)
+
+@app.delete("/api/concepts/{con_id}")
+def delete_concept(con_id: str):
+    with db() as d: d.execute("DELETE FROM concepts WHERE id=?", (con_id,))
+    return {"ok": True}
+
+class ConceptsIn(BaseModel): week: str = ""; file_id: Optional[str] = None
+
+@app.post("/api/courses/{cid}/concepts/extract")
+def extract_concepts(cid: str, body: ConceptsIn):
+    """Read one week's ticked material and record the concepts it teaches.
+
+    Every concept must quote the sentence it came from, and the quote is checked against the material
+    before anything is saved — a model that paraphrases there loses the entry. Cheap model only."""
+    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    week = (body.week or "").strip()
+    if body.file_id:
+        files_ = rows("SELECT id,name,text FROM files WHERE id=? AND course_id=?", body.file_id, cid)
+    elif week:
+        files_ = rows("SELECT id,name,text FROM files WHERE course_id=? AND week=? AND selected=1 ORDER BY name", cid, week)
+    else:
+        raise HTTPException(400, "give a week or a file")
+    material = "\n\n".join(f"=== {f['name']} ===\n{f['text']}" for f in files_ if (f["text"] or "").strip())[:CONCEPT_CHARS]
+    if not material.strip():
+        raise HTTPException(400, "nothing to read: those files carry no text yet")
+
+    m = ask_model(CHEAP_MODEL, max_tokens=4000, system=concepts_mod.EXTRACT_RULES,
+                  messages=[{"role": "user", "content": material}])
+    text = "".join(b.text for b in m.content if getattr(b, "type", "") == "text")
+    found, dropped = concepts_mod.parse(text, material)
+    if not found:
+        return {"saved": 0, "dropped": dropped or ["the model found nothing it could quote"], "model": m.model}
+
+    now = time.time()
+    source_file = files_[0]["id"] if body.file_id else ""
+    saved = 0
+    with db() as d:
+        for row in concepts_mod.rows_for_save(found, cid, week, now, source_file=source_file):
+            d.execute("INSERT INTO concepts(id,course_id,name,kind,week,statement,limbs,traps,authority,"
+                      "source_file,source_note,chunk_id,method_tag,created,updated) "
+                      "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING",
+                      (row[0], row[1], row[2], row[3], row[4], row[5], Jsonb(json.loads(row[6])),
+                       Jsonb(json.loads(row[7])), row[8], row[9], row[10], row[11], row[12], row[13], row[14]))
+            saved += 1
+    by_name = {c["name"].strip().lower(): c["id"] for c in rows("SELECT id,name FROM concepts WHERE course_id=?", cid)}
+    links = 0
+    with db() as d:
+        for a, b, relation in concepts_mod.pairs_for_links(found, by_name):
+            d.execute("INSERT INTO concept_links(id,a_id,b_id,relation,created) VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING",
+                      (uuid.uuid4().hex, a, b, relation, now))
+            links += 1
+    return {"saved": saved, "links": links, "dropped": dropped, "read": [f["name"] for f in files_], "model": m.model}
+
+class GenerateIn(BaseModel): week: str = ""; concept_id: Optional[str] = None; limit: int = 8
+
+@app.post("/api/courses/{cid}/concepts/generate")
+def generate_from_concepts(cid: str, body: GenerateIn):
+    """Write cards and one applied problem per concept, from the concept alone.
+
+    The concept was already checked against the material when it was extracted, so a question written
+    from it inherits that grounding. Anything the model cites beyond what the concept carries is
+    thrown away rather than saved — reaching for another authority is reaching past the course."""
+    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    q = ("SELECT * FROM concepts WHERE course_id=? AND id NOT IN "
+         "(SELECT DISTINCT concept_id FROM cards WHERE course_id=? AND concept_id IS NOT NULL)")
+    args = [cid, cid]
+    if body.concept_id:
+        q, args = "SELECT * FROM concepts WHERE course_id=? AND id=?", [cid, body.concept_id]
+    elif body.week:
+        q += " AND week=?"; args.append(body.week)
+    todo = rows(q + " ORDER BY week, name", *args)[:max(1, min(body.limit, 20))]
+    if not todo: return {"concepts": 0, "cards": 0, "questions": 0, "note": "every concept here already has cards"}
+
+    made_cards = made_questions = 0
+    dropped, now = [], time.time()
+    for con in todo:
+        concept = {"name": con["name"], "statement": con["statement"], "authority": con["authority"] or "",
+                   "limbs": con["limbs"] or [], "traps": con["traps"] or []}
+        brief = json.dumps({"concept": con["name"], "kind": con["kind"], **concept}, ensure_ascii=False)
+        try:
+            m = ask_model(CHEAP_MODEL, max_tokens=2500, system=concepts_mod.GENERATE_RULES,
+                          messages=[{"role": "user", "content": brief}])
+        except HTTPException as e:
+            dropped.append(f"{con['name']}: {e.detail}"); continue
+        text = "".join(b.text for b in m.content if getattr(b, "type", "") == "text")
+        try:
+            payload = json.loads(text[text.find("{"): text.rfind("}") + 1])
+        except ValueError:
+            dropped.append(f"{con['name']}: the reply was not JSON"); continue
+
+        cards, why = concepts_mod.clean_cards(payload, concept)
+        dropped.extend(f"{con['name']}: {w}" for w in why)
+        with db() as d:
+            for card in cards:
+                d.execute("INSERT INTO cards(id,course_id,front,back,source,ease,interval,reps,due,created,week,concept_id) "
+                          "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                          (uuid.uuid4().hex, cid, card["front"], card["back"], con["name"], 2.5, 0, 0,
+                           date.today().isoformat(), now, con["week"] or "", con["id"]))
+                made_cards += 1
+        question, why_not = concepts_mod.clean_question(payload, concept)
+        if question:
+            with db() as d:
+                d.execute("INSERT INTO essay_questions(id,course_id,week,question,model,source,created,kind,steps,concept_id) "
+                          "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                          (uuid.uuid4().hex, cid, con["week"] or "", question["question"], question["model"],
+                           con["name"], now, "problem", Jsonb([{"step": s} for s in question["steps"]]), con["id"]))
+            made_questions += 1
+        elif why_not:
+            dropped.append(f"{con['name']}: {why_not}")
+    return {"concepts": len(todo), "cards": made_cards, "questions": made_questions, "dropped": dropped}
 
 # ---------------------------------------------------------------- syllabus in, weeks and topics out (Phase 13)
 SYLLABUS_CHARS = 60000   # a syllabus is five to fifteen pages; the cap is a guard against a whole reader being picked
@@ -817,7 +985,9 @@ HOUSE STYLE for notes (readability first):
 """
 
 MODES = {
-    "drill": "Mode: Socratic drill. Ask one question, wait, then correct firmly and specifically.",
+    "drill": ("Mode: Socratic drill. Ask one question, wait, then correct firmly and specifically. "
+              "When he is talking rather than answering — a greeting, a question about the course, a request — "
+              "talk back like a tutor in a corridor, then return to drilling."),
     "explain": "Mode: explain. Give a tight, structured explanation with references to the files (file name, slide/page where visible).",
     "notes": "Mode: build notes. Reconcile the supplied files into master notes with provenance tags; flag conflicts and gaps.\n" + NOTE_STYLE,
     "apply": ("Mode: application. The student gives you facts — a WG question, an exam problem, a scenario. Work the exam method in IRAC: "
@@ -827,6 +997,22 @@ MODES = {
               "anything outside the ticked files [OUTSIDE FILES]. Finish with a 'Bottom line' of two sentences."),
 }
 
+# Voice on: the page speaks the <speech> block the moment it closes, while the written answer is still
+# streaming. Before this, the page waited for the whole answer and then read all of it aloud, markdown
+# included, and anything over 1,500 characters went to the robotic browser voice. The page has asked
+# for this block since the voice was added (app.js sends speech: true); nothing on the server asked
+# Claude to write it.
+VOICE_RULE = ("VOICE IS ON: he is listening, not reading. Open your reply with <speech>...</speech>: what you would "
+              "say to him out loud, AT MOST 40 WORDS - two or three short sentences, the warmth fits inside that - in plain spoken sentences - no markdown, no lists, no provenance "
+              "tags, case names said as a person says them. Sound like a warm, encouraging tutor sitting next to him: "
+              "contractions, a natural rhythm, a quick friendly word when it fits (\"Good question.\", \"Nearly -\"), never "
+              "curt or clipped. Then close the tag and write the screen part as a compact "
+              "visual card he can glance at while you talk: a one-line **bold rule**, the deciding *case* with its "
+              "citation, and - when the structure has parts or steps - a small table or a ```mermaid flowchart. "
+              "No preamble, no repeating the spoken part. The spoken part asks or answers; the screen carries the "
+              "rules, articles and cases.")
+SPEECH_BLOCK = re.compile(r"<speech>[\s\S]*?(?:</speech>|$)\s*")
+
 @app.get("/api/courses/{cid}/messages")
 def messages(cid: str): return rows("SELECT id,role,content,created FROM messages WHERE course_id=? ORDER BY created", cid)
 
@@ -835,27 +1021,70 @@ def clear_messages(cid: str):
     with db() as d: d.execute("DELETE FROM messages WHERE course_id=?", (cid,))
     return {"ok": True}
 
-@app.post("/api/courses/{cid}/chat")
-def chat(cid: str, body: ChatIn):
-    course = rows("SELECT * FROM courses WHERE id=?", cid)
-    if not course: raise HTTPException(404)
-    course = course[0]
-    text_parts, images, narrowed = build_context(cid, body.message)
-    system = [{"type": "text", "text": BASE_PROMPT + "\n" + (course["tutor_prompt"] or "") + "\n" + MODES.get(body.mode, MODES["drill"])}]
-    log.debug("tutor system prompt (course %s, mode %s):\n%s", cid, body.mode, system[0]["text"])
+def _tutor_prompt(cid: str, course, mode: str, speech: bool, question: str):
+    """The system blocks and history a tutor turn sends. One builder, so the voice's cache warm-up
+    (/warm) writes exactly the prefix the next real turn will read."""
+    text_parts, images, narrowed = build_context(cid, question)
+    system = [{"type": "text", "text": BASE_PROMPT + "\n" + (course["tutor_prompt"] or "") + "\n" + MODES.get(mode, MODES["drill"])}]
+    log.debug("tutor system prompt (course %s, mode %s):\n%s", cid, mode, system[0]["text"])
     if text_parts:
         heading = "COURSE PASSAGES (from the files you ticked; quote them):" if narrowed else "COURSE FILES:"
         trimmed = f"\n\n[Not included for this question: {', '.join(narrowed['trimmed'])}. Ask to read everything if you need them.]" if (narrowed and narrowed["trimmed"]) else ""
         system.append({"type": "text", "text": heading + "\n" + "\n\n".join(text_parts) + trimmed, "cache_control": {"type": "ephemeral"}})
     else:
         system.append({"type": "text", "text": "COURSE FILES: none selected. Say so if the question needs them."})
+    if speech:   # after the cached blocks, so turning the voice on does not throw the file cache away
+        system.append({"type": "text", "text": VOICE_RULE})
     history = [{"role": m["role"], "content": m["content"]} for m in messages(cid)][-30:]
+    if history:   # the conversation so far is cached too: measured 2026-09-24, ~12k history tokens were re-sent uncached on every turn
+        history[-1] = {"role": history[-1]["role"], "content": [{"type": "text", "text": history[-1]["content"], "cache_control": {"type": "ephemeral"}}]}
+    return system, history, images, narrowed
+
+
+def _turn_model(mode: str, model: Optional[str], message: str, speech: bool) -> str:
+    chosen = pick_model(mode, model, message)
+    if speech and (model or "auto") == "auto":
+        # A spoken turn is a conversation, and a pause is the failure. Measured on the live site 2026-09-24 with
+        # the European Law files: Sonnet had its spoken part ready at 16 s cold and 8.4 s warm; Haiku at 2.0 s cold.
+        # A model he picks by hand still wins.
+        chosen = CHEAP_MODEL
+    return chosen
+
+
+class WarmIn(BaseModel): mode: str = "drill"; model: Optional[str] = None
+
+
+@app.post("/api/courses/{cid}/warm")
+def warm(cid: str, body: WarmIn):
+    """Load the course into Claude's prompt cache the moment he reaches for the voice, so his first spoken
+    question reads it instead of writing it. Measured live 2026-09-24: first spoken turn after a quiet spell
+    10 s (cache write, 54k tokens), the next 1.9 s (cache read). One token out; about $0.07 on Haiku when the
+    cache was cold, about half a cent when it was already warm. The page calls it at most every 4 minutes."""
+    course = rows("SELECT * FROM courses WHERE id=?", cid)
+    if not course: raise HTTPException(404)
+    if RETRIEVAL and embed.ready():   # each question gets its own passages, so there is no shared prefix to warm
+        return {"warmed": False, "why": "retrieval narrows the files per question"}
+    system, history, _, _ = _tutor_prompt(cid, course[0], body.mode, True, "")
+    chosen = _turn_model(body.mode, body.model, "", True)
+    try:
+        r = client().messages.create(model=llm.resolve(chosen), max_tokens=1, system=system,
+                                     messages=history + [{"role": "user", "content": "(loading the course; reply with one word)"}])
+    except Exception as e:
+        return {"warmed": False, "why": f"{type(e).__name__}: {e}"[:200]}
+    return {"warmed": True, "model": chosen, "usage": llm.usage(r, "warm")}
+
+
+@app.post("/api/courses/{cid}/chat")
+def chat(cid: str, body: ChatIn):
+    course = rows("SELECT * FROM courses WHERE id=?", cid)
+    if not course: raise HTTPException(404)
+    system, history, images, narrowed = _tutor_prompt(cid, course[0], body.mode, body.speech, body.message)
     user_content = images + [{"type": "text", "text": body.message}] if images else body.message
     with db() as d: d.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uuid.uuid4().hex, cid, "user", body.message, time.time()))
 
     def gen():
         out = []
-        chosen = pick_model(body.mode, body.model, body.message)
+        chosen = _turn_model(body.mode, body.model, body.message, body.speech)
         yield f"data: {json.dumps({'model': chosen})}\n\n"
         if narrowed:
             yield f"data: {json.dumps({'reading': {'used': narrowed['used'], 'trimmed': narrowed['trimmed'], 'chars': narrowed['chars']}})}\n\n"
@@ -872,9 +1101,17 @@ def chat(cid: str, body: ChatIn):
                 yield f"data: {json.dumps({'usage': llm.usage(s.get_final_message(), body.mode)})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
-        full = "".join(out)
+        full = SPEECH_BLOCK.sub("", "".join(out)).strip()   # the spoken part was for the ear; the record keeps the written answer
         if full:
             with db() as d: d.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uuid.uuid4().hex, cid, "assistant", full, time.time()))
+            # An invented ECLI reads exactly like a real one. Every case, ECLI and article the answer cites is
+            # looked up in the full text of the ticked files - not only the passages sent - and the ones found
+            # nowhere are named under the answer. With nothing ticked there is nothing to check against, so
+            # nothing is flagged; the prompt already tells the tutor to say so.
+            sources = [r["text"] for r in rows("SELECT text FROM files WHERE course_id=? AND selected=1", cid) if r["text"]]
+            missing = citecheck.unverified(full, sources) if sources else []   # the full ticked files already hold every passage sent
+            if missing:
+                yield f"data: {json.dumps({'unverified': [c['raw'] for c in missing]})}\n\n"
         yield "data: [DONE]\n\n"
     return StreamingResponse(gen(), media_type="text/event-stream")
 
@@ -1232,12 +1469,12 @@ def court_reply(cid: str, r: CourtReplyIn):
 
 
 # ---------------------------------------------------------------- oral revision (Phase 11c)
-class SpeakIn(BaseModel): text: str
+class SpeakIn(BaseModel): text: str; voice: Optional[str] = None   # a name from tts.GOOGLE_VOICES; anything else is ignored
 
 @app.post("/api/speak")
 def speak(s: SpeakIn):
     """One spoken line. 204 means 'no server voice configured' — the page then speaks for itself."""
-    out = tts.say(s.text)
+    out = tts.say(s.text, s.voice)
     if not out: return Response(status_code=204)
     audio, media = out
     return Response(content=audio, media_type=media, headers={"Cache-Control": "no-store"})
@@ -1882,11 +2119,14 @@ def _cases_in_notes(cid: str):
         name = re.sub(r"\s+", " ", name).strip(" *_.,;:")
         # The same case is written three ways across notes: "Humblot", "Humblot C-112/84" and
         # "Humblot, paras 14-16". Strip what is not the name, and keep the citation it carried.
+        name = re.sub(r"[\u200b\u200c\ufeff\xa0]", " ", name).strip()      # zero-width and non-breaking space read as part of the name
         name = re.sub(r"(?i)[,;]?\s*paras?\.?\s*\d+\s*(?:[-–]\s*\d+)?$", "", name).strip(" ,;")
-        tail = re.search(r"(?i)\(?\b(C[-‑]\d{1,4}/\d{2,4})\b\)?$", name)
+        # A joined citation is one case: "Keck and Mithouard (C-267/91 & C-268/91" — note the bracket
+        # the note never closed, which is why a plain \(?...\)? did not match it.
+        tail = re.search(r"(?i)[\(\[]?\s*(C[-‑]\d{1,4}/\d{2,4}(?:\s*(?:&|and|,|\+)\s*C[-‑]\d{1,4}/\d{2,4})*)\s*[\)\]]?\s*$", name)
         if tail:
             cite = cite or tail.group(1)
-            name = name[:tail.start()].strip(" ,;-–")
+            name = name[:tail.start()].strip(" ,;-–([")
         if not name or not name[0].isupper() or len(name) > 80 or len(name.split()) > 8: return
         if _NOT_A_CASE.match(name): return          # "Art 36" is a treaty article, not a case
         c = found.setdefault(name.casefold(), {"name": name, "cite": "", "year": None, "notes": []})
@@ -1915,6 +2155,21 @@ def _cases_in_notes(cid: str):
             # no citation to read: a bracketed (1979) written beside the name still counts, but a loose
             # "12/34" in running prose does not — that is a paragraph number as often as a year.
             add(m.group(1), cite, n, _year_in(cite) or _year_beside(tail))
+    # A shorter name that opens a longer one is the same case written in a hurry: "Keck" for
+    # "Keck and Mithouard", "Cassis" for "Cassis de Dijon". Merge into the fuller name.
+    keys = sorted(found, key=len)
+    for short in list(keys):
+        if short not in found: continue
+        for long in keys:
+            if long is short or long not in found or len(long) <= len(short): continue
+            if long.startswith(short) and long[len(short)] in " ,(-–":
+                a, b = found[long], found.pop(short)
+                a["cite"] = a["cite"] or b["cite"]
+                a["year"] = a["year"] or b["year"]
+                for note in b["notes"]:
+                    if all(x["id"] != note["id"] for x in a["notes"]): a["notes"].append(note)
+                break
+
     # "Keck" and "Keck and Mithouard" with the same citation are one case, under the fuller name.
     by_cite = {}
     for key, c in list(found.items()):
@@ -2538,12 +2793,31 @@ def auto_plan(cid: str, p: PlanIn):
         if p.replace: c.execute("DELETE FROM sessions WHERE course_id=? AND day>=? AND done=0", (cid, start))
         for it in items:
             if not isinstance(it, dict) or not it.get("day") or not it.get("topic"): continue
+            if str(it["day"])[:10] < start: continue          # the model sometimes copies dates out of the course calendar; a plan never lands in the past
             c.execute("INSERT INTO sessions VALUES(?,?,?,?,?,0)", (uuid.uuid4().hex, cid, str(it["day"])[:10], str(it["topic"])[:160], int(it.get("minutes", 45)))); added += 1
     return {"added": added, "model": m.model}
 
 # ---------------------------------------------------------------- planner + stats
 @app.get("/api/sessions")
-def sessions(): return rows("SELECT s.*,c.name AS course FROM sessions s JOIN courses c ON c.id=s.course_id ORDER BY day")
+def sessions(start: str = "", end: str = ""):
+    """Every session, or one window of them. The planner asks for the week it is showing, plus
+    anything unfinished before today, so months of old days never fill the screen again."""
+    where, args = [], []
+    if start: where.append("s.day>=?"); args.append(start[:10])
+    if end: where.append("s.day<=?"); args.append(end[:10])
+    q = "SELECT s.*,c.name AS course FROM sessions s JOIN courses c ON c.id=s.course_id"
+    if where: q += " WHERE " + " AND ".join(where)
+    return rows(q + " ORDER BY day", *args)
+
+class MoveIn(BaseModel): day: str
+
+@app.post("/api/sessions/{sid}/move")
+def move_session(sid: str, m: MoveIn):
+    """Carry a session that was never done over to another day, keeping its topic and minutes."""
+    day = m.day[:10]
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day): raise HTTPException(400, "day must be YYYY-MM-DD")
+    with db() as c: c.execute("UPDATE sessions SET day=? WHERE id=? AND done=0", (day, sid))
+    return {"id": sid, "day": day}
 
 @app.post("/api/courses/{cid}/sessions")
 def add_session(cid: str, s: SessionIn):
@@ -2619,7 +2893,18 @@ def stats(cid: str):
             "streak": streak, "streak_frozen": frozen,
             "files": files_n["n"], "file_chars": files_n["total_chars"], "study_minutes": minutes, "questions_asked": msgs}
 
-app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
+class AppFiles(StaticFiles):
+    """The app's own page, script and styles revalidate by ETag on every load (a 304 when nothing changed).
+    Without a Cache-Control header Chrome guesses a lifetime from Last-Modified, and on 2026-09-24 a tab
+    opened after a deploy was found running the previous app.js - the new voice code was live and not
+    running. The 3D player below already did this; /static never did."""
+    def file_response(self, full_path, stat_result, scope, status_code=200):
+        resp = super().file_response(full_path, stat_result, scope, status_code)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
+app.mount("/static", AppFiles(directory=ROOT / "static"), name="static")
 class PlayerFiles(StaticFiles):
     """The 3D player: not under /static (public), so AuthMiddleware holds it behind sign-in. Game JSON is not served here.
     Folders named with their version (vendor-r170/, fonts-v1/, assets-v1/: three.js, fonts and glTF sets) never change

@@ -210,6 +210,11 @@
   .agenda{display:flex;flex-direction:column;gap:1.1rem;max-width:760px}
   .day{border:1px solid var(--rule);border-radius:var(--r);overflow:hidden;background:var(--paper)}
   .day.today{border-color:var(--accent);border-width:1.5px} .day.past{opacity:.62}
+  /* what was planned and never done. Dimming it like a past day would hide the one block that asks for a decision. */
+  .day.missedblock{border-color:var(--warn);opacity:1}
+  .day.missedblock .dayhd{background:color-mix(in srgb,var(--warn) 9%,var(--faint))}
+  .day.missedblock .dayhd .dow{color:var(--warn)}
+  .dayhd .btn{margin-left:.6rem;align-self:center}
   .dayhd{display:flex;align-items:baseline;gap:.6rem;padding:.6rem .9rem;border-bottom:1px solid var(--rule);background:var(--faint)}
   .dayhd .dow{font-family:var(--serif);font-size:1.1rem} .dayhd .date{color:var(--graphite);font-size:.85rem} .dayhd .sum{margin-left:auto;color:var(--graphite);font-size:.82rem}
   .dayhd .todaymark{font-size:.7rem;color:var(--paper);background:var(--accent);border-radius:999px;padding:.05rem .5rem}

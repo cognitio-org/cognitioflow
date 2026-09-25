@@ -72,6 +72,25 @@ def test_one_case_written_three_ways_is_one_entry(client):
     assert not [n for n in by if n.lower().startswith("art")]
 
 
+
+def test_a_joined_citation_and_a_shortened_name_are_still_one_case(client):
+    """Notes write Keck as "Keck", as "Keck and Mithouard C-267/91 & C-268/91", and with a bracket
+    they never close. All three are the same judgment."""
+    cid = _cid(client)
+    client.post(f"/api/courses/{cid}/notes", json={"title": "Selling arrangements", "body":
+        "*Keck and Mithouard (C-267/91 & C-268/91* changed the test [LECTURE]\n"
+        "later shortened to *Keck* in the summary\n"
+        "and *Cassis de Dijon* stayed as it was\n"}).json()
+    client.post(f"/api/courses/{cid}/notes", json={"title": "Table", "body":
+        "| Case | Citation | Rule |\n|---|---|---|\n| *Keck and Mithouard* | C-267/91 | selling arrangements |\n"}).json()
+
+    by = {c["name"]: c for c in client.get(f"/api/courses/{cid}/cases").json()}
+    assert [n for n in by if "keck" in n.lower()] == ["Keck and Mithouard"]
+    assert by["Keck and Mithouard"]["cite"].startswith("C-267/91")
+    assert len(by["Keck and Mithouard"]["notes"]) == 2
+    assert "Cassis de Dijon" in by
+
+
 def test_case_index_empty_course(client):
     cid = client.post("/api/courses", json={"name": "Empty"}).json()["id"]
     assert client.get(f"/api/courses/{cid}/cases").json() == []
@@ -563,9 +582,9 @@ def test_speech_and_card_grading_share_one_cached_prompt(client, fake):
 
 def test_speak_returns_audio_or_tells_the_page_to_speak_itself(client, monkeypatch):
     import tts
-    monkeypatch.setattr(tts, "say", lambda text: None)
+    monkeypatch.setattr(tts, "say", lambda text, voice=None: None)
     assert client.post("/api/speak", json={"text": "Hello."}).status_code == 204
-    monkeypatch.setattr(tts, "say", lambda text: (b"ID3fake-mp3", "audio/mpeg"))
+    monkeypatch.setattr(tts, "say", lambda text, voice=None: (b"ID3fake-mp3", "audio/mpeg"))
     r = client.post("/api/speak", json={"text": "Hello."})
     assert r.status_code == 200 and r.content == b"ID3fake-mp3"
     assert r.headers["content-type"] == "audio/mpeg" and r.headers["cache-control"] == "no-store"

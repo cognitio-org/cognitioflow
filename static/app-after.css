@@ -108,3 +108,18 @@
   #caseTimeline .undated .tcases::before{background:var(--paper);border:1px solid var(--rule-strong);left:-5px}
   #caseTimeline .tnote{margin:0 0 .6rem;color:var(--graphite)}
   @media(max-width:1300px){#caseTimeline .tyear{grid-template-columns:3.4rem minmax(0,1fr);gap:0 .7rem} #caseTimeline .ty{font-size:.98rem}}
+
+/* Voice, 2026-09-24: his prompts, the live transcript, the tutor's spoken caption, and a toolbar that wraps.
+   His messages were a bright pill that out-shouted the answers; they sit on the raised surface now, with a
+   tail on the speaking side. The accent is kept for meaning: here, "listening". */
+.msg.user{background:var(--raised);color:var(--ink);border:1px solid var(--rule);border-radius:14px 14px 4px 14px;padding:.55rem .9rem;box-shadow:0 1px 2px rgba(0,0,0,.18)}
+.msg.user.spoken::before{content:"🎙";font-size:.8em;margin-right:.45rem;opacity:.7}
+.msg.user.live{border-style:dashed;border-color:var(--accent);font-style:italic;color:var(--graphite)}
+.msg.user.live::after{content:"";display:inline-block;width:.45em;height:.45em;margin-left:.55em;border-radius:50%;background:var(--accent);vertical-align:middle;animation:cf-listening 1.1s ease-in-out infinite}
+@keyframes cf-listening{50%{opacity:.2}}
+@media (prefers-reduced-motion:reduce){.msg.user.live::after{animation:none}}
+.msg .said{font-family:var(--serif);font-style:italic;color:var(--graphite);font-size:.92rem;line-height:1.45;margin:0 0 .6rem;padding:0 0 .55rem;border-bottom:1px solid var(--rule)}
+.msg .said::before{content:"🔊";font-style:normal;margin-right:.45rem;opacity:.75}
+.modes{flex-wrap:wrap;row-gap:.4rem}
+.modes > span{flex-wrap:wrap;justify-content:flex-end;row-gap:.35rem}
+.modes .btn,.modes select{white-space:nowrap}
