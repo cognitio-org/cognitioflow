@@ -1936,7 +1936,7 @@ def mock_grade(cid: str, g: MockGradeIn):
         model = rows("SELECT model FROM essay_questions WHERE id=?", g.question_id)[0]["model"] or ""
         system = BASE_PROMPT + "\n" + (course[0]["tutor_prompt"] or "") + "\n" + MOCK_MARKER
         usr = (f"QUESTION:\n{q['question'][:8000]}\n\nOFFICIAL MODEL ANSWER:\n{model[:essay.ANSWER_CHARS] or '(none printed - mark against the course material and method)'}"
-               f"\n\nHIS ANSWER:\n\"\"\"\n{answer[:essay.ANSWER_CHARS]}\n\"\"\"")
+               f"\n\nHIS ANSWER:\n\"\"\"\n{mockexam.within_limit(answer, mockexam.header(q['question'])['words'])[:essay.ANSWER_CHARS]}\n\"\"\"")
         try:
             m = ask_model(pick_model("apply", None), max_tokens=2000, system=system, messages=[{"role": "user", "content": usr}])
             out = {"kind": "mock", **mockexam.valid_grade(_model_json(m))}

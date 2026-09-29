@@ -67,3 +67,17 @@ def test_nothing_written_is_handed_in_without_calling_the_marker(client):
         calls = fake.messages.create.call_count
         g = client.post(f"/api/courses/{cid}/mock/grade", json={"question_id": qid, "answer": "  "}).json()
     assert g["overall"].startswith("Nothing was written") and fake.messages.create.call_count == calls
+
+
+def test_only_the_words_within_the_limit_reach_the_marker(client):
+    """The page says 'over the limit: only the first 300 are marked', so the marker must not read past them."""
+    cid = _course_with_paper(client)
+    fake = mock.MagicMock()
+    fake.messages.create.return_value = _reply([{"number": 1, "question": "Question 1 (19 points; 25 minutes; max 50 words)\nAdvise Marika.", "model": "x"}])
+    with mock.patch.object(run, "client", return_value=fake):
+        client.post(f"/api/courses/{cid}/mock/import")
+        qid = client.get(f"/api/courses/{cid}/mock/papers").json()["papers"][0]["questions"][0]["id"]
+        fake.messages.create.return_value = _reply({"points": [], "missing": [], "overall": "ok"})
+        client.post(f"/api/courses/{cid}/mock/grade", json={"question_id": qid, "answer": "w " * 48 + "forty-nine\nfifty OVERFLOW"})
+    sent = fake.messages.create.call_args.kwargs["messages"][0]["content"]
+    assert "forty-nine\nfifty" in sent and "OVERFLOW" not in sent

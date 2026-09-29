@@ -74,6 +74,15 @@ def pair_files(files: list) -> list:
     return [(t, qs[t], ans.get(t)) for t in sorted(qs)]
 
 
+def within_limit(text: str, words) -> str:
+    """The answer as the marker sees it: cut after the paper's word limit, line breaks kept. The page tells him
+    only the first N words are marked, so the marker must not read past them."""
+    if not words:
+        return text
+    m = list(re.finditer(r"\S+", text or ""))
+    return text if len(m) <= words else text[:m[words - 1].end()]
+
+
 def valid_grade(g) -> dict:
     """The marker's JSON, cut to shape: a list of the model answer's points with a standing and a comment each."""
     out = {"points": [], "missing": [], "overall": ""}
