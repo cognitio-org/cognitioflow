@@ -26,6 +26,7 @@ def _harden(url: str) -> str:
 
 os.environ["DATABASE_URL"] = _harden(os.environ["DATABASE_URL"])   # the app's own pool reads it at import, below
 os.environ.setdefault("ANTHROPIC_API_KEY", "sk-ant-test-key")
+os.environ.setdefault("CF_DOCKET_AUTO", "0")   # no game writer threads behind a test's back; test_docket_drafts turns it on per test
 # Phase 4: tests run with the dev bypass; tests/test_auth.py turns auth back on per test
 os.environ.setdefault("AUTH", "off")
 os.environ.setdefault("ALLOWED_EMAILS", "matej@mgms.eu")  # AUTH=off signs in as its first address

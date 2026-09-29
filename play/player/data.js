@@ -9,6 +9,7 @@ export const GAMES_BASE = new URL('../', import.meta.url);
 // in-app; glTF sets are not — they ship in play/assets/ and findAsset reads a manifest rather than probing,
 // so the app can load them without paying for lookups that 404.
 export const APP_COURSE = new URLSearchParams(location.search).get('course') || '';
+const APP_DRAFT = new URLSearchParams(location.search).get('draft') || '';   // a game he is trying before he approves it
 const IN_APP = !!APP_COURSE;
 
 const FIXTURES = IN_APP ? {} : {
@@ -27,7 +28,7 @@ async function fetchJSON(url) {
 export async function loadIndex() {
   let list = [];
   try {
-    const indexUrl = IN_APP ? `/api/courses/${encodeURIComponent(APP_COURSE)}/docket` : new URL('index.json', GAMES_BASE).href;
+    const indexUrl = IN_APP ? `/api/courses/${encodeURIComponent(APP_COURSE)}/docket${APP_DRAFT ? `?draft=${encodeURIComponent(APP_DRAFT)}` : ''}` : new URL('index.json', GAMES_BASE).href;
     const data = await fetchJSON(indexUrl);
     if (Array.isArray(data)) list = data.filter((g) => g && g.id && g.path);
   } catch (err) {

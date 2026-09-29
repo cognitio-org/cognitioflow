@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 import citecheck
 import countdown
+import docketgen
 import embed
 import essay
 import mockexam
@@ -418,6 +419,8 @@ async def upload(cid: str, file: UploadFile = File(...), week: str = Form("")):
                   (fid, cid, file.filename, kind, key, text, len(text), 1, status, week, time.time(),
                    clean_label(file.filename), role_by_name(file.filename)))
     reindex(cid, "file", fid, file.filename, kind, week, text)
+    if DOCKET_AUTO and week and text.strip():   # new material: the game writers look again once the batch has landed
+        t = threading.Timer(DOCKET_SETTLE_S, lambda: docket_autodraft(cid)); t.daemon = True; t.start()
     return {"id": fid, "status": status, "chars": len(text)}
 
 @app.post("/api/files/{fid}/toggle")
@@ -2169,18 +2172,230 @@ def _docket_for(course: dict) -> list:
     return [g for g in index if isinstance(g, dict) and g.get("id") and g.get("path") and belongs(str(g.get("course", "")))]
 
 @app.get("/api/courses/{cid}/docket")
-def docket(cid: str, user: dict = Depends(current_user)):
+def docket(cid: str, draft: str = "", user: dict = Depends(current_user)):
+    """The 3D player's library: the hand-made games for this course, then the ones written from his files that he
+    approved. `draft` adds one unapproved draft, so he can play it before he decides."""
     course = _own_course(cid, user)
-    return [{"id": g["id"], "course": g.get("course", ""), "title": g.get("title", ""), "path": f"/api/courses/{cid}/docket/{g['id']}"}
-            for g in _docket_for(course)]
+    out = [{"id": g["id"], "course": g.get("course", ""), "title": g.get("title", ""), "path": f"/api/courses/{cid}/docket/{g['id']}"}
+           for g in _docket_for(course)]
+    for g in rows("SELECT id,title,status FROM docket_games WHERE course_id=? AND (status='approved' OR (id=? AND status='draft')) "
+                  "ORDER BY created", cid, draft):
+        out.append({"id": g["id"], "course": _docket_code(course), "title": g["title"], "path": f"/api/courses/{cid}/docket/{g['id']}",
+                    "draft": g["status"] == "draft"})
+    return out
 
 @app.get("/api/courses/{cid}/docket/{gid}")
 def docket_game(cid: str, gid: str, user: dict = Depends(current_user)):
     course = _own_course(cid, user)
+    mine = rows("SELECT game FROM docket_games WHERE id=? AND course_id=? AND status IN ('approved','draft')", gid, cid)
+    if mine and mine[0]["game"]:
+        return Response(content=json.dumps(mine[0]["game"], ensure_ascii=False), media_type="application/json", headers={"Cache-Control": "private, no-cache"})
     g = next((g for g in _docket_for(course) if g["id"] == gid), None)
     path = (GAMES_DIR / g["path"]).resolve() if g else None
     if not path or not path.is_relative_to(GAMES_DIR.resolve()) or not path.is_file(): raise HTTPException(404)
     return Response(content=path.read_text(encoding="utf-8"), media_type="application/json", headers={"Cache-Control": "private, no-cache"})
+
+# ---------------------------------------------------------------- Case Docket games written from his files (2026-09-29)
+# New material for a week -> a writer drafts that week's game, the checks and a reviewer go over it, and it waits
+# as a draft until he approves it. Written in a thread like note audio: a Cloud Run instance that goes away mid-game
+# leaves a row in 'writing', which is collected as failed after docketgen.AUTO_STALE_S and written again later.
+DOCKET_AUTO = os.environ.get("CF_DOCKET_AUTO", "1") != "0"
+DOCKET_SETTLE_S = 90                  # an upload batch lands file by file; wait for it before writing
+DOCKET_REVIEW_MODEL = os.environ.get("CF_DOCKET_REVIEW_MODEL", STRONG_MODEL)
+_docket_writing: set = set()          # course ids with a writer thread in this process
+_docket_lock = threading.Lock()
+
+
+def _docket_code(course: dict) -> str:
+    return f"CF-{course['id']}"
+
+
+def _docket_files(cid: str, week: str) -> list:
+    """The week's ticked text files, in the course's order of authority: past exams and WG material first."""
+    fs = rows("SELECT id,name,text,role,kind,label,week,created FROM files WHERE course_id=? AND week=? AND selected=1 "
+              "AND kind<>'image' AND COALESCE(text,'')<>''", cid, week)
+    return sorted(fs, key=lambda f: ROLE_ORDER.get(f.get("role") or "", len(ROLE_ORDER)))
+
+
+def _docket_collect_stale(cid: str):
+    cut = time.time() - docketgen.AUTO_STALE_S
+    with db() as d:
+        d.execute("UPDATE docket_games SET status='failed', error='The writer stopped part-way; it will try again.', updated=? "
+                  "WHERE course_id=? AND status='writing' AND updated<?", (time.time(), cid, cut))
+
+
+def _docket_due(cid: str) -> list:
+    files = rows("SELECT week,created FROM files WHERE course_id=? AND selected=1 AND kind<>'image' AND COALESCE(text,'')<>''", cid)
+    games = rows("SELECT week,status,created,updated FROM docket_games WHERE course_id=?", cid)
+    return docketgen.weeks_needing_games([dict(f) for f in files], [dict(g) for g in games], time.time())
+
+
+def _docket_queue(cid: str, weeks: list) -> list:
+    """A 'writing' row per week, so the list shows them at once and no second writer starts on the same week."""
+    ids, now = [], time.time()
+    with db() as d:
+        for w in weeks:
+            gid = "g" + uuid.uuid4().hex[:11]
+            d.execute("INSERT INTO docket_games(id,course_id,week,status,title,created,updated) VALUES(?,?,?,?,?,?,?)",
+                      (gid, cid, w, "writing", f"Week {w}", now, now)); ids.append(gid)
+    return ids
+
+
+def _docket_start(cid: str, ids: list):
+    """One writer thread per course, working through its queue in order."""
+    with _docket_lock:
+        if cid in _docket_writing: return
+        _docket_writing.add(cid)
+    def work():
+        try:
+            while True:
+                nxt = rows("SELECT id FROM docket_games WHERE course_id=? AND status='writing' ORDER BY created LIMIT 1", cid)
+                if not nxt: break
+                _docket_write(cid, nxt[0]["id"])
+        finally:
+            with _docket_lock: _docket_writing.discard(cid)
+    threading.Thread(target=work, daemon=True).start()
+
+
+def docket_autodraft(cid: str):
+    """Queue a game for every week whose material is newer than its last game. Safe to call often."""
+    if not (DOCKET_AUTO and os.environ.get("ANTHROPIC_API_KEY")): return []
+    _docket_collect_stale(cid)
+    weeks = _docket_due(cid)
+    ids = _docket_queue(cid, weeks) if weeks else []
+    if ids or rows("SELECT 1 FROM docket_games WHERE course_id=? AND status='writing' LIMIT 1", cid):
+        _docket_start(cid, ids)
+    return weeks
+
+
+def _docket_write(cid: str, gid: str):
+    """Write, check, review and (once) revise one game. Ends with the row a draft or failed, never left writing."""
+    row = rows("SELECT week FROM docket_games WHERE id=?", gid)
+    course = rows("SELECT * FROM courses WHERE id=?", cid)
+    if not row or not course: return
+    week, course = row[0]["week"], course[0]
+    try:
+        files = _docket_files(cid, week)
+        if not files: raise ValueError(f"No ticked files with text for week {week}.")
+        keyed = docketgen.source_keys(files)
+        src = docketgen.sources_block(keyed)
+        brief = (course.get("tutor_prompt") or "").strip()
+        system = docketgen.WRITER + (f"\n\nCOURSE BRIEF (how this course is taught and examined):\n{brief}" if brief else "")
+        ask = f"Course: {course['name']}. Week {week}.\n\n{src}\n\nWrite the game for week {week}."
+        def write(extra: str = ""):
+            m = ask_model(MODEL, max_tokens=12000, system=system, messages=[{"role": "user", "content": ask + extra}])
+            _set_docket(gid, updated=time.time())
+            return _model_json(m), m.model
+        game, used = write()
+        texts = [f["text"] for f in rows("SELECT text FROM files WHERE course_id=? AND selected=1 AND COALESCE(text,'')<>''", cid)]
+        def problems(g):
+            bad = docketgen.validate(g, keyed.keys())
+            gone = [c["raw"] for c in citecheck.unverified(docketgen.all_text(g), texts)] if isinstance(g, dict) else []
+            return bad, gone
+        bad, gone = problems(game)
+        if bad or gone:   # one repair round for the checks
+            fix = "\n\nYour last attempt had these problems; return the whole game again with them fixed:\n- " + "\n- ".join(
+                bad + [f"'{x}' is not in the SOURCES: remove it or use what the sources say" for x in gone]) + "\n\nLAST ATTEMPT:\n" + json.dumps(game, ensure_ascii=False)[:30000]
+            game, used = write(fix)
+            bad, gone = problems(game)
+        if bad: raise ValueError("The game did not pass the checks: " + " ".join(bad[:4]))
+        m = ask_model(DOCKET_REVIEW_MODEL, max_tokens=2500, system=docketgen.REVIEWER,
+                      messages=[{"role": "user", "content": f"{src}\n\nGAME:\n{docketgen.for_review(game)}"}])
+        issues, revised = docketgen.review_issues(_model_json(m)), False
+        if any(i["severity"] == "high" for i in issues):
+            m2 = ask_model(MODEL, max_tokens=12000, system=system, messages=[{"role": "user", "content":
+                 f"{ask}\n\n{docketgen.REVISE}\n\nISSUES:\n{json.dumps(issues, ensure_ascii=False)}\n\nGAME:\n{json.dumps(game, ensure_ascii=False)}"}])
+            fixed = _model_json(m2)
+            fbad, fgone = problems(fixed)
+            if not fbad:
+                game, gone, revised = fixed, fgone, True
+                m3 = ask_model(DOCKET_REVIEW_MODEL, max_tokens=2500, system=docketgen.REVIEWER,
+                               messages=[{"role": "user", "content": f"{src}\n\nGAME:\n{docketgen.for_review(game)}"}])
+                issues = docketgen.review_issues(_model_json(m3))
+        final = docketgen.finish(game, gid, _docket_code(course), keyed)
+        _set_docket(gid, status="draft", title=str(final.get("title") or f"Week {week}")[:120], game=final, model=used, error="",
+                    review={"issues": issues, "unverified": gone, "revised": revised}, files=[f["id"] for f in files])
+    except Exception as e:
+        print("docket write:", type(e).__name__, e)
+        _set_docket(gid, status="failed", error=str(getattr(e, "detail", "") or e)[:300])
+
+
+def _set_docket(gid: str, **fields):
+    fields.setdefault("updated", time.time())
+    sets = ", ".join(f"{k}=CAST(? AS jsonb)" if k in ("game", "review", "files") else f"{k}=?" for k in fields)
+    vals = [json.dumps(v, ensure_ascii=False) if k in ("game", "review", "files") else v for k, v in fields.items()]
+    with db() as d: d.execute(f"UPDATE docket_games SET {sets} WHERE id=?", (*vals, gid))
+
+
+def _docket_view(g: dict, full: bool = False) -> dict:
+    game = g.get("game") or {}
+    rounds = [s["quiz"] for s in game.get("scenes") or [] if s.get("quiz")]
+    out = {"id": g["id"], "week": g["week"], "status": g["status"], "title": g["title"], "error": g["error"],
+           "logline": game.get("logline", ""), "rounds": len(rounds), "review": g.get("review") or {}, "created": g["created"]}
+    if full:
+        out["questions"] = [{"question": q.get("question", ""), "options": [{k: o.get(k) for k in ("key", "text", "correct", "teaching")} for o in q.get("options") or []]}
+                            for q in rounds]
+        out["verdict"] = game.get("verdict") or {}
+        out["sources"] = game.get("sources") or {}
+    return out
+
+
+@app.get("/api/courses/{cid}/docket-drafts")
+def docket_drafts(cid: str, user: dict = Depends(current_user)):
+    """The games written from his files, newest first. Opening the list is also what starts the writers for any
+    week with new material, so a week uploaded while no instance was running is still picked up."""
+    _own_course(cid, user)
+    started = docket_autodraft(cid)
+    gs = rows("SELECT id,week,status,title,game,review,error,created FROM docket_games WHERE course_id=? AND status<>'discarded' "
+              "ORDER BY created DESC", cid)
+    return {"games": [_docket_view(dict(g)) for g in gs], "started": started, "auto": DOCKET_AUTO,
+            "weeks": [w["week"] for w in rows("SELECT DISTINCT week FROM files WHERE course_id=? AND COALESCE(week,'')<>'' AND selected=1", cid)]}
+
+
+@app.get("/api/courses/{cid}/docket-drafts/{gid}")
+def docket_draft(cid: str, gid: str, user: dict = Depends(current_user)):
+    _own_course(cid, user)
+    g = rows("SELECT id,week,status,title,game,review,error,created FROM docket_games WHERE id=? AND course_id=?", gid, cid)
+    if not g: raise HTTPException(404)
+    return _docket_view(dict(g[0]), full=True)
+
+
+class DocketWriteIn(BaseModel): week: str
+
+
+@app.post("/api/courses/{cid}/docket-drafts")
+def docket_write_now(cid: str, w: DocketWriteIn, user: dict = Depends(current_user)):
+    """Write a game for a week now, new material or not."""
+    _own_course(cid, user)
+    if not os.environ.get("ANTHROPIC_API_KEY"): raise HTTPException(400, "No Claude API key on the server.")
+    if not _docket_files(cid, w.week.strip()): raise HTTPException(400, f"No ticked files with text for week {w.week}.")
+    _docket_collect_stale(cid)
+    if rows("SELECT 1 FROM docket_games WHERE course_id=? AND week=? AND status='writing'", cid, w.week.strip()):
+        raise HTTPException(409, f"A game for week {w.week} is already being written.")
+    ids = _docket_queue(cid, [w.week.strip()])
+    _docket_start(cid, ids)
+    return {"id": ids[0]}
+
+
+def _docket_status(cid: str, gid: str, user: dict, status: str, allowed: tuple):
+    _own_course(cid, user)
+    g = rows("SELECT status FROM docket_games WHERE id=? AND course_id=?", gid, cid)
+    if not g: raise HTTPException(404)
+    if g[0]["status"] not in allowed: raise HTTPException(409, f"This game is {g[0]['status']}.")
+    _set_docket(gid, status=status)
+    return {"id": gid, "status": status}
+
+
+@app.post("/api/courses/{cid}/docket-drafts/{gid}/approve")
+def docket_approve(cid: str, gid: str, user: dict = Depends(current_user)):
+    """He has looked at it: it goes into the 3D player's library."""
+    return _docket_status(cid, gid, user, "approved", ("draft",))
+
+
+@app.post("/api/courses/{cid}/docket-drafts/{gid}/discard")
+def docket_discard(cid: str, gid: str, user: dict = Depends(current_user)):
+    """Not this one. It is not written again for the week until new material arrives."""
+    return _docket_status(cid, gid, user, "discarded", ("draft", "approved", "failed"))
 
 # ---------------------------------------------------------------- search
 @app.get("/api/courses/{cid}/search")

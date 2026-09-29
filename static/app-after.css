@@ -187,3 +187,24 @@
 .mock-points li>span{display:inline-block;width:1.3em;font-weight:700}
 .mock-points .mk-hit>span{color:var(--ok)} .mock-points .mk-partly>span{color:var(--warn)} .mock-points .mk-missed>span{color:var(--bad)}
 .mock-q details{margin:.4rem 0} .mock-q summary{cursor:pointer;min-height:32px;display:flex;align-items:center}
+/* Games written from his files: a short list of cases, each one a decision (approve, play first, discard). */
+.docket-drafts{margin:1rem 0}
+.dk-head{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap}
+.dk-head h3{margin:0 0 .2rem} .dk-head .small{max-width:52ch}
+.dk-write{display:flex;gap:.5rem;align-items:center} .dk-write select{min-height:var(--tap)}
+.dk-list{display:grid;gap:.7rem;margin-top:.9rem}
+.dk-card{border:1px solid var(--rule);border-left:3px solid var(--rule-strong);border-radius:8px;padding:.8rem 1rem;background:var(--paper)}
+.dk-card.dk-draft{border-left-color:var(--accent)} .dk-card.dk-approved{border-left-color:var(--ok)} .dk-card.dk-failed{border-left-color:var(--bad)}
+.dk-card.dk-writing{border-left-color:var(--warn)} .dk-card.dk-writing .dk-status{animation:stpulse 1.4s ease-in-out infinite}
+@keyframes stpulse{50%{opacity:.45}} @media(prefers-reduced-motion:reduce){.dk-card.dk-writing .dk-status{animation:none}}
+.dk-card header{display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap}
+.dk-card h4{margin:0;font-family:var(--serif);font-weight:500;font-size:1.08rem;flex:1;min-width:12rem}
+.dk-status{font-size:.8rem;color:var(--graphite)}
+.dk-log{margin:.35rem 0 .2rem;font-family:var(--serif);line-height:1.5;max-width:75ch}
+.dk-meta{margin:.2rem 0 .5rem}
+.dk-flag{display:inline-block;margin-left:.4rem;padding:0 .45rem;border-radius:999px;border:1px solid var(--rule)}
+.dk-flag.ok{color:var(--ok);border-color:var(--ok)} .dk-flag.bad{color:var(--bad);border-color:var(--bad)}
+.dk-acts{display:flex;gap:.4rem;flex-wrap:wrap}
+.dk-read{margin-top:.8rem;border-top:1px solid var(--rule);padding-top:.7rem;display:grid;gap:.8rem;font-size:.92rem}
+.dk-q ol{margin:.3rem 0 0;padding-left:1.4rem;display:grid;gap:.35rem} .dk-q li.ok{color:var(--ok)} .dk-q li.ok .muted{color:var(--graphite)}
+.dk-issues ul{margin:.3rem 0 0;padding-left:1.2rem} .dk-issues li.high{color:var(--bad)}
