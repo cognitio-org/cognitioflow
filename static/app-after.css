@@ -77,7 +77,7 @@
   /* focus mode: current screen only, nothing else */
   body.focus aside.side, body.focus .head, body.focus .screen>.tutor aside.col, body.focus .notes>aside.col{display:none}
   body.focus .app{grid-template-columns:1fr} body.focus .screen>.tutor,body.focus .screen>.notes{grid-template-columns:1fr;height:calc(100vh - 4.4rem)} body.focus main{padding:.8rem 1rem}
-  #focusBtn{position:fixed;right:.7rem;top:.5rem;z-index:40;opacity:.55;font-size:.74rem;padding:.12rem .6rem;min-height:var(--tap);border-color:transparent} #focusBtn:hover{opacity:1}
+  #focusBtn{position:fixed;right:.7rem;top:.15rem;z-index:40;opacity:.55;font-size:.74rem;padding:.12rem .6rem;min-height:var(--tap);border-color:transparent} #focusBtn:hover{opacity:1}
   /* Motion overrides go LAST on purpose. The reduce block near the top of this sheet only reaches
      the book, because everything it names is declared above it — a rule added there for .fcinner
      (declared ~150 lines below) loses the cascade to the declaration itself at equal specificity.

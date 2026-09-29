@@ -111,36 +111,60 @@
   .p3stage{flex:1;display:flex;min-height:0} .p3stage iframe{flex:1;width:100%;border:0;display:block;background:#0c0b0a}
   @media(max-width:700px){.p3keys{display:none}}
   /* Advocate — oral revision */
-  .advgrid{display:grid;grid-template-columns:1.4fr .9fr;gap:var(--s5)}
+  .advgrid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,.8fr);gap:var(--s5);align-items:start}
   @media(max-width:1000px){.advgrid{grid-template-columns:1fr}}
-  .advstage{display:flex;flex-direction:column;min-height:460px}
-  .advq{font-family:var(--serif);font-size:1.35rem;line-height:1.35;margin:.2rem 0 .4rem}
+  .advhead{display:flex;gap:var(--s3);align-items:center;flex-wrap:wrap} .advhead select{min-height:var(--tap)}
+  .advstage{display:flex;flex-direction:column;min-height:min(560px,calc(100vh - 12rem))}
+  .advtop{display:flex;justify-content:space-between;gap:var(--s3);align-items:baseline}
+  .advq{font-family:var(--serif);font-size:1.45rem;line-height:1.35;margin:.3rem 0 .6rem;max-width:40em;text-wrap:pretty}
+  /* idle: the stage explains itself and puts one obvious button in reach */
+  .advidle{flex:1;display:flex;flex-direction:column;justify-content:center;max-width:36em;padding:var(--s4) 0}
+  .advhow{margin:var(--s3) 0 var(--s5);padding-left:1.3rem;display:grid;gap:var(--s3);line-height:1.5}
+  .advhow li::marker{font-family:var(--serif);color:var(--graphite)} .advhow b{font-weight:500}
+  .advgo{display:flex;align-items:center;gap:var(--s4);flex-wrap:wrap}
+  .btn.advbig{font-size:1.05rem;padding:.7rem 2.2rem;min-height:44px}
+  .advlive{flex:1;display:flex;flex-direction:column;min-height:0}
+  .advqbar{display:flex;justify-content:space-between;align-items:center;gap:var(--s3);flex-wrap:wrap}
+  .advtools{display:flex;gap:var(--s1)}
   .tagrow{display:flex;gap:.3rem;flex-wrap:wrap}
   .tag{font-size:.72rem;color:var(--graphite);border:1px solid var(--rule);border-radius:999px;padding:.05rem .5rem}
-  .advconvo{flex:1;overflow:auto;display:flex;flex-direction:column;gap:.5rem;margin:.8rem 0;padding-right:.3rem}
-  .advb{padding:.55rem .8rem;border-radius:var(--r);max-width:88%;font-size:.94rem;line-height:1.5;overflow-wrap:anywhere}
+  .advconvo{flex:1;min-height:12rem;max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:.6rem;margin:.9rem 0;padding-right:.3rem}
+  .advb{padding:.6rem .85rem;border-radius:var(--r);max-width:88%;font-size:.95rem;line-height:1.55;overflow-wrap:anywhere}
   .advb.me{align-self:flex-end;background:var(--ink);color:var(--paper)}
   .advb.tutor{align-self:flex-start;background:var(--faint);border-left:3px solid var(--accent)}
-  .advb .verdict{font-family:var(--sans);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;margin-bottom:.2rem}
+  .advb.thinking{color:var(--graphite);font-style:italic;animation:advpulse 1.2s ease-in-out infinite}
+  @keyframes advpulse{50%{opacity:.45}} @media(prefers-reduced-motion:reduce){.advb.thinking{animation:none}}
+  .advb .verdict{font-family:var(--sans);font-size:.74rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-bottom:.25rem}
+  .advmodel{margin-top:.5rem;font-size:.9rem} .advmodel summary{cursor:pointer;color:var(--graphite);min-height:28px;display:flex;align-items:center}
+  .advmodel>div{white-space:pre-wrap;border-top:1px solid var(--rule);padding-top:.4rem;margin-top:.2rem}
   .v-solid{color:var(--ok)} .v-shaky{color:var(--warn)} .v-missed{color:var(--bad)}
-  .advctrl{display:flex;gap:.5rem;align-items:center;border-top:1px solid var(--rule);padding-top:.7rem}
-  .advctrl input{flex:1}
-  #advMic,#advOwnMic{min-height:36px;white-space:nowrap}
+  .advctrl{display:flex;gap:.5rem;align-items:center;border-top:1px solid var(--rule);padding-top:.8rem}
+  .advctrl input{flex:1;min-width:0;min-height:40px}
+  .ico{width:1.05em;height:1.05em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
+  #advMic{min-height:40px;white-space:nowrap;gap:.45rem;padding-inline:1rem} #advOwnMic{min-height:36px;min-width:36px}
   #advMic[aria-pressed=true],#advOwnMic[aria-pressed=true]{background:var(--bad);color:#fff;border-color:var(--bad)}
-  .advown{display:flex;flex-direction:column;gap:var(--s2)} .advown h3{margin:0}
+  #advHint{margin-top:.45rem}
+  .advside{display:flex;flex-direction:column;gap:var(--s4)}
+  .advpanelhead{display:flex;justify-content:space-between;align-items:center;gap:var(--s2)} .advpanelhead h3{margin:0}
+  .advown{display:flex;flex-direction:column;gap:var(--s2)} .advown[open]{gap:var(--s2)} .advown h3{margin:0;display:inline}
+  .advown summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;min-height:var(--tap)}
+  .advown summary::-webkit-details-marker{display:none} .advown summary::after{content:"+";color:var(--graphite);font-size:1.2rem} .advown[open] summary::after{content:"–"}
+  .advown[open]>*+*{margin-top:var(--s2)}
   .advownrow{display:flex;gap:var(--s2);align-items:center} .advownrow input{flex:1;min-width:0}
   .advown select{width:100%;min-height:36px} .advown .btn{min-height:36px}
-  .advside{display:flex;flex-direction:column;gap:var(--s4)}
-  .statrow2{display:flex;gap:1.4rem;margin-top:.3rem}
-  .statrow2 b{display:block;font-family:var(--serif);font-size:1.5rem}
+  .statrow2{display:flex;gap:1.4rem;margin-top:.5rem}
+  .statrow2 b{display:block;font-family:var(--serif);font-size:1.5rem;font-weight:500}
   .statrow2 span{font-size:.78rem;color:var(--graphite)}
+  .advmap{list-style:none;margin:.7rem 0 0;padding:.5rem 0 0;border-top:1px solid var(--rule);display:grid;gap:.3rem;max-height:220px;overflow:auto;font-size:.86rem}
+  .advmap li{display:flex;gap:.5rem;align-items:baseline} .advmap li>span{width:1.1em;flex:0 0 auto;font-weight:700;text-align:center}
+  .advmap .mk-solid>span{color:var(--ok)} .advmap .mk-shaky>span{color:var(--warn)} .advmap .mk-missed>span{color:var(--bad)} .advmap .mk-untested{color:var(--graphite)}
+  .advempty{padding-top:.5rem}
   .mrow{display:flex;justify-content:space-between;gap:.5rem;align-items:center;padding:.35rem 0;border-bottom:1px dashed var(--rule);font-size:.86rem}
   .mrow:last-child{border-bottom:0}
   .mdot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:.45rem;flex:0 0 auto}
   .m-untested{background:var(--rule)} .m-solid{background:var(--ok)} .m-shaky{background:var(--warn)} .m-missed{background:var(--bad)}
   .mstate{font-size:.72rem;color:var(--graphite);text-transform:uppercase;letter-spacing:.06em}
-  .advnotes{max-height:240px;overflow:auto;margin:.4rem 0}
-  .advnotes .emptystate{padding:.5rem 0}
+  .advnotes{max-height:260px;overflow:auto;margin:.5rem 0 0}
   .advnote{border-left:2px solid var(--accent);padding:.35rem 0 .35rem .6rem;margin-bottom:.5rem;font-size:.86rem;line-height:1.5}
   /* Essay (Phase 17). A writing surface, not a composer: serif for what is written, a measured column,
      and the marking kept to the side so the page you are writing on stays the page you are writing on. */
