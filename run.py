@@ -434,10 +434,12 @@ def toggle_to(fid: str, t: ToggleToIn):
 
 _WEEK_IN_NAME = re.compile(r"(?i)(?:^|[^a-z0-9])(?:w|wk|week|lecture|lec)[\s._-]*0?(\d{1,2})(?!\d)")
 
-ROLES = {"wg": "WG notes", "lecture": "Lecture", "slides": "Slides", "reader": "Reader",
+ROLE_ORDER = {r: i for i, r in enumerate(["exam", "wg", "assignment", "lecture", "note", "slides", "admin", "", "reader", "cases"])}
+ROLES = {"exam": "Past exam", "wg": "WG notes", "lecture": "Lecture", "slides": "Slides", "reader": "Reader",
          "cases": "Case law", "assignment": "Assignment", "admin": "Course info", "note": "Note"}
 
 _ROLE_BY_NAME = [                       # cheap, certain, and free — the model only sees what is left
+    ("exam",       re.compile(r"(?i)\b(practice exam|past (exam|paper)|mock exam|resit|exam \d{4}|model answers?)\b")),
     ("wg",         re.compile(r"(?i)\b(wg|working group)\b")),
     ("cases",      re.compile(r"(?i)\b(case ?law|case ?reader|judgments?)\b")),
     ("slides",     re.compile(r"(?i)\b(slides?|powerpoint|deck)\b|\.pptx$")),
@@ -878,6 +880,10 @@ def build_context(cid: str, question: str = ""):
     otherwise every ticked file is sent whole, exactly as before. Reconcile, drafting and cleaning always pass no
     question, so they keep reading whole files."""
     fs = rows("SELECT * FROM files WHERE course_id=? AND selected=1 ORDER BY created", cid)
+    # In the course's own order of authority, not upload order. Found 2026-09-29: the EU case-law reader
+    # (903,479 characters, uploaded early) filled the whole budget, and not one lecture, WG note, assignment
+    # or slide reached the tutor. Past exams and WG material first, as he asked; the big readers last.
+    fs = sorted(fs, key=lambda f: ROLE_ORDER.get(f.get("role") or "", len(ROLE_ORDER)))
     text_parts, images, used = [], [], 0
     narrowed = None
     if RETRIEVAL and question.strip() and embed.ready():
