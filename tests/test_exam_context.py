@@ -29,3 +29,15 @@ def test_practice_papers_and_model_answers_are_labelled_past_exams():
         assert run.role_by_name(name) == "exam", name
     assert run.role_by_name("Assignment for week 3 FINAL.pdf") == "assignment"
     assert run.role_by_name("W1 WG complete notes.pdf") == "wg"
+
+
+def test_a_course_with_past_exams_drills_in_exam_shape(client, pg):
+    cid = client.post("/api/courses", json={"name": "Exam Law"}).json()["id"]
+    fid = _up(client, cid, "Practice exam 1.txt", "Question 1: advise Marika")
+    assert client.get(f"/api/courses/{cid}/files").json()[0]["role"] == "exam"
+    course = run.rows("SELECT * FROM courses WHERE id=?", cid)[0]
+    system, _, _, _ = run._tutor_prompt(cid, course, "drill", False, "")
+    assert run.EXAM_PREP_RULE in system[0]["text"] and "well rounded" in system[0]["text"]
+    client.post(f"/api/files/{fid}/toggle")   # unticked: no past exams in play, no rule
+    system, _, _, _ = run._tutor_prompt(cid, course, "drill", False, "")
+    assert run.EXAM_PREP_RULE not in system[0]["text"]

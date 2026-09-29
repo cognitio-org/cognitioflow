@@ -1027,11 +1027,22 @@ def clear_messages(cid: str):
     with db() as d: d.execute("DELETE FROM messages WHERE course_id=?", (cid,))
     return {"ok": True}
 
+# Asked for 2026-09-29 with the EU practice exams: "base learning off of WG questions and the practice exams
+# but be well rounded as well". Only for a course that has past exams ticked; stable per course, so the cache holds.
+EXAM_PREP_RULE = ("\nEXAM PREPARATION: this course's files include past exam papers (role: Past exam) with model answers, "
+                  "and the WG questions. Base drilling on them: when you set a question, make it exam-shaped - a problem "
+                  "question ('Advise X...', 'Argue on behalf of...') or a compare-and-contrast pair - at the level, length "
+                  "and structure the past papers use, and mark his answer against the points the model answers reward. "
+                  "Stay well rounded: rotate across every week's topics, not only those the past papers happened to test. "
+                  "Never show a past paper's model answer before he has answered that question himself.")
+
+
 def _tutor_prompt(cid: str, course, mode: str, speech: bool, question: str):
     """The system blocks and history a tutor turn sends. One builder, so the voice's cache warm-up
     (/warm) writes exactly the prefix the next real turn will read."""
     text_parts, images, narrowed = build_context(cid, question)
-    system = [{"type": "text", "text": BASE_PROMPT + "\n" + (course["tutor_prompt"] or "") + "\n" + MODES.get(mode, MODES["drill"])}]
+    exam_rule = EXAM_PREP_RULE if rows("SELECT 1 FROM files WHERE course_id=? AND selected=1 AND role='exam' LIMIT 1", cid) else ""
+    system = [{"type": "text", "text": BASE_PROMPT + "\n" + (course["tutor_prompt"] or "") + exam_rule + "\n" + MODES.get(mode, MODES["drill"])}]
     log.debug("tutor system prompt (course %s, mode %s):\n%s", cid, mode, system[0]["text"])
     if text_parts:
         heading = "COURSE PASSAGES (from the files you ticked; quote them):" if narrowed else "COURSE FILES:"
