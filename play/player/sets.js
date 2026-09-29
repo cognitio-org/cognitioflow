@@ -185,8 +185,15 @@ function gltfSet(kind, gltf, q, destKind) {
 }
 
 /** Build a set: the Blender export when present, else the procedural one. */
+// Sets whose procedural build is currently the better-looking one. The Blender courtroom is still
+// shipped and still loads with ?glb=1 (or once it is dressed past the procedural room, by dropping
+// it from this list); the manifest in assets-v1/ is immutable-cached, so it is not the switch.
+const PREFER_PROCEDURAL = new Set(['courtroom']);
+const FORCE_GLB = typeof location !== 'undefined' && new URLSearchParams(location.search).has('glb');
+
 export async function loadSet(kind, q = {}) {
   const k = SET_KINDS.includes(kind) ? kind : 'generic';
+  if (PREFER_PROCEDURAL.has(k) && !FORCE_GLB && k !== 'street') return BUILDERS[k](q);
   try {
     const gltf = await loadAsset('sets', k);
     if (gltf) return gltfSet(k, gltf, q, q.destKind);

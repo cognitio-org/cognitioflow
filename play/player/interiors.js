@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import {
   std, glow, box, cyl, rng, textTex, halo, lightPool, lightCone, lightShaft, makeHaze, makeSteam,
-  concreteTex, wetRoughTex, woodTex, facadeTex, canvasTex,
+  concreteTex, wetRoughTex, woodTex, facadeTex, canvasTex, Batcher, panelTex, parquetTex, plasterTex, carpetTex,
 } from './lib3d.js';
 import { makeSetBase, V, floor, wall, addPractical, tfeuBook, printout, deskLamp, chair, tube } from './setkit.js';
 
@@ -164,140 +164,336 @@ export function buildOffice(q = {}) {
   return set;
 }
 
-/** INT. courtroom: pale oak, raised bench, dock, columns, window shafts. */
+/** Place a part of a piece of furniture: offsets are in the piece's own frame. */
+function part(B, geo, mat, x, y, z, rot, ox, oy, oz, extra = null) {
+  const c = Math.cos(rot), s = Math.sin(rot);
+  const px = x + ox * c + oz * s, pz = z - ox * s + oz * c;
+  return B.add(geo, mat, px, y + oy, pz, extra ? [extra[0], rot + extra[1], extra[2], 'YXZ'] : rot);
+}
+const bx = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+
+/** Upholstered chair; `tall` gives the judge's high back. Faces +z at rot 0. */
+function courtChair(B, M, x, y, z, rot, tall = false) {
+  const back = tall ? 1.25 : 0.55;
+  part(B, bx(0.52, 0.09, 0.5), M.leather, x, y, z, rot, 0, 0.47, 0);
+  part(B, bx(0.52, back, 0.08), M.leather, x, y, z, rot, 0, 0.52 + back / 2, -0.23);
+  part(B, bx(0.56, 0.06, 0.1), M.darkOak, x, y, z, rot, 0, 0.53 + back, -0.23);
+  for (const sx of [-1, 1]) {
+    part(B, bx(0.06, 0.06, 0.46), M.darkOak, x, y, z, rot, sx * 0.29, 0.7, -0.02);
+    part(B, bx(0.05, 0.22, 0.05), M.darkOak, x, y, z, rot, sx * 0.29, 0.58, 0.18);
+    for (const sz of [-1, 1]) part(B, bx(0.05, 0.43, 0.05), M.darkOak, x, y, z, rot, sx * 0.22, 0.215, sz * 0.2);
+  }
+}
+
+/** Panelled front: a slab with raised panels, a plinth and a moulded top. Front faces +z at rot 0. */
+function panelled(B, M, w, h, d, x, y, z, rot = 0, top = true) {
+  part(B, bx(w, h, d), M.darkOak, x, y, z, rot, 0, h / 2, 0);
+  const g = new THREE.PlaneGeometry(w - 0.08, h - 0.22);
+  const uv = g.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (w - 0.08) / 1.2, uv.getY(i));
+  part(B, g, M.panel, x, y, z, rot, 0, 0.12 + (h - 0.22) / 2, d / 2 + 0.005);
+  part(B, bx(w + 0.04, 0.12, d + 0.04), M.darkOak, x, y, z, rot, 0, 0.06, 0);
+  if (top) part(B, bx(w + 0.1, 0.06, d + 0.14), M.oak, x, y, z, rot, 0, h + 0.03, 0.02);
+}
+
+/** Green-shaded banker's lamp: emissive only, with a warm pool on the desk. */
+function bankerLamp(B, M, parent, x, y, z) {
+  B.cyl(0.07, 0.08, 0.025, 12, M.brass, x, y + 0.012, z);
+  B.cyl(0.01, 0.01, 0.3, 6, M.brass, x, y + 0.17, z);
+  const shade = new THREE.CylinderGeometry(0.05, 0.1, 0.09, 14, 1, true, 0, Math.PI);
+  B.add(shade, M.shade, x, y + 0.33, z, [Math.PI / 2, 0, Math.PI / 2, 'XYZ']);
+  B.box(0.2, 0.012, 0.02, M.bulb, x, y + 0.3, z);
+  const pool = lightPool(0.55, 0xffc27a, 0.35);
+  pool.position.set(x, y + 0.004, z + 0.1);
+  parent.add(pool);
+  const h = halo(0xffc27a, 0.5, 0.6);
+  h.position.set(x, y + 0.29, z + 0.02);
+  parent.add(h);
+}
+
+/** Globe pendant on a rod. */
+function pendant(B, M, parent, x, y, z, top) {
+  B.cyl(0.012, 0.012, top - y, 5, M.brass, x, (top + y) / 2 + 0.15, z);
+  B.cyl(0.1, 0.06, 0.08, 10, M.brass, x, y + 0.2, z);
+  B.add(new THREE.SphereGeometry(0.2, 16, 10), M.globe, x, y, z);
+  const h = halo(0xffd49a, 0.9, 0.45);
+  h.position.set(x, y, z);
+  parent.add(h);
+}
+
+function drapeTex(base = [36, 52, 58]) {
+  return canvasTex(256, 512, (g, w, h) => {
+    for (let x = 0; x < w; x++) {
+      const f = 0.72 + 0.28 * Math.sin(x / w * Math.PI * 7) * Math.sin(x / w * Math.PI * 2.3 + 1);
+      g.fillStyle = `rgb(${base[0] * f | 0},${base[1] * f | 0},${base[2] * f | 0})`;
+      g.fillRect(x, 0, 1, h);
+    }
+    const grd = g.createLinearGradient(0, 0, 0, h);
+    grd.addColorStop(0, 'rgba(0,0,0,0.35)'); grd.addColorStop(0.2, 'rgba(0,0,0,0)'); grd.addColorStop(1, 'rgba(0,0,0,0.25)');
+    g.fillStyle = grd; g.fillRect(0, 0, w, h);
+  });
+}
+
+function paintingTex(seed) {
+  return canvasTex(256, 320, (g, w, h) => {
+    const r = rng(seed);
+    const sky = g.createLinearGradient(0, 0, 0, h);
+    sky.addColorStop(0, `rgb(${60 + r() * 40 | 0},${58 + r() * 30 | 0},${50 + r() * 20 | 0})`);
+    sky.addColorStop(0.6, `rgb(${110 + r() * 50 | 0},${90 + r() * 30 | 0},${60 | 0})`);
+    sky.addColorStop(1, '#2a2418');
+    g.fillStyle = sky; g.fillRect(0, 0, w, h);
+    g.fillStyle = 'rgba(30,26,18,0.8)';
+    g.beginPath(); g.moveTo(0, h * 0.7);
+    for (let x = 0; x <= w; x += 16) g.lineTo(x, h * (0.62 + r() * 0.1));
+    g.lineTo(w, h); g.lineTo(0, h); g.fill();
+    g.strokeStyle = '#6a5228'; g.lineWidth = 14; g.strokeRect(0, 0, w, h);
+  });
+}
+
+/** INT. courtroom: oak-panelled, raised bench, witness box, counsel tables, pews, coffered ceiling, tall windows. */
 export function buildCourtroom(q = {}) {
-  const set = makeSetBase('courtroom', { fog: 0x2a2620, density: 0.03, exposure: 1.0, bg: 0x0b0a09 });
+  const set = makeSetBase('courtroom', { fog: 0x2a2219, density: 0.012, exposure: 1.05, bg: 0x0b0a09 });
   const G = set.group;
   const hi = q.quality !== 'low';
-  const W = 14, D = 10, H = 6;
-  const oak = std(0xffffff, { map: woodTex([150, 118, 80], 7), roughness: 0.5 });
-  const darkOak = std(0xffffff, { map: woodTex([90, 62, 38], 8), roughness: 0.45 });
-  const plaster = std(0xbdb6a8, { roughness: 0.95, map: concreteTex('#b9b1a2', 81, 1024) });
+  const W = 14, D = 16, H = 6.5, WAIN = 2.3, DAIS = 0.8;
+  const M = {
+    oak: std(0xffffff, { map: woodTex([150, 108, 68], 7), roughness: 0.42 }),
+    darkOak: std(0xffffff, { map: woodTex([92, 60, 36], 8), roughness: 0.38 }),
+    panel: std(0xffffff, { map: panelTex([118, 80, 48], 51), roughness: 0.45 }),
+    plaster: std(0xffffff, { map: plasterTex('#b9aa90', 55), roughness: 0.95 }),
+    stone: std(0xcdbfa4, { roughness: 0.8 }),
+    leather: std(0x4a1d17, { roughness: 0.5 }),
+    brass: std(0xb88f3e, { roughness: 0.3, metalness: 0.9 }),
+    shade: std(0x1f5a3a, { roughness: 0.3, metalness: 0.2, emissive: new THREE.Color(0x0c2a18), side: THREE.DoubleSide }),
+    bulb: glow(0xffd49a, 6),
+    globe: glow(0xffe0b0, 3.2),
+    ceiling: std(0x4a3e30, { roughness: 0.95 }),
+    carpet: std(0xffffff, { map: carpetTex([86, 28, 26], [150, 116, 60]), roughness: 0.95 }),
+    drape: std(0xffffff, { map: drapeTex([74, 40, 36]), roughness: 0.85 }),
+    glass: glow(0x98abbd, 0.75),
+    paper: std(0xe8e1cf, { roughness: 0.9 }),
+    iron: std(0x1a1a1a, { roughness: 0.5, metalness: 0.6 }),
+  };
+  const B = new Batcher();
 
-  const fl = floor(W, D, woodTex([96, 70, 48], 12), null, { roughness: 0.35, metalness: 0.05, env: 0.8, repeat: [5, 4] });
+  // floor and aisle runner
+  const fl = floor(W, D, parquetTex([124, 88, 56], 53), null, { roughness: 0.32, metalness: 0.05, env: 0.9, repeat: [W / 1.4, D / 1.4] });
   G.add(fl);
-  // panelled walls (lower oak, upper plaster)
+  B.plane(1.8, 7.2, M.carpet, 0, 0.006, 4.4, [-Math.PI / 2, 0, 0], [1.8, 3.6]);
+  B.plane(1.8, 3.4, M.carpet, 0, 0.006, -3.1, [-Math.PI / 2, 0, 0], [1.8, 3.6]);
+
+  // walls: panelled wainscot, chair rail and skirting, plaster above, pilasters, crown moulding
   const walls = [
-    [W, V(0, 0, -D / 2), 0], [W, V(0, 0, D / 2), Math.PI], [D, V(-W / 2, 0, 0), Math.PI / 2], [D, V(W / 2, 0, 0), -Math.PI / 2],
+    { len: W, x: 0, z: -D / 2, rot: 0 }, { len: W, x: 0, z: D / 2, rot: Math.PI },
+    { len: D, x: -W / 2, z: 0, rot: Math.PI / 2 }, { len: D, x: W / 2, z: 0, rot: -Math.PI / 2 },
   ];
-  for (const [w, p, ry] of walls) {
-    const lower = wall(w, 2.2, oak, p.clone().setY(1.1), ry);
-    const upper = wall(w, H - 2.2, plaster, p.clone().setY(2.2 + (H - 2.2) / 2), ry);
-    const nudge = new THREE.Vector3(0, 0, 0.001).applyAxisAngle(new THREE.Vector3(0, 1, 0), ry);
-    lower.position.add(nudge);
-    G.add(lower, upper);
+  for (const w of walls) {
+    const nx = Math.sin(w.rot), nz = Math.cos(w.rot), ux = Math.cos(w.rot), uz = -Math.sin(w.rot);
+    const at = (u, n) => [w.x + ux * u + nx * n, w.z + uz * u + nz * n];
+    let [x, z] = at(0, 0);
+    B.plane(w.len, WAIN, M.panel, x, WAIN / 2, z, w.rot, [1.2, WAIN]);
+    B.plane(w.len, H - WAIN, M.plaster, x, WAIN + (H - WAIN) / 2, z, w.rot, [4, 4]);
+    [x, z] = at(0, 0.04); B.box(w.len, 0.2, 0.08, M.darkOak, x, 0.1, z, w.rot);
+    [x, z] = at(0, 0.05); B.box(w.len, 0.1, 0.1, M.darkOak, x, WAIN, z, w.rot);
+    [x, z] = at(0, 0.12); B.box(w.len, 0.28, 0.24, M.stone, x, H - 0.14, z, w.rot);
+    [x, z] = at(0, 0.05); B.box(w.len, 0.12, 0.1, M.stone, x, H - 0.34, z, w.rot);
+    const n = Math.round(w.len / 3.2);
+    for (let i = 0; i <= n; i++) {
+      const u = -w.len / 2 + (i * w.len) / n;
+      [x, z] = at(u, 0.08);
+      B.box(0.45, H - WAIN - 0.45, 0.14, M.stone, x, WAIN + (H - WAIN - 0.45) / 2 + 0.05, z, w.rot);
+      B.box(0.6, 0.18, 0.2, M.stone, x, H - 0.5, z, w.rot);
+    }
   }
-  const ceil = wall(W, D, std(0x2a2724, { roughness: 1 }), V(0, H, 0), 0);
-  ceil.rotation.x = Math.PI / 2;
+
+  // coffered ceiling
+  const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), M.ceiling);
+  ceil.rotation.x = Math.PI / 2; ceil.position.y = H;
   G.add(ceil);
-  // ceiling light panel
-  const panel = new THREE.Mesh(new THREE.PlaneGeometry(3, 6), glow(0xf2ead8, 1.6));
-  panel.rotation.x = Math.PI / 2;
-  panel.position.set(0, H - 0.02, -0.5);
-  G.add(panel);
-  const top = new THREE.SpotLight(0xf2e6d0, 30, 14, Math.PI / 3, 0.8, 1.5);
-  top.position.set(0, H - 0.1, -0.5);
-  top.target.position.set(0, 0, -0.5);
+  for (let i = 1; i < 4; i++) B.box(0.34, 0.4, D, M.darkOak, -W / 2 + (i * W) / 4, H - 0.2, 0);
+  for (let i = 1; i < 5; i++) B.box(W, 0.4, 0.34, M.darkOak, 0, H - 0.2, -D / 2 + (i * D) / 5);
+  for (let i = 0; i < 4; i++) for (let k = 0; k < 5; k++) B.box(W / 4 - 0.8, 0.04, D / 5 - 0.8, M.stone, -W / 2 + (i + 0.5) * (W / 4), H - 0.03, -D / 2 + (k + 0.5) * (D / 5));
+
+  // back wall: reredos with the emblem, drapes either side
+  panelled(B, M, 5.2, 4.4, 0.16, 0, 0, -D / 2 + 0.09, 0, false);
+  B.box(5.6, 0.3, 0.34, M.darkOak, 0, 4.55, -D / 2 + 0.17);
+  B.box(5.9, 0.16, 0.4, M.oak, 0, 4.78, -D / 2 + 0.2);
+  for (const s of [-1, 1]) {
+    B.box(0.36, 4.4, 0.3, M.darkOak, s * 2.78, 2.2, -D / 2 + 0.15);
+    B.plane(1.7, 4.6, M.drape, s * 3.9, 2.9, -D / 2 + 0.2, 0, null);
+    B.box(2.0, 0.1, 0.1, M.brass, s * 3.9, 5.25, -D / 2 + 0.24);
+  }
+  const emb = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.05, 8, 48), M.brass);
+  emb.position.set(0, 3.7, -D / 2 + 0.24);
+  G.add(emb);
+  // a balance inside the ring: fulcrum, beam, two hanging pans
+  B.cyl(0.001, 0.09, 0.16, 3, M.brass, 0, 3.98, -D / 2 + 0.25);
+  B.box(0.86, 0.035, 0.035, M.brass, 0, 4.07, -D / 2 + 0.25);
+  for (const s of [-1, 1]) {
+    for (const k of [-1, 1]) B.box(0.01, 0.34, 0.01, M.brass, s * 0.41 + k * 0.06, 3.9, -D / 2 + 0.25, [0, 0, -k * 0.17]);
+    B.cyl(0.13, 0.04, 0.05, 14, M.brass, s * 0.41, 3.72, -D / 2 + 0.26);
+  }
+  B.box(0.24, 0.05, 0.05, M.brass, 0, 3.3, -D / 2 + 0.25);
+
+  // dais and bench
+  const benchZ = -D / 2 + 2.6;
+  panelled(B, M, 9, DAIS, 3.0, 0, 0, -D / 2 + 1.5, 0, false);
+  B.box(9.1, 0.05, 3.06, M.darkOak, 0, DAIS + 0.02, -D / 2 + 1.5);
+  for (let i = 0; i < 3; i++) B.box(1.2, 0.2 * (i + 1), 0.3, M.darkOak, 4.0, 0.1 * (i + 1), -D / 2 + 3.15 + (2 - i) * 0.3);
+  panelled(B, M, 6.2, 0.88, 0.22, 0, DAIS, benchZ);
+  B.box(6.3, 0.06, 0.8, M.oak, 0, DAIS + 0.8, benchZ - 0.35);
+  courtChair(B, M, 0, DAIS, -D / 2 + 1.25, 0, true);
+  for (const s of [-1, 1]) courtChair(B, M, s * 1.9, DAIS, -D / 2 + 1.35, 0, false);
+  printout(G, 'Case file', 0.6, DAIS + 0.835, benchZ - 0.4, 0.2, 30);
+  B.cyl(0.035, 0.03, 0.14, 10, M.darkOak, -0.9, DAIS + 0.9, benchZ - 0.45);
+
+  // clerk's desk below the bench
+  panelled(B, M, 3.0, 0.95, 0.7, -2.6, 0, benchZ + 1.55);
+  courtChair(B, M, -2.6, 0, benchZ + 0.85, 0);
+  printout(G, '', -2.2, 0.99, benchZ + 1.55, 0.1, 31);
+
+  // witness box
+  panelled(B, M, 1.6, 0.3, 1.6, 5.1, 0, -3.2, 0, false);
+  panelled(B, M, 1.6, 0.85, 0.08, 5.1, 0.3, -2.44, 0);
+  panelled(B, M, 1.6, 0.85, 0.08, 5.1, 0.3, -3.96, Math.PI);
+  panelled(B, M, 1.6, 0.85, 0.08, 4.34, 0.3, -3.2, -Math.PI / 2);
+
+  // counsel tables, chairs, lamps and papers
+  const tableZ = -0.55;
+  for (const s of [-1, 1]) {
+    const tx = s * 2.9;
+    B.box(2.8, 0.06, 1.0, M.oak, tx, 0.76, tableZ);
+    panelled(B, M, 2.7, 0.64, 0.05, tx, 0.06, tableZ - 0.45, Math.PI, false);
+    for (const lx of [-1.3, 1.3]) for (const lz of [-0.42, 0.42]) B.box(0.07, 0.73, 0.07, M.darkOak, tx + lx, 0.365, tableZ + lz);
+    for (const cx of [-0.6, 0.6]) courtChair(B, M, tx + cx, 0, tableZ + 0.95, Math.PI);
+    bankerLamp(B, M, G, tx + s * 1.0, 0.79, tableZ - 0.3);
+    B.cyl(0.07, 0.06, 0.22, 12, std(0x9fb0b0, { roughness: 0.05, metalness: 0.3, transparent: true, opacity: 0.5 }), tx - s * 1.1, 0.9, tableZ - 0.25);
+  }
+  tfeuBook(G, 2.5, 0.79, tableZ, 0.2, true);
+  printout(G, 'Case 6/64 – Costa v ENEL – pp. 593-594', 3.2, 0.795, tableZ + 0.05, -0.1, 7);
+  printout(G, 'Import Duty Act 2026', -3.0, 0.795, tableZ, 0.2, 9);
+  printout(G, '', -2.4, 0.795, tableZ + 0.1, -0.3, 10);
+  for (let i = 0; i < 3; i++) B.box(0.24, 0.05, 0.32, [M.leather, M.darkOak, M.paper][i], -3.8, 0.815 + i * 0.05, tableZ - 0.1, 0.1 * i);
+
+  // the bar: rail on turned balusters, a gate in the aisle
+  const barZ = 1.5;
+  for (const s of [-1, 1]) {
+    B.box(5.8, 0.08, 0.14, M.darkOak, s * 3.9, 1.0, barZ);
+    B.box(5.8, 0.1, 0.16, M.darkOak, s * 3.9, 0.05, barZ);
+    for (let i = 0; i < 24; i++) B.cyl(0.025, 0.035, 0.9, 6, M.oak, s * (1.05 + i * 0.24), 0.5, barZ);
+    B.box(0.14, 1.12, 0.14, M.darkOak, s * 0.95, 0.56, barZ);
+  }
+  // public pews
+  for (let row = 0; row < 4; row++) for (const s of [-1, 1]) {
+    const pz = 2.8 + row * 1.15, px = s * 3.7;
+    B.box(4.6, 0.07, 0.46, M.oak, px, 0.46, pz);
+    B.box(4.6, 0.55, 0.05, M.oak, px, 0.78, pz + 0.24);
+    B.box(4.7, 0.05, 0.1, M.darkOak, px, 1.07, pz + 0.26);
+    for (const e of [-1, 1]) B.box(0.07, 0.95, 0.62, M.darkOak, px + e * 2.33, 0.475, pz + 0.04);
+  }
+
+  // right wall: tall windows with deep reveals, evening light
+  for (const z of [-4.8, -1.6, 1.6, 4.8]) {
+    const wx = W / 2 - 0.02;
+    B.plane(1.5, 3.0, M.glass, wx, 4.1, z, -Math.PI / 2);
+    for (const s of [-1, 1]) B.box(0.3, 3.2, 0.1, M.stone, wx - 0.12, 4.1, z + s * 0.8);
+    B.box(0.34, 0.12, 1.8, M.stone, wx - 0.14, 2.55, z);
+    B.box(0.3, 0.14, 1.7, M.stone, wx - 0.12, 5.65, z);
+    B.box(0.05, 3.0, 0.05, M.iron, wx - 0.03, 4.1, z);
+    for (let k = 1; k < 4; k++) B.box(0.05, 0.04, 1.5, M.iron, wx - 0.03, 2.6 + k * 0.75, z);
+  }
+  // left wall: portraits
+  for (const [z, sd] of [[-3.2, 3], [0, 4], [3.2, 5]]) {
+    const pm = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.25), std(0xffffff, { map: paintingTex(sd), roughness: 0.6 }));
+    pm.position.set(-W / 2 + 0.06, 3.6, z); pm.rotation.y = Math.PI / 2;
+    G.add(pm);
+    B.box(0.06, 1.4, 1.15, M.brass, -W / 2 + 0.03, 3.6, z);
+  }
+  // entrance wall: double doors, transom and a clock
+  for (const s of [-1, 1]) {
+    const dx = s * 0.52;
+    B.box(1.0, 2.6, 0.06, M.darkOak, dx, 1.3, D / 2 - 0.04);
+    panelled(B, M, 0.8, 1.0, 0.02, dx, 0.25, D / 2 - 0.08, Math.PI, false);
+    panelled(B, M, 0.8, 0.9, 0.02, dx, 1.45, D / 2 - 0.08, Math.PI, false);
+  }
+  B.box(2.5, 0.2, 0.16, M.darkOak, 0, 2.7, D / 2 - 0.08);
+  const clock = new THREE.Mesh(new THREE.CircleGeometry(0.34, 32), std(0xe8e1cf, { roughness: 0.6 }));
+  clock.position.set(0, 4.3, D / 2 - 0.08); clock.rotation.y = Math.PI;
+  G.add(clock);
+  B.add(new THREE.TorusGeometry(0.36, 0.03, 6, 32), M.brass, 0, 4.3, D / 2 - 0.08);
+  B.box(0.02, 0.24, 0.02, M.iron, 0.05, 4.37, D / 2 - 0.1, [0, 0, -0.5]);
+  B.box(0.02, 0.16, 0.02, M.iron, -0.04, 4.28, D / 2 - 0.1, [0, 0, 0.9]);
+
+  // pendants
+  for (const x of [-3.5, 3.5]) for (const z of [-4.8, -1.6, 1.6, 4.8]) pendant(B, M, G, x, 4.7, z, H - 0.4);
+
+  B.flush(G);
+
+  // ---- light ----
+  set.lights.hemi.color.set(0xe6d2b0);
+  set.lights.hemi.groundColor.set(0x3a2818);
+  set.lights.hemi.intensity = 0.55;
+  // warm overhead key on the well of the court
+  const top = new THREE.SpotLight(0xffe2b8, 55, 16, Math.PI / 3.2, 0.9, 1.4);
+  top.position.set(0, H - 0.3, 0.2);
+  top.target.position.set(0, 0, -1.2);
   top.castShadow = hi;
   top.shadow.mapSize.set(1024, 1024);
+  top.shadow.bias = -0.0008; top.shadow.normalBias = 0.03;
   G.add(top, top.target);
-  top.userData.base = 30;
+  top.userData.base = 55;
   set.lights.fill = top;
-
-  // bench
-  box(W, 0.6, 3, darkOak, 0, 0.3, -D / 2 + 1.5, G);
-  const bench = box(6, 1.3, 0.6, darkOak, 0, 0.6 + 0.65, -D / 2 + 1.9, G);
-  box(6.2, 0.08, 0.9, oak, 0, 1.94, -D / 2 + 1.85, G);
-  // emblem (abstract, original)
-  const emb = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.62, 48), std(0xb08a3a, { metalness: 0.9, roughness: 0.3, side: THREE.DoubleSide }));
-  emb.position.set(0, 3.9, -D / 2 + 0.02);
-  G.add(emb);
-  const embBar = box(0.06, 0.9, 0.02, std(0xb08a3a, { metalness: 0.9, roughness: 0.3 }), 0, 3.9, -D / 2 + 0.03, G);
-  embBar.castShadow = false;
-  // tall back panel behind judge
-  box(3, 2.8, 0.1, darkOak, 0, 2.0, -D / 2 + 0.06, G);
-  // judge's chair
-  chair(G, 0, 0.6, -D / 2 + 1.05, 0, std(0x2a0f18, { roughness: 0.6 }));
-  printout(G, 'Import Duty Act 2026', 0.8, 1.99, -D / 2 + 1.8, 0.3, 30);
-  // counsel tables
-  for (const s of [-1, 1]) {
-    box(2.8, 0.06, 1.0, oak, s * 3, 0.76, -0.4, G);
-    box(2.7, 0.7, 0.05, darkOak, s * 3, 0.38, -0.85, G);
-    for (const x of [-0.6, 0.6]) chair(G, s * 3 + x, 0, 0.35, Math.PI, std(0x1c1a18));
-  }
-  tfeuBook(G, 2.6, 0.79, -0.4, 0.2, true);
-  printout(G, 'Case 6/64 – Costa v ENEL – pp. 593-594', 3.2, 0.795, -0.35, -0.1, 7);
-  printout(G, 'Import Duty Act 2026', -3.0, 0.795, -0.4, 0.2, 9);
-  deskLamp(set, G, 3.9, 0.79, -0.7, -0.4);
-  // dock / witness box
-  const dock = new THREE.Group();
-  box(1.6, 1.1, 0.06, darkOak, 0, 0.55, 0.8, dock);
-  box(0.06, 1.1, 1.6, darkOak, -0.8, 0.55, 0, dock);
-  box(0.06, 1.1, 1.6, darkOak, 0.8, 0.55, 0, dock);
-  dock.position.set(-5.5, 0, -2.2);
-  G.add(dock);
-  // public benches
-  for (let row = 0; row < 3; row++) for (const s of [-1, 1]) {
-    box(4.6, 0.08, 0.45, oak, s * 3.2, 0.45, 2.2 + row * 1.0, G);
-    box(4.6, 0.5, 0.05, oak, s * 3.2, 0.75, 2.45 + row * 1.0, G);
-  }
-  // bar rail
-  box(10, 0.06, 0.06, darkOak, 0, 0.95, 1.4, G);
-  // columns
-  for (const z of [-3, 0, 3]) for (const s of [-1, 1]) {
-    cyl(0.28, 0.32, H, 12, plaster, s * (W / 2 - 0.4), H / 2, z, G);
-  }
-  // windows on the right wall with sun shafts
-  const sun = new THREE.DirectionalLight(0xffe0b0, 2.0);
-  sun.position.set(14, 9, 3);
+  // the bench gets its own warm key so the judge reads
+  const benchKey = new THREE.SpotLight(0xffd8a8, 28, 12, Math.PI / 7, 0.7, 1.4);
+  benchKey.position.set(0, H - 0.4, benchZ + 3.2);
+  benchKey.target.position.set(0, 1.6, -D / 2 + 1.3);
+  G.add(benchKey, benchKey.target);
+  benchKey.userData.base = 28;
+  set.lights.practicals.push(benchKey);
+  // pendants as two soft point lights (front and back halves)
+  addPractical(set, 0xffd49a, 14, 11, V(0, 4.4, 3.2));
+  addPractical(set, 0xffd49a, 12, 11, V(0, 4.4, -3.6));
+  // low evening sun through the windows
+  // (no shadow: the windows are painted on a solid wall, so a shadowed sun would never get in)
+  const sun = new THREE.DirectionalLight(0xffcf98, 0.7);
+  sun.position.set(16, 8, 4);
   sun.target.position.set(0, 0, -1);
-  sun.castShadow = hi;
-  sun.shadow.mapSize.set(2048, 2048);
-  Object.assign(sun.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, near: 1, far: 40 });
   G.add(sun, sun.target);
   set.lights.key = sun;
   set.lights.sun = sun;
-  for (const z of [-2.5, 0.5, 3.2]) {
-    const w = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 2.6), glow(0xfff0d8, 2.6));
-    w.position.set(W / 2 - 0.01, 3.6, z);
-    w.rotation.y = -Math.PI / 2;
-    G.add(w);
-    for (let k = -1; k <= 1; k++) box(0.04, 2.6, 0.04, std(0x222222), W / 2 - 0.02, 3.6, z + k * 0.45, G);
-    const shaft = lightShaft(1.3, 2.4, 14, 0xffd9a0, 0.16);
-    shaft.position.set(W / 2, 3.6, z);
-    shaft.lookAt(W / 2 + 14, 3.6 + 9, z + 3); // box extends along -z, so aim back toward the sun
-    G.add(shaft);
-    set.updaters.push((t) => { shaft.material.uniforms.uTime.value = t; });
-    set.shafts = (set.shafts || []).concat(shaft);
-  }
-  set.lights.hemi.color.set(0xd8cbb4);
-  set.lights.hemi.groundColor.set(0x2a2016);
-  set.lights.hemi.intensity = 0.5;
-  addPractical(set, 0xffe2b8, 4, 10, V(0, 3, 3));
-
+  addPractical(set, 0x9fb3c8, 5, 7, V(W / 2 - 1, 3.8, 0));
   if (hi) {
-    const dust = makeHaze(12, { x0: -6, x1: 6, y0: 1.5, y1: 5, z0: -4, z1: 4 }, 0xb8a888, 0.05, 8, 91);
+    for (const z of [-4.8, -1.6, 1.6, 4.8]) {
+      const shaft = lightShaft(1.3, 2.6, 11, 0xffd9a0, 0.035);
+      shaft.position.set(W / 2, 4.1, z);
+      shaft.lookAt(W / 2 + 16, 4.1 + 8, z + 4);
+      G.add(shaft);
+      set.updaters.push((t) => { shaft.material.uniforms.uTime.value = t; });
+      set.shafts = (set.shafts || []).concat(shaft);
+    }
+    const dust = makeHaze(6, { x0: -6, x1: 6, y0: 3, y1: 5.5, z0: -6, z1: 6 }, 0xb8a888, 0.02, 7, 91);
     G.add(dust);
     set.updaters.push((t) => dust.update(t));
   }
 
+  // ---- marks and anchors ----
   set.center.set(0, 1.4, -1);
-  set.slot('judge', V(0, 0.6, -D / 2 + 1.05), 0, 'benchSeated');
+  set.slot('judge', V(0, DAIS, -D / 2 + 1.25), 0, 'benchSeated');
   set.slot('counsel', V(-3, 0, 0.1), Math.PI, 'handOnTable');
   set.slot('player', V(2.4, 0, 0.1), Math.PI, 'stand');
-  set.slot('client', V(3.6, 0, 0.35), Math.PI, 'seated');
-  set.slot('official', V(-2.4, 0, 0.35), Math.PI, 'seated');
-  set.slot('clerk', V(-4.3, 0.6, -D / 2 + 1.6), Math.PI / 2 - 0.3, 'benchSeated');
-  set.slot('client', V(-5.5, 0, -2.2), Math.PI / 2, 'stand');
-  set.slot('extra', V(-3.2, 0, 2.2), Math.PI, 'seated');
-  set.slot('extra', V(3.2, 0, 3.2), Math.PI, 'seated');
-  set.anchor('bench', V(0, 1.8, -D / 2 + 1.9), V(0, 0, 1), 3);
-  set.anchor('book', V(2.6, 0.82, -0.4), V(0, 1, 0.2), 0.3);
-  set.anchor('printout', V(3.2, 0.8, -0.35), V(0, 1, 0.1), 0.3);
-  set.anchor('tables', V(0, 0.9, -0.4), V(0, 0.3, 1), 7);
-  set.anchor('room', V(0, 1.6, -1), V(0, 0, 1), 12);
-  set.anchor('window', V(W / 2 - 0.5, 3, 0.5), V(-1, 0, 0), 3);
-  set.anchor('backwall', V(0, 1.7, D / 2 - 0.3), V(0, 0, -1), 1);
+  set.slot('client', V(3.5, 0, tableZ + 0.95), Math.PI, 'seated');
+  set.slot('official', V(-2.3, 0, tableZ + 0.95), Math.PI, 'seated');
+  set.slot('clerk', V(-2.6, 0, benchZ + 0.85), 0, 'seated');
+  set.slot('client', V(5.1, 0.3, -3.2), -Math.PI / 2 + 0.3, 'stand');
+  set.slot('extra', V(-3.3, 0, 2.8), Math.PI, 'seated');
+  set.slot('extra', V(3.9, 0, 3.95), Math.PI, 'seated');
+  set.anchor('bench', V(0, 1.9, benchZ), V(0, 0, 1), 3);
+  set.anchor('book', V(2.5, 0.82, tableZ), V(0, 1, 0.2), 0.3);
+  set.anchor('printout', V(3.2, 0.8, tableZ + 0.05), V(0, 1, 0.1), 0.3);
+  set.anchor('tables', V(0, 0.9, tableZ), V(0, 0.3, 1), 7);
+  set.anchor('room', V(0, 1.6, -1.5), V(0, 0, 1), 12);
+  set.anchor('window', V(W / 2 - 0.5, 3.6, 0), V(-1, 0, 0), 3);
+  set.anchor('backwall', V(0, 1.8, D / 2 - 0.5), V(0, 0, -1), 1);
   set.anchor('behindBench', V(0, 3.0, -D / 2 + 0.6), V(0, -0.3, 1), 1);
   set.kw(/tfeu book|book in foreground/i, 'book');
   set.kw(/printout|costa|however framed/i, 'printout');

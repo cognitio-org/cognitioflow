@@ -48,28 +48,45 @@ export function addPractical(set, color, intensity, dist, pos, { shadow = false,
   return l;
 }
 
-/** A sodium street lamp: pole, head, halo, cone, ground pool. */
+const LAMP_METAL = new Map();
+function lampMetal() {
+  if (!LAMP_METAL.has('m')) LAMP_METAL.set('m', std(0x202326, { roughness: 0.45, metalness: 0.7 }));
+  return LAMP_METAL.get('m');
+}
+
+/** A sodium street lamp: fluted base, tapered pole, swan-neck arm, lantern head, halo, soft cone, ground pool. */
 export function streetLamp(set, x, z, { h = 7, arm = 1.6, dir = 1, color = 0xd99a3e, light = true, intensity = 30 } = {}) {
   const g = new THREE.Group();
-  const metal = std(0x1d1e20, { roughness: 0.5, metalness: 0.6 });
-  cyl(0.08, 0.12, h, 8, metal, 0, h / 2, 0, g);
-  box(arm, 0.08, 0.08, metal, (arm / 2) * dir, h, 0, g);
-  const head = box(0.5, 0.12, 0.26, metal, arm * dir, h - 0.05, 0, g);
-  const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.03, 0.2), glow(color, 8));
-  bulb.position.set(arm * dir, h - 0.12, 0);
+  const metal = lampMetal();
+  cyl(0.2, 0.26, 0.9, 10, metal, 0, 0.45, 0, g);
+  cyl(0.16, 0.2, 0.12, 10, metal, 0, 0.96, 0, g);
+  cyl(0.06, 0.11, h - 1, 8, metal, 0, 0.5 + h / 2, 0, g);
+  // swan neck: a quarter torus from the pole top into a short horizontal arm
+  const rad = Math.min(0.6, arm * 0.4);
+  const neck = new THREE.Mesh(new THREE.TorusGeometry(rad, 0.045, 6, 12, Math.PI / 2), metal);
+  neck.position.set(rad * dir, h - rad, 0);
+  neck.rotation.y = dir > 0 ? Math.PI : 0;
+  neck.castShadow = true;
+  g.add(neck);
+  box(Math.max(0.01, arm - rad), 0.08, 0.08, metal, (rad + (arm - rad) / 2) * dir, h, 0, g);
+  const head = box(0.62, 0.14, 0.34, metal, arm * dir, h - 0.02, 0, g);
+  const cap = cyl(0.02, 0.24, 0.12, 8, metal, arm * dir, h + 0.1, 0, g);
+  cap.castShadow = false;
+  const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.26), glow(color, 7));
+  bulb.position.set(arm * dir, h - 0.11, 0);
   g.add(bulb);
-  const hal = halo(color, 2.6, 1.1);
-  hal.position.set(arm * dir, h - 0.2, 0);
+  const hal = halo(color, 2.0, 0.9);
+  hal.position.set(arm * dir, h - 0.22, 0);
   g.add(hal);
-  const cone = lightCone(0.2, 2.8, h - 0.2, color, 0.16);
+  const cone = lightCone(0.25, 3.0, h - 0.2, color, 0.075);
   cone.position.set(arm * dir, h - 0.12, 0);
   g.add(cone);
-  const pool = lightPool(3.2, color, 0.35);
-  pool.position.set(arm * dir, 0.02, 0);
+  const pool = lightPool(3.4, color, 0.42);
+  pool.position.set(arm * dir, 0.18, 0);
   g.add(pool);
   g.position.set(x, 0, z);
   set.group.add(g);
-  if (light) addPractical(set, color, intensity, 16, V(x + arm * dir, h - 0.4, z), { sodium: true });
+  if (light) addPractical(set, color, intensity, 18, V(x + arm * dir, h - 0.4, z), { sodium: true });
   head.castShadow = false;
   g.userData = { bulb, hal, cone, pool };
   return g;
