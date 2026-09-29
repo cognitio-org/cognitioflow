@@ -34,6 +34,8 @@
 <main>
 
 <section id="home" class="screen">
+  <div id="todayBoard" class="today" aria-live="polite"></div>
+  <details class="home-more" id="homeMore"><summary>Course overview</summary>
   <div class="head"><div><h1 id="homeTitle"></h1><div class="small muted">Your files, tutor and notes · private to your account</div></div><button class="btn ghost" id="courseSettings" title="Name, accent and tutor brief for this course">Course settings</button></div>
   <div class="hero herobook"><div><div class="small muted">Next</div><h2 id="h-next"></h2><p id="h-nextBody"></p><button class="btn primary" id="h-go">Open</button></div>
     <div class="bookwrap"><div class="book" id="book">
@@ -56,8 +58,19 @@
     <div class="stat"><div class="n" id="h-acc">–</div><div class="l">recall accuracy</div></div>
   </div>
   <div class="panel"><h3>Today's sessions</h3><ul class="clean" id="h-today"></ul></div>
+  </details>
 </section>
 
+<section id="study" class="screen">
+  <div class="head"><div><h1 id="studyTitle"></h1><div class="small muted" id="studySub"></div></div><button class="btn ghost" id="studyBack" type="button">← Today</button></div>
+  <div class="study-weeks" id="studyWeeks" role="group" aria-label="Week"></div>
+  <div class="study-tabs" role="group" aria-label="What to do">
+    <button class="btn" type="button" data-stab="notes">📖 Notes</button>
+    <button class="btn" type="button" data-stab="tutor">💬 Talk to the tutor</button>
+    <button class="btn" type="button" data-stab="recall">🃏 Flashcards</button>
+  </div>
+  <div id="studyBody" class="study-body"></div>
+</section>
 <section id="library" class="screen">
   <div class="head"><div><h1>Files</h1><div class="small muted">Slides, transcripts, photographed notes, readings. Ticked files are what the tutor reads.</div></div>
     <label class="small muted">Week <input type="text" id="week" size="4" placeholder="2"></label></div>

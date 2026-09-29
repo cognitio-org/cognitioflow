@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import citecheck
+import countdown
 import embed
 import essay
 import llm
@@ -1033,6 +1034,9 @@ def _tutor_prompt(cid: str, course, mode: str, speech: bool, question: str):
         system.append({"type": "text", "text": heading + "\n" + "\n\n".join(text_parts) + trimmed, "cache_control": {"type": "ephemeral"}})
     else:
         system.append({"type": "text", "text": "COURSE FILES: none selected. Say so if the question needs them."})
+    notes_block = _study_notes_block(cid)
+    if notes_block:   # his notes, week by week, cached like the files: asked for 2026-09-29 ("the tutor has all the notes loaded")
+        system.append({"type": "text", "text": notes_block, "cache_control": {"type": "ephemeral"}})
     if speech:   # after the cached blocks, so turning the voice on does not throw the file cache away
         system.append({"type": "text", "text": VOICE_RULE})
     history = [{"role": m["role"], "content": m["content"]} for m in messages(cid)][-30:]
@@ -2872,6 +2876,85 @@ def streak_days(days: set, today: date):
         else: break
         cur -= timedelta(days=1)
     return streak, frozen[::-1]
+
+
+NOTES_CHAR_BUDGET = int(os.environ.get("CF_NOTES_CHARS", "160000"))
+
+
+def _study_notes_block(cid: str) -> str:
+    """His real notes for the tutor: every week's notes and the course reference notes, never the scraps
+    (saved chat replies). Ordered by week so the prefix is stable and the cache holds between questions."""
+    ns = rows("SELECT id,title,body,length(body) AS chars FROM notes WHERE course_id=?", cid)
+    sorted_ = countdown.sort_notes([dict(n) for n in ns])
+    ordered = [n for w in sorted(sorted_["weeks"]) for n in sorted(sorted_["weeks"][w], key=lambda n: n["title"])]
+    ordered += sorted(sorted_["reference"], key=lambda n: n["title"])
+    parts, used = [], 0
+    for n in ordered:
+        body = n["body"] or ""
+        room = NOTES_CHAR_BUDGET - used
+        if room <= 0: break
+        body = body[:room]; used += len(body)
+        parts.append(f"<note title=\"{n['title']}\">\n{body}\n</note>")
+    return ("HIS NOTES (his own revision notes, week by week; they reconcile the files above):\n" + "\n\n".join(parts)) if parts else ""
+
+
+def _local_today() -> date:
+    """His day, not the server's: Cloud Run keeps UTC, and at half past midnight in Groningen that is still yesterday."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("Europe/Amsterdam")).date()
+
+
+def _course_weeks(cid: str, sorted_notes: dict, today: date):
+    """The weeks a course has (from notes, files and cards) and how many cards are due in each."""
+    weeks = set(sorted_notes["weeks"])
+    for r in rows("SELECT DISTINCT week FROM files WHERE course_id=? UNION SELECT DISTINCT week FROM cards WHERE course_id=?", cid, cid):
+        if str(r["week"] or "").strip().isdigit(): weeks.add(int(r["week"]))
+    due = {}
+    for r in rows("SELECT week, COUNT(*) AS n FROM cards WHERE course_id=? AND (due IS NULL OR due<=?) GROUP BY week", cid, today.isoformat()):
+        if str(r["week"] or "").strip().isdigit(): due[int(r["week"])] = r["n"]
+    return sorted(weeks), due
+
+
+@app.get("/api/today")
+def today_plan(user: dict = Depends(current_user)):
+    """The home screen: who he is, and for each course the days to its exam, today's share of three hours,
+    the week to focus on and the tasks. Computed on request from the exam dates, notes and cards."""
+    today = _local_today()
+    cs = rows("SELECT id,name,exam_date FROM courses ORDER BY name")
+    exams = {}
+    for c in cs:
+        try: exams[c["id"]] = date.fromisoformat(str(c["exam_date"])[:10]) if c["exam_date"] else None
+        except ValueError: exams[c["id"]] = None
+    share = countdown.shares(today, exams)
+    cs = sorted(cs, key=lambda c: (exams[c["id"]] is None, exams[c["id"]] or date.max, c["name"]))   # the nearest exam first
+    out = []
+    for c in cs:
+        ns = countdown.sort_notes([dict(n) for n in rows("SELECT id,title,length(body) AS chars FROM notes WHERE course_id=?", c["id"])])
+        weeks, due = _course_weeks(c["id"], ns, today)
+        minutes = round(countdown.DAILY_MINUTES * share.get(c["id"], 0))
+        week = countdown.focus_week(today, weeks, due)
+        total_due = rows("SELECT COUNT(*) AS n FROM cards WHERE course_id=? AND (due IS NULL OR due<=?)", c["id"], today.isoformat())[0]["n"]
+        focus_notes = [{"id": n["id"], "title": n["title"]} for n in ns["weeks"].get(week, [])] if week else []
+        out.append({"id": c["id"], "name": c["name"], "exam_date": exams[c["id"]].isoformat() if exams[c["id"]] else None,
+                    "days_left": (exams[c["id"]] - today).days if exams[c["id"]] else None,
+                    "minutes": minutes, "due": total_due, "week": week, "weeks": weeks, "notes": focus_notes,
+                    "tasks": countdown.tasks(minutes, due.get(week, 0) if week else total_due)})
+    name = (user.get("name") or "").split(" ")[0] or (user.get("email") or "").split("@")[0].split(".")[0].title()
+    return {"name": name, "date": today.isoformat(), "minutes": countdown.DAILY_MINUTES, "courses": out}
+
+
+@app.get("/api/courses/{cid}/study")
+def study(cid: str):
+    """The study view for one course: its weeks with their notes, the course reference notes, and how many
+    scraps are kept out of sight (they stay in Notes)."""
+    if not rows("SELECT id FROM courses WHERE id=?", cid): raise HTTPException(404)
+    today = _local_today()
+    ns = countdown.sort_notes([dict(n) for n in rows("SELECT id,title,length(body) AS chars FROM notes WHERE course_id=?", cid)])
+    weeks, due = _course_weeks(cid, ns, today)
+    slim = lambda xs: [{"id": n["id"], "title": n["title"], "chars": n["chars"]} for n in sorted(xs, key=lambda n: n["title"])]
+    return {"weeks": [{"week": w, "notes": slim(ns["weeks"].get(w, [])), "due": due.get(w, 0)} for w in weeks],
+            "reference": slim(ns["reference"]), "scraps": len(ns["scraps"])}
 
 
 @app.get("/api/courses/{cid}/stats")
