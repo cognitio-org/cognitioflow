@@ -251,8 +251,10 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Every merge now gets its own test run; deploys still take turns here, and a deploy still
-    # waiting when a newer one arrives gives way to it, so the newest commit is what goes live.
+    # Every merge gets its own test run, and deploys take turns here in the order their TESTS
+    # finish, not the order they merged. On 2026-09-29 #123 went live at 15:59 and was then
+    # overwritten by #118, #120 and #119, whose slower test runs finished later; every run was
+    # green and users were four merges behind. The "Is a newer build live?" step stops that.
     concurrency:
       group: ${{ github.workflow }}-deploy-main
       cancel-in-progress: false
@@ -261,6 +263,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # the guard below asks git whether the live build descends from this one
 
       - uses: google-github-actions/auth@v3
         with:
@@ -269,13 +273,30 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v3
 
+      # Skip when what is live already contains this commit. Compared against the live build, not
+      # main's head: a newer merge whose tests fail must not stop this one from going out.
+      # Anything unknown (no label, a commit git has never seen) deploys, as before.
+      - name: Is a newer build live?
+        id: guard
+        run: |
+          live=$(gcloud run services describe "$SERVICE" --project "$GCP_PROJECT" --region "$REGION" \
+                   --format='value(metadata.labels.commit)' 2>/dev/null || true)
+          echo "live: ${live:-unknown}  this: ${GITHUB_SHA:0:12}"
+          if [ -n "$live" ] && [ "$live" != "${GITHUB_SHA:0:12}" ] \
+             && git merge-base --is-ancestor "$GITHUB_SHA" "$live" 2>/dev/null; then
+            echo "::notice::Not deploying ${GITHUB_SHA:0:12}: live build $live already contains it"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and push image
+        if: steps.guard.outputs.skip != 'true'
         run: |
           gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
           docker build --platform linux/amd64 -t "$IMAGE:$GITHUB_SHA" .
           docker push "$IMAGE:$GITHUB_SHA"
 
       - name: Deploy to Cloud Run
+        if: steps.guard.outputs.skip != 'true'
         run: |
           gcloud run deploy "$SERVICE" \
             --project "$GCP_PROJECT" --region "$REGION" \
@@ -290,6 +311,7 @@ jobs:
             --quiet
 
       - name: Smoke test /health
+        if: steps.guard.outputs.skip != 'true'
         run: |
           url=$(gcloud run services describe "$SERVICE" --project "$GCP_PROJECT" --region "$REGION" --format='value(status.url)')
           echo "Service URL: $url"
@@ -302,6 +324,7 @@ jobs:
       # The weekly backup (scripts/backup.py) as a Cloud Run job, kept on the same commit as the app.
       # Skipped until infra/backup.sh --apply has created its service account; the schedule lives in that script.
       - name: Deploy backup job
+        if: steps.guard.outputs.skip != 'true'
         run: |
           if ! gcloud iam service-accounts describe "$BACKUP_SA" --project "$GCP_PROJECT" >/dev/null 2>&1; then
             echo "::notice::$BACKUP_SA not found - run infra/backup.sh --apply; backup job not deployed"; exit 0
