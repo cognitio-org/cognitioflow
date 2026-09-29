@@ -148,3 +148,20 @@
 .home-more{margin-top:1.2rem;border-top:1px solid var(--rule);padding-top:.6rem}
 .home-more>summary{cursor:pointer;color:var(--graphite);min-height:32px;display:flex;align-items:center;font-size:.95rem}
 .home-more[open]>summary{margin-bottom:.8rem}
+
+/* Mock exam: the clock stays in view while he writes; marks read as ticks, never a number. */
+.mock-papers{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem}
+.mock-paper ol{margin:.2rem 0 0;padding-left:1.2rem}
+.mock-clock{position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;align-items:center;gap:1rem;background:var(--raised);border:1px solid var(--rule);border-radius:10px;padding:.6rem 1rem;margin-bottom:1rem;font-size:1.15rem;font-variant-numeric:tabular-nums}
+.mock-clock.late{border-color:var(--warn);color:var(--warn)}
+.mock-q{background:var(--raised);border:1px solid var(--rule);border-radius:10px;padding:1rem 1.2rem;margin:0 0 1rem}
+.mock-q h3{font-family:var(--serif);margin:0 0 .5rem}
+.mock-text{white-space:pre-wrap;font-family:var(--serif);line-height:1.6;margin:0 0 .8rem}
+.mock-q textarea{width:100%;min-height:14rem;font:1rem/1.6 var(--serif);padding:.7rem;background:var(--paper);color:var(--ink);border:1px solid var(--rule);border-radius:8px}
+.mock-count.warn{color:var(--warn)}
+.mock-head{font-family:var(--serif);margin:.8rem 0}
+.mock-overall{font-family:var(--serif);font-style:italic}
+.mock-points{list-style:none;padding:0;margin:.4rem 0 .8rem;display:grid;gap:.45rem}
+.mock-points li>span{display:inline-block;width:1.3em;font-weight:700}
+.mock-points .mk-hit>span{color:var(--ok)} .mock-points .mk-partly>span{color:var(--warn)} .mock-points .mk-missed>span{color:var(--bad)}
+.mock-q details{margin:.4rem 0} .mock-q summary{cursor:pointer;min-height:32px;display:flex;align-items:center}

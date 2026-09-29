@@ -992,7 +992,11 @@ def test_the_page_never_holds_the_model_answer_before_it_is_asked_for():
     at = html.index("$('#esModelBtn').onclick")
     handler = html[at:html.index("$('#esBank').onclick", at)]
     assert "/model`" in handler, "the model answer is fetched here or nowhere"
-    assert html.count("/model`") == 1, "a second fetch of the model answer would be a way around the gate"
+    # One more place, the mock exam's marking view (2026-09-29): it runs only after a paper is handed in, and
+    # the server answers 409 for any question not yet handed in. Anything beyond these two is a way around the gate.
+    assert html.count("/model`") == 2, "a third fetch of the model answer would be a way around the gate"
+    mr = html.index("async function mockResults(")
+    assert "/model`" in html[mr:html.index("$('#mockBack')", mr)], "the second fetch lives in the mock marking view"
     assert "esLock(true)" in html and "$('#esModelBtn').disabled=!es.unlocked" in html
 # ---------------------------------------------------------------- the day streak survives one missed day (Phase 15)
 from datetime import datetime, time as _time_of_day
