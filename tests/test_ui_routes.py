@@ -353,7 +353,7 @@ def test_continue_a_cut_off_draft_rebuilds_the_same_prompt(client, fake):
     import run
     cid = _cid(client)
     _upload(client, cid, "w5.txt", "Week five: proportionality", week="5")
-    fake(*[("# Week 5 notes\n## Scope", "max_tokens")] * run.DRAFT_ROUNDS)  # still cut after self-continuation
+    fake(("# Week 5 notes\n## Scope", "max_tokens"), *[("\nstill scoping", "max_tokens")] * (run.DRAFT_ROUNDS - 1))  # still cut after self-continuation; each round adds text, none starts over (#119 cuts a restart)
     nid = client.post(f"/api/courses/{cid}/notes/draft", json={"week": "5", "diagrams": False}).json()["id"]
     assert "<!--cf:continue kind=draft week=5 diagrams=0 files=" in client.get(f"/api/notes/{nid}").json()["body"]
     fc = fake(("\n## Core rules\n1. Proportionality", None))
@@ -427,7 +427,7 @@ def test_continue_master_draft_uses_the_files_it_was_written_from(client, fake):
     _upload(client, cid, "a.txt", "ALPHA material")
     b = _upload(client, cid, "b.txt", "BETA material")
     import run
-    fake(*[("# Master notes\n## Scope\n", "max_tokens")] * run.DRAFT_ROUNDS)  # still cut after self-continuation
+    fake(("# Master notes\n## Scope\n", "max_tokens"), *[("still scoping\n", "max_tokens")] * (run.DRAFT_ROUNDS - 1))  # still cut after self-continuation; each round adds text, none starts over (#119 cuts a restart)
     nid = client.post(f"/api/courses/{cid}/notes/draft", json={"diagrams": True}).json()["id"]
     client.post(f"/api/files/{b}/toggle-to", json={"on": False})  # ticks change before Continue
     fc = fake(("## Core rules\n1. x", None))
@@ -440,7 +440,7 @@ def test_continue_marker_survives_a_week_with_spaces(client, fake):
     cid = _cid(client)
     _upload(client, cid, "w3.txt", "WEEK THREE material", week="Week 3")
     import run
-    fake(*[("# Week 3 notes\n", "max_tokens")] * run.DRAFT_ROUNDS)  # still cut after self-continuation
+    fake(("# Week 3 notes\n", "max_tokens"), *[("still writing\n", "max_tokens")] * (run.DRAFT_ROUNDS - 1))  # still cut after self-continuation; each round adds text, none starts over (#119 cuts a restart)
     nid = client.post(f"/api/courses/{cid}/notes/draft", json={"week": "Week 3", "diagrams": False}).json()["id"]
     assert "week=Week%203" in client.get(f"/api/notes/{nid}").json()["body"]
     fc = fake(("## Core rules", None))
