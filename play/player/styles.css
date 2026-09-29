@@ -152,8 +152,9 @@ kbd {
 .library {
   position: absolute; inset: 0; z-index: 10; overflow-y: auto; overscroll-behavior: contain;
   background:
-    radial-gradient(ellipse 80% 60% at 50% 110%, rgba(217, 154, 62, 0.16), transparent 70%),
-    linear-gradient(180deg, rgba(8, 8, 7, 0.55) 0%, rgba(8, 8, 7, 0.2) 40%, rgba(8, 8, 7, 0.85) 100%);
+    radial-gradient(ellipse 80% 60% at 50% 110%, rgba(217, 154, 62, 0.12), transparent 70%),
+    linear-gradient(100deg, rgba(8, 8, 7, 0.62) 0%, rgba(8, 8, 7, 0.38) 45%, rgba(8, 8, 7, 0.12) 75%),
+    linear-gradient(180deg, rgba(8, 8, 7, 0.6) 0%, rgba(8, 8, 7, 0.25) 38%, rgba(8, 8, 7, 0.88) 100%);
 }
 .lib-inner { max-width: 1180px; margin: 0 auto; padding: clamp(32px, 8vh, 96px) var(--gutter) 40px; }
 .lib-head { max-width: 680px; margin-bottom: clamp(24px, 5vh, 48px); }

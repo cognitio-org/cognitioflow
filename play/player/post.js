@@ -73,6 +73,11 @@ export class Post {
     this.composer = new EffectComposer(renderer, rt);
     this.renderPass = new RenderPass(scene, camera);
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.85, 0.72, 0.78);
+    // Clamp what feeds the bloom. A glossy puddle catching a low sun renders single pixels at
+    // several hundred, and the blur spreads each one into a frame-filling white blob.
+    const hp = this.bloom.materialHighPassFilter;
+    hp.fragmentShader = hp.fragmentShader.replace('vec4 texel = texture2D( tDiffuse, vUv );', 'vec4 texel = min( texture2D( tDiffuse, vUv ), vec4( 6.0 ) );');
+    hp.needsUpdate = true;
     this.output = new OutputPass();
     this.grade = new ShaderPass(GradeShader);
     this.composer.addPass(this.renderPass);
