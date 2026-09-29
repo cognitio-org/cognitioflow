@@ -197,20 +197,31 @@ function setCourse(id){ if(!id||cid===id) return; cid=id; sylForget(); localStor
   document.documentElement.style.setProperty('--course',C().accent); }
 function openStudy(course,week,tab){ setCourse(course); study={course,week:String(week||''),tab:tab||'notes',note:''};
   if(study.tab==='recall') return studyRecall(); show('study'); }   // 'tutor' opens the study view with the tutor already asked
+/* Today's tasks tick once he has started them: remembered per day in this browser, the only place that knows. */
+const todayKey=d=>`cf.today.${d}`;
+function todayStarted(d){ try{ return JSON.parse(localStorage.getItem(todayKey(d))||'{}') }catch(e){ return {} } }
+function todayMark(d,k){ const s=todayStarted(d); s[k]=1; try{ localStorage.setItem(todayKey(d),JSON.stringify(s)) }catch(e){} }
 async function loadToday(){ const box=$('#todayBoard'); if(!box) return; let t;
   try{ t=await api('/today') }catch(e){ box.hidden=true; return } box.hidden=false;
   const when=new Date(t.date+'T00:00:00').toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'});
   const total=t.courses.reduce((a,c)=>a+c.minutes,0), acc=id=>(courses.find(x=>x.id===id)||{}).accent||'';
-  const exam=c=>c.days_left==null?'no exam date':c.days_left>1?`exam in ${c.days_left} days`:c.days_left===1?'exam tomorrow':c.days_left===0?'exam today':'exam done';
-  const topic=c=>c.notes&&c.notes[0]?' — '+esc(c.notes[0].title.replace(/^(week|wk)\s*\d+\s*[—–:-]\s*/i,'')):'';
-  box.innerHTML=`<div class="today-head"><h1>Welcome back, ${esc(t.name)}</h1><div class="muted">${when} · ${total?(total/60).toFixed(1).replace(/\.0$/,'')+' h planned today':'nothing planned today'}</div></div>
-  <div class="today-grid">${t.courses.map(c=>`<article class="today-card" style="--course:${acc(c.id)}">
-    <header><h2>${esc(c.name)}</h2><span class="tag">${exam(c)}</span></header>
-    ${c.minutes&&c.week?`<p class="today-focus">Today: <b>Week ${c.week}</b>${topic(c)} · ${c.minutes} min</p>
-    <ol class="today-tasks">${c.tasks.map(x=>`<li><button class="btn" type="button" data-study="${c.id}" data-week="${c.week}" data-tab="${x.kind}"><span>${STUDY_TASK[x.kind]}${x.kind==='recall'?` · ${x.cards} card${x.cards>1?'s':''}`:''}</span><span class="muted">${x.minutes} min</span></button></li>`).join('')}</ol>`
+  const started=todayStarted(t.date), key=(c,x)=>`${c.id}:${x.kind}`;
+  const doneMin=t.courses.reduce((a,c)=>a+(c.tasks||[]).filter(x=>started[key(c,x)]).reduce((m,x)=>m+x.minutes,0),0);
+  const pct=n=>`${Math.round(Math.min(1,n)*100)}%`, hrs=m=>(m/60).toFixed(1).replace(/\.0$/,'');
+  const stamp=c=>c.days_left==null?'':c.days_left<0?'<div class="stamp"><b>✓</b><span>exam done</span></div>'
+    :`<div class="stamp ${c.days_left<=3?'now':c.days_left<=14?'soon':''}" title="Exam ${c.days_left===0?'today':c.days_left===1?'tomorrow':'in '+c.days_left+' days'}"><b>${c.days_left}</b><span>${c.days_left===1?'day':'days'} to exam</span></div>`;
+  const topic=c=>c.notes&&c.notes[0]?esc(c.notes[0].title.replace(/^(week|wk)\s*\d+\s*[—–:-]\s*/i,'')):'';
+  box.innerHTML=`<div class="today-head"><div><p class="today-eyebrow">${when}</p><h1>Welcome back, ${esc(t.name)}</h1></div>
+    ${total?`<div class="today-day"><div class="lbl"><span>Today's reading</span><span><b>${hrs(doneMin)}</b> of ${hrs(total)} h started</span></div><div class="gilt-rule" role="progressbar" aria-label="Today's plan started" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${doneMin}"><i style="--p:${pct(doneMin/total)}"></i></div></div>`:'<div class="muted">Nothing planned today</div>'}</div>
+  <div class="today-grid">${t.courses.map(c=>{ const tasks=c.tasks||[], m=tasks.filter(x=>started[key(c,x)]).reduce((a,x)=>a+x.minutes,0);
+    return `<article class="today-card" style="--course:${acc(c.id)}">
+    <header><div><h2>${esc(c.name)}</h2>${c.minutes&&c.week?`<p class="today-week">Week ${esc(c.week)} · ${c.minutes} min today</p>`:''}</div>${stamp(c)}</header>
+    ${c.minutes&&c.week?`${topic(c)?`<p class="today-focus">${topic(c)}</p>`:''}
+    <ol class="today-tasks">${tasks.map(x=>`<li><button class="btn${started[key(c,x)]?' done':''}" type="button" data-study="${c.id}" data-week="${c.week}" data-tab="${x.kind}"><span class="tk-ico" aria-hidden="true"></span><span class="tk-label">${STUDY_TASK[x.kind]}${x.kind==='recall'?` · ${x.cards} card${x.cards>1?'s':''}`:''}</span><span class="tk-min">${x.minutes} min</span></button></li>`).join('')}</ol>
+    <div class="gilt-rule" aria-hidden="true"><i style="--p:${pct(c.minutes?m/c.minutes:0)}"></i></div>`
     :`<p class="muted">${c.days_left!=null&&c.days_left<0?'Exam done — nothing planned.':'Nothing planned for this course today.'}</p>`}
-    <footer><button class="btn primary" type="button" data-study="${c.id}" data-week="${c.week||''}" data-tab="notes">Study ${esc(c.name)}</button></footer></article>`).join('')}</div>`;
-  box.querySelectorAll('[data-study]').forEach(b=>b.onclick=()=>openStudy(b.dataset.study,b.dataset.week,b.dataset.tab)); }
+    <footer><button class="btn primary" type="button" data-study="${c.id}" data-week="${c.week||''}" data-tab="notes">Study ${esc(c.name)}</button></footer></article>`; }).join('')}</div>`;
+  box.querySelectorAll('[data-study]').forEach(b=>b.onclick=()=>{ if(b.closest('.today-tasks')) todayMark(t.date,`${b.dataset.study}:${b.dataset.tab}`); openStudy(b.dataset.study,b.dataset.week,b.dataset.tab); }); }
 
 /* ---- Study view: one course, week by week. The week's note opens by itself, the tutor sits beside it with
    the notes loaded, and every way to practise the week is one click away (2026-09-29). ---- */

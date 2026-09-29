@@ -1,0 +1,111 @@
+/* CognitioFlow — the reading room (2026-09-29).
+   Same theme, lit better: a law library at night. Oak and paper surfaces, a brass (gilt) accent used sparingly for
+   progress and the exam stamp, each course's own colour on its spine. Loaded last, so it only refines what
+   app.css / book.css / app-after.css already set; the tokens they define are the ones used here. */
+
+:root{--gilt:#b8872f;--gilt-soft:rgba(184,135,47,.16);--edge:rgba(28,28,26,.10);--edge-strong:rgba(28,28,26,.18);
+  --lift:0 1px 0 rgba(255,255,255,.6) inset,0 1px 2px rgba(40,30,10,.06),0 4px 14px rgba(40,30,10,.05);
+  --ease:cubic-bezier(.23,1,.32,1)}
+@media(prefers-color-scheme:dark){:root{
+  --paper:#1a1917;--raised:#24221f;--faint:#201e1b;--ink:#ebe6dc;--graphite:#a9a397;--rule:#35322d;
+  --gilt:#d4ab5f;--gilt-soft:rgba(212,171,95,.14);--edge:rgba(255,244,222,.08);--edge-strong:rgba(255,244,222,.16);
+  --lift:0 1px 0 rgba(255,244,222,.05) inset,0 0 0 1px rgba(255,244,222,.06),0 8px 24px rgba(0,0,0,.28)}
+  .btn.primary{background:#ece5d5;color:#1b1a17} .btn.primary:hover{background:#f7f1e3}}
+html{-webkit-font-smoothing:antialiased} h1,h2{text-wrap:balance}
+
+/* ---- controls: quieter edges, a press you can feel ---- */
+.btn{border-color:var(--edge-strong);transition:background-color .15s var(--ease),border-color .15s var(--ease),transform .12s var(--ease)}
+.btn:hover{border-color:color-mix(in oklab,var(--ink) 40%,transparent)}
+.btn:active:not([disabled]){transform:scale(.97)}
+.btn.ghost{border-color:var(--edge)}
+.panel{border-color:var(--edge);border-radius:10px;background:var(--raised);box-shadow:var(--lift)}
+input[type=text],input:not([type]),textarea,select{border:1px solid var(--edge-strong);border-radius:8px;background:var(--paper);color:var(--ink)}
+@media(prefers-reduced-motion:reduce){.btn{transition:none}.btn:active:not([disabled]){transform:none}}
+
+/* ---- the sidebar: a shelf of rooms, each with its own mark ---- */
+aside.side{background:var(--paper)}
+.brand i{background:linear-gradient(var(--accent),var(--accent)) padding-box;box-shadow:inset 0 3px 0 var(--gilt),inset 0 -3px 0 var(--gilt)}
+nav a{position:relative;display:flex;align-items:center;gap:.65rem;transition:background-color .15s var(--ease),color .15s var(--ease)}
+nav a::before{content:"";width:17px;height:17px;flex:0 0 auto;background:currentColor;opacity:.75;
+  -webkit-mask:var(--ico) center/contain no-repeat;mask:var(--ico) center/contain no-repeat}
+nav a.active::before,nav a:hover::before{opacity:1}
+nav a.active{background:color-mix(in oklab,var(--accent) 12%,var(--faint));border-left-color:var(--accent)}
+nav a[data-nav=home]{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 10.5 12 4l9 6.5'/%3E%3Cpath d='M5 9.5V20h14V9.5'/%3E%3Cpath d='M10 20v-5h4v5'/%3E%3C/svg%3E")}
+nav a[data-nav=library]{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 5h5v15H4zM10 5h5v15h-5z'/%3E%3Cpath d='m16 6 4-1 3 14-4 1z'/%3E%3C/svg%3E")}
+nav a[data-nav=tutor]{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 5h16v11H9l-5 4z'/%3E%3Cpath d='M8 9.5h8M8 12.5h5'/%3E%3C/svg%3E")}
+nav a[data-nav=notes]{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3h9l4 4v14H6z'/%3E%3Cpath d='M15 3v4h4M9 12h7M9 16h7'/%3E%3C/svg%3E")}
+nav a[data-nav=recall]{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='7' width='14' height='13' rx='2'/%3E%3Cpath d='M7 4h12a2 2 0 0 1 2 2v11'/%3E%3C/svg%3E")}
+nav a[data-nav=advocate]{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='3' width='6' height='11' rx='3'/%3E%3Cpath d='M5 11a7 7 0 0 0 14 0M12 18v3'/%3E%3C/svg%3E")}
+nav a[data-nav=essay]{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20h4L19 9l-4-4L4 16z'/%3E%3Cpath d='m13.5 6.5 4 4'/%3E%3C/svg%3E")}
+nav a[data-nav=arena]{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3v18M5 21h14'/%3E%3Cpath d='M4 7h16'/%3E%3Cpath d='m6 7-3 7h6zM18 7l-3 7h6z'/%3E%3C/svg%3E")}
+nav a[data-nav=planner]{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E")}
+nav a[data-nav=progress]{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20V10M10 20V4M16 20v-7M22 20H2'/%3E%3C/svg%3E")}
+
+/* ---- Today: the reading-room table ---- */
+.today-head{display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.today-eyebrow{font:500 .74rem/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--graphite);margin:0 0 .55rem}
+.today-head h1{font-size:2.35rem;letter-spacing:-.012em;margin:0}
+.today-day{min-width:min(100%,300px);max-width:360px;flex:1}
+.today-day .lbl{display:flex;justify-content:space-between;font-size:.82rem;color:var(--graphite);margin-bottom:.4rem;font-variant-numeric:tabular-nums}
+.today-day .lbl b{color:var(--ink);font-weight:500}
+.gilt-rule{height:6px;border-radius:999px;background:var(--faint);box-shadow:inset 0 0 0 1px var(--edge);overflow:hidden}
+.gilt-rule i{display:block;height:100%;width:var(--p,0%);background:linear-gradient(90deg,color-mix(in oklab,var(--gilt) 70%,#000),var(--gilt));border-radius:inherit;transition:width .5s var(--ease)}
+
+.today-grid{gap:1.25rem;margin-top:1.4rem}
+/* a course is a bound volume: its colour on the spine, gilt bands across it, the page to the right */
+.today-card{position:relative;border:none;border-radius:6px 12px 12px 6px;background:var(--raised);box-shadow:var(--lift);
+  padding:1.25rem 1.35rem 1.25rem 2.1rem;gap:.9rem;animation:cf-rise .45s var(--ease) both}
+.today-card:nth-child(2){animation-delay:.06s} .today-card:nth-child(3){animation-delay:.12s}
+.today-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:12px;border-radius:6px 0 0 6px;
+  background:linear-gradient(180deg,transparent 18px,var(--gilt) 18px,var(--gilt) 20px,transparent 20px,transparent 24px,var(--gilt) 24px,var(--gilt) 25px,transparent 25px) ,
+             linear-gradient(90deg,color-mix(in oklab,var(--course,var(--accent)) 70%,#000),var(--course,var(--accent)) 55%,color-mix(in oklab,var(--course,var(--accent)) 80%,#000))}
+.today-card::after{content:"";position:absolute;left:12px;top:0;bottom:0;width:1px;background:rgba(0,0,0,.25)}
+.today-card header{align-items:flex-start}
+.today-card h2{font-size:1.5rem;letter-spacing:-.01em}
+.today-week{font:500 .74rem/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--graphite);margin:.35rem 0 0}
+.today-focus{font-family:var(--serif);font-size:1.08rem;line-height:1.45;color:var(--ink)}
+.today-focus .muted{font-family:var(--sans);font-size:.85rem}
+
+/* the exam date as a docket stamp: calm far out, warmer as it closes in */
+.stamp{flex:0 0 auto;display:grid;justify-items:center;padding:.3rem .6rem .35rem;border:1.5px solid color-mix(in oklab,var(--graphite) 60%,transparent);
+  border-radius:6px;transform:rotate(-2.5deg);color:var(--graphite);font-variant-numeric:tabular-nums;line-height:1}
+.stamp b{font:600 1.35rem/1 var(--serif);color:var(--ink)} .stamp span{font:500 .62rem/1.3 var(--sans);letter-spacing:.12em;text-transform:uppercase}
+.stamp.soon{border-color:var(--warn);color:var(--warn)} .stamp.soon b{color:var(--warn)}
+.stamp.now{border-color:var(--bad);color:var(--bad)} .stamp.now b{color:var(--bad)}
+
+/* today's tasks: three steps with a mark each, ticked once started */
+.today-tasks{gap:.5rem;counter-reset:task}
+.today-tasks .btn{border:none;background:var(--faint);box-shadow:inset 0 0 0 1px var(--edge);border-radius:9px;min-height:52px;padding:.6rem .85rem;gap:.8rem;justify-content:flex-start}
+.today-tasks .btn:hover{background:color-mix(in oklab,var(--course,var(--accent)) 10%,var(--faint));box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--course,var(--accent)) 45%,transparent)}
+.today-tasks .btn .tk-ico{width:30px;height:30px;flex:0 0 auto;border-radius:8px;display:grid;place-items:center;
+  background:color-mix(in oklab,var(--course,var(--accent)) 22%,transparent);color:color-mix(in oklab,var(--course,var(--accent)) 35%,var(--ink))}
+.today-tasks .btn .tk-ico::before{content:"";width:16px;height:16px;background:currentColor;-webkit-mask:var(--ico) center/contain no-repeat;mask:var(--ico) center/contain no-repeat}
+.today-tasks .btn .tk-label{flex:1;min-width:0}
+.today-tasks .btn .tk-min{font-size:.82rem;color:var(--graphite);font-variant-numeric:tabular-nums;padding:.15rem .5rem;border-radius:999px;background:var(--paper)}
+.today-tasks .btn[data-tab=notes] .tk-ico{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 5h7a3 3 0 0 1 3 3v12a2 2 0 0 0-2-2H2zM22 5h-7a3 3 0 0 0-3 3v12a2 2 0 0 1 2-2h8z'/%3E%3C/svg%3E")}
+.today-tasks .btn[data-tab=tutor] .tk-ico{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 5h16v11H9l-5 4z'/%3E%3C/svg%3E")}
+.today-tasks .btn[data-tab=recall] .tk-ico{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='7' width='14' height='13' rx='2'/%3E%3Cpath d='M7 4h12a2 2 0 0 1 2 2v11'/%3E%3C/svg%3E")}
+.today-tasks .btn.done .tk-ico{background:color-mix(in oklab,var(--ok) 22%,transparent);color:var(--ok);
+  --ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E")}
+.today-tasks .btn.done .tk-label{color:var(--graphite)}
+.today-card .gilt-rule{height:4px;margin-top:-.2rem}
+.today-card footer .btn{min-height:46px;font-size:1rem;border-radius:9px}
+
+.home-more>summary{gap:.45rem;font-size:.9rem;letter-spacing:.02em}
+.home-more>summary::-webkit-details-marker{display:none} .home-more>summary{list-style:none}
+.home-more>summary::before{content:"";width:8px;height:8px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform .2s var(--ease)}
+.home-more[open]>summary::before{transform:rotate(45deg)}
+
+/* ---- the rest of the house: same materials ---- */
+.head h1{letter-spacing:-.01em}
+.study-note,.noteview.study-note{box-shadow:var(--lift);border-color:var(--edge)}
+.study-tutor{box-shadow:var(--lift);border-color:var(--edge)}
+.study-weeks .btn[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.study-practise .btn{border-radius:999px;padding-inline:1.1rem}
+.study-practise .btn:hover{background:color-mix(in oklab,var(--accent) 12%,var(--faint))}
+.tag{border-color:var(--edge-strong)}
+
+@keyframes cf-rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.today-card{animation:none}.gilt-rule i{transition:none}}
+
+@media(max-width:1300px){nav a::before{display:none}}
