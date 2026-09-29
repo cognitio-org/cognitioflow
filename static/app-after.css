@@ -136,15 +136,37 @@
 .today-tasks{list-style:none;margin:0;padding:0;display:grid;gap:.45rem}
 .today-tasks .btn{width:100%;display:flex;justify-content:space-between;align-items:center;min-height:44px;text-align:left;padding:.55rem .8rem}
 .today-card footer{margin-top:auto} .today-card footer .btn{width:100%;min-height:40px}
-.study-weeks,.study-tabs{display:flex;flex-wrap:wrap;gap:.45rem;margin:0 0 .8rem}
-.study-weeks .btn[aria-pressed="true"],.study-tabs .btn[aria-pressed="true"],.study-notes .btn[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
-.study-tabs .btn{min-height:44px;padding:.5rem 1rem;font-size:1rem}
-.study-body{display:grid;grid-template-columns:minmax(200px,260px) 1fr;gap:1rem;align-items:start}
+.study-weeks,.study-practise{display:flex;flex-wrap:wrap;gap:.45rem;margin:0 0 .8rem;align-items:center}
+.study-weeks .btn[aria-pressed="true"],.study-notes .btn[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.study-practise{padding:.6rem 0 .9rem;border-bottom:1px solid var(--rule);margin-bottom:1rem}
+.study-practise>span{margin-right:.3rem;font-weight:500}
+.study-practise .btn{min-height:40px;padding:.45rem 1rem}
+/* the desk: the note in the middle, the tutor beside it; the list of notes only when a week has more than one */
+.study-desk{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,400px);gap:1.2rem;align-items:start}
+.study-body{display:grid;grid-template-columns:minmax(180px,230px) minmax(0,1fr);gap:1rem;align-items:start;min-width:0}
+.study-body.single{grid-template-columns:minmax(0,1fr)}
 .study-notes{display:flex;flex-direction:column;gap:.35rem;position:sticky;top:.5rem}
 .study-notes .btn{justify-content:flex-start;text-align:left;white-space:normal;min-height:36px}
-.study-note{background:var(--raised);border:1px solid var(--rule);border-radius:10px;padding:1.2rem 1.4rem;max-width:80ch;font-family:var(--serif);line-height:1.6}
+.study-note{background:var(--raised);border:1px solid var(--rule);border-radius:10px;padding:1.2rem 1.4rem;max-width:80ch;font-family:var(--serif);line-height:1.6;min-width:0;overflow-wrap:anywhere}
 .study-body .emptystate{grid-column:1/-1}
-@media (max-width:760px){.study-body{grid-template-columns:1fr}.study-notes{position:static;flex-direction:row;flex-wrap:wrap}}
+.study-tutor{position:sticky;top:.5rem;display:flex;flex-direction:column;height:calc(100vh - 7rem);min-height:420px;background:var(--raised);border:1px solid var(--rule);border-radius:10px;overflow:hidden}
+.study-tutor>header{display:flex;justify-content:space-between;align-items:flex-start;gap:.5rem;padding:.8rem 1rem .6rem;border-bottom:1px solid var(--rule)}
+.study-tutor h3{margin:0}
+.st-log{flex:1;overflow:auto;padding:.8rem 1rem;display:flex;flex-direction:column;gap:.6rem}
+.st-empty{margin:auto 0;text-align:center;padding:1rem}
+.st-msg{padding:.55rem .8rem;border-radius:10px;font-size:.93rem;line-height:1.55;overflow-wrap:anywhere;max-width:95%}
+.st-msg.user{align-self:flex-end;background:var(--faint);border:1px solid var(--rule);border-radius:12px 12px 4px 12px}
+.st-msg.assistant{align-self:flex-start;border-left:3px solid var(--accent);border-radius:4px;padding-left:.75rem}
+.st-msg.assistant p:last-child{margin-bottom:0}
+.st-msg.thinking{color:var(--graphite);animation:stpulse 1.2s ease-in-out infinite}
+@keyframes stpulse{50%{opacity:.45}} @media(prefers-reduced-motion:reduce){.st-msg.thinking{animation:none}}
+.st-warn{margin-top:.4rem;color:var(--warn)}
+.st-quick{display:flex;flex-wrap:wrap;gap:.35rem;padding:.5rem 1rem 0}
+.st-ask{display:flex;gap:.5rem;align-items:flex-end;padding:.6rem 1rem .9rem}
+.st-ask textarea{flex:1;min-width:0;resize:none;min-height:44px;max-height:10rem;padding:.5rem .6rem;border:1px solid var(--rule);border-radius:8px;background:var(--paper);color:var(--ink);line-height:1.45}
+.st-ask .btn{min-height:44px}
+@media (max-width:1400px){.study-body{grid-template-columns:minmax(0,1fr)}.study-notes{position:static;flex-direction:row;flex-wrap:wrap}.study-notes .btn{white-space:nowrap}}
+@media (max-width:1000px){.study-desk{grid-template-columns:1fr}.study-tutor{position:static;height:70vh}}
 .home-more{margin-top:1.2rem;border-top:1px solid var(--rule);padding-top:.6rem}
 .home-more>summary{cursor:pointer;color:var(--graphite);min-height:32px;display:flex;align-items:center;font-size:.95rem}
 .home-more[open]>summary{margin-bottom:.8rem}

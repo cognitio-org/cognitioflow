@@ -64,13 +64,22 @@
 <section id="study" class="screen">
   <div class="head"><div><h1 id="studyTitle"></h1><div class="small muted" id="studySub"></div></div><button class="btn ghost" id="studyBack" type="button">← Today</button></div>
   <div class="study-weeks" id="studyWeeks" role="group" aria-label="Week"></div>
-  <div class="study-tabs" role="group" aria-label="What to do">
-    <button class="btn" type="button" data-stab="notes">📖 Notes</button>
-    <button class="btn" type="button" data-stab="tutor">💬 Talk to the tutor</button>
-    <button class="btn" type="button" data-stab="recall">🃏 Flashcards</button>
-    <button class="btn" type="button" data-stab="mock">📝 Mock exam</button>
+  <div class="study-practise" role="group" aria-labelledby="studyPractiseLabel"><span class="small muted" id="studyPractiseLabel">Practise</span>
+    <button class="btn" type="button" data-stab="recall" title="This week's flashcards">Flashcards</button>
+    <button class="btn" type="button" data-stab="advocate" title="It asks out loud, you answer out loud">Advocate</button>
+    <button class="btn" type="button" data-stab="essay" title="Write an answer, then see the model answer">Essay</button>
+    <button class="btn" type="button" data-stab="mock" title="A past paper against the clock">Mock exam</button>
+    <button class="btn" type="button" data-stab="arena" title="Quiz and courtroom games">Arena</button>
   </div>
-  <div id="studyBody" class="study-body"></div>
+  <div class="study-desk">
+    <div id="studyBody" class="study-body"></div>
+    <aside class="study-tutor" aria-label="Tutor">
+      <header><div><h3>Tutor</h3><div class="small muted" id="stCtx"></div></div><button class="btn small ghost" id="stFull" type="button" title="The full tutor: voice, modes and the whole conversation">Full tutor</button></header>
+      <div class="st-log" id="stLog" aria-live="polite"></div>
+      <div class="st-quick" id="stQuick" role="group" aria-label="Quick asks"></div>
+      <form class="st-ask" id="stAsk"><textarea id="stQ" rows="2" placeholder="Ask about this week…" aria-label="Ask the tutor"></textarea><button class="btn primary" type="submit" id="stSend">Send</button></form>
+    </aside>
+  </div>
 </section>
 <section id="mock" class="screen">
   <div class="head"><div><h1 id="mockTitle">Mock exam</h1><div class="small muted" id="mockSub"></div></div><button class="btn ghost" id="mockBack" type="button">← Study</button></div>
