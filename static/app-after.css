@@ -123,3 +123,28 @@
 .modes{flex-wrap:wrap;row-gap:.4rem}
 .modes > span{flex-wrap:wrap;justify-content:flex-end;row-gap:.35rem}
 .modes .btn,.modes select{white-space:nowrap}
+
+/* Today and the study view (2026-09-29). One greeting, one card per course, the day's tasks as big buttons.
+   Each card carries its course colour as an edge; the page's own accent is untouched. */
+.today{margin:0 0 1.4rem}
+.today-head h1{font-family:var(--serif);font-size:2rem;font-weight:500;margin:0 0 .2rem}
+.today-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem;margin-top:1rem}
+.today-card{background:var(--raised);border:1px solid var(--rule);border-left:4px solid var(--course,var(--accent));border-radius:10px;padding:1rem 1.1rem;display:flex;flex-direction:column;gap:.7rem}
+.today-card header{display:flex;justify-content:space-between;align-items:baseline;gap:.6rem}
+.today-card h2{font-family:var(--serif);font-size:1.3rem;margin:0}
+.today-focus{margin:0;color:var(--graphite)} .today-focus b{color:var(--ink)}
+.today-tasks{list-style:none;margin:0;padding:0;display:grid;gap:.45rem}
+.today-tasks .btn{width:100%;display:flex;justify-content:space-between;align-items:center;min-height:44px;text-align:left;padding:.55rem .8rem}
+.today-card footer{margin-top:auto} .today-card footer .btn{width:100%;min-height:40px}
+.study-weeks,.study-tabs{display:flex;flex-wrap:wrap;gap:.45rem;margin:0 0 .8rem}
+.study-weeks .btn[aria-pressed="true"],.study-tabs .btn[aria-pressed="true"],.study-notes .btn[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.study-tabs .btn{min-height:44px;padding:.5rem 1rem;font-size:1rem}
+.study-body{display:grid;grid-template-columns:minmax(200px,260px) 1fr;gap:1rem;align-items:start}
+.study-notes{display:flex;flex-direction:column;gap:.35rem;position:sticky;top:.5rem}
+.study-notes .btn{justify-content:flex-start;text-align:left;white-space:normal;min-height:36px}
+.study-note{background:var(--raised);border:1px solid var(--rule);border-radius:10px;padding:1.2rem 1.4rem;max-width:80ch;font-family:var(--serif);line-height:1.6}
+.study-body .emptystate{grid-column:1/-1}
+@media (max-width:760px){.study-body{grid-template-columns:1fr}.study-notes{position:static;flex-direction:row;flex-wrap:wrap}}
+.home-more{margin-top:1.2rem;border-top:1px solid var(--rule);padding-top:.6rem}
+.home-more>summary{cursor:pointer;color:var(--graphite);min-height:32px;display:flex;align-items:center;font-size:.95rem}
+.home-more[open]>summary{margin-bottom:.8rem}

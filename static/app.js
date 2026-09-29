@@ -13,7 +13,7 @@ const put=(p,b)=>api(p,{method:'PUT',headers:{'Content-Type':'application/json'}
 const del=p=>api(p,{method:'DELETE'});
 /* ---- ⌘K palette + search ---- */
 let palItems=[], palSel=0, palT=null;
-const PAL_SCREENS=[['home','Overview'],['library','Files'],['tutor','Tutor'],['notes','Notes'],['recall','Recall'],['advocate','Advocate'],['essay','Essay'],['arena','Arena'],['planner','Planner'],['progress','Progress']];
+const PAL_SCREENS=[['home','Overview'],['study','Study'],['library','Files'],['tutor','Tutor'],['notes','Notes'],['recall','Recall'],['advocate','Advocate'],['essay','Essay'],['arena','Arena'],['planner','Planner'],['progress','Progress']];
 /* The palette is role="dialog" over a dimmed page, but nothing held focus inside it: one Tab walked
    out to #focusBtn, the sidebar and the nav behind the dim, and Escape was bound on #palQ alone, so
    once focus left there was no keyboard way back out at all. The 3D player already solves this
@@ -92,14 +92,14 @@ let courses=[], cid=localStorage.getItem('cf.course')||'', mode='drill', cfg={};
 const C=()=>courses.find(c=>c.id===cid)||courses[0];
 
 /* nav */
-const SCREENS=['home','library','tutor','notes','recall','advocate','essay','arena','planner','progress'];
-const loaders={home:loadHome,library:loadFiles,tutor:loadTutor,notes:loadNotes,recall:loadRecall,advocate:loadAdvocate,essay:loadEssay,arena:loadArena,planner:loadPlanner,progress:loadProgress};
+const SCREENS=['home','study','library','tutor','notes','recall','advocate','essay','arena','planner','progress'];
+const loaders={home:loadHome,study:loadStudy,library:loadFiles,tutor:loadTutor,notes:loadNotes,recall:loadRecall,advocate:loadAdvocate,essay:loadEssay,arena:loadArena,planner:loadPlanner,progress:loadProgress};
 function show(id){ if(!SCREENS.includes(id)) id='home'; document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.id===id)); document.querySelectorAll('[data-nav]').forEach(a=>a.classList.toggle('active',a.dataset.nav===id)); localStorage.setItem('cf.screen',id); loaders[id](); }
 document.addEventListener('click',e=>{const a=e.target.closest('a[data-nav]'); if(a){e.preventDefault(); show(a.dataset.nav)}});
 
 /* courses */
 async function loadCourses(){ courses=await api('/courses'); if(!courses.find(c=>c.id===cid)) cid=courses[0].id; const s=$('#course'); s.innerHTML=courses.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')+'<option value="__new">New course…</option>'; s.value=cid; document.documentElement.style.setProperty('--course',C().accent); }
-$('#course').addEventListener('change',e=>{if(e.target.value==='__new'){e.target.value=cid;openCourseDlg(null);return} cid=e.target.value;sylForget();localStorage.setItem('cf.course',cid);document.documentElement.style.setProperty('--course',C().accent);show(localStorage.getItem('cf.screen')||'home')});
+$('#course').addEventListener('change',e=>{if(e.target.value==='__new'){e.target.value=cid;openCourseDlg(null);return} sylForget();setCourse(e.target.value);show(localStorage.getItem('cf.screen')||'home')});
 $('#addCourse').addEventListener('click',()=>openCourseDlg(null));
 
 /* course dialog: "New course" in the switcher, "Course settings" on Overview */
@@ -172,7 +172,7 @@ function bookMotion(){ const book=document.getElementById('book'); if(!book) ret
     raf=requestAnimationFrame(()=>{ raf=0; tilt.style.setProperty('--tt','.12s');
       tilt.style.setProperty('--ry',(px*10).toFixed(2)+'deg'); tilt.style.setProperty('--rx',(-py*7).toFixed(2)+'deg') }) });
   book.addEventListener('pointerleave',()=>{ tilt.style.setProperty('--tt','.5s'); tilt.style.setProperty('--rx','0deg'); tilt.style.setProperty('--ry','0deg') }); }
-async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle').textContent=c.name;
+async function loadHome(){ loadToday(); drawBook(); bookMotion(); const c=C(); $('#homeTitle').textContent=c.name;
   $('#coverTitle').textContent=c.name.toUpperCase(); $('#leafTitle').textContent=c.name;
   $('#leafKicker').textContent=TABS.slice(0,3).map(x=>x[1]).join(' · ').toUpperCase(); const s=await api(`/courses/${cid}/stats`);
   $('#h-due').textContent=s.due; $('#h-streak').textContent=s.streak; $('#h-files').textContent=s.files; $('#h-acc').textContent=s.recall_accuracy==null?'–':s.recall_accuracy+'%';
@@ -189,6 +189,54 @@ async function loadHome(){ drawBook(); bookMotion(); const c=C(); $('#homeTitle'
   const ss=await api(`/sessions?start=${todayISO()}&end=${todayISO()}`);
   $('#h-today').innerHTML=ss.length?ss.map(x=>`<li style="padding:.35rem 0;border-bottom:1px solid var(--rule)" class="small">${esc(x.course)} — ${esc(x.topic)} <span class="tag ${x.done?'ok':''}">${x.done?'done':x.minutes+' min'}</span></li>`).join(''):'<li class="small muted">Nothing planned for today.</li>';
 }
+
+/* ---- Today (asked for 2026-09-29): "Welcome back", both courses, the day's plan; one click starts it ---- */
+const STUDY_TASK={notes:'Read the notes',tutor:'Talk it through with the tutor',recall:'Clear the due cards'};
+let study={course:'',week:'',tab:'notes',note:''};
+function setCourse(id){ if(!id||cid===id) return; cid=id; sylForget(); localStorage.setItem('cf.course',cid); $('#course').value=id;
+  document.documentElement.style.setProperty('--course',C().accent); }
+function openStudy(course,week,tab){ setCourse(course); study={course,week:String(week||''),tab:tab||'notes',note:''};
+  if(study.tab==='tutor') return studyTutor(); if(study.tab==='recall') return studyRecall(); show('study'); }
+async function loadToday(){ const box=$('#todayBoard'); if(!box) return; let t;
+  try{ t=await api('/today') }catch(e){ box.hidden=true; return } box.hidden=false;
+  const when=new Date(t.date+'T00:00:00').toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'});
+  const total=t.courses.reduce((a,c)=>a+c.minutes,0), acc=id=>(courses.find(x=>x.id===id)||{}).accent||'';
+  const exam=c=>c.days_left==null?'no exam date':c.days_left>1?`exam in ${c.days_left} days`:c.days_left===1?'exam tomorrow':c.days_left===0?'exam today':'exam done';
+  const topic=c=>c.notes&&c.notes[0]?' — '+esc(c.notes[0].title.replace(/^(week|wk)\s*\d+\s*[—–:-]\s*/i,'')):'';
+  box.innerHTML=`<div class="today-head"><h1>Welcome back, ${esc(t.name)}</h1><div class="muted">${when} · ${total?(total/60).toFixed(1).replace(/\.0$/,'')+' h planned today':'nothing planned today'}</div></div>
+  <div class="today-grid">${t.courses.map(c=>`<article class="today-card" style="--course:${acc(c.id)}">
+    <header><h2>${esc(c.name)}</h2><span class="tag">${exam(c)}</span></header>
+    ${c.minutes&&c.week?`<p class="today-focus">Today: <b>Week ${c.week}</b>${topic(c)} · ${c.minutes} min</p>
+    <ol class="today-tasks">${c.tasks.map(x=>`<li><button class="btn" type="button" data-study="${c.id}" data-week="${c.week}" data-tab="${x.kind}"><span>${STUDY_TASK[x.kind]}${x.kind==='recall'?` · ${x.cards} card${x.cards>1?'s':''}`:''}</span><span class="muted">${x.minutes} min</span></button></li>`).join('')}</ol>`
+    :`<p class="muted">${c.days_left!=null&&c.days_left<0?'Exam done — nothing planned.':'Nothing planned for this course today.'}</p>`}
+    <footer><button class="btn primary" type="button" data-study="${c.id}" data-week="${c.week||''}" data-tab="notes">Study ${esc(c.name)}</button></footer></article>`).join('')}</div>`;
+  box.querySelectorAll('[data-study]').forEach(b=>b.onclick=()=>openStudy(b.dataset.study,b.dataset.week,b.dataset.tab)); }
+
+/* ---- Study view: one course, week by week — the notes, the tutor with the notes loaded, the cards ---- */
+async function loadStudy(){ if(!study.course) study.course=cid; setCourse(study.course);
+  const d=await api(`/courses/${cid}/study`), c=C();
+  const weeks=d.weeks.map(w=>String(w.week)); if(!study.week||(study.week!=='ref'&&!weeks.includes(study.week))) study.week=weeks[0]||'ref';
+  $('#studyTitle').textContent=c.name;
+  $('#studySub').textContent=`${d.weeks.length} weeks · ${d.weeks.reduce((a,w)=>a+w.notes.length,0)+d.reference.length} notes`+(d.scraps?` · ${d.scraps} short chat repl${d.scraps>1?'ies':'y'} kept out of sight (still in Notes)`:'');
+  $('#studyWeeks').innerHTML=d.weeks.map(w=>`<button class="btn small" type="button" data-sweek="${w.week}" aria-pressed="${String(w.week)===study.week}">Week ${w.week}${w.due?` <span class="tag">${w.due}</span>`:''}${w.notes.length?'':' <span class="muted">·</span>'}</button>`).join('')
+    +(d.reference.length?`<button class="btn small" type="button" data-sweek="ref" aria-pressed="${study.week==='ref'}">Reference</button>`:'');
+  $('#studyWeeks').querySelectorAll('[data-sweek]').forEach(b=>b.onclick=()=>{ study.week=b.dataset.sweek; study.note=''; loadStudy(); });
+  document.querySelectorAll('[data-stab]').forEach(b=>{ b.setAttribute('aria-pressed',b.dataset.stab==='notes'?'true':'false');
+    b.onclick=()=>{ study.tab=b.dataset.stab; if(study.tab==='tutor') studyTutor(); else if(study.tab==='recall') studyRecall(); }; });
+  const list=study.week==='ref'?d.reference:((d.weeks.find(w=>String(w.week)===study.week)||{}).notes||[]);
+  const body=$('#studyBody');
+  if(!list.length){ body.innerHTML=`<div class="emptystate"><b>No notes for ${study.week==='ref'?'reference':'Week '+esc(study.week)} yet</b><span>The files for this week are in; the tutor can build the notes from them.</span><button class="btn small" type="button" id="studyBuild">Build Week ${esc(study.week)} notes with the tutor</button></div>`;
+    const bb=$('#studyBuild'); if(bb) bb.onclick=()=>{ show('tutor'); setMode('notes'); $('#q').value=`Build my Week ${study.week} master notes from the ticked files.`; $('#q').focus(); }; return; }
+  if(!study.note||!list.some(n=>n.id===study.note)) study.note=list[0].id;
+  body.innerHTML=`<nav class="study-notes" aria-label="Notes">${list.map(n=>`<button class="btn small ghost" type="button" data-snote="${n.id}" aria-pressed="${n.id===study.note}">${esc(n.title)}</button>`).join('')}</nav><article class="noteview study-note" id="studyNote">Loading…</article>`;
+  body.querySelectorAll('[data-snote]').forEach(b=>b.onclick=()=>{ study.note=b.dataset.snote; loadStudy(); });
+  const n=await api(`/notes/${study.note}`); const el=$('#studyNote'); if(el) await render(el,n.body||''); }
+$('#studyBack').onclick=()=>show('home');
+function studyTutor(){ show('tutor'); setMode('drill');
+  const wk=study.week&&study.week!=='ref'?`Week ${study.week}`:'the course';
+  $('#q').value=`Drill me on ${wk}, one question at a time.`; $('#q').focus();
+  toast(`${C().name}: your notes and files are loaded — send, or hold Space and talk`); }
+function studyRecall(){ if(study.week&&study.week!=='ref'){ rweak=false; rweek=study.week; } show('recall'); }
 
 /* files */
 async function loadFiles(){
@@ -1693,4 +1741,4 @@ async function loadProgress(){ loadCaseView(); const s=await api(`/courses/${cid
   $('#modelSel').innerHTML='<option value="auto">Auto model</option>'+cfg.models.map(m=>`<option value="${m}">${m.replace('claude-','')}</option>`).join('');
   window.CFCHEAP=cfg.cheap_model; window.CFMODEL=cfg.model;
   window.CFVOICE=cfg.voice||{};   // every screen speaks with the same voice, not only the Advocate
-  initVoice(); if('speechSynthesis' in window) speechSynthesis.onvoiceschanged=()=>{}; await loadCourses(); show(location.hash.slice(1)||localStorage.getItem('cf.screen')||'home'); })();
+  initVoice(); if('speechSynthesis' in window) speechSynthesis.onvoiceschanged=()=>{}; await loadCourses(); show(location.hash.slice(1)||'home'); })();   // the site opens on Today, asked for 2026-09-29
