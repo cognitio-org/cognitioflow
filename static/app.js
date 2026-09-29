@@ -196,7 +196,7 @@ let study={course:'',week:'',tab:'notes',note:''};
 function setCourse(id){ if(!id||cid===id) return; cid=id; sylForget(); localStorage.setItem('cf.course',cid); $('#course').value=id;
   document.documentElement.style.setProperty('--course',C().accent); }
 function openStudy(course,week,tab){ setCourse(course); study={course,week:String(week||''),tab:tab||'notes',note:''};
-  if(study.tab==='tutor') return studyTutor(); if(study.tab==='recall') return studyRecall(); show('study'); }
+  if(study.tab==='recall') return studyRecall(); show('study'); }   // 'tutor' opens the study view with the tutor already asked
 async function loadToday(){ const box=$('#todayBoard'); if(!box) return; let t;
   try{ t=await api('/today') }catch(e){ box.hidden=true; return } box.hidden=false;
   const when=new Date(t.date+'T00:00:00').toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'});
@@ -212,7 +212,8 @@ async function loadToday(){ const box=$('#todayBoard'); if(!box) return; let t;
     <footer><button class="btn primary" type="button" data-study="${c.id}" data-week="${c.week||''}" data-tab="notes">Study ${esc(c.name)}</button></footer></article>`).join('')}</div>`;
   box.querySelectorAll('[data-study]').forEach(b=>b.onclick=()=>openStudy(b.dataset.study,b.dataset.week,b.dataset.tab)); }
 
-/* ---- Study view: one course, week by week — the notes, the tutor with the notes loaded, the cards ---- */
+/* ---- Study view: one course, week by week. The week's note opens by itself, the tutor sits beside it with
+   the notes loaded, and every way to practise the week is one click away (2026-09-29). ---- */
 async function loadStudy(){ if(!study.course) study.course=cid; setCourse(study.course);
   const d=await api(`/courses/${cid}/study`), c=C();
   const weeks=d.weeks.map(w=>String(w.week)); if(!study.week||(study.week!=='ref'&&!weeks.includes(study.week))) study.week=weeks[0]||'ref';
@@ -221,27 +222,70 @@ async function loadStudy(){ if(!study.course) study.course=cid; setCourse(study.
   $('#studyWeeks').innerHTML=d.weeks.map(w=>`<button class="btn small" type="button" data-sweek="${w.week}" aria-pressed="${String(w.week)===study.week}">Week ${w.week}${w.due?` <span class="tag">${w.due}</span>`:''}${w.notes.length?'':' <span class="muted">·</span>'}</button>`).join('')
     +(d.reference.length?`<button class="btn small" type="button" data-sweek="ref" aria-pressed="${study.week==='ref'}">Reference</button>`:'');
   $('#studyWeeks').querySelectorAll('[data-sweek]').forEach(b=>b.onclick=()=>{ study.week=b.dataset.sweek; study.note=''; loadStudy(); });
-  document.querySelectorAll('[data-stab]').forEach(b=>{ b.setAttribute('aria-pressed',b.dataset.stab==='notes'?'true':'false');
-    b.onclick=()=>{ study.tab=b.dataset.stab; if(study.tab==='tutor') studyTutor(); else if(study.tab==='recall') studyRecall(); else if(study.tab==='mock') show('mock'); }; });
-  const list=study.week==='ref'?d.reference:((d.weeks.find(w=>String(w.week)===study.week)||{}).notes||[]);
+  const wk=study.week!=='ref'?study.week:'';
+  $('#studyPractiseLabel').textContent=wk?`Practise Week ${wk}`:'Practise';
+  const wkInfo=d.weeks.find(w=>String(w.week)===study.week)||{};
+  const fc=document.querySelector('.study-practise [data-stab="recall"]'); if(fc) fc.textContent=wkInfo.due?`Flashcards · ${wkInfo.due} due`:'Flashcards';
+  document.querySelectorAll('.study-practise [data-stab]').forEach(b=>b.onclick=()=>studyGo(b.dataset.stab));
+  const list=study.week==='ref'?d.reference:(wkInfo.notes||[]);
+  if(!study.note||!list.some(n=>n.id===study.note)) study.note=list[0]?list[0].id:'';
+  deskContext(list.find(n=>n.id===study.note));
   const body=$('#studyBody');
   if(!list.length){ body.innerHTML=`<div class="emptystate"><b>No notes for ${study.week==='ref'?'reference':'Week '+esc(study.week)} yet</b><span>The files for this week are in; the tutor can build the notes from them.</span><button class="btn small" type="button" id="studyBuild">Build Week ${esc(study.week)} notes with the tutor</button></div>`;
     const bb=$('#studyBuild'); if(bb) bb.onclick=()=>{ show('tutor'); setMode('notes'); $('#q').value=`Build my Week ${study.week} master notes from the ticked files.`; $('#q').focus(); }; return; }
-  if(!study.note||!list.some(n=>n.id===study.note)) study.note=list[0].id;
-  body.innerHTML=`<nav class="study-notes" aria-label="Notes">${list.map(n=>`<button class="btn small ghost" type="button" data-snote="${n.id}" aria-pressed="${n.id===study.note}">${esc(n.title)}</button>`).join('')}</nav><article class="noteview study-note" id="studyNote">Loading…</article>`;
+  body.innerHTML=(list.length>1?`<nav class="study-notes" aria-label="Notes">${list.map(n=>`<button class="btn small ghost" type="button" data-snote="${n.id}" aria-pressed="${n.id===study.note}">${esc(n.title)}</button>`).join('')}</nav>`:'')
+    +`<article class="noteview study-note" id="studyNote">Loading…</article>`;
+  body.classList.toggle('single',list.length<2);
   body.querySelectorAll('[data-snote]').forEach(b=>b.onclick=()=>{ study.note=b.dataset.snote; loadStudy(); });
   const n=await api(`/notes/${study.note}`); const el=$('#studyNote'); if(!el) return; await render(el,n.body||'');
-  const mk=document.createElement('button'); mk.className='btn small'; mk.type='button'; mk.textContent='🃏 Make flashcards from this note'; mk.style.marginTop='1rem';
+  const mk=document.createElement('button'); mk.className='btn small'; mk.type='button'; mk.textContent='Make flashcards from this note'; mk.style.marginTop='1rem';
   mk.onclick=async()=>{ mk.disabled=true; mk.textContent='Writing flashcards…';
     try{ const r=await post(`/courses/${cid}/cards/generate`,{note_id:study.note,count:12}); mk.textContent=`${r.made} flashcards added — they are due today`; toast(`${r.made} flashcards from “${n.title}”`); }
-    catch(e){ mk.disabled=false; mk.textContent='🃏 Make flashcards from this note'; toast('Could not write the cards: '+e.message,'warn'); } };
-  el.appendChild(mk); }
+    catch(e){ mk.disabled=false; mk.textContent='Make flashcards from this note'; toast('Could not write the cards: '+e.message,'warn'); } };
+  el.appendChild(mk);
+  if(study.tab==='tutor'){ study.tab='notes'; deskAsk(`Drill me on ${wk?'Week '+wk:'the course'}, one question at a time.`,'drill'); } }
 $('#studyBack').onclick=()=>show('home');
-function studyTutor(){ show('tutor'); setMode('drill');
-  const wk=study.week&&study.week!=='ref'?`Week ${study.week}`:'the course';
-  $('#q').value=`Drill me on ${wk}, one question at a time.`; $('#q').focus();
-  toast(`${C().name}: your notes and files are loaded — send, or hold Space and talk`); }
+/* The practice screens open on the same week. Each reads cfWant once, when it next fills its week picker. */
+let cfWant={};
+function studyGo(tab){ const wk=study.week!=='ref'?study.week:'';
+  if(tab==='recall') return studyRecall();
+  if(tab==='advocate'||tab==='essay') cfWant[tab]=wk;
+  show(tab); }
+function studyTutor(){ study.tab='tutor'; show('study'); }
 function studyRecall(){ if(study.week&&study.week!=='ref'){ rweak=false; rweek=study.week; } show('recall'); }
+
+/* ---- The tutor beside the notes: the same /chat as the Tutor screen (the notes are already in its context),
+   so the conversation carries on there with voice and modes. Each ask says which week and note are open. ---- */
+let deskBusy=false, deskNote=null, deskCid='';
+function deskContext(note){ deskNote=note||null;
+  const wk=study.week!=='ref'?`Week ${study.week}`:'Reference';
+  $('#stCtx').textContent=note?`${wk} · ${note.title}`:wk;
+  const w=study.week!=='ref'?`Week ${study.week}`:'this';
+  $('#stQuick').innerHTML=[[`Drill me on ${w}, one question at a time.`,'drill','Drill me'],[`Explain the hardest part of ${w} simply, with one example.`,'explain','Explain the hard part'],[`Give me an exam-style problem question on ${w}, then mark my answer.`,'apply','Exam question']]
+    .map(([q,m,l])=>`<button class="btn small ghost" type="button" data-dq="${esc(q)}" data-dm="${m}">${l}</button>`).join('');
+  $('#stQuick').querySelectorAll('[data-dq]').forEach(b=>b.onclick=()=>deskAsk(b.dataset.dq,b.dataset.dm));
+  if(deskCid!==cid){ deskCid=cid; $('#stLog').innerHTML=`<div class="st-empty small muted">Your notes and files for ${esc(C().name)} are loaded. Ask anything, or pick one below.</div>`; } }
+function deskMsg(role,text){ const d=document.createElement('div'); d.className='st-msg '+role; d.textContent=text; const l=$('#stLog'); l.querySelector('.st-empty')?.remove(); l.appendChild(d); l.scrollTop=l.scrollHeight; return d; }
+async function deskAsk(q,m){ q=(q||'').trim(); if(!q||deskBusy) return;
+  if(!cfg.has_key){ toast('No Claude API key on the server'); return; }
+  deskBusy=true; $('#stSend').disabled=true; $('#stQ').value='';
+  deskMsg('user',q); const d=deskMsg('assistant','…'); d.classList.add('thinking');
+  const where=study.week!=='ref'?`Week ${study.week}`:'the reference notes';
+  const msg=`(Studying ${where}${deskNote?`, the note “${deskNote.title}” is open`:''}.) ${q}`;
+  let acc='', err='', unverified=null;
+  try{ const r=await fetch(`/api/courses/${cid}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg,mode:m||'drill',speech:false})});
+    if(!r.ok) throw new Error(`the tutor answered ${r.status}`);
+    const rd=r.body.getReader(), td=new TextDecoder(); let buf='';
+    while(true){ const {value,done}=await rd.read(); if(done) break; buf+=td.decode(value,{stream:true}); const parts=buf.split('\n\n'); buf=parts.pop();
+      for(const l of parts){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; let j; try{ j=JSON.parse(p) }catch(_){ continue }
+        if(j.error) err+='\n[error] '+j.error; else if(j.unverified) unverified=j.unverified; else if(typeof j.t==='string'){ acc+=j.t; d.classList.remove('thinking'); d.textContent=acc.replace(CF_SPEECH,''); $('#stLog').scrollTop=$('#stLog').scrollHeight; } } } }
+  catch(e){ err+='\n[error] '+e.message; }
+  d.classList.remove('thinking'); await render(d,(acc.replace(CF_SPEECH,'')+err).trim()||'No answer came back — ask again.');
+  if(unverified){ const w=document.createElement('div'); w.className='small st-warn'; w.textContent='Not in your materials: '+unverified.join(', ')+' — check before you rely on it.'; d.appendChild(w); }
+  $('#stLog').scrollTop=$('#stLog').scrollHeight; deskBusy=false; $('#stSend').disabled=false; $('#stQ').focus({preventScroll:true}); }
+$('#stAsk').addEventListener('submit',e=>{ e.preventDefault(); deskAsk($('#stQ').value,'drill'); });
+$('#stQ').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); deskAsk($('#stQ').value,'drill'); } });
+$('#stFull').onclick=()=>{ show('tutor'); setMode('drill'); };
 
 /* ---- Mock exam (2026-09-29): his own past papers, sat as a paper against the clock, marked against the model
    answer's points. The clock is kept in this browser so a reload does not reset it. ---- */
@@ -1264,7 +1308,7 @@ async function esNext(){
 }
 
 async function loadEssay(){
-  const sel=$('#esWeek'), keep=sel.value;
+  const sel=$('#esWeek'), keep='essay' in cfWant?cfWant.essay:sel.value; delete cfWant.essay;
   try{ const map=await api(`/courses/${cid}/recall-map`);
        sel.innerHTML='<option value="">all</option>'+map.weeks.filter(w=>w.week).map(w=>`<option value="${esc(w.week)}">${esc(w.week)}</option>`).join('');
        if(keep && [...sel.options].some(o=>o.value===keep)) sel.value=keep; }catch(e){}
