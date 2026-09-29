@@ -950,7 +950,8 @@ function advRender(){
 
 async function advCountPaint(){
   const wk=$('#advWeek').value, sel=$('#advWeek');
-  try{ const map=await api(`/courses/${cid}/recall-map`), keep=sel.value;
+  const want=typeof cfWant!=='undefined'&&'advocate' in cfWant?cfWant.advocate:null; if(want!==null) delete cfWant.advocate;   // the study view opens Advocate on its week
+  try{ const map=await api(`/courses/${cid}/recall-map`), keep=want!==null?want:sel.value;
        sel.innerHTML='<option value="">all</option>'+map.weeks.filter(w=>w.week&&w.cards).map(w=>`<option value="${esc(w.week)}">${esc(w.week)} · ${w.cards}</option>`).join('');
        if(keep&&[...sel.options].some(o=>o.value===keep)) sel.value=keep;
        const n=map.weeks.filter(w=>!sel.value||w.week===sel.value).reduce((a,w)=>a+(w.cards||0),0);
