@@ -89,7 +89,7 @@ jobs:
   test:
     needs: fast          # a broken PR has already failed, a minute in, without touching Neon
     runs-on: ubuntu-latest
-    timeout-minutes: 35   # make test against a Neon branch took 19m47s on 2026-09-17; 20 left no headroom
+    timeout-minutes: 50   # 19m47s alone on 2026-09-17; on 2026-09-29 #125 and #127 hit 35 with several runs sharing Neon
     # On main, a newer merge cancels this job, queued or running: its run tests a tree that already
     # holds this commit, and the deploy guard below would skip this build anyway. On 2026-09-29 five
     # main runs sat in line at ~20 Neon minutes each. Only this job is cancelled; `fast` still runs
