@@ -1324,7 +1324,7 @@ function arTab(which){
   $('#arTabLaw').setAttribute('aria-pressed',which==='law'); $('#arTabCourt').setAttribute('aria-pressed',which==='court');
   $('#arLawyer').hidden=which!=='law'; $('#arCourt').hidden=which!=='court'; $('#lawStart').hidden=which!=='law';
   localStorage.setItem('cf.arena',which);
-  if(which==='court') loadCourtCases();
+  if(which==='court'){ loadCourtCases(); dkLoad(); }
 }
 $('#arTabLaw').onclick=()=>arTab('law'); $('#arTabCourt').onclick=()=>arTab('court');
 
@@ -1512,12 +1512,53 @@ $('#courtMic').onclick=()=>{
 function loadArena(){ arTab(localStorage.getItem('cf.arena')||'law'); ladder();
   const c=C(); if(c) document.querySelectorAll('.p3course').forEach(e=>e.textContent=c.name); }   // C() is undefined until a course exists
 
+/* ---- Games written from his files (2026-09-29): a writer drafts each week's case when new material lands, a reviewer
+   checks it against the files, and it reaches the 3D library only when he approves it here. ---- */
+let dkPoll=null;
+const DK_STATUS={writing:'Being written…',draft:'Ready to review',approved:'In your 3D library',failed:'Could not be written'};
+async function dkLoad(){ clearTimeout(dkPoll); const box=$('#dkList'); if(!box) return;
+  let d; try{ d=await api(`/courses/${cid}/docket-drafts`) }catch(e){ box.innerHTML=`<div class="small muted">Could not load the games: ${esc(e.message)}</div>`; return }
+  const sel=$('#dkWeek'), keep=sel.value, weeks=[...new Set(d.weeks)].sort((a,b)=>(+a||99)-(+b||99));
+  sel.innerHTML=weeks.map(w=>`<option value="${esc(w)}">${esc(w)}</option>`).join(''); if(keep&&weeks.includes(keep)) sel.value=keep;
+  $('#dkWriteBtn').disabled=!weeks.length;
+  if(d.started&&d.started.length) toast(`Writing ${d.started.length} new game${d.started.length>1?'s':''} from your files (week ${d.started.join(', ')})`);
+  if(!d.games.length){ box.innerHTML=`<div class="emptystate"><b>No games written yet</b><span>${weeks.length?'Pick a week and press Write a game — or upload new material and it starts by itself.':'Upload files with a week number and the writers start by themselves.'}</span></div>`; return }
+  box.innerHTML=d.games.map(g=>{ const iss=(g.review&&g.review.issues)||[], high=iss.filter(i=>i.severity==='high').length, un=(g.review&&g.review.unverified)||[];
+    const note=g.status==='draft'?(high?`<span class="dk-flag bad">${high} problem${high>1?'s':''} the reviewer could not fix</span>`:iss.length?`<span class="dk-flag">${iss.length} small note${iss.length>1?'s':''} from the reviewer</span>`:'<span class="dk-flag ok">Reviewer: sound</span>')
+      +(un.length?` <span class="dk-flag bad">Not in your files: ${un.map(esc).join(', ')}</span>`:''):'';
+    return `<article class="dk-card dk-${g.status}" data-dk="${g.id}"><header><span class="tag">Week ${esc(g.week)}</span><h4>${esc(g.title)}</h4><span class="dk-status">${DK_STATUS[g.status]||esc(g.status)}</span></header>
+      ${g.logline?`<p class="dk-log">${esc(g.logline)}</p>`:''}${g.status==='failed'&&g.error?`<p class="small muted">${esc(g.error)}</p>`:''}
+      ${g.status==='draft'||g.status==='approved'?`<div class="dk-meta small muted">${g.rounds} examination round${g.rounds>1?'s':''} ${note}</div>`:''}
+      <div class="dk-acts">${g.status==='draft'?`<button class="btn small primary" type="button" data-dka="approve">Approve</button><button class="btn small" type="button" data-dka="play">Play it first</button><button class="btn small ghost" type="button" data-dka="read">Read the questions</button><button class="btn small ghost" type="button" data-dka="discard">Discard</button>`
+        :g.status==='approved'?`<button class="btn small" type="button" data-dka="play">Play</button><button class="btn small ghost" type="button" data-dka="read">Read the questions</button><button class="btn small ghost" type="button" data-dka="discard">Remove</button>`
+        :g.status==='failed'?`<button class="btn small" type="button" data-dka="again">Try again</button><button class="btn small ghost" type="button" data-dka="discard">Dismiss</button>`:''}</div>
+      <div class="dk-read" hidden></div></article>`; }).join('');
+  box.querySelectorAll('[data-dka]').forEach(b=>b.onclick=()=>dkAct(b.closest('[data-dk]'),b.dataset.dka,b));
+  if(d.games.some(g=>g.status==='writing')) dkPoll=setTimeout(()=>{ if(!$('#arCourt').hidden&&$('#arena').classList.contains('active')) dkLoad(); },15000); }
+async function dkAct(card,act,btn){ const id=card.dataset.dk, g=card.querySelector('h4').textContent;
+  try{
+    if(act==='approve'){ await post(`/courses/${cid}/docket-drafts/${id}/approve`,{}); toast(`“${g}” is in your 3D library`); return dkLoad() }
+    if(act==='discard'){ if(!confirm(`Discard “${g}”? It is not written again for this week until new material arrives.`)) return; await post(`/courses/${cid}/docket-drafts/${id}/discard`,{}); return dkLoad() }
+    if(act==='again'){ await post(`/courses/${cid}/docket-drafts/${id}/discard`,{}); await post(`/courses/${cid}/docket-drafts`,{week:card.querySelector('.tag').textContent.replace(/^Week /,'')}); return dkLoad() }
+    if(act==='play'){ p3Draft=card.classList.contains('dk-draft')?id:''; open3d('court'); return }
+    if(act==='read'){ const r=card.querySelector('.dk-read'); if(!r.hidden){ r.hidden=true; btn.textContent='Read the questions'; return }
+      const d=await api(`/courses/${cid}/docket-drafts/${id}`), iss=(d.review&&d.review.issues)||[];
+      r.innerHTML=(iss.length?`<div class="dk-issues"><b>Reviewer</b><ul>${iss.map(i=>`<li class="${i.severity}"><b>${esc(i.where)}</b> — ${esc(i.problem)}</li>`).join('')}</ul></div>`:'')
+        +d.questions.map((q,i)=>`<div class="dk-q"><p><b>Round ${i+1}.</b> ${esc(q.question)}</p><ol type="A">${q.options.map(o=>`<li class="${o.correct?'ok':''}">${esc(o.text)}${o.correct?' <b>✓</b>':''}<div class="small muted">${esc(o.teaching||'')}</div></li>`).join('')}</ol></div>`).join('')
+        +(d.verdict&&d.verdict.takeaway?`<p class="small"><b>Takeaway:</b> ${esc(d.verdict.takeaway)}</p>`:'')
+        +`<p class="small muted">Sources: ${Object.entries(d.sources||{}).map(([k,v])=>`${esc(k)} ${esc(v.file)}`).join(' · ')}</p>`;
+      r.hidden=false; btn.textContent='Hide the questions'; }
+  }catch(e){ toast(e.message,'warn') } }
+$('#dkWriteBtn').onclick=async()=>{ const w=$('#dkWeek').value; if(!w) return; const b=$('#dkWriteBtn'); b.disabled=true;
+  try{ await post(`/courses/${cid}/docket-drafts`,{week:w}); toast(`Writing a game for week ${w} — about two minutes`); dkLoad() }catch(e){ toast(e.message,'warn') } b.disabled=false; };
+
 /* ---- Arena in 3D: the player (/play/, signed-in only) in a full-screen frame. Back to Arena, Escape and browser Back all close it. ---- */
 const P3={law:['Who Wants to Be a Lawyer — 3D','lawyer','#play3dLaw'],court:['Courtroom — 3D','','#play3dCourt']};
-let p3Open=false, p3Which='law';
+let p3Open=false, p3Which='law', p3Draft='';
 function p3Src(){
   const q=new URLSearchParams({course:cid});
   if(P3[p3Which][1]) q.set('mode',P3[p3Which][1]);
+  if(p3Which==='court'&&p3Draft) q.set('draft',p3Draft);
   if($('#play3dLow').checked) q.set('quality','low');
   if(matchMedia('(prefers-reduced-motion: reduce)').matches) q.set('reduced','1');
   return '/play/player/index.html?'+q;
@@ -1542,7 +1583,7 @@ function close3d(fromHistory){
   $('#play3dStage').replaceChildren(); $('#play3d').hidden=true; p3Behind(false);
   const b=$(P3[p3Which][2]); if(b) b.focus();
 }
-$('#play3dLaw').onclick=()=>open3d('law'); $('#play3dCourt').onclick=()=>open3d('court');
+$('#play3dLaw').onclick=()=>open3d('law'); $('#play3dCourt').onclick=()=>{ p3Draft=''; open3d('court'); };
 $('#play3dBack').onclick=()=>close3d(false);
 $('#play3dLow').checked=localStorage.getItem('cf.play3d.low')==='1';
 $('#play3dLow').onchange=e=>{ localStorage.setItem('cf.play3d.low',e.target.checked?'1':'0'); if(p3Open) p3Frame(); };
