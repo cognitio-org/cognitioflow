@@ -57,3 +57,20 @@ def test_the_tutor_reads_his_notes_but_not_the_saved_chat_replies(client, pg):
 
 def test_the_day_is_his_timezone_not_the_servers():
     assert abs((run._local_today() - date.today()).days) <= 1
+
+
+def test_flashcards_can_be_made_from_a_note_and_take_its_week(client):
+    """Property Law Week 6 has notes and no files, so it could never get cards (2026-09-29)."""
+    cid = client.post("/api/courses", json={"name": "Land Law"}).json()["id"]
+    nid = client.post(f"/api/courses/{cid}/notes", json={"title": "Week 6 — Land registration", "body": "# Land\nRegistration is constitutive."}).json()["id"]
+    reply = mock.MagicMock()
+    reply.content = [mock.MagicMock(type="text", text='[{"front": "Is registration constitutive?", "back": "Yes."}]')]
+    fake = mock.MagicMock(); fake.messages.create.return_value = reply
+    with mock.patch.object(run, "client", return_value=fake):
+        r = client.post(f"/api/courses/{cid}/cards/generate", json={"note_id": nid, "count": 1})
+    assert r.status_code == 200 and r.json()["made"] == 1
+    assert "Registration is constitutive." in fake.messages.create.call_args.kwargs["messages"][0]["content"]
+    card = client.get(f"/api/courses/{cid}/cards").json()[0]
+    assert card["week"] == "6" and card["source"] == "Week 6 — Land registration"
+    other = client.post("/api/courses", json={"name": "Other Law"}).json()["id"]
+    assert client.post(f"/api/courses/{other}/cards/generate", json={"note_id": nid}).status_code == 404
