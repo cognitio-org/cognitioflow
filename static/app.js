@@ -230,7 +230,12 @@ async function loadStudy(){ if(!study.course) study.course=cid; setCourse(study.
   if(!study.note||!list.some(n=>n.id===study.note)) study.note=list[0].id;
   body.innerHTML=`<nav class="study-notes" aria-label="Notes">${list.map(n=>`<button class="btn small ghost" type="button" data-snote="${n.id}" aria-pressed="${n.id===study.note}">${esc(n.title)}</button>`).join('')}</nav><article class="noteview study-note" id="studyNote">Loading…</article>`;
   body.querySelectorAll('[data-snote]').forEach(b=>b.onclick=()=>{ study.note=b.dataset.snote; loadStudy(); });
-  const n=await api(`/notes/${study.note}`); const el=$('#studyNote'); if(el) await render(el,n.body||''); }
+  const n=await api(`/notes/${study.note}`); const el=$('#studyNote'); if(!el) return; await render(el,n.body||'');
+  const mk=document.createElement('button'); mk.className='btn small'; mk.type='button'; mk.textContent='🃏 Make flashcards from this note'; mk.style.marginTop='1rem';
+  mk.onclick=async()=>{ mk.disabled=true; mk.textContent='Writing flashcards…';
+    try{ const r=await post(`/courses/${cid}/cards/generate`,{note_id:study.note,count:12}); mk.textContent=`${r.made} flashcards added — they are due today`; toast(`${r.made} flashcards from “${n.title}”`); }
+    catch(e){ mk.disabled=false; mk.textContent='🃏 Make flashcards from this note'; toast('Could not write the cards: '+e.message,'warn'); } };
+  el.appendChild(mk); }
 $('#studyBack').onclick=()=>show('home');
 function studyTutor(){ show('tutor'); setMode('drill');
   const wk=study.week&&study.week!=='ref'?`Week ${study.week}`:'the course';

@@ -243,7 +243,7 @@ class CardIn(BaseModel): front: str; back: str; source: str = ""; week: str = ""
 class ReviewIn(BaseModel): rating: int  # 0 again, 1 hard, 2 good, 3 easy
 class SessionIn(BaseModel): day: str; topic: str; minutes: int = 60
 class ChatIn(BaseModel): message: str; mode: str = "drill"; model: Optional[str] = None; speech: bool = False  # model="auto" or explicit; speech=voice is on
-class GenIn(BaseModel): file_id: Optional[str] = None; count: int = 8; model: Optional[str] = None
+class GenIn(BaseModel): file_id: Optional[str] = None; note_id: Optional[str] = None; count: int = 8; model: Optional[str] = None
 
 def rows(q, *a):
     with db() as c:
@@ -1241,7 +1241,12 @@ def review(kid: str, r: ReviewIn):
 
 @app.post("/api/courses/{cid}/cards/generate")
 def generate_cards(cid: str, g: GenIn):
-    if g.file_id:
+    if g.note_id:   # his own notes, week by week: Property Law Week 6 has notes and no files (2026-09-29)
+        n = rows("SELECT title,body FROM notes WHERE id=? AND course_id=?", g.note_id, cid)
+        if not n: raise HTTPException(404)
+        wk = countdown.week_of(n[0]["title"])
+        src, week, txt = n[0]["title"], str(wk) if wk is not None else "", (n[0]["body"] or "")[:60000]
+    elif g.file_id:
         f = rows("SELECT name,text,week FROM files WHERE id=?", g.file_id)
         if not f: raise HTTPException(404)
         src, week, txt = f[0]["name"], f[0]["week"] or "", (f[0]["text"] or "")[:60000]
