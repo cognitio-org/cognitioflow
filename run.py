@@ -435,10 +435,12 @@ def toggle_to(fid: str, t: ToggleToIn):
 
 _WEEK_IN_NAME = re.compile(r"(?i)(?:^|[^a-z0-9])(?:w|wk|week|lecture|lec)[\s._-]*0?(\d{1,2})(?!\d)")
 
-ROLES = {"wg": "WG notes", "lecture": "Lecture", "slides": "Slides", "reader": "Reader",
+ROLE_ORDER = {r: i for i, r in enumerate(["exam", "wg", "assignment", "lecture", "note", "slides", "admin", "", "reader", "cases"])}
+ROLES = {"exam": "Past exam", "wg": "WG notes", "lecture": "Lecture", "slides": "Slides", "reader": "Reader",
          "cases": "Case law", "assignment": "Assignment", "admin": "Course info", "note": "Note"}
 
 _ROLE_BY_NAME = [                       # cheap, certain, and free — the model only sees what is left
+    ("exam",       re.compile(r"(?i)\b(practice exam|past (exam|paper)|mock exam|resit|exam \d{4}|model answers?)\b")),
     ("wg",         re.compile(r"(?i)\b(wg|working group)\b")),
     ("cases",      re.compile(r"(?i)\b(case ?law|case ?reader|judgments?)\b")),
     ("slides",     re.compile(r"(?i)\b(slides?|powerpoint|deck)\b|\.pptx$")),
@@ -879,6 +881,10 @@ def build_context(cid: str, question: str = ""):
     otherwise every ticked file is sent whole, exactly as before. Reconcile, drafting and cleaning always pass no
     question, so they keep reading whole files."""
     fs = rows("SELECT * FROM files WHERE course_id=? AND selected=1 ORDER BY created", cid)
+    # In the course's own order of authority, not upload order. Found 2026-09-29: the EU case-law reader
+    # (903,479 characters, uploaded early) filled the whole budget, and not one lecture, WG note, assignment
+    # or slide reached the tutor. Past exams and WG material first, as he asked; the big readers last.
+    fs = sorted(fs, key=lambda f: ROLE_ORDER.get(f.get("role") or "", len(ROLE_ORDER)))
     text_parts, images, used = [], [], 0
     narrowed = None
     if RETRIEVAL and question.strip() and embed.ready():
@@ -1022,11 +1028,22 @@ def clear_messages(cid: str):
     with db() as d: d.execute("DELETE FROM messages WHERE course_id=?", (cid,))
     return {"ok": True}
 
+# Asked for 2026-09-29 with the EU practice exams: "base learning off of WG questions and the practice exams
+# but be well rounded as well". Only for a course that has past exams ticked; stable per course, so the cache holds.
+EXAM_PREP_RULE = ("\nEXAM PREPARATION: this course's files include past exam papers (role: Past exam) with model answers, "
+                  "and the WG questions. Base drilling on them: when you set a question, make it exam-shaped - a problem "
+                  "question ('Advise X...', 'Argue on behalf of...') or a compare-and-contrast pair - at the level, length "
+                  "and structure the past papers use, and mark his answer against the points the model answers reward. "
+                  "Stay well rounded: rotate across every week's topics, not only those the past papers happened to test. "
+                  "Never show a past paper's model answer before he has answered that question himself.")
+
+
 def _tutor_prompt(cid: str, course, mode: str, speech: bool, question: str):
     """The system blocks and history a tutor turn sends. One builder, so the voice's cache warm-up
     (/warm) writes exactly the prefix the next real turn will read."""
     text_parts, images, narrowed = build_context(cid, question)
-    system = [{"type": "text", "text": BASE_PROMPT + "\n" + (course["tutor_prompt"] or "") + "\n" + MODES.get(mode, MODES["drill"])}]
+    exam_rule = EXAM_PREP_RULE if rows("SELECT 1 FROM files WHERE course_id=? AND selected=1 AND role='exam' LIMIT 1", cid) else ""
+    system = [{"type": "text", "text": BASE_PROMPT + "\n" + (course["tutor_prompt"] or "") + exam_rule + "\n" + MODES.get(mode, MODES["drill"])}]
     log.debug("tutor system prompt (course %s, mode %s):\n%s", cid, mode, system[0]["text"])
     if text_parts:
         heading = "COURSE PASSAGES (from the files you ticked; quote them):" if narrowed else "COURSE FILES:"
