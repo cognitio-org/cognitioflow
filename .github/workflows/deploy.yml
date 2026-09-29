@@ -90,6 +90,15 @@ jobs:
     needs: fast          # a broken PR has already failed, a minute in, without touching Neon
     runs-on: ubuntu-latest
     timeout-minutes: 35   # make test against a Neon branch took 19m47s on 2026-09-17; 20 left no headroom
+    # On main, a newer merge cancels this job, queued or running: its run tests a tree that already
+    # holds this commit, and the deploy guard below would skip this build anyway. On 2026-09-29 five
+    # main runs sat in line at ~20 Neon minutes each. Only this job is cancelled; `fast` still runs
+    # on every commit, and deploys keep their own group so none is cut off halfway. PRs get a group
+    # of their own run, so nothing changes for them. The scope step below diffs from the LIVE build,
+    # so a migration in a cancelled merge still gets the Neon run in the merge that replaced it.
+    concurrency:
+      group: ${{ github.event_name == 'push' && format('{0}-test-main', github.workflow) || format('{0}-test-{1}', github.workflow, github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'push' }}
     env:
       NEON_DATABASE: ${{ vars.NEON_DATABASE || 'cognitioflow' }}
       NEON_ROLE: ${{ vars.NEON_ROLE || 'neondb_owner' }}
@@ -118,6 +127,16 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
+          # On main, diff from what users run, not from the previous push: when a newer merge
+          # cancels an older one's test (see `concurrency` above), the older one's files must
+          # count here. /health reports the live commit; if it cannot be read, BASE stays as it was.
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            live=$(curl -fsS --max-time 15 https://cognitioflow.ai/health 2>/dev/null \
+                     | sed -n 's/.*"commit"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{7,40\}\)".*/\1/p')
+            if [ -n "$live" ] && git cat-file -e "$live^{commit}" 2>/dev/null; then
+              echo "live build: $live (diffing from it instead of $BASE)"; BASE=$live
+            fi
+          fi
           # A first push to a branch, or a force push, reports an all-zero before-sha. That is
           # not a range we can diff, so fall open and run everything.
           case "$BASE" in
