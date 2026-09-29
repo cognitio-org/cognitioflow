@@ -121,3 +121,27 @@ def test_draft_stops_after_the_round_limit(client: TestClient):
     assert r.status_code == 200
     assert fake.messages.create.call_count == run.DRAFT_ROUNDS   # bounded, never an open loop
     assert "<!--cf:continue" in client.get(f"/api/notes/{r.json()['id']}").json()["body"]
+
+
+# ---------------------------------------------------------------- a continuation that starts over (2026-09-29)
+
+def test_a_continuation_that_starts_the_note_over_is_cut_at_the_repeated_heading(client: TestClient):
+    """EU Week 1 came back as Scope / Core rules / Case map five times in 80,000 characters: the model saw
+    only the last 12,000 characters, could not see the sections already written, and began again."""
+    long_body = "# Week 1\n\n## Scope\nFoundations.\n\n## Core rules\n" + "1. A rule [LECTURE]\n" * 900 + "\n## Case map\n| Case | Rule |\n| Van Gend"
+    nid = _note(client, long_body, title="Week 1 — Foundations")
+
+    import run
+    restart = " en Loos | direct effect |\n\n## Traps and confusions\n- DE is not primacy\n\n## Scope\nFoundations again.\n\n## Core rules\n1. again"
+    fake = _client_returning(_reply(restart, stop_reason="max_tokens"))
+    with mock.patch.object(run, "client", return_value=fake):
+        r = client.post(f"/api/notes/{nid}/continue")
+    assert r.status_code == 200, r.text
+
+    asked = fake.messages.create.call_args.kwargs["messages"][0]["content"]
+    assert "SECTIONS ALREADY WRITTEN" in asked and "## Scope" in asked.split("ANSWER SO FAR")[0]
+
+    body = client.get(f"/api/notes/{nid}").json()["body"]
+    assert body.count("## Scope") == 1 and body.count("## Core rules") == 1
+    assert "## Traps and confusions" in body and "Foundations again" not in body
+    assert r.json()["cut"] is False   # it started over, so what it had left to say is said

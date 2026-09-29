@@ -2734,16 +2734,38 @@ already carry: where a section cannot be completed from what is there, name what
 def _continue_once(partial: str, system: str, prompt: str, model: str, cap: int, meta: dict):
     """One continuation round -> (joined text, characters added, model used). The partial goes back in the
     user turn because current models reject an assistant prefill."""
+    # The model only sees the last 12,000 characters, so on a long note it could not see the sections it had
+    # already written and started them again: found 2026-09-29, EU Week 1 came back as Scope / Core rules /
+    # Case map five times over in 80,000 characters. It now gets every heading written so far, and any
+    # heading it repeats anyway is cut off (_drop_repeats).
+    written = _HEADING.findall(partial)
     ask = (prompt + "\n\nYou already wrote the answer below, but it was cut off at the token limit. Continue from exactly where it stops: "
            "no preamble, no repetition, no restating earlier sections — pick up mid-sentence if that is where it ends — and finish the sections still missing. "
            "Your reply is appended to the answer with nothing added in between, so begin with the exact next characters: the rest of the word if it stops "
            "mid-word, a space if a new word follows, a line break if a new line follows.\n\n"
-           "ANSWER SO FAR:\n" + partial[-12000:])
+           + ("SECTIONS ALREADY WRITTEN, in order (never write any of these headings again; only the text below the last one is shown):\n"
+              + "\n".join(written) + "\n\n" if written else "")
+           + "ANSWER SO FAR" + (" (its last part)" if len(partial) > 12000 else "") + ":\n" + partial[-12000:])
     m = ask_model(model, max_tokens=cap, system=system, messages=[{"role": "user", "content": ask}])
     raw = _text(m)
     if not raw.strip(): raise HTTPException(502, "Empty reply from the model.")
     rest = raw if getattr(m, "stop_reason", "") == "max_tokens" else raw.rstrip()  # leading space or line break is the join itself
+    rest, repeated = _drop_repeats(written, rest)
+    if repeated:   # it started over: what came before the repeat is kept, the note counts as finished
+        return partial + rest.rstrip(), len(rest), m.model
     return _mark_if_cut(partial + rest, m, **meta), len(rest), m.model
+
+
+_HEADING = re.compile(r"(?m)^#{1,3} [^\n]+$")
+
+
+def _drop_repeats(written: list, rest: str):
+    """(rest cut before the first heading the note already has, whether one was found)."""
+    seen = {h.strip().lower() for h in written}
+    for m in _HEADING.finditer(rest):
+        if m.group(0).strip().lower() in seen:
+            return rest[:m.start()], True
+    return rest, False
 
 @app.post("/api/notes/{nid}/continue")
 def continue_note(nid: str):
