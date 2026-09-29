@@ -21,6 +21,7 @@ import citecheck
 import countdown
 import embed
 import essay
+import mockexam
 import llm
 import oral
 import retrieval
@@ -1850,6 +1851,117 @@ def essay_bank(cid: str, g: EssayBankIn):
                       (uuid.uuid4().hex[:10], cid, week, str(it["question"])[:essay.QUESTION_CHARS],
                        str(it["model"])[:essay.ANSWER_CHARS], src, time.time())); made += 1
     return {"made": made}
+
+
+# ---------------------------------------------------------------- mock exams from his own past papers
+def _exam_files(cid: str):
+    """His past papers for a course: files labelled Past exam, or named like one."""
+    fs = rows("SELECT id,name,text,role FROM files WHERE course_id=? AND selected=1 AND kind<>'image'", cid)
+    return [f for f in fs if (f["role"] or "") == "exam" or mockexam.looks_like_exam(f["name"])]
+
+
+@app.post("/api/courses/{cid}/mock/import")
+def mock_import(cid: str):
+    """Bank each past paper's questions word for word, each with its official model answer, locked until he has
+    handed in. A paper already banked is left alone, so this is safe to run again after uploading a new one."""
+    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    have = {mockexam.parse_source(r["source"])[0] for r in rows("SELECT source FROM essay_questions WHERE course_id=? AND source LIKE ?", cid, mockexam.SOURCE_PREFIX + "%")
+            if mockexam.parse_source(r["source"])}
+    made = []
+    for title, qf, af in mockexam.pair_files(_exam_files(cid)):
+        if title in have or not (qf["text"] or "").strip(): continue
+        material = f"=== THE PAPER ===\n{qf['text'][:40000]}" + (f"\n\n=== ITS MODEL ANSWERS ===\n{af['text'][:40000]}" if af else "")
+        prompt = ("Below is a past exam paper" + (" and its model answers" if af else " (the model answers may be printed under each question)") +
+                  ". Split it into its questions. Return ONLY a JSON array, one object per question in order, with keys: 'number' (1, 2, ...), "
+                  "'question' - the question exactly as printed, starting with its heading line (e.g. 'Question 1 (19 points; estimated required "
+                  "time: 25 minutes)') and including the facts and every sub-question, word for word - and 'model' - that question's model "
+                  "answer exactly as printed, word for word, or '' if the paper has none. Do not summarise, shorten or correct anything.\n\n" + material)
+        m = ask_model(CHEAP_MODEL, max_tokens=12000, messages=[{"role": "user", "content": prompt}])
+        items = _model_json(m)
+        n = 0
+        with db() as d:
+            for i, it in enumerate(items if isinstance(items, list) else [], 1):
+                q = str((it or {}).get("question") or "").strip()
+                if not q: continue
+                num = int(it.get("number") or i) if str(it.get("number") or i).isdigit() else i
+                d.execute("INSERT INTO essay_questions(id,course_id,week,question,model,source,created) VALUES(?,?,?,?,?,?,?)",
+                          (uuid.uuid4().hex[:10], cid, "", q[:essay.QUESTION_CHARS * 4], str(it.get("model") or "")[:essay.ANSWER_CHARS],
+                           mockexam.source(title, num), time.time())); n += 1
+        made.append({"paper": title, "questions": n})
+    return {"imported": made}
+
+
+@app.get("/api/courses/{cid}/mock/papers")
+def mock_papers(cid: str):
+    """The past papers ready to sit, with his progress on each question. Model answers are not in here."""
+    qs = rows("SELECT id,question,source FROM essay_questions WHERE course_id=? AND source LIKE ?", cid, mockexam.SOURCE_PREFIX + "%")
+    att = {a["question_id"]: a for a in rows("SELECT question_id,answer,submitted,grade FROM essay_attempts WHERE course_id=?", cid)}
+    out = mockexam.papers([dict(q) for q in qs])
+    for p in out:
+        for q in p["questions"]:
+            a = att.get(q["id"]) or {}
+            q.update(answer=a.get("answer") or "", submitted=bool(a.get("submitted")),
+                     grade=a.get("grade") if isinstance(a.get("grade"), dict) and a.get("grade", {}).get("kind") == "mock" else None)
+    return {"papers": out, "exam_files": len(_exam_files(cid))}
+
+
+MOCK_MARKER = """Mode: mark one answer from a mock exam against the official model answer.
+Go through the model answer and list each point it makes that earns marks - the rule, the article, the case, the
+step of the analysis, the conclusion. For each, say whether his answer makes it: 'hit', 'partly' (touched but
+incomplete, or the wrong article/authority), or 'missed', with a comment of at most 40 words naming exactly what
+to add or fix. Credit a correct point he makes in his own words or order; where he states something wrong in law,
+say so in the comment of the point it concerns. 'missing' lists the decisive authorities (articles, cases) the
+model answer relies on that he never mentions. End with 'overall': two sentences on the single biggest improvement. Never give a score, a
+grade or a total. Return ONLY JSON: {"points": [{"point": "...", "standing": "hit|partly|missed", "comment": "..."}],
+"missing": ["..."], "overall": "..."}"""
+
+
+class MockGradeIn(BaseModel):
+    question_id: str
+    answer: str = ""
+
+
+@app.post("/api/courses/{cid}/mock/grade")
+def mock_grade(cid: str, g: MockGradeIn):
+    """Hand in one question: the answer is saved and the model answer unlocked first, then it is marked against
+    the model answer's own points. Time being up hands in whatever is written."""
+    q = _essay_question(cid, g.question_id)
+    course = rows("SELECT * FROM courses WHERE id=?", cid)
+    if not course: raise HTTPException(404)
+    answer = (g.answer or "").strip()
+    _essay_save(cid, g.question_id, answer, submit=True)
+    if not answer:
+        out = {"kind": "mock", "points": [], "missing": [], "overall": "Nothing was written for this question."}
+    else:
+        model = rows("SELECT model FROM essay_questions WHERE id=?", g.question_id)[0]["model"] or ""
+        system = BASE_PROMPT + "\n" + (course[0]["tutor_prompt"] or "") + "\n" + MOCK_MARKER
+        usr = (f"QUESTION:\n{q['question'][:8000]}\n\nOFFICIAL MODEL ANSWER:\n{model[:essay.ANSWER_CHARS] or '(none printed - mark against the course material and method)'}"
+               f"\n\nHIS ANSWER:\n\"\"\"\n{answer[:essay.ANSWER_CHARS]}\n\"\"\"")
+        try:
+            m = ask_model(pick_model("apply", None), max_tokens=2000, system=system, messages=[{"role": "user", "content": usr}])
+            out = {"kind": "mock", **mockexam.valid_grade(_model_json(m))}
+        except HTTPException:
+            raise
+        except Exception as e:
+            print("mock grade:", type(e).__name__, e)
+            raise HTTPException(502, "Could not reach the marker - your answer is handed in and saved; mark it again.")
+    with db() as d:
+        d.execute("UPDATE essay_attempts SET grade=?, updated=? WHERE question_id=?", (Jsonb(out), time.time(), g.question_id))
+    return out
+
+
+class MockResetIn(BaseModel): paper: str
+
+
+@app.post("/api/courses/{cid}/mock/reset")
+def mock_reset(cid: str, r: MockResetIn):
+    """Sit a paper again: his answers and marks for that paper are cleared (he asks for this, with a confirm)."""
+    ids = [q["id"] for q in rows("SELECT id,source FROM essay_questions WHERE course_id=? AND source LIKE ?", cid, mockexam.SOURCE_PREFIX + "%")
+           if (mockexam.parse_source(q["source"]) or ("",))[0] == r.paper]
+    if not ids: raise HTTPException(404)
+    with db() as d:
+        for qid in ids: d.execute("DELETE FROM essay_attempts WHERE question_id=?", (qid,))
+    return {"cleared": len(ids)}
 
 
 @app.get("/api/courses/{cid}/recall-map")

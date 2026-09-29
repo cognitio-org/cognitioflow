@@ -13,7 +13,7 @@ const put=(p,b)=>api(p,{method:'PUT',headers:{'Content-Type':'application/json'}
 const del=p=>api(p,{method:'DELETE'});
 /* ---- ⌘K palette + search ---- */
 let palItems=[], palSel=0, palT=null;
-const PAL_SCREENS=[['home','Overview'],['study','Study'],['library','Files'],['tutor','Tutor'],['notes','Notes'],['recall','Recall'],['advocate','Advocate'],['essay','Essay'],['arena','Arena'],['planner','Planner'],['progress','Progress']];
+const PAL_SCREENS=[['home','Overview'],['study','Study'],['mock','Mock exam'],['library','Files'],['tutor','Tutor'],['notes','Notes'],['recall','Recall'],['advocate','Advocate'],['essay','Essay'],['arena','Arena'],['planner','Planner'],['progress','Progress']];
 /* The palette is role="dialog" over a dimmed page, but nothing held focus inside it: one Tab walked
    out to #focusBtn, the sidebar and the nav behind the dim, and Escape was bound on #palQ alone, so
    once focus left there was no keyboard way back out at all. The 3D player already solves this
@@ -92,8 +92,8 @@ let courses=[], cid=localStorage.getItem('cf.course')||'', mode='drill', cfg={};
 const C=()=>courses.find(c=>c.id===cid)||courses[0];
 
 /* nav */
-const SCREENS=['home','study','library','tutor','notes','recall','advocate','essay','arena','planner','progress'];
-const loaders={home:loadHome,study:loadStudy,library:loadFiles,tutor:loadTutor,notes:loadNotes,recall:loadRecall,advocate:loadAdvocate,essay:loadEssay,arena:loadArena,planner:loadPlanner,progress:loadProgress};
+const SCREENS=['home','study','mock','library','tutor','notes','recall','advocate','essay','arena','planner','progress'];
+const loaders={home:loadHome,study:loadStudy,mock:loadMock,library:loadFiles,tutor:loadTutor,notes:loadNotes,recall:loadRecall,advocate:loadAdvocate,essay:loadEssay,arena:loadArena,planner:loadPlanner,progress:loadProgress};
 function show(id){ if(!SCREENS.includes(id)) id='home'; document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.id===id)); document.querySelectorAll('[data-nav]').forEach(a=>a.classList.toggle('active',a.dataset.nav===id)); localStorage.setItem('cf.screen',id); loaders[id](); }
 document.addEventListener('click',e=>{const a=e.target.closest('a[data-nav]'); if(a){e.preventDefault(); show(a.dataset.nav)}});
 
@@ -222,7 +222,7 @@ async function loadStudy(){ if(!study.course) study.course=cid; setCourse(study.
     +(d.reference.length?`<button class="btn small" type="button" data-sweek="ref" aria-pressed="${study.week==='ref'}">Reference</button>`:'');
   $('#studyWeeks').querySelectorAll('[data-sweek]').forEach(b=>b.onclick=()=>{ study.week=b.dataset.sweek; study.note=''; loadStudy(); });
   document.querySelectorAll('[data-stab]').forEach(b=>{ b.setAttribute('aria-pressed',b.dataset.stab==='notes'?'true':'false');
-    b.onclick=()=>{ study.tab=b.dataset.stab; if(study.tab==='tutor') studyTutor(); else if(study.tab==='recall') studyRecall(); }; });
+    b.onclick=()=>{ study.tab=b.dataset.stab; if(study.tab==='tutor') studyTutor(); else if(study.tab==='recall') studyRecall(); else if(study.tab==='mock') show('mock'); }; });
   const list=study.week==='ref'?d.reference:((d.weeks.find(w=>String(w.week)===study.week)||{}).notes||[]);
   const body=$('#studyBody');
   if(!list.length){ body.innerHTML=`<div class="emptystate"><b>No notes for ${study.week==='ref'?'reference':'Week '+esc(study.week)} yet</b><span>The files for this week are in; the tutor can build the notes from them.</span><button class="btn small" type="button" id="studyBuild">Build Week ${esc(study.week)} notes with the tutor</button></div>`;
@@ -237,6 +237,70 @@ function studyTutor(){ show('tutor'); setMode('drill');
   $('#q').value=`Drill me on ${wk}, one question at a time.`; $('#q').focus();
   toast(`${C().name}: your notes and files are loaded — send, or hold Space and talk`); }
 function studyRecall(){ if(study.week&&study.week!=='ref'){ rweak=false; rweek=study.week; } show('recall'); }
+
+/* ---- Mock exam (2026-09-29): his own past papers, sat as a paper against the clock, marked against the model
+   answer's points. The clock is kept in this browser so a reload does not reset it. ---- */
+let mockSit=null;   // {paper, questions, ends}
+const MOCK_MARK={hit:'✓',partly:'◐',missed:'✗'};
+const mockKey=p=>`cf.mock.${cid}.${p}`;
+const words=t=>(String(t||'').trim().match(/\S+/g)||[]).length;
+async function loadMock(){ $('#mockTitle').textContent=`Mock exam · ${C().name}`; const body=$('#mockBody'); body.innerHTML='Loading…';
+  const d=await api(`/courses/${cid}/mock/papers`);
+  if(mockSit&&mockSit.cid===cid){ const p=d.papers.find(x=>x.paper===mockSit.paper); if(p&&!p.questions.every(q=>q.submitted)) return mockPaint(p); mockSit=null; }
+  if(!d.papers.length){
+    body.innerHTML=d.exam_files?`<div class="emptystate"><b>${d.exam_files} past paper file${d.exam_files>1?'s':''} ready to prepare</b><span>Each question is taken word for word, with its official model answer locked until you hand in.</span><button class="btn primary" type="button" id="mockImport">Prepare the past papers</button></div>`
+      :`<div class="emptystate"><b>No past papers yet</b><span>Upload past exams and their model answers in Files — they are recognised by name ("Practice exam 1", "Model answers", "Mock exam").</span><button class="btn small" type="button" onclick="show('library')">Open Files</button></div>`;
+    const b=$('#mockImport'); if(b) b.onclick=async()=>{ b.disabled=true; b.textContent='Reading the papers… about a minute';
+      try{ const r=await post(`/courses/${cid}/mock/import`,{}); toast(r.imported.map(x=>`${x.paper}: ${x.questions} questions`).join(' · ')||'Nothing new to prepare'); loadMock(); }
+      catch(e){ b.disabled=false; b.textContent='Prepare the past papers'; toast('Could not read the papers: '+e.message,'warn'); } };
+    $('#mockSub').textContent=''; return; }
+  $('#mockSub').textContent='Notes and tutor are off-limits while the clock runs. You are marked point by point against the model answer — no score.';
+  body.innerHTML=`<div class="mock-papers">${d.papers.map(p=>{ const done=p.questions.every(q=>q.submitted), started=p.questions.some(q=>q.answer)||(()=>{try{return !!localStorage.getItem(mockKey(p.paper))}catch(e){return false}})();
+    return `<article class="today-card mock-paper"><header><h2>${esc(p.paper)}</h2><span class="tag">${done?'marked':started?'in progress':'not sat'}</span></header>
+      <p class="muted">${p.questions.length} questions · ${Math.floor(p.minutes/60)?Math.floor(p.minutes/60)+' h ':''}${p.minutes%60?p.minutes%60+' min':''}</p>
+      <ol class="small muted">${p.questions.map(q=>`<li>${esc((q.question.split('\n')[0]||'').slice(0,90))}</li>`).join('')}</ol>
+      <footer>${done?`<button class="btn" type="button" data-mres="${esc(p.paper)}">See the marking</button> <button class="btn ghost small" type="button" data-mreset="${esc(p.paper)}">Sit again</button>`
+        :`<button class="btn primary" type="button" data-msit="${esc(p.paper)}">${started?'Continue':'Sit this paper'}</button>`}</footer></article>`; }).join('')}</div>`;
+  body.querySelectorAll('[data-msit]').forEach(b=>b.onclick=()=>{ const p=d.papers.find(x=>x.paper===b.dataset.msit); let ends;
+    try{ ends=+localStorage.getItem(mockKey(p.paper)) }catch(e){} if(!ends){ ends=Date.now()+p.minutes*60000; try{ localStorage.setItem(mockKey(p.paper),ends) }catch(e){} }
+    mockSit={cid,paper:p.paper,ends}; mockPaint(p); });
+  body.querySelectorAll('[data-mres]').forEach(b=>b.onclick=()=>mockResults(d.papers.find(x=>x.paper===b.dataset.mres)));
+  body.querySelectorAll('[data-mreset]').forEach(b=>b.onclick=async()=>{ if(!confirm(`Clear your answers and marking for ${b.dataset.mreset} and sit it again?`)) return;
+    await post(`/courses/${cid}/mock/reset`,{paper:b.dataset.mreset}); try{ localStorage.removeItem(mockKey(b.dataset.mreset)) }catch(e){} loadMock(); }); }
+let mockTick=null, mockSaveT={};
+function mockPaint(p){ const body=$('#mockBody'); clearInterval(mockTick);
+  body.innerHTML=`<div class="mock-clock" id="mockClock" role="timer" aria-live="off"><span id="mockLeft"></span><button class="btn primary" type="button" id="mockHand">Hand in</button></div>
+  ${p.questions.map(q=>`<article class="mock-q"><h3>${esc(q.question.split('\n')[0])}</h3><div class="mock-text">${esc(q.question.split('\n').slice(1).join('\n').trim())}</div>
+    <textarea data-mq="${q.id}" rows="12" aria-label="Your answer to question ${q.number}" placeholder="Your answer">${esc(q.answer||'')}</textarea>
+    <div class="small muted mock-count" data-mc="${q.id}"></div></article>`).join('')}`;
+  const count=(id)=>{ const q=p.questions.find(x=>x.id===id), n=words(body.querySelector(`[data-mq="${id}"]`).value), el=body.querySelector(`[data-mc="${id}"]`);
+    el.textContent=q.words?`${n} / ${q.words} words`+(n>q.words?' — over the limit: only the first '+q.words+' are marked':''):`${n} words`; el.classList.toggle('warn',!!q.words&&n>q.words); };
+  body.querySelectorAll('[data-mq]').forEach(t=>{ count(t.dataset.mq); t.oninput=()=>{ count(t.dataset.mq); clearTimeout(mockSaveT[t.dataset.mq]);
+    mockSaveT[t.dataset.mq]=setTimeout(()=>post(`/courses/${cid}/essay/answer`,{question_id:t.dataset.mq,answer:t.value}).catch(()=>{}),1200); }; });
+  const tick=()=>{ const left=Math.max(0,mockSit.ends-Date.now()), h=Math.floor(left/3600000), m=Math.floor(left%3600000/60000), s=Math.floor(left%60000/1000);
+    const el=$('#mockLeft'); if(!el){ clearInterval(mockTick); return } el.textContent=`${h?h+':':''}${String(m).padStart(h?2:1,'0')}:${String(s).padStart(2,'0')} left`;
+    $('#mockClock').classList.toggle('late',left<5*60000); if(!left){ clearInterval(mockTick); mockHandIn(p,true); } };
+  tick(); mockTick=setInterval(tick,1000); $('#mockHand').onclick=()=>mockHandIn(p,false); }
+async function mockHandIn(p,timeUp){ if(!timeUp&&!confirm('Hand in the whole paper now? Each answer is marked against the model answer.')) return;
+  clearInterval(mockTick); const answers=[...document.querySelectorAll('[data-mq]')].map(t=>({id:t.dataset.mq,answer:t.value}));
+  const body=$('#mockBody'); if(timeUp) toast('Time is up — your paper is handed in');
+  for(let i=0;i<answers.length;i++){ body.innerHTML=`<div class="emptystate"><b>Marking question ${i+1} of ${answers.length}…</b><span>Against the official model answer, point by point.</span></div>`;
+    try{ await post(`/courses/${cid}/mock/grade`,{question_id:answers[i].id,answer:answers[i].answer}); }catch(e){ toast(`Question ${i+1}: ${e.message}`,'warn'); } }
+  try{ localStorage.removeItem(mockKey(p.paper)) }catch(e){} mockSit=null;
+  const d=await api(`/courses/${cid}/mock/papers`); mockResults(d.papers.find(x=>x.paper===p.paper)); }
+async function mockResults(p){ const body=$('#mockBody'); if(!p) return loadMock();
+  const models=await Promise.all(p.questions.map(q=>api(`/courses/${cid}/essay/${q.id}/model`).then(r=>r.model).catch(()=>'')));
+  body.innerHTML=`<button class="btn ghost small" type="button" id="mockAll">← All papers</button><h2 class="mock-head">${esc(p.paper)} — the marking</h2>`
+   +p.questions.map((q,i)=>{ const g=q.grade||{points:[],missing:[],overall:''};
+    return `<article class="mock-q"><h3>${esc(q.question.split('\n')[0])}</h3>
+      ${g.overall?`<p class="mock-overall">${esc(g.overall)}</p>`:''}
+      <ul class="mock-points">${g.points.map(x=>`<li class="mk-${x.standing}"><span aria-label="${x.standing}">${MOCK_MARK[x.standing]}</span> <b>${esc(x.point)}</b>${x.comment?`<div class="small muted">${esc(x.comment)}</div>`:''}</li>`).join('')}</ul>
+      ${g.missing&&g.missing.length?`<p class="small"><b>Authorities you never used:</b> ${g.missing.map(esc).join(' · ')}</p>`:''}
+      <details><summary>Your answer (${words(q.answer)} words)</summary><div class="mock-text">${esc(q.answer||'—')}</div></details>
+      <details${i===0?' open':''}><summary>The official model answer</summary><div class="noteview" data-mmodel="${i}"></div></details></article>`; }).join('');
+  body.querySelectorAll('[data-mmodel]').forEach(el=>render(el,models[+el.dataset.mmodel]||'No model answer was printed for this question.'));
+  $('#mockAll').onclick=()=>loadMock(); }
+$('#mockBack').onclick=()=>show('study');
 
 /* files */
 async function loadFiles(){
