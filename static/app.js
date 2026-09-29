@@ -912,9 +912,18 @@ $('#listenBtn').onclick=async()=>{ if(!nid){ toast('Open a note first'); return 
   listenPaint(s);
   if(s.ready) listenPlay(); else { toast('Writing the script, then recording it — this takes a minute','busy'); listenWatch() } };
 ['play','pause','ended'].forEach(ev=>$('#listenAudio').addEventListener(ev,()=>listenPaint()));
-/* ---- Advocate: oral revision. The engine lives on the server; this is the mouth and ears. ---- */
-const adv={mastery:{},cooldown:{},misses:{},notes:[],asked:0,q:null,busy:false};
+/* ---- Advocate: oral revision. The engine lives on the server; this is the mouth and ears.
+   The session (mastery, misses, weak-point notes) is kept per course in this browser, so a reload or a
+   course switch no longer throws away what he got wrong. ---- */
+const ADV_FRESH=()=>({mastery:{},cooldown:{},misses:{},notes:[],asked:0});
+const adv={...ADV_FRESH(),q:null,busy:false,cid:null,live:false};
 let advRecog=null, advListening=false;
+const ADV_MIC='<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
+const ADV_MARK={solid:'✓',shaky:'◐',missed:'✗',untested:'·'};
+const advKey=c=>`cf.adv.${c}`;
+function advSave(){ if(!adv.cid) return; try{ localStorage.setItem(advKey(adv.cid),JSON.stringify({mastery:adv.mastery,misses:adv.misses,notes:adv.notes.slice(0,60),asked:adv.asked})) }catch(e){} }
+function advLoadFor(c){ if(adv.cid===c) return; Object.assign(adv,ADV_FRESH(),{q:null,cid:c}); advShowIdle();
+  try{ const s=JSON.parse(localStorage.getItem(advKey(c))||'null'); if(s) Object.assign(adv,{mastery:s.mastery||{},misses:s.misses||{},notes:s.notes||[],asked:s.asked||0}); }catch(e){} }
 
 function advSpeak(text){ return cfSpeak(text); }   // resolves once the whole line has been heard (false if interrupted)
 function advQuiet(){ cfHush(); }
@@ -922,27 +931,42 @@ function advQuiet(){ cfHush(); }
 function advBubble(who,text){ const d=document.createElement('div'); d.className='advb '+who; d.textContent=text;
   const c=$('#advConvo'); c.appendChild(d); c.scrollTop=c.scrollHeight; return d; }
 
+function advShowIdle(){ adv.live=false; adv.q=null; $('#advStage').dataset.state='idle'; $('#advIdle').hidden=false; $('#advLive').hidden=true; $('#advPos').textContent=''; }
+function advShowLive(){ adv.live=true; $('#advStage').dataset.state='live'; $('#advIdle').hidden=true; $('#advLive').hidden=false; }
+
 function advRender(){
   $('#advAsked').textContent=adv.asked;
   const vals=Object.values(adv.mastery);
   $('#advSolid').textContent=vals.filter(v=>v==='solid').length;
   $('#advWeak').textContent=vals.filter(v=>v==='missed'||v==='shaky').length;
-  const map=$('#advMap');
-  const keys=Object.keys(adv.mastery);
-  map.innerHTML = keys.length ? keys.map(k=>`<div class="mrow"><span><span class="mdot m-${adv.mastery[k]}"></span>${esc(k)}</span><span class="mstate">${adv.mastery[k]}</span></div>`).join('')
-                              : '<div class="small muted" style="padding-top:.4rem">Nothing tested yet.</div>';
-  const n=$('#advNotes');
-  n.innerHTML = adv.notes.length ? adv.notes.map(x=>`<div class="advnote"><b>${esc(x.concept)}</b> · ${esc(x.text)}</div>`).join('')
-                                 : '<div class="emptystate">Nothing yet. Miss something and it lands here.</div>';
+  const order={missed:0,shaky:1,untested:2,solid:3};
+  const keys=Object.keys(adv.mastery).sort((a,b)=>order[adv.mastery[a]]-order[adv.mastery[b]]);
+  $('#advMap').innerHTML = keys.length ? `<ul class="advmap">${keys.map(k=>`<li class="mk-${adv.mastery[k]}"><span aria-label="${adv.mastery[k]}">${ADV_MARK[adv.mastery[k]]||'·'}</span>${esc(k)}</li>`).join('')}</ul>`
+                                       : '<div class="small muted advempty">Nothing tested yet this session.</div>';
+  $('#advNotes').innerHTML = adv.notes.length ? adv.notes.map(x=>`<div class="advnote"><b>${esc(x.concept)}</b> · ${esc(x.text)}</div>`).join('')
+                                              : '<div class="small muted advempty">Nothing yet. Miss something and it lands here.</div>';
+  $('#advCopy').hidden=!adv.notes.length; $('#advReset').hidden=!adv.asked&&!adv.notes.length;
+}
+
+async function advCountPaint(){
+  const wk=$('#advWeek').value, sel=$('#advWeek');
+  try{ const map=await api(`/courses/${cid}/recall-map`), keep=sel.value;
+       sel.innerHTML='<option value="">all</option>'+map.weeks.filter(w=>w.week&&w.cards).map(w=>`<option value="${esc(w.week)}">${esc(w.week)} · ${w.cards}</option>`).join('');
+       if(keep&&[...sel.options].some(o=>o.value===keep)) sel.value=keep;
+       const n=map.weeks.filter(w=>!sel.value||w.week===sel.value).reduce((a,w)=>a+(w.cards||0),0);
+       $('#advCount').textContent = n ? `${n} question${n>1?'s':''} ${sel.value?'in week '+sel.value:'across the course'}` : 'No questions yet — build some from your files first.';
+       $('#advStart').disabled=!n; }
+  catch(e){ $('#advCount').textContent=''; $('#advStart').disabled=false; }
 }
 
 async function advNext(){
-  advOwnOff();
+  advOwnOff(true);
   try{
-    const r=await post(`/courses/${cid}/oral/next`,{mastery:adv.mastery,cooldown:adv.cooldown});
-    if(!r.question){ adv.q=null; $('#advQ').textContent='No questions yet — press "Build questions from my files".'; $('#advTags').innerHTML=''; return; }
-    adv.q=r.question;
-    $('#advQ').textContent=r.question.question; $('#advCourse').textContent=C().name;
+    const r=await post(`/courses/${cid}/oral/next`,{week:$('#advWeek').value||'',mastery:adv.mastery,cooldown:adv.cooldown});
+    if(!r.question){ advShowIdle(); $('#advCount').textContent='No questions yet — press "Build questions from my files".'; return; }
+    adv.q=r.question; advShowLive();
+    $('#advQ').textContent=r.question.question; $('#advCourse').textContent=C().name+($('#advWeek').value?` · week ${$('#advWeek').value}`:'');
+    $('#advPos').textContent=`question ${adv.asked+1} · ${r.left} in the bank`;
     $('#advTags').innerHTML=`<span class="tag">${esc(r.question.concept)}</span>`;
     if(!(r.question.concept in adv.mastery)) adv.mastery[r.question.concept]='untested';
     advRender(); advSpeak(r.question.question);
@@ -956,7 +980,7 @@ async function advSubmit(text){
   if(!own&&!q){ toast('Press Start, or ask your own question'); return; }
   adv.busy=true; advQuiet();
   advBubble('me',text); $('#advType').value='';
-  const think=advBubble('tutor','…');
+  const think=advBubble('tutor','Weighing that…'); think.classList.add('thinking');
   let g;
   try{
     g = own
@@ -965,45 +989,49 @@ async function advSubmit(text){
   }catch(e){ think.remove(); adv.busy=false; toast('Could not grade that — '+(e.message||'say it again')); return; }
   think.remove();
   adv.asked++; adv.mastery[g.concept]=g.mastery;
-  if(!own){   // only cards have a queue to cool down
-    adv.cooldown=Object.fromEntries(Object.entries(adv.cooldown).map(([k,v])=>[k,v-1]).filter(([,v])=>v>0));
-    adv.cooldown[q.id]=g.mastery==='solid'?6:(g.mastery==='shaky'?2:1);
-  }
+  if(!own) advCool(q.id, g.mastery==='solid'?6:(g.mastery==='shaky'?2:1));
   if(g.mastery==='missed') adv.misses[g.concept]=(adv.misses[g.concept]||0)+1;
   else if(g.mastery==='solid') adv.misses[g.concept]=0;
   if(g.note) adv.notes.unshift({concept:g.concept,text:g.note});
+  advSave();
   const b=advBubble('tutor','');
-  b.innerHTML=`<div class="verdict v-${g.mastery}">${esc(g.verdict)}</div>${esc(g.spoken)}`;
+  const model=!own&&q.model&&g.mastery!=='solid' ? `<details class="advmodel"><summary>The answer from your card</summary><div>${esc(q.model)}</div></details>` : '';
+  b.innerHTML=`<div class="verdict v-${g.mastery}">${ADV_MARK[g.mastery]||''} ${esc(g.verdict)}</div>${esc(g.spoken)}${model}`;
+  $('#advConvo').scrollTop=$('#advConvo').scrollHeight;
   advRender();
   adv.busy=false;   // answering again interrupts the verdict; it never locks the screen
   const heard=await advSpeak(g.spoken);
-  if(heard && !own) setTimeout(()=>{ if(!adv.own&&!adv.busy&&!advListening) advNext(); }, g.mastery==='missed'?1400:700);
+  // A miss with the model answer on screen waits for him: he reads it, then presses Next (or Space).
+  if(heard && !own && g.mastery!=='missed') setTimeout(()=>{ if(adv.live&&!adv.own&&!adv.busy&&!advListening&&adv.q===q) advNext(); }, 700);
+  else if(!own) advHint('Read it over, then press Space or Skip for the next question.');
 }
+function advCool(id,turns){ adv.cooldown=Object.fromEntries(Object.entries(adv.cooldown).map(([k,v])=>[k,v-1]).filter(([,v])=>v>0)); adv.cooldown[id]=turns; }
+function advHint(t){ $('#advHint').textContent=t||'Answer in full sentences — it grades what you actually say, not what you meant.'; }
 
 const ASR=window.SpeechRecognition||window.webkitSpeechRecognition;
-if(ASR){
-  advRecog=new ASR(); advRecog.lang='en-GB'; advRecog.interimResults=true; advRecog.continuous=false;
-  let abuf='';
-  const stopped=()=>{ advListening=false; $('#advMic').setAttribute('aria-pressed','false'); $('#advMic').textContent='🎙 Answer'; };
-  advRecog.onresult=e=>{ abuf=''; for(let i=0;i<e.results.length;i++) abuf+=e.results[i][0].transcript; $('#advType').value=abuf; };
-  advRecog.onend=()=>{ stopped(); if(abuf.trim()) advSubmit(abuf); abuf=''; };
-  advRecog.onerror=()=>{ stopped(); $('#advHint').textContent='Mic problem — type your answer instead.'; };
-}
-$('#advMic').onclick=()=>{
-  if(!ASR){ toast('Speaking needs Chrome — type your answer instead'); return; }
+if(ASR){ advRecog=new ASR(); advRecog.lang='en-GB'; advRecog.interimResults=true; advRecog.continuous=false; }
+function advMicPaint(on){ const b=$('#advMic'); b.setAttribute('aria-pressed',on?'true':'false'); b.innerHTML=ADV_MIC+`<span>${on?'Listening — tap to finish':'Answer'}</span>`; }
+function advListen(){
+  if(!ASR){ toast('Speaking needs Chrome — type your answer instead'); $('#advType').focus(); return; }
   if(advListening){ advRecog.stop(); return; }
   advQuiet();
-  micOwner('#advMic','#advType','🎙 Answer',advSubmit);
-  try{ advRecog.start(); advListening=true; $('#advMic').setAttribute('aria-pressed','true'); $('#advMic').textContent='● Listening';
-       $('#advHint').textContent='Listening — click again when you have finished.'; }catch(e){}
-};
+  micOwner('#advMic','#advType',ADV_MIC+'<span>Answer</span>',advSubmit);
+  try{ advRecog.start(); advListening=true; advMicPaint(true); advHint('Listening — press Space or the mic again when you have finished.'); }catch(e){}
+}
+$('#advMic').onclick=advListen;
 $('#advSend').onclick=()=>advSubmit($('#advType').value);
 $('#advType').addEventListener('keydown',e=>{ if(e.key==='Enter') advSubmit($('#advType').value); });
-$('#advStart').onclick=()=>{ $('#advConvo').innerHTML=''; advNext(); };
+$('#advStart').onclick=()=>{ $('#advConvo').innerHTML=''; advHint(); advNext(); };
+$('#advAgain').onclick=()=>{ const t=adv.own?adv.own.question:adv.q&&adv.q.question; if(t){ advQuiet(); advSpeak(t); } };
+$('#advSkip').onclick=()=>{ if(adv.own){ advNext(); return; } if(adv.q) advCool(adv.q.id,3); advQuiet(); advHint(); advNext(); };
+$('#advStop').onclick=()=>{ advQuiet(); if(advListening) advRecog.stop(); advOwnOff(true); advShowIdle(); $('#advCourse').textContent=C().name; advCountPaint(); };
+$('#advWeek').addEventListener('change',()=>{ advCountPaint(); if(adv.live&&!adv.own&&!adv.busy){ $('#advConvo').innerHTML=''; advNext(); } });
+$('#advReset').onclick=()=>{ if(!confirm('Clear this session for '+C().name+'? The counts, mastery list and weak-point notes go; your flashcards keep their schedule.')) return;
+  Object.assign(adv,ADV_FRESH()); try{ localStorage.removeItem(advKey(cid)) }catch(e){} advRender(); };
 $('#advBank').onclick=async()=>{
   const b=$('#advBank'); b.disabled=true; b.textContent='Writing questions…';
-  try{ const r=await post(`/courses/${cid}/oral/bank`,{count:10});
-       toast(r.made?`${r.made} spoken question(s) added`:'Nothing made — tick some files first'); if(r.made && !adv.own) advNext(); }
+  try{ const r=await post(`/courses/${cid}/oral/bank`,{count:10,week:$('#advWeek').value||''});
+       toast(r.made?`${r.made} spoken question(s) added`:'Nothing made — tick some files first'); advCountPaint(); }
   catch(e){ toast('Could not build questions: '+e.message); }
   b.disabled=false; b.textContent='Build questions from my files';
 };
@@ -1012,15 +1040,28 @@ $('#advCopy').onclick=()=>{
   navigator.clipboard?.writeText(txt); $('#advCopy').textContent='Copied ✓';
   setTimeout(()=>$('#advCopy').textContent='Copy notes',1400);
 };
+/* Space is the mic on this screen — answering out loud should not need the mouse. After a verdict it moves on. */
+document.addEventListener('keydown',e=>{
+  if(e.key!==' '||e.metaKey||e.ctrlKey||e.altKey||!$('#advocate').classList.contains('active')) return;
+  if(e.target.closest('input,textarea,select,button,summary,[contenteditable]')||!$('#pal').hidden) return;
+  e.preventDefault();
+  if(!adv.live){ if(!$('#advStart').disabled) $('#advStart').click(); return; }
+  if(adv.busy) return;
+  const answered=$('#advConvo').lastElementChild?.classList.contains('tutor');
+  if(answered&&!advListening&&!adv.own){ advQuiet(); advHint(); advNext(); return; }
+  advListen();
+});
 
 async function loadAdvocate(){
   if(!window.CFVOICE){ try{ const cfg=await api('/config'); window.CFVOICE=cfg.voice||{}; }catch(e){ window.CFVOICE={}; } }
   $('#advSub').textContent = (window.CFVOICE||{}).server
     ? 'Oral revision — it asks, you answer out loud.'
     : 'Oral revision — using the browser voice for now.';
-  if(adv.own && adv.own.cid!==cid) advOwnOff();   // a question graded against another course's note stays with that course
-  if(!adv.own) $('#advCourse').textContent=C().name;
+  if(adv.cid!==cid){ advLoadFor(cid); $('#advConvo').innerHTML=''; $('#advWeek').value=''; }
+  if(!adv.live) $('#advCourse').textContent=C().name;
+  advMicPaint(false);
   advRender();
+  advCountPaint();
   advOwnNotes();
 }
 
@@ -1028,7 +1069,7 @@ async function loadAdvocate(){
 function micOwner(btn,box,label,send){
   if(!ASR) return;
   let buf='';
-  const stopped=()=>{ advListening=false; $(btn).setAttribute('aria-pressed','false'); $(btn).textContent=label; };
+  const stopped=()=>{ advListening=false; $(btn).setAttribute('aria-pressed','false'); $(btn).innerHTML=label; if(btn==='#advMic') advHint(); };
   advRecog.onresult=e=>{ buf=''; for(let i=0;i<e.results.length;i++) buf+=e.results[i][0].transcript; $(box).value=buf; };
   advRecog.onend=()=>{ stopped(); if(buf.trim()) send(buf); buf=''; };
   advRecog.onerror=()=>{ stopped(); toast('Mic problem — type it instead'); };
@@ -1059,7 +1100,8 @@ async function advOwnStart(){
   if(text.length>12000){ text=text.slice(0,12000); toast('Long note — only its first part is used for grading'); }
   advQuiet();
   adv.own={question, concept:question.slice(0,80), cid, text, title:note.title||'Untitled'};
-  $('#advCourse').textContent=`Your question · graded against “${adv.own.title}”`;
+  advShowLive(); $('#advConvo').innerHTML=''; advHint();
+  $('#advCourse').textContent=`Your question · graded against “${adv.own.title}”`; $('#advPos').textContent='';
   $('#advQ').textContent=question;
   $('#advTags').innerHTML='<span class="tag">your question</span>';
   $('#advOwn').classList.add('bar'); $('#advOwnOff').hidden=false;
@@ -1068,23 +1110,23 @@ async function advOwnStart(){
   $('#advType').focus();
   advSpeak(question);
 }
-function advOwnOff(){
+function advOwnOff(quiet){
   if(!adv.own) return;
   adv.own=null; adv.q=null;
   $('#advOwn').classList.remove('bar'); $('#advOwnOff').hidden=true;
   $('#advTags').innerHTML=''; $('#advCourse').textContent=C().name;
-  $('#advQ').textContent='Press Start and it will ask you the first question.';
+  if(!quiet) advShowIdle();
 }
 $('#advOwnQ').addEventListener('input',advOwnReady);
 $('#advOwnQ').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); advOwnStart(); } });
 $('#advOwnRef').addEventListener('change',advOwnReady);
 $('#advOwnGo').onclick=advOwnStart;
-$('#advOwnOff').onclick=()=>advNext();
+$('#advOwnOff').onclick=()=>{ $('#advConvo').innerHTML=''; advNext(); };
 $('#advOwnMic').onclick=()=>{
   if(!ASR){ toast('Dictation needs Chrome — type your question instead'); return; }
   if(advListening){ advRecog.stop(); return; }
   advQuiet();
-  micOwner('#advOwnMic','#advOwnQ','🎙',()=>advOwnReady());
+  micOwner('#advOwnMic','#advOwnQ',ADV_MIC,()=>advOwnReady());
   try{ advRecog.start(); advListening=true; $('#advOwnMic').setAttribute('aria-pressed','true'); $('#advOwnMic').textContent='●'; }catch(e){}
 };
 /* ---- Essay (Phase 17): write the answer, then see how it should have gone ----

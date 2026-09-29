@@ -187,35 +187,50 @@
 
 <section id="advocate" class="screen">
   <div class="head"><div><h1>Advocate</h1><div class="small muted" id="advSub">Oral revision — it asks, you answer out loud.</div></div>
-    <span><button class="btn small" id="advStart">Start</button> <button class="btn small ghost" id="advBank" title="Write viva questions from the files you have ticked">Build questions from my files</button></span></div>
+    <span class="advhead"><label class="small muted" for="advWeek">Week <select id="advWeek"><option value="">all</option></select></label>
+      <button class="btn small ghost" id="advBank" type="button" title="Write spoken questions from the files you have ticked">Build questions from my files</button></span></div>
   <div class="advgrid">
-    <div class="panel advstage">
-      <div class="small muted" id="advCourse">Question</div>
-      <p class="advq" id="advQ">Press Start and it will ask you the first question.</p>
-      <div class="tagrow" id="advTags"></div>
-      <div class="advconvo" id="advConvo"></div>
-      <div class="advctrl">
-        <button class="btn" id="advMic" aria-pressed="false" title="Speak your answer">🎙 Answer</button>
-        <input type="text" id="advType" placeholder="…or type your answer and press Enter" aria-label="Your answer">
-        <button class="btn primary" id="advSend">Send</button>
+    <div class="panel advstage" id="advStage" data-state="idle">
+      <div class="advtop"><span class="small muted" id="advCourse">Question</span><span class="small muted" id="advPos"></span></div>
+      <div class="advidle" id="advIdle">
+        <p class="advq">Stand up, as you would in front of an examiner. It asks one question aloud; you answer out loud.</p>
+        <ol class="advhow">
+          <li><b>It reads the question.</b> <span class="muted">Say it again or skip whenever you like.</span></li>
+          <li><b>You answer in full sentences.</b> <span class="muted">Press <kbd>Space</kbd> or the mic, then again when you are done. Typing works too.</span></li>
+          <li><b>It tells you solid, shaky or missed.</b> <span class="muted">Misses come back until they hold, and what you got wrong becomes a note.</span></li>
+        </ol>
+        <div class="advgo"><button class="btn primary advbig" id="advStart" type="button">Start</button><span class="small muted" id="advCount"></span></div>
       </div>
-      <div class="small muted" id="advHint">Answer in full sentences — it grades what you actually say, not what you meant.</div>
+      <div class="advlive" id="advLive" hidden>
+        <p class="advq" id="advQ" aria-live="polite"></p>
+        <div class="advqbar"><div class="tagrow" id="advTags"></div>
+          <span class="advtools"><button class="btn small ghost" id="advAgain" type="button" title="Read the question again">Say it again</button>
+            <button class="btn small ghost" id="advSkip" type="button" title="Next question; this one is not graded">Skip</button>
+            <button class="btn small ghost" id="advStop" type="button" title="End this round">End</button></span></div>
+        <div class="advconvo" id="advConvo" aria-live="polite"></div>
+        <div class="advctrl">
+          <button class="btn" id="advMic" type="button" aria-pressed="false" title="Speak your answer (Space)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Answer</span></button>
+          <input type="text" id="advType" placeholder="…or type your answer and press Enter" aria-label="Your answer" autocomplete="off">
+          <button class="btn primary" id="advSend" type="button">Send</button>
+        </div>
+        <div class="small muted" id="advHint">Answer in full sentences — it grades what you actually say, not what you meant.</div>
+      </div>
     </div>
     <aside class="advside">
-      <div class="panel advown" id="advOwn"><h3>Your own question</h3>
-        <div class="small muted">Ask anything, answer out loud, and it is graded only against the note you pick. Nothing is rescheduled.</div>
+      <div class="panel"><div class="advpanelhead"><h3>This session</h3><button class="btn small ghost" id="advReset" type="button" title="Clear this course's session: counts, mastery and weak-point notes">New session</button></div>
+        <div class="statrow2"><div><b id="advAsked">0</b><span>answered</span></div><div><b id="advSolid">0</b><span>solid</span></div><div><b id="advWeak">0</b><span>to revisit</span></div></div>
+        <div id="advMap"></div></div>
+      <div class="panel"><div class="advpanelhead"><h3>Weak-point notes</h3><button class="btn small ghost" id="advCopy" type="button">Copy notes</button></div>
+        <div class="small muted">Written only from what you got wrong. Kept for this course until you start a new session.</div>
+        <div class="advnotes" id="advNotes"></div></div>
+      <details class="panel advown" id="advOwn"><summary><h3>Ask your own question</h3></summary>
+        <div class="small muted">Answer out loud and it is graded only against the note you pick. Nothing is rescheduled.</div>
         <div class="advownrow"><input type="text" id="advOwnQ" placeholder="Type or dictate a question" aria-label="Your question" autocomplete="off">
-          <button class="btn" id="advOwnMic" type="button" aria-pressed="false" aria-label="Dictate your question" title="Dictate your question">🎙</button></div>
+          <button class="btn" id="advOwnMic" type="button" aria-pressed="false" aria-label="Dictate your question" title="Dictate your question"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div>
         <select id="advOwnRef" aria-label="Note to grade against"></select>
         <div class="advownrow"><button class="btn primary" id="advOwnGo" type="button" aria-describedby="advOwnHint" disabled>Ask it</button>
           <button class="btn ghost" id="advOwnOff" type="button" hidden>Back to my cards</button></div>
-        <div class="small muted" id="advOwnHint"></div></div>
-      <div class="panel"><h3>This session</h3>
-        <div class="statrow2"><div><b id="advAsked">0</b><span>answered</span></div><div><b id="advSolid">0</b><span>solid</span></div><div><b id="advWeak">0</b><span>to revisit</span></div></div></div>
-      <div class="panel"><h3>Mastery</h3><div class="small muted">Missed ideas jump the queue and come back until they hold.</div><div id="advMap"></div></div>
-      <div class="panel"><h3>Weak-point notes</h3><div class="small muted">Written only from what you got wrong.</div>
-        <div class="advnotes" id="advNotes"><div class="emptystate">Nothing yet. Miss something and it lands here.</div></div>
-        <button class="btn small ghost" id="advCopy">Copy notes</button></div>
+        <div class="small muted" id="advOwnHint"></div></details>
     </aside>
   </div>
 </section>
