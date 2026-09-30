@@ -3,6 +3,7 @@ CognitioFlow — local study workspace.
 Run:  python run.py   then open http://localhost:8000
 Everything lives in ./data (SQLite + uploaded files). Nothing leaves your Mac except tutor calls to the Claude API.
 """
+import contextvars
 import re
 import asyncio, base64, hashlib, json, mimetypes, os, random, tempfile, threading, time, uuid
 from contextlib import contextmanager
@@ -235,6 +236,46 @@ async def canonical_host(request, call_next):
         return RedirectResponse(str(request.url.replace(netloc=CANONICAL_HOST, scheme="https")), status_code=308)
     return await call_next(request)
 
+
+# ---------------------------------------------------------------- cost log
+# Every AI call goes through llm.usage(), which hands its record to _log_call. The request that made
+# the call is remembered here, so the row can say who asked and from where without passing it down.
+_CALL = contextvars.ContextVar("cf_call", default=None)
+_IDS = re.compile(r"/[0-9a-f]{8,}(?=/|$)")
+_USER_IDS: dict = {}
+
+
+@app.middleware("http")
+async def call_context(request, call_next):
+    user = getattr(request.state, "user", None) or {}
+    token = _CALL.set({"email": user.get("email"), "user_id": user.get("id"), "path": _IDS.sub("/:id", request.url.path)})
+    try:
+        return await call_next(request)
+    finally:
+        _CALL.reset(token)
+
+
+def _call_user(c: dict):
+    if c.get("user_id") or not c.get("email"):
+        return c.get("user_id")
+    if c["email"] not in _USER_IDS:
+        r = rows("SELECT id FROM users WHERE email=?", c["email"])
+        if not r: return None
+        _USER_IDS[c["email"]] = r[0]["id"]
+    return _USER_IDS[c["email"]]
+
+
+def _log_call(u: dict) -> None:
+    """One ai_calls row: counts and names only, never the prompt or the reply."""
+    c = _CALL.get() or {}
+    with db() as d:
+        d.execute("INSERT INTO ai_calls(id,at,user_id,feature,provider,model,input_tokens,output_tokens,cache_read_tokens,"
+                  "cache_write_tokens,cost_usd) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                  (uuid.uuid4().hex, time.time(), _call_user(c), u.get("task") or c.get("path") or "", u.get("provider") or "",
+                   u.get("model") or "", u.get("in", 0), u.get("out", 0), u.get("cache_read", 0), u.get("cache_write", 0), u.get("cost")))
+
+
+if _log_call not in llm.SINKS: llm.SINKS.append(_log_call)
 
 auth.install(app, db)  # session middleware + /auth/* routes; everything else needs a signed-in user
 init()
@@ -955,11 +996,11 @@ def ask_model(model, **kw):
     keeps the single seam the tests replace.
     """
     task = kw.pop("task", None)
-    if task and model == CHEAP_MODEL:        # only the cheap tier's named bulk jobs may use the gateway lane
-        m = gateway.call(task, **kw)
-        if m is not None:
-            return m
-    return client().messages.create(model=llm.resolve(model), **kw)
+    m = gateway.call(task, **kw) if task and model == CHEAP_MODEL else None   # only the cheap tier's named bulk jobs may use the gateway lane
+    if m is None:
+        m = client().messages.create(model=llm.resolve(model), **kw)
+    llm.usage(m, task or "")   # the cost log; an empty task falls back to the request's path
+    return m
 
 def _text(m) -> str:
     return "".join(b.text for b in m.content if getattr(b, "type", "") == "text")
@@ -1159,6 +1200,18 @@ def chat(cid: str, body: ChatIn):
                 yield f"data: {json.dumps({'unverified': [c['raw'] for c in missing]})}\n\n"
         yield "data: [DONE]\n\n"
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+# ---------------------------------------------------------------- spend
+@app.get("/api/spend/week")
+def spend_week():
+    """The last seven days of AI calls. `unpriced` counts the calls whose cost is not known, so the total says what it leaves out."""
+    since = time.time() - 7 * 86400
+    t = rows("SELECT COUNT(*) AS calls, COALESCE(SUM(cost_usd),0) AS cost, COUNT(*) - COUNT(cost_usd) AS unpriced, "
+             "COALESCE(SUM(input_tokens+output_tokens),0) AS tokens FROM ai_calls WHERE at>=?", since)[0]
+    by = rows("SELECT feature, COUNT(*) AS calls, COALESCE(SUM(cost_usd),0) AS cost FROM ai_calls WHERE at>=? "
+              "GROUP BY feature ORDER BY cost DESC, calls DESC LIMIT 8", since)
+    return {"calls": t["calls"], "cost": round(float(t["cost"]), 4), "unpriced": t["unpriced"], "tokens": int(t["tokens"]),
+            "features": [{"feature": r["feature"], "calls": r["calls"], "cost": round(float(r["cost"]), 4)} for r in by]}
 
 # ---------------------------------------------------------------- notes
 @app.get("/api/courses/{cid}/notes")

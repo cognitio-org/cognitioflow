@@ -199,6 +199,19 @@ def _unresolve(model_id: str) -> str:
     return model_id
 
 
+#: Called with every usage() record, so the app can keep a cost log without this module touching a
+#: database. Kept across importlib.reload (the tests reload this module) so a registered log survives.
+SINKS: list = globals().get("SINKS", [])
+
+
+def _emit(record: dict) -> None:
+    for fn in list(SINKS):
+        try:
+            fn(record)
+        except Exception:
+            pass   # a log line that fails to write must never fail the call it describes
+
+
 def usage(m, task: str) -> dict:
     """One shape for both backends, from a response or a stream's `get_final_message()`.
 
@@ -228,7 +241,9 @@ def usage(m, task: str) -> dict:
         # match the bill — exactly the guess this seam promises not to make. Say unknown instead.
         cost = None if _provider() == "openrouter" else _cost(model_id, tokens)
     provider = getattr(u, "provider", None) or _provider()   # the gateway lane labels its own calls
-    return {"provider": provider, "model": model_id, "task": task, "cost": cost, **tokens}
+    record = {"provider": provider, "model": model_id, "task": task, "cost": cost, **tokens}
+    _emit(record)
+    return record
 
 
 def describe() -> dict:
