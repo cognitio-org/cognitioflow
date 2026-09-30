@@ -79,6 +79,7 @@ def test_resolve_maps_every_claude_id_on_openrouter():
     llm = load("openrouter")
     assert llm.resolve("claude-sonnet-4-6") == "anthropic/claude-sonnet-4.6"
     assert llm.resolve("claude-sonnet-5") == "anthropic/claude-sonnet-5"
+    assert llm.resolve("claude-sonnet-5-5") == "anthropic/claude-sonnet-5.5"
     assert llm.resolve("claude-haiku-4-5") == "anthropic/claude-haiku-4.5"
     assert llm.resolve("claude-opus-5") == "anthropic/claude-opus-5"
     assert llm.resolve("claude-fable-5-1") == "anthropic/claude-fable-5.1"

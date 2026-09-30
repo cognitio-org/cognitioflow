@@ -1,7 +1,7 @@
 """
 Phase 6 acceptance helper: EU Drill transcript before/after on a fixed question.
 "before" = the original hand-written EU prompt (prompts/eu_law.md); "after" = the compiled EU brief (prompts/eu_law.json).
-System blocks are built exactly as run.chat() builds them, with no course files ticked. CF_MODEL only, temperature 0, 2 calls.
+System blocks are built exactly as run.chat() builds them, with no course files ticked. CF_MODEL only, default sampling (Sonnet 5.5 rejects temperature), 2 calls.
 
     python3 scripts/drill_compare_eu.py            # writes data/phase6-drill/eu-before.md and eu-after.md
 """
@@ -24,7 +24,7 @@ client = anthropic.Anthropic()
 for label, course_prompt in prompts.items():
     system = [{"type": "text", "text": run.BASE_PROMPT + "\n" + course_prompt + "\n" + run.MODES["drill"]},
               {"type": "text", "text": "COURSE FILES: none selected. Say so if the question needs them."}]
-    m = client.messages.create(model=run.MODEL, max_tokens=2000, temperature=0, system=system,
+    m = client.messages.create(model=run.MODEL, max_tokens=2000, system=system,
                                messages=[{"role": "user", "content": QUESTION}])
     reply = "".join(b.text for b in m.content if b.type == "text")
     (out / f"eu-{label}.md").write_text(
