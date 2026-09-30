@@ -1946,7 +1946,17 @@ async function loadCaseTimeline(){ const el=$('#caseTimeline');
     el.innerHTML=`<p class="tnote">${head}</p><ol class="tline">${ls.join('')}</ol>`;
     el.querySelectorAll('a[data-note]').forEach(a=>a.onclick=()=>{nid=a.dataset.note;noteMode='read';show('notes')}); keyable(el);
   }catch(e){ el.innerHTML='<div class="muted">Could not read your cases.</div>' } }
-async function loadProgress(){ loadCaseView(); const s=await api(`/courses/${cid}/stats`); $('#progSub').textContent=C().name; $('#p-cards').textContent=`${s.cards} (${s.retained})`; $('#p-reviews').textContent=s.reviews; $('#p-time').textContent=(s.study_minutes/60).toFixed(1)+' h'; $('#p-q').textContent=s.questions_asked;
+/* Weak topics (18b): counts, never a score out of 100. One click opens the week's cards, notes or an essay. */
+async function loadWeakTopics(){ const box=$('#weakTopics'); if(!box) return; let w;
+  try{ w=await api(`/courses/${cid}/weak-topics`) }catch(_){ box.textContent=''; return }
+  const line=t=>`<li class="wk-row"><b>${esc(t.label)}</b> <span class="muted">${t.reviews?`${t.recalled} of ${t.reviews} recalled`:'no reviews yet'}${t.missed.length?` · essay missed: ${t.missed.map(esc).join(', ')}`:''}</span>
+    <span class="wk-go"><button class="btn small" type="button" data-wgo="recall" data-wweek="${esc(t.week)}">Cards</button><button class="btn small" type="button" data-wgo="notes" data-wweek="${esc(t.week)}">Notes</button><button class="btn small" type="button" data-wgo="essay" data-wweek="${esc(t.week)}">Essay</button></span></li>`;
+  box.innerHTML=(w.weak.length?`<ol>${w.weak.map(line).join('')}</ol>`:'<p class="muted">Nothing weak on the evidence so far.</p>')
+    +(w.holding.length?`<details><summary>Holding · ${w.holding.length}</summary><ul>${w.holding.map(line).join('')}</ul></details>`:'')
+    +(w.unknown.length?`<details><summary>Not yet known · ${w.unknown.length} (fewer than 5 reviews)</summary><ul>${w.unknown.map(line).join('')}</ul></details>`:'');
+  box.querySelectorAll('[data-wgo]').forEach(b=>b.onclick=()=>{ const wk=b.dataset.wweek, go=b.dataset.wgo;
+    if(go==='recall'){ rweak=false; rweek=wk; show('recall') } else if(go==='essay'){ cfWant.essay=wk; show('essay') } else openStudy(cid,wk,'notes') }); }
+async function loadProgress(){ loadCaseView(); loadWeakTopics(); const s=await api(`/courses/${cid}/stats`); $('#progSub').textContent=C().name; $('#p-cards').textContent=`${s.cards} (${s.retained})`; $('#p-reviews').textContent=s.reviews; $('#p-time').textContent=(s.study_minutes/60).toFixed(1)+' h'; $('#p-q').textContent=s.questions_asked;
   $('#p-next').textContent=s.due?`Clear ${s.due} due cards`:(s.cards<10?'Build the deck to at least 10 cards':(s.recall_accuracy!=null&&s.recall_accuracy<70?'Accuracy under 70% — drill the weak cards with the tutor':'Ask the tutor for an IRAC case question'));}
 
 /* init */

@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import citecheck
+import weaktopics
 import countdown
 import docketgen
 import embed
@@ -3422,6 +3423,24 @@ def study(cid: str):
     return {"weeks": [{"week": w, "notes": slim(ns["weeks"].get(w, [])), "due": due.get(w, 0)} for w in weeks],
             "reference": slim(ns["reference"]), "scraps": len(ns["scraps"])}
 
+
+@app.get("/api/courses/{cid}/weak-topics")
+def weak_topics(cid: str):
+    """Phase 18b: the weeks that need work, weakest first, from the review log and the marked essay drafts. No model call."""
+    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    reviews = [(r["week"], r["rating"], r["created"]) for r in rows(
+        "SELECT COALESCE(c.week,'') AS week, r.rating, r.created FROM reviews r JOIN cards c ON c.id=r.card_id WHERE c.course_id=?", cid)]
+    drafts = [(r["week"], r["criteria"], r["created"]) for r in rows(
+        "SELECT COALESCE(q.week,'') AS week, v.criteria, v.created FROM essay_revisions v JOIN essay_questions q ON q.id=v.question_id "
+        "WHERE v.course_id=? AND v.criteria IS NOT NULL", cid)]
+    drafts += [(r["week"], r["criteria"], r["created"]) for r in rows(   # attempts marked before drafts were kept hold their marks themselves
+        "SELECT COALESCE(q.week,'') AS week, a.criteria, COALESCE(a.submitted,a.updated) AS created FROM essay_attempts a "
+        "JOIN essay_questions q ON q.id=a.question_id WHERE a.course_id=? AND a.criteria IS NOT NULL "
+        "AND NOT EXISTS (SELECT 1 FROM essay_revisions v WHERE v.attempt_id=a.id)", cid)]
+    labels = {}
+    for w, ns in countdown.sort_notes([dict(n) for n in rows("SELECT id,title,length(body) AS chars FROM notes WHERE course_id=?", cid)])["weeks"].items():
+        labels[str(w)] = ns[0]["title"]
+    return weaktopics.rank(reviews, drafts, labels)
 
 @app.get("/api/courses/{cid}/stats")
 def stats(cid: str):
