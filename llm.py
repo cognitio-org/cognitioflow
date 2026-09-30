@@ -19,9 +19,14 @@ from __future__ import annotations
 import os
 
 PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic").strip().lower()
-PROVIDERS = ("anthropic", "openrouter")
+PROVIDERS = ("anthropic", "openrouter", "gateway")
 
 OPENROUTER_BASE = "https://openrouter.ai/api"
+#: `LLM_PROVIDER=gateway`: the LiteLLM gateway's Anthropic Messages endpoint (2026-09-30: the Anthropic
+#: credit ran out and Matej moved the app off the paid Anthropic API). Same SDK, same streaming and
+#: cache_control blocks, tested end to end on gpt-6-luna. docs/privacy-gateway.md is the GDPR record.
+GATEWAY_BASE = os.environ.get("CF_PROVIDER_GATEWAY_BASE", "https://litellm.augment-code.support")
+GATEWAY_MODEL = "gpt-6-luna"
 
 #: Claude ids as the app spells them, and as OpenRouter does. OpenRouter uses dots where the
 #: Anthropic API uses hyphens, so the same .env works on either backend.
@@ -44,6 +49,8 @@ PRICES = {
     "claude-sonnet-5-5": (2.00, 0.20, 2.50, 10.00),
     "claude-opus-5": (5.00, 0.50, 6.25, 25.00),
     "claude-fable-5-1": (10.00, 1.00, 12.50, 50.00),
+    # the gateway's /model/info list price; no cache discount is assumed, so cached input counts in full
+    "gpt-6-luna": (0.10, 0.10, 0.10, 0.50),
 }
 
 #: Non-Claude ids offered on the openrouter backend. The cheap tier default is the point of the
@@ -51,7 +58,8 @@ PRICES = {
 DEFAULT_EXTRA_MODELS = "deepseek/deepseek-v4.1-flash,google/gemini-3.8-flash,google/gemini-3.1-flash-lite"
 
 DEFAULT_MAIN = "claude-sonnet-5-5"
-DEFAULT_CHEAP = {"anthropic": "claude-haiku-4-5", "openrouter": "deepseek/deepseek-v4.1-flash"}
+DEFAULT_CHEAP = {"anthropic": "claude-haiku-4-5", "openrouter": "deepseek/deepseek-v4.1-flash", "gateway": GATEWAY_MODEL}
+DEFAULT_MAIN_BY = {"gateway": GATEWAY_MODEL}   # the gateway serves no Claude on this key's budget
 
 
 class ConfigError(RuntimeError):
@@ -70,7 +78,7 @@ def is_router(model_id: str) -> bool:
 
 
 def key_name() -> str:
-    return "OPENROUTER_KEY" if _provider() == "openrouter" else "ANTHROPIC_API_KEY"
+    return {"openrouter": "OPENROUTER_KEY", "gateway": "LITELLM_API_KEY"}.get(_provider(), "ANTHROPIC_API_KEY")
 
 
 def has_key() -> bool:
@@ -84,7 +92,7 @@ def resolve(model_id: str) -> str:
     if is_router(model_id):
         raise ConfigError(f"{model_id} is a router id: it can select any model, including Fable. "
                           "Pick a concrete model; the app's ROUTE table is the router.")
-    if _provider() == "anthropic" or "/" in model_id:
+    if _provider() in ("anthropic", "gateway") or "/" in model_id:
         return model_id
     return CLAUDE_IDS.get(model_id, model_id)
 
@@ -93,6 +101,8 @@ def catalogue() -> list[str]:
     """Ids a client may ask for. `pick_model` checks against this, so it is also the allow-list."""
     if _provider() == "anthropic":
         return list(CLAUDE_IDS)
+    if _provider() == "gateway":   # the picker offers only what this budget runs on, never Claude via the gateway
+        return [default_model("main")]
     extra = os.environ.get("CF_EXTRA_MODELS", DEFAULT_EXTRA_MODELS)
     out = [CLAUDE_IDS[c] for c in CLAUDE_IDS]
     for m in (x.strip() for x in extra.split(",")):
@@ -121,7 +131,7 @@ def default_model(tier: str = "main") -> str:
     p = _provider()
     if tier == "cheap":
         return _tier(os.environ.get("CF_CHEAP_MODEL") or DEFAULT_CHEAP[p], "CF_CHEAP_MODEL")
-    main = _tier(os.environ.get("CF_MODEL") or DEFAULT_MAIN, "CF_MODEL")
+    main = _tier(os.environ.get("CF_MODEL") or DEFAULT_MAIN_BY.get(p, DEFAULT_MAIN), "CF_MODEL")
     if tier == "strong":
         return _tier(os.environ.get("CF_STRONG_MODEL") or main, "CF_STRONG_MODEL")
     return main
@@ -140,6 +150,8 @@ def client():
         raise ConfigError(f"{key_name()} not set — add it to .env and restart.")
     if p == "anthropic":
         return anthropic.Anthropic()
+    if p == "gateway":
+        return anthropic.Anthropic(base_url=GATEWAY_BASE, auth_token=key)
     return anthropic.Anthropic(
         base_url=OPENROUTER_BASE,
         auth_token=key,

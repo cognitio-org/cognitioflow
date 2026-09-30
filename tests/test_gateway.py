@@ -57,3 +57,25 @@ def test_minimise_messages_leaves_non_text_blocks():
     out = gateway._minimise_messages(msgs)
     assert out[0]["content"][0]["text"] == "[email]" and out[0]["content"][1]["type"] == "image"
     assert msgs[0]["content"][0]["text"] == "a@b.co"            # the caller's messages are not mutated
+
+
+def test_empty_reply_falls_back(monkeypatch):
+    """A reply with only a thinking block, or nothing, must not reach the caller as a blank answer."""
+    import types
+    on(monkeypatch, LITELLM_API_KEY="k", CF_GATEWAY_SPEND_CEILING="113")
+    empty = types.SimpleNamespace(content=[types.SimpleNamespace(type="thinking", thinking="hm")],
+                                  stop_reason="max_tokens", usage=types.SimpleNamespace())
+    raw = types.SimpleNamespace(parse=lambda: empty, headers={})
+    fake = types.SimpleNamespace(messages=types.SimpleNamespace(
+        with_raw_response=types.SimpleNamespace(create=lambda **kw: raw)))
+    import anthropic
+    monkeypatch.setattr(anthropic, "Anthropic", lambda **kw: fake)
+    assert gateway.call("cards", max_tokens=10, messages=[{"role": "user", "content": "x"}]) is None
+
+
+def test_key_env_is_configurable(monkeypatch):
+    on(monkeypatch, CF_GATEWAY_SPEND_CEILING="113", CF_GATEWAY_KEY_ENV="OPENROUTER_KEY")
+    monkeypatch.delenv("OPENROUTER_KEY", raising=False)
+    assert not gateway.allows("cards")
+    monkeypatch.setenv("OPENROUTER_KEY", "k")
+    assert gateway.allows("cards")

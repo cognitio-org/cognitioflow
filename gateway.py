@@ -24,7 +24,11 @@ log = logging.getLogger("cognitioflow.gateway")
 DEFAULT_BASE = "https://litellm.augment-code.support"
 DEFAULT_MODEL = "gpt-6-luna"
 DEFAULT_TASKS = "cards,concepts,syllabus,oral"
-KEY_NAME = "LITELLM_API_KEY"
+KEY_NAME = "LITELLM_API_KEY"   # default; CF_GATEWAY_KEY_ENV names another (e.g. OPENROUTER_KEY)
+
+
+def _key_name() -> str:
+    return os.environ.get("CF_GATEWAY_KEY_ENV", KEY_NAME)
 
 #: Personal data a study note can carry that no flashcard needs. Replaced, never sent.
 _REDACT = [
@@ -50,7 +54,7 @@ def _ceiling():
 def enabled() -> bool:
     """On only when switched on, keyed, and capped. Without a ceiling there is no way to keep the
     shared key under its monthly budget, so the lane stays off rather than guess."""
-    return (os.environ.get("CF_GATEWAY", "on").lower() != "off" and bool(os.environ.get(KEY_NAME))
+    return (os.environ.get("CF_GATEWAY", "on").lower() != "off" and bool(os.environ.get(_key_name()))
             and _ceiling() is not None and not _tripped)
 
 
@@ -92,12 +96,16 @@ def call(task, **kw):
         return None
     import anthropic
     try:
-        client = anthropic.Anthropic(base_url=os.environ.get("CF_GATEWAY_BASE", DEFAULT_BASE), auth_token=os.environ[KEY_NAME], max_retries=1, timeout=120)
+        client = anthropic.Anthropic(base_url=os.environ.get("CF_GATEWAY_BASE", DEFAULT_BASE), auth_token=os.environ[_key_name()], max_retries=1, timeout=120)
         kw = {**kw, "messages": _minimise_messages(kw.get("messages", []))}
         raw = client.messages.with_raw_response.create(model=os.environ.get("CF_GATEWAY_MODEL", DEFAULT_MODEL), extra_body={"no-log": True}, **kw)
         m = raw.parse()
     except Exception as e:   # any gateway trouble: the job still gets done, on Anthropic
         log.warning("gateway %s failed (%s); falling back to Anthropic", task, type(e).__name__)
+        return None
+    if not "".join(getattr(b, "text", "") for b in (getattr(m, "content", None) or []) if getattr(b, "type", "") == "text").strip():
+        # free models may spend the whole budget thinking, or a busy provider may answer 200 with nothing
+        log.warning("gateway %s returned no text (stop=%s); falling back", task, getattr(m, "stop_reason", ""))
         return None
     try:
         m.usage.cost = float(raw.headers.get("x-litellm-response-cost") or 0) or None
