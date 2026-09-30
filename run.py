@@ -1286,8 +1286,26 @@ def _card_scope(cid: str, due: int = 0, week: str = "", weak: int = 0):
     if weak: q += " AND ease<?"; a.append(WEAK_EASE)
     return q, a
 
+_SWEPT: set = set()   # (course, day, exam date) already swept by this instance
+
+def _exam_sweep(cid: str) -> int:
+    """The exam run-in, once a day per course: cards below 95% recall on exam day come forward (schedule.plan_exam_pull).
+    Only `due` and `interval` change, and only for courses with an exam in the next 14 days. No model is asked."""
+    c = rows("SELECT exam_date FROM courses WHERE id=?", cid)
+    try: exam = date.fromisoformat(str(c[0]["exam_date"])[:10]) if c and c[0]["exam_date"] else None
+    except ValueError: exam = None
+    today = _local_today()
+    if not exam or (cid, today, exam) in _SWEPT: return 0
+    _SWEPT.add((cid, today, exam))
+    moves = schedule.plan_exam_pull(rows("SELECT id,due,stability,difficulty,last_review FROM cards WHERE course_id=?", cid), today, exam)
+    with db() as d:
+        for kid, day in moves.items():
+            d.execute("UPDATE cards SET due=?,interval=? WHERE id=?", (day.isoformat(), (day - today).days, kid))
+    return len(moves)
+
 @app.get("/api/courses/{cid}/cards")
 def cards(cid: str, due: int = 0, week: str = "", weak: int = 0):
+    _exam_sweep(cid)
     q, a = _card_scope(cid, due, week, weak)
     return rows(q + " ORDER BY due, created", *a)
 
@@ -3377,6 +3395,7 @@ def today_plan(user: dict = Depends(current_user)):
     cs = sorted(cs, key=lambda c: (exams[c["id"]] is None, exams[c["id"]] or date.max, c["name"]))   # the nearest exam first
     out = []
     for c in cs:
+        _exam_sweep(c["id"])   # before counting, so today's due includes what the exam run-in brought forward
         ns = countdown.sort_notes([dict(n) for n in rows("SELECT id,title,length(body) AS chars FROM notes WHERE course_id=?", c["id"])])
         weeks, due = _course_weeks(c["id"], ns, today)
         minutes = round(countdown.DAILY_MINUTES * share.get(c["id"], 0))
