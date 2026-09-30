@@ -10,7 +10,7 @@ import llm as _llm  # noqa: E402
 
 
 ENV_KEYS = ("LLM_PROVIDER", "CF_EXTRA_MODELS", "CF_MODEL", "CF_CHEAP_MODEL", "CF_STRONG_MODEL",
-            "ANTHROPIC_API_KEY", "OPENROUTER_KEY")
+            "ANTHROPIC_API_KEY", "OPENROUTER_KEY", "LITELLM_API_KEY")
 
 
 @pytest.fixture(autouse=True)
@@ -217,3 +217,17 @@ def test_describe_reports_provider_and_labels():
     assert {"id": "deepseek/deepseek-v4.1-flash", "label": "deepseek-v4.1-flash"} in d["models"]
 
 
+
+
+def test_gateway_provider_runs_luna_and_offers_only_it():
+    """2026-09-30: the Anthropic credit ran out and the app moved to the gateway. Claude via the gateway
+    would bill the shared key at Claude prices, so the picker must not offer it."""
+    llm = load("gateway", LITELLM_API_KEY="k")
+    assert llm.key_name() == "LITELLM_API_KEY" and llm.has_key()
+    assert llm.default_model("main") == "gpt-6-luna" and llm.default_model("cheap") == "gpt-6-luna"
+    assert llm.catalogue() == ["gpt-6-luna"]
+    assert llm.resolve("gpt-6-luna") == "gpt-6-luna"
+    assert llm.PRICES["gpt-6-luna"] == (0.10, 0.10, 0.10, 0.50)
+    llm = load("gateway", LITELLM_API_KEY="k", CF_MODEL="gpt-6-luna", CF_CHEAP_MODEL="gpt-6-luna")
+    assert llm.catalogue() == ["gpt-6-luna"]
+    load()   # leave the default provider behind for the other tests

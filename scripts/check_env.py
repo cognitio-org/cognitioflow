@@ -26,7 +26,7 @@ def problems(env=None) -> list:
     need("DATABASE_URL")
     if prod:
         if off: out.append(("AUTH=off is not allowed when ENV=production", True))
-        need("ANTHROPIC_API_KEY")
+        need({"gateway": "LITELLM_API_KEY", "openrouter": "OPENROUTER_KEY"}.get(get("LLM_PROVIDER").lower(), "ANTHROPIC_API_KEY"))
     if off and not prod:
         need("ALLOWED_EMAILS")  # the bypass signs in as its first address
     else:

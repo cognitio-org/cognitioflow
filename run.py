@@ -41,10 +41,11 @@ import concepts as concepts_mod  # noqa: E402
 
 ROOT = Path(__file__).parent
 
-MODEL = os.environ.get("CF_MODEL", "claude-sonnet-5-5")            # drilling / explaining / notes
-CHEAP_MODEL = os.environ.get("CF_CHEAP_MODEL", "claude-haiku-4-5")  # card generation, bulk work
+MODEL = llm.default_model("main")         # drilling / explaining / notes (CF_MODEL, else the provider default)
+CHEAP_MODEL = llm.default_model("cheap")  # card generation, bulk work (CF_CHEAP_MODEL)
 STRONG_MODEL = os.environ.get("CF_STRONG_MODEL", MODEL)              # reconcile only; e.g. claude-fable-5-1 or claude-opus-5
-MODELS = ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5", "claude-sonnet-5-5", "claude-opus-5", "claude-fable-5-1"]
+MODELS = (llm.catalogue() if llm.PROVIDER == "gateway" else
+          ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5", "claude-sonnet-5-5", "claude-opus-5", "claude-fable-5-1"])
 CONTEXT_CHAR_BUDGET = int(os.environ.get("CF_CONTEXT_CHARS", "180000"))
 RETRIEVAL = os.environ.get("RETRIEVAL", "off").strip().lower() == "on"   # Phase 10: passages instead of whole files
 RETRIEVAL_CHARS = int(os.environ.get("RETRIEVAL_CHARS", "40000"))        # ~10k tokens of the most relevant passages  # ~45k tokens of file text per call

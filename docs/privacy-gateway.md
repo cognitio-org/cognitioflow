@@ -54,3 +54,29 @@ gateway change.
 | `CF_GATEWAY_TASKS` | allow-list; default `cards,concepts,syllabus,oral` |
 | `CF_GATEWAY` | `off` to disable |
 | `CF_GATEWAY_MODEL`, `CF_GATEWAY_BASE` | model and gateway URL |
+
+## Change of 2026-09-30 (evening): the app leaves the paid Anthropic API
+
+The Anthropic credit ran out at about 16:00 UTC and the tutor stopped working. Matej decided that the app
+runs on **`gpt-6-luna` via the gateway for everything** (`LLM_PROVIDER=gateway`), and that the four bulk
+tasks go to **free OpenRouter models first** (`nvidia/nemotron-3-super-120b-a12b:free`), falling back to
+`gpt-6-luna`. This widens what the record above covers:
+
+| | Before | Now |
+|---|---|---|
+| Tutor chat (all modes), grading, reconcile | Anthropic | gateway, `gpt-6-luna`: the ticked course files and the conversation are sent, as they were to Anthropic |
+| Bulk tasks (`cards`, `concepts`, `syllabus`, `oral`) | gateway, `gpt-6-luna` | OpenRouter free model, redacted as before, then `gpt-6-luna` if it is busy or answers empty |
+| Anthropic | everything | not used (`ANTHROPIC_API_KEY` stays set but unused) |
+
+**Risk accepted by the user (Art. 5(2) accountability, Art. 6(1)(a) consent).** OpenRouter serves `:free`
+models only to accounts that allow providers to use prompts for training. Bulk-task text (one note or
+file, with e-mails, phone numbers, IBANs and student numbers removed) may therefore be retained and used
+for training by the provider. Matej was told this before choosing it (2026-09-30), for his own study
+material. Keep personal details of other people out of notes that are made into flashcards. To stop it at
+once: `CF_GATEWAY=off` (bulk then runs on `gpt-6-luna`), or set `CF_GATEWAY_MODEL` to a paid model with
+`data_collection: deny`.
+
+**Minimisation for the tutor (Art. 5(1)(c)).** The tutor sends only the files the user ticks, as before.
+Redaction is applied to the bulk lane only; the tutor's context is the user's own ticked material.
+
+**Open items 1–3 above now apply to the tutor as well**, since the gateway carries it.
