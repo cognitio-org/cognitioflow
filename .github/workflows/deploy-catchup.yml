@@ -1,0 +1,56 @@
+# Starts "test and deploy" for main's head when GitHub never did.
+#
+# On 2026-09-29 GitHub created no push run at all for #125 (bf024d9) and created #128's (d677877) eleven
+# minutes late; #124 and #126, merged the same way, were fine. The Actions API showed nothing to filter on
+# our side, so nothing reached users until someone noticed /health was behind and dispatched by hand.
+#
+# Each merge to main wakes this up, and it waits for that commit's own deploy run to appear; normally
+# that takes seconds and this exits. If none appears within WAIT_MIN, it dispatches deploy.yml on main.
+# The schedule is a backstop for when this workflow's own push event is the one dropped (pr-sweep.yml
+# records how unreliable GitHub's cron is here, so it is not the primary trigger). A dispatched run goes
+# through the same tests, and the deploy guard in deploy.yml still refuses to put an older build live.
+name: deploy catch-up
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "47 * * * *"   # hourly backstop, off the on-the-hour rush like pr-sweep's :17
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write   # to list deploy.yml's runs and dispatch it
+
+# A newer merge makes an older wait pointless: the newest head is the only one that needs a run.
+concurrency:
+  group: deploy-catchup
+  cancel-in-progress: true
+
+jobs:
+  catchup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      WAIT_MIN: 15   # d677877's run was 11 minutes late and still came
+    steps:
+      - name: Does main's head have a deploy run?
+        run: |
+          head=$(gh api "repos/$REPO/commits/main" --jq .sha)
+          runs() { gh api "repos/$REPO/actions/workflows/deploy.yml/runs?head_sha=$head&per_page=5" --jq '.total_count'; }
+          # How long the head has been on main decides how long there is left to wait.
+          committed=$(gh api "repos/$REPO/commits/$head" --jq .commit.committer.date)
+          age=$(( ( $(date -u +%s) - $(date -u -d "$committed" +%s) ) / 60 ))
+          echo "main is ${head:0:12}, on main about $age min"
+          while :; do
+            n=$(runs)
+            if [ "${n:-0}" -gt 0 ]; then echo "deploy.yml has $n run(s) for ${head:0:12}; nothing to do"; exit 0; fi
+            [ "$age" -ge "$WAIT_MIN" ] && break
+            sleep 60; age=$((age + 1))
+            # main moved on while waiting: that newer commit's own catch-up run takes over.
+            [ "$(gh api "repos/$REPO/commits/main" --jq .sha)" = "$head" ] || { echo "main moved on; stopping"; exit 0; }
+          done
+          echo "::warning::GitHub created no deploy run for ${head:0:12} in $age min; dispatching deploy.yml on main"
+          gh workflow run deploy.yml --repo "$REPO" --ref main
