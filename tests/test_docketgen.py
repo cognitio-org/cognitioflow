@@ -1,5 +1,4 @@
 """The checks a written Case Docket game must pass before he ever sees it (2026-09-29)."""
-import copy
 
 import docketgen
 

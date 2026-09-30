@@ -248,7 +248,7 @@ def test_gateway_picker_is_cheap_gateway_models_only():
 def test_hedged_stream_races_a_stalled_first_request():
     """2026-09-30: the gateway sometimes stalls 10–20 s before the first token. After hedge_s a second
     request starts and whichever speaks first wins; the stalled one is closed, not used."""
-    import threading, time, types
+    import time, types
     llm = load()
     calls, closed = [], []
 
