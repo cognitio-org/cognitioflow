@@ -1575,9 +1575,10 @@ async function dkLoad(){ clearTimeout(dkPoll); const box=$('#dkList'); if(!box) 
   let d; try{ d=await api(`/courses/${cid}/docket-drafts`) }catch(e){ box.innerHTML=`<div class="small muted">Could not load the games: ${esc(e.message)}</div>`; return }
   const sel=$('#dkWeek'), keep=sel.value, weeks=[...new Set(d.weeks)].sort((a,b)=>(+a||99)-(+b||99));
   sel.innerHTML=weeks.map(w=>`<option value="${esc(w)}">${esc(w)}</option>`).join(''); if(keep&&weeks.includes(keep)) sel.value=keep;
-  $('#dkWriteBtn').disabled=!weeks.length;
+  $('#dkWriteBtn').disabled=!weeks.length; document.querySelector('.dk-write').hidden=!d.auto;   // the server writes games only when CF_DOCKET_AUTO=1
+  $('#dkSub').textContent=d.auto?'When new material lands for a week, a writer drafts that week\'s case and a reviewer checks it against your files. Nothing reaches the 3D library until you approve it.':'Each week\'s case is written on your Mac from your own files, checked against them, and waits here until you approve it. Nothing reaches the 3D library before that.';
   if(d.started&&d.started.length) toast(`Writing ${d.started.length} new game${d.started.length>1?'s':''} from your files (week ${d.started.join(', ')})`);
-  if(!d.games.length){ box.innerHTML=`<div class="emptystate"><b>No games written yet</b><span>${weeks.length?'Pick a week and press Write a game — or upload new material and it starts by itself.':'Upload files with a week number and the writers start by themselves.'}</span></div>`; return }
+  if(!d.games.length){ box.innerHTML=`<div class="emptystate"><b>No games written yet</b><span>${d.auto?(weeks.length?'Pick a week and press Write a game — or upload new material and it starts by itself.':'Upload files with a week number and the writers start by themselves.'):'They arrive here as drafts once they are written on your Mac.'}</span></div>`; return }
   box.innerHTML=d.games.map(g=>{ const iss=(g.review&&g.review.issues)||[], high=iss.filter(i=>i.severity==='high').length, un=(g.review&&g.review.unverified)||[];
     const note=g.status==='draft'?(high?`<span class="dk-flag bad">${high} problem${high>1?'s':''} the reviewer could not fix</span>`:iss.length?`<span class="dk-flag">${iss.length} small note${iss.length>1?'s':''} from the reviewer</span>`:'<span class="dk-flag ok">Reviewer: sound</span>')
       +(un.length?` <span class="dk-flag bad">Not in your files: ${un.map(esc).join(', ')}</span>`:''):'';
