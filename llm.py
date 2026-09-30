@@ -29,6 +29,7 @@ CLAUDE_IDS = {
     "claude-haiku-4-5": "anthropic/claude-haiku-4.5",
     "claude-sonnet-4-6": "anthropic/claude-sonnet-4.6",
     "claude-sonnet-5": "anthropic/claude-sonnet-5",
+    "claude-sonnet-5-5": "anthropic/claude-sonnet-5.5",
     "claude-opus-5": "anthropic/claude-opus-5",
     "claude-fable-5-1": "anthropic/claude-fable-5.1",
 }
@@ -40,6 +41,7 @@ PRICES = {
     "claude-haiku-4-5": (1.00, 0.10, 1.25, 5.00),
     "claude-sonnet-4-6": (3.00, 0.30, 3.75, 15.00),
     "claude-sonnet-5": (2.00, 0.20, 2.50, 10.00),
+    "claude-sonnet-5-5": (2.00, 0.20, 2.50, 10.00),
     "claude-opus-5": (5.00, 0.50, 6.25, 25.00),
     "claude-fable-5-1": (10.00, 1.00, 12.50, 50.00),
 }
@@ -48,7 +50,7 @@ PRICES = {
 #: phase: DeepSeek V4.1 Flash is about 7x under Haiku with a 1M context.
 DEFAULT_EXTRA_MODELS = "deepseek/deepseek-v4.1-flash,google/gemini-3.8-flash,google/gemini-3.1-flash-lite"
 
-DEFAULT_MAIN = "claude-sonnet-5"
+DEFAULT_MAIN = "claude-sonnet-5-5"
 DEFAULT_CHEAP = {"anthropic": "claude-haiku-4-5", "openrouter": "deepseek/deepseek-v4.1-flash"}
 
 
