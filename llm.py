@@ -201,7 +201,8 @@ def usage(m, task: str) -> dict:
         # table is not what was charged, so reporting it would put a number on screen that does not
         # match the bill — exactly the guess this seam promises not to make. Say unknown instead.
         cost = None if _provider() == "openrouter" else _cost(model_id, tokens)
-    return {"provider": _provider(), "model": model_id, "task": task, "cost": cost, **tokens}
+    provider = getattr(u, "provider", None) or _provider()   # the gateway lane labels its own calls
+    return {"provider": provider, "model": model_id, "task": task, "cost": cost, **tokens}
 
 
 def describe() -> dict:
