@@ -27,6 +27,14 @@ OPENROUTER_BASE = "https://openrouter.ai/api"
 #: cache_control blocks, tested end to end on gpt-6-luna. docs/privacy-gateway.md is the GDPR record.
 GATEWAY_BASE = os.environ.get("CF_PROVIDER_GATEWAY_BASE", "https://litellm.augment-code.support")
 GATEWAY_MODEL = "gpt-6-luna"
+#: What the picker offers on the gateway provider (CF_PICKER_MODELS overrides). All run on the gateway;
+#: OpenRouter's :free models are NOT offered for the tutor chat (they may train on prompts; decided
+#: 2026-09-30, they stay limited to the redacted bulk lane). Probed live 2026-09-30: luna 1.7 s,
+#: gpt-5-nano 8.7 s, local-qwen-mlx 36 s (free; another machine's GPU, so it can be slow or offline).
+DEFAULT_PICKER = "gpt-6-luna,gpt-5-nano,local-qwen-mlx"
+#: Never offered, whatever CF_PICKER_MODELS says: $2-50 per Mtok on a shared key with a $30/month cap.
+import re as _re
+EXPENSIVE = _re.compile(r"claude|opus|sonnet|haiku|fable|astra|gpt-6-sol|-pro\b|gpt-5\.5-pro", _re.I)
 
 #: Claude ids as the app spells them, and as OpenRouter does. OpenRouter uses dots where the
 #: Anthropic API uses hyphens, so the same .env works on either backend.
@@ -102,7 +110,11 @@ def catalogue() -> list[str]:
     if _provider() == "anthropic":
         return list(CLAUDE_IDS)
     if _provider() == "gateway":   # the picker offers only what this budget runs on, never Claude via the gateway
-        return [default_model("main")]
+        out = [default_model("main")]
+        for m in (x.strip() for x in os.environ.get("CF_PICKER_MODELS", DEFAULT_PICKER).split(",")):
+            if m and m not in out and "/" not in m and not is_router(m) and not EXPENSIVE.search(m):
+                out.append(m)
+        return out
     extra = os.environ.get("CF_EXTRA_MODELS", DEFAULT_EXTRA_MODELS)
     out = [CLAUDE_IDS[c] for c in CLAUDE_IDS]
     for m in (x.strip() for x in extra.split(",")):
