@@ -22,6 +22,7 @@ import countdown
 import docketgen
 import embed
 import essay
+import gateway
 import mockexam
 import llm
 import oral
@@ -631,7 +632,7 @@ def extract_concepts(cid: str, body: ConceptsIn):
     if not material.strip():
         raise HTTPException(400, "nothing to read: those files carry no text yet")
 
-    m = ask_model(CHEAP_MODEL, max_tokens=4000, system=concepts_mod.EXTRACT_RULES,
+    m = ask_model(CHEAP_MODEL, task="concepts", max_tokens=4000, system=concepts_mod.EXTRACT_RULES,
                   messages=[{"role": "user", "content": material}])
     text = "".join(b.text for b in m.content if getattr(b, "type", "") == "text")
     found, dropped = concepts_mod.parse(text, material)
@@ -685,7 +686,7 @@ def generate_from_concepts(cid: str, body: GenerateIn):
                    "limbs": con["limbs"] or [], "traps": con["traps"] or []}
         brief = json.dumps({"concept": con["name"], "kind": con["kind"], **concept}, ensure_ascii=False)
         try:
-            m = ask_model(CHEAP_MODEL, max_tokens=2500, system=concepts_mod.GENERATE_RULES,
+            m = ask_model(CHEAP_MODEL, task="concepts", max_tokens=2500, system=concepts_mod.GENERATE_RULES,
                           messages=[{"role": "user", "content": brief}])
         except HTTPException as e:
             dropped.append(f"{con['name']}: {e.detail}"); continue
@@ -777,7 +778,7 @@ def syllabus_extract(cid: str, p: SyllabusExtractIn):
     model = pick_model("summarise", None)   # cheap tier, and no requested-model parameter: the strong model is unreachable here
     name = f[0]["name"]
     doc = '<document name="%s">\n%s\n</document>' % (name, text[:SYLLABUS_CHARS])
-    got = _model_json(ask_model(model, max_tokens=4000, system=SYLLABUS_RULES,
+    got = _model_json(ask_model(model, task="syllabus", max_tokens=4000, system=SYLLABUS_RULES,
                                                messages=[{"role": "user", "content": doc}]))
     if not isinstance(got, dict):
         raise HTTPException(502, "The model answered with a list where the syllabus object was asked for. Try again.")
@@ -952,6 +953,11 @@ def ask_model(model, **kw):
     Claude id needs that vendor's spelling. Going through client() rather than llm.client()
     keeps the single seam the tests replace.
     """
+    task = kw.pop("task", None)
+    if task and model == CHEAP_MODEL:        # only the cheap tier's named bulk jobs may use the gateway lane
+        m = gateway.call(task, **kw)
+        if m is not None:
+            return m
     return client().messages.create(model=llm.resolve(model), **kw)
 
 def _text(m) -> str:
@@ -1271,7 +1277,7 @@ def generate_cards(cid: str, g: GenIn):
         parts, _, _ = build_context(cid); src, week, txt = "selected files", "", "\n\n".join(parts)[:60000]
     prompt = (f"From the material below, write {g.count} flashcards for a law exam: precise, one testable point each, "
               "case names and article numbers where present. Return ONLY a JSON array of objects with keys 'front' and 'back'.\n\n" + txt)
-    m = ask_model(pick_model('cards', g.model), max_tokens=3000, messages=[{"role": "user", "content": prompt}])
+    m = ask_model(pick_model('cards', g.model), task="cards", max_tokens=3000, messages=[{"role": "user", "content": prompt}])
     text = "".join(b.text for b in m.content if b.type == "text").strip().strip("`")
     if text.startswith("json"): text = text[4:]
     try: items = json.loads(text)
@@ -1660,7 +1666,7 @@ def oral_bank(cid: str, g: OralBankIn):
               "article that appears in the material. Return ONLY a JSON array of objects with keys: 'concept' (3-6 words "
               "naming the idea tested), 'question', 'model' (the answer, with the case name or article number), and 'traps' "
               "(2-3 short strings: the wrong turns a student actually takes).\n\n" + txt)
-    m = ask_model(pick_model("cards", g.model), max_tokens=4000, messages=[{"role": "user", "content": prompt}])
+    m = ask_model(pick_model("cards", g.model), task="oral", max_tokens=4000, messages=[{"role": "user", "content": prompt}])
     items = _model_json(m)
     made = 0
     with db() as d:

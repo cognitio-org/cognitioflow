@@ -43,6 +43,7 @@ Environment selects the backend. There is no other configuration surface.
 ## Model and cost rules
 
 - `CF_MODEL` (Sonnet) for drilling, explaining, reconcile-by-default. `CF_CHEAP_MODEL` (Haiku) for cards, notes, quiz distractors, garble cleaning. `CF_STRONG_MODEL` for reconcile only.
+- The **gateway lane** (`gateway.py`) runs only the allow-listed bulk jobs (`cards`, `concepts`, `syllabus`, `oral`) on `gpt-6-luna` through the LiteLLM gateway, and falls back to `CF_CHEAP_MODEL`. The tutor never uses it. Read `docs/privacy-gateway.md` (the GDPR record) before widening it.
 - **Fable is ~10× a Sonnet call. Auto-routing must never select it.** It is opt-in per call only.
 - Tutor rules + selected files are sent as cached blocks; the per-message mode block sits last so switching modes doesn't invalidate the file cache. Preserve this ordering.
 - Reconcile: `max_tokens=8000` and a forced "Bottom line" section. Don't raise the cap; the Continue button handles truncation.
