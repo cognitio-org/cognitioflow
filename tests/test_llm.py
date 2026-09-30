@@ -10,7 +10,7 @@ import llm as _llm  # noqa: E402
 
 
 ENV_KEYS = ("LLM_PROVIDER", "CF_EXTRA_MODELS", "CF_MODEL", "CF_CHEAP_MODEL", "CF_STRONG_MODEL",
-            "ANTHROPIC_API_KEY", "OPENROUTER_KEY", "LITELLM_API_KEY")
+            "ANTHROPIC_API_KEY", "OPENROUTER_KEY", "LITELLM_API_KEY", "CF_PICKER_MODELS")
 
 
 @pytest.fixture(autouse=True)
@@ -225,9 +225,21 @@ def test_gateway_provider_runs_luna_and_offers_only_it():
     llm = load("gateway", LITELLM_API_KEY="k")
     assert llm.key_name() == "LITELLM_API_KEY" and llm.has_key()
     assert llm.default_model("main") == "gpt-6-luna" and llm.default_model("cheap") == "gpt-6-luna"
-    assert llm.catalogue() == ["gpt-6-luna"]
+    assert llm.catalogue()[0] == "gpt-6-luna" and not any("claude" in m for m in llm.catalogue())
     assert llm.resolve("gpt-6-luna") == "gpt-6-luna"
     assert llm.PRICES["gpt-6-luna"] == (0.10, 0.10, 0.10, 0.50)
     llm = load("gateway", LITELLM_API_KEY="k", CF_MODEL="gpt-6-luna", CF_CHEAP_MODEL="gpt-6-luna")
-    assert llm.catalogue() == ["gpt-6-luna"]
+    assert llm.catalogue()[0] == "gpt-6-luna"
     load()   # leave the default provider behind for the other tests
+
+
+def test_gateway_picker_is_cheap_gateway_models_only():
+    """Decided 2026-09-30: luna, nano and local-qwen. Claude, astra, sol and OpenRouter :free models are
+    never offered for the tutor chat, whatever CF_PICKER_MODELS says."""
+    llm = load("gateway", LITELLM_API_KEY="k")
+    assert llm.catalogue() == ["gpt-6-luna", "gpt-5-nano", "local-qwen-mlx"]
+    llm = load("gateway", LITELLM_API_KEY="k", CF_PICKER_MODELS=(
+        "claude-sonnet-5,gpt-6-astra,gpt-6-sol,claude-opus-5-5,gpt-5.5-pro,"
+        "nvidia/nemotron-3-super-120b-a12b:free,openrouter/auto,gpt-5-nano"))
+    assert llm.catalogue() == ["gpt-6-luna", "gpt-5-nano"]
+    load()
