@@ -254,6 +254,19 @@ def rows(q, *a):
 @app.get("/")
 def index(): return FileResponse(ROOT / "static" / "index.html", headers={"Cache-Control": "no-cache"})
 
+# A service worker from an earlier site on this domain (Workbox, scope "/") still controls browsers that visited it,
+# and serves them its cached /static/app.js: found 2026-09-30, his Chrome was running a 147 KB app.js while the
+# server had 178 KB, so a day of merges never reached him. /sw.js used to redirect to sign-in, so the old worker
+# could never update itself. Browsers re-fetch this script on every navigation; this one clears the caches,
+# unregisters itself and reloads the open tabs, so every device cleans itself on its next visit.
+_SW_RETIRE = ("self.addEventListener('install',()=>self.skipWaiting());\n"
+              "self.addEventListener('activate',e=>e.waitUntil((async()=>{for(const k of await caches.keys())await caches.delete(k);"
+              "await self.registration.unregister();for(const c of await self.clients.matchAll({type:'window'}))c.navigate(c.url);})()));\n")
+
+@app.get("/sw.js")
+def retire_service_worker():
+    return Response(_SW_RETIRE, media_type="application/javascript", headers={"Cache-Control": "no-store"})
+
 @app.get("/health")
 @app.get("/healthz")  # local only: Cloud Run reserves paths ending in z and answers /healthz with its own 404
 def healthz():
