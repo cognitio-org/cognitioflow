@@ -238,3 +238,88 @@ def describe() -> dict:
         "has_key": has_key(),
         "models": [{"id": m, "label": label(m)} for m in catalogue()],
     }
+
+
+#: Seconds to wait for the first words before a second, identical request races the first. The gateway
+#: sometimes answers at once and then stalls 10–20 s before the first token (seen live 2026-09-30 in the
+#: tutor, 16 s, and in Jarvis). 0 turns hedging off. A duplicate costs only on the slow turns.
+HEDGE_S = float(os.environ.get("CF_HEDGE_S", "1.5"))
+
+
+class _Hedged:
+    """What `hedged_stream` returns: `text_stream`, `get_final_message()`, usable as a context manager."""
+
+    def __init__(self, mgr, stream, it, first):
+        self._mgr, self._stream, self._it, self._first = mgr, stream, it, first
+
+    @property
+    def text_stream(self):
+        if self._first is not None:
+            yield self._first
+        yield from self._it
+
+    def get_final_message(self):
+        return self._stream.get_final_message()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        try:
+            self._mgr.__exit__(None, None, None)
+        except Exception:
+            pass
+        return False
+
+
+def hedged_stream(make_client, hedge_s: float | None = None, **kw) -> _Hedged:
+    """`make_client().messages.stream(**kw)`, raced against a second copy if the first words are slow.
+
+    The winner is whichever stream yields text first; the loser is closed as soon as it answers. Errors
+    from one copy are ignored while the other can still win; if both fail, the first error is raised.
+    """
+    import queue
+    import threading
+
+    hedge_s = HEDGE_S if hedge_s is None else hedge_s
+    q: queue.Queue = queue.Queue()
+
+    def run():
+        try:
+            mgr = make_client().messages.stream(**kw)
+            stream = mgr.__enter__()
+            it = iter(stream.text_stream)
+            q.put(("ok", mgr, stream, it, next(it, None)))
+        except Exception as e:  # noqa: BLE001 - reported to the caller if nothing else wins
+            q.put(("err", e))
+
+    threading.Thread(target=run, daemon=True).start()
+    started, errors = 1, []
+    try:
+        got = q.get(timeout=hedge_s) if hedge_s > 0 else q.get()
+    except queue.Empty:
+        threading.Thread(target=run, daemon=True).start()
+        started += 1
+        got = q.get()
+    while True:
+        if got[0] == "ok":
+            break
+        errors.append(got[1])
+        if len(errors) >= started:
+            raise errors[0]
+        got = q.get()
+
+    def close_losers(remaining):
+        for _ in range(remaining):
+            other = q.get()
+            if other[0] == "ok":
+                try:
+                    other[1].__exit__(None, None, None)
+                except Exception:
+                    pass
+
+    remaining = started - 1 - len(errors)
+    if remaining > 0:
+        threading.Thread(target=close_losers, args=(remaining,), daemon=True).start()
+    _, mgr, stream, it, first = got
+    return _Hedged(mgr, stream, it, first)

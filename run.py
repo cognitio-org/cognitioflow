@@ -1134,8 +1134,8 @@ def chat(cid: str, body: ChatIn):
         if narrowed:
             yield f"data: {json.dumps({'reading': {'used': narrowed['used'], 'trimmed': narrowed['trimmed'], 'chars': narrowed['chars']}})}\n\n"
         try:
-            with client().messages.stream(model=llm.resolve(chosen), max_tokens=2000, system=system,
-                                          messages=history + [{"role": "user", "content": user_content}]) as s:
+            with llm.hedged_stream(client, model=llm.resolve(chosen), max_tokens=2000, system=system,
+                                   messages=history + [{"role": "user", "content": user_content}]) as s:
                 for t in s.text_stream:
                     out.append(t); yield f"data: {json.dumps({'t': t})}\n\n"
                 # app.js:440 has always parsed a `usage` event and added its cost to a running

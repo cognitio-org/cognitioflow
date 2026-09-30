@@ -243,3 +243,50 @@ def test_gateway_picker_is_cheap_gateway_models_only():
         "nvidia/nemotron-3-super-120b-a12b:free,openrouter/auto,gpt-5-nano"))
     assert llm.catalogue() == ["gpt-6-luna", "gpt-5-nano"]
     load()
+
+
+def test_hedged_stream_races_a_stalled_first_request():
+    """2026-09-30: the gateway sometimes stalls 10–20 s before the first token. After hedge_s a second
+    request starts and whichever speaks first wins; the stalled one is closed, not used."""
+    import threading, time, types
+    llm = load()
+    calls, closed = [], []
+
+    def make():
+        n = len(calls); calls.append(n)
+        class Mgr:
+            def __enter__(self):
+                if n == 0:
+                    time.sleep(1.0)   # the stalled first request
+                return types.SimpleNamespace(text_stream=iter([f"hello{n}", " world"]),
+                                             get_final_message=lambda: f"final{n}")
+            def __exit__(self, *a):
+                closed.append(n)
+        return types.SimpleNamespace(messages=types.SimpleNamespace(stream=lambda **kw: Mgr()))
+
+    t = time.time()
+    with llm.hedged_stream(make, hedge_s=0.1, model="m") as s:
+        text = "".join(s.text_stream)
+        final = s.get_final_message()
+    assert time.time() - t < 0.8, "the second request should win long before the stalled one"
+    assert text == "hello1 world" and final == "final1" and len(calls) == 2
+    time.sleep(1.2)
+    assert 0 in closed   # the loser was closed once it answered
+
+
+def test_hedged_stream_single_request_when_fast():
+    import types
+    llm = load()
+    calls = []
+
+    def make():
+        calls.append(1)
+        class Mgr:
+            def __enter__(self):
+                return types.SimpleNamespace(text_stream=iter(["a", "b"]), get_final_message=lambda: "f")
+            def __exit__(self, *a): pass
+        return types.SimpleNamespace(messages=types.SimpleNamespace(stream=lambda **kw: Mgr()))
+
+    with llm.hedged_stream(make, hedge_s=1.0, model="m") as s:
+        assert "".join(s.text_stream) == "ab"
+    assert len(calls) == 1
