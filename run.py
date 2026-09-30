@@ -2218,7 +2218,9 @@ def docket_game(cid: str, gid: str, user: dict = Depends(current_user)):
 # New material for a week -> a writer drafts that week's game, the checks and a reviewer go over it, and it waits
 # as a draft until he approves it. Written in a thread like note audio: a Cloud Run instance that goes away mid-game
 # leaves a row in 'writing', which is collected as failed after docketgen.AUTO_STALE_S and written again later.
-DOCKET_AUTO = os.environ.get("CF_DOCKET_AUTO", "1") != "0"
+# Off unless asked for: the server writers call the Anthropic API, and he does not run CognitioFlow on paid API
+# credit (2026-09-30). Games are written on the Mac, on his subscription and the swarm, and arrive here as drafts.
+DOCKET_AUTO = os.environ.get("CF_DOCKET_AUTO", "0") == "1"
 DOCKET_SETTLE_S = 90                  # an upload batch lands file by file; wait for it before writing
 DOCKET_REVIEW_MODEL = os.environ.get("CF_DOCKET_REVIEW_MODEL", STRONG_MODEL)
 _docket_writing: set = set()          # course ids with a writer thread in this process
@@ -2386,6 +2388,7 @@ class DocketWriteIn(BaseModel): week: str
 def docket_write_now(cid: str, w: DocketWriteIn, user: dict = Depends(current_user)):
     """Write a game for a week now, new material or not."""
     _own_course(cid, user)
+    if not DOCKET_AUTO: raise HTTPException(400, "Games are written on the Mac and arrive here as drafts; the server does not write them.")
     if not os.environ.get("ANTHROPIC_API_KEY"): raise HTTPException(400, "No Claude API key on the server.")
     if not _docket_files(cid, w.week.strip()): raise HTTPException(400, f"No ticked files with text for week {w.week}.")
     _docket_collect_stale(cid)

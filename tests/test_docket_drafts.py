@@ -87,3 +87,14 @@ def test_another_users_course_is_not_reachable(client):
     cid = _course(client, "Private Law")
     gid, _ = _write(cid, [game(), {"verdict": "ok", "issues": []}])
     assert client.get(f"/api/courses/nope/docket-drafts/{gid}").status_code == 404
+
+
+def test_the_server_writes_no_game_unless_asked_to(client, monkeypatch):
+    """He does not run CognitioFlow on paid API credit (2026-09-30): off by default, Write a game refused."""
+    monkeypatch.setattr(run, "DOCKET_AUTO", False)
+    cid = _course(client, "Quiet Law")
+    started = []
+    monkeypatch.setattr(run, "_docket_start", lambda c, ids: started.append(ids))
+    d = client.get(f"/api/courses/{cid}/docket-drafts").json()
+    assert d["auto"] is False and d["started"] == [] and not started
+    assert client.post(f"/api/courses/{cid}/docket-drafts", json={"week": "3"}).status_code == 400
