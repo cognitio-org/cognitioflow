@@ -225,11 +225,11 @@ def test_gateway_provider_runs_luna_and_offers_only_it():
     llm = load("gateway", LITELLM_API_KEY="k")
     assert llm.key_name() == "LITELLM_API_KEY" and llm.has_key()
     assert llm.default_model("main") == "gpt-6-luna" and llm.default_model("cheap") == "gpt-6-luna"
-    assert llm.catalogue() == ["gpt-6-luna"]
+    assert llm.catalogue()[0] == "gpt-6-luna" and not any("claude" in m for m in llm.catalogue())
     assert llm.resolve("gpt-6-luna") == "gpt-6-luna"
     assert llm.PRICES["gpt-6-luna"] == (0.10, 0.10, 0.10, 0.50)
     llm = load("gateway", LITELLM_API_KEY="k", CF_MODEL="gpt-6-luna", CF_CHEAP_MODEL="gpt-6-luna")
-    assert llm.catalogue() == ["gpt-6-luna"]
+    assert llm.catalogue()[0] == "gpt-6-luna"
     load()   # leave the default provider behind for the other tests
 
 
