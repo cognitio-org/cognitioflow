@@ -89,7 +89,16 @@ jobs:
   test:
     needs: fast          # a broken PR has already failed, a minute in, without touching Neon
     runs-on: ubuntu-latest
-    timeout-minutes: 35   # make test against a Neon branch took 19m47s on 2026-09-17; 20 left no headroom
+    timeout-minutes: 50   # 19m47s alone on 2026-09-17; on 2026-09-29 #125 and #127 hit 35 with several runs sharing Neon
+    # On main, a newer merge cancels this job, queued or running: its run tests a tree that already
+    # holds this commit, and the deploy guard below would skip this build anyway. On 2026-09-29 five
+    # main runs sat in line at ~20 Neon minutes each. Only this job is cancelled; `fast` still runs
+    # on every commit, and deploys keep their own group so none is cut off halfway. PRs get a group
+    # of their own run, so nothing changes for them. The scope step below diffs from the LIVE build,
+    # so a migration in a cancelled merge still gets the Neon run in the merge that replaced it.
+    concurrency:
+      group: ${{ github.event_name == 'push' && format('{0}-test-main', github.workflow) || format('{0}-test-{1}', github.workflow, github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'push' }}
     env:
       NEON_DATABASE: ${{ vars.NEON_DATABASE || 'cognitioflow' }}
       NEON_ROLE: ${{ vars.NEON_ROLE || 'neondb_owner' }}
@@ -118,6 +127,16 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
+          # On main, diff from what users run, not from the previous push: when a newer merge
+          # cancels an older one's test (see `concurrency` above), the older one's files must
+          # count here. /health reports the live commit; if it cannot be read, BASE stays as it was.
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            live=$(curl -fsS --max-time 15 https://cognitioflow.ai/health 2>/dev/null \
+                     | sed -n 's/.*"commit"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{7,40\}\)".*/\1/p')
+            if [ -n "$live" ] && git cat-file -e "$live^{commit}" 2>/dev/null; then
+              echo "live build: $live (diffing from it instead of $BASE)"; BASE=$live
+            fi
+          fi
           # A first push to a branch, or a force push, reports an all-zero before-sha. That is
           # not a range we can diff, so fall open and run everything.
           case "$BASE" in
@@ -251,8 +270,10 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Every merge now gets its own test run; deploys still take turns here, and a deploy still
-    # waiting when a newer one arrives gives way to it, so the newest commit is what goes live.
+    # Every merge gets its own test run, and deploys take turns here in the order their TESTS
+    # finish, not the order they merged. On 2026-09-29 #123 went live at 15:59 and was then
+    # overwritten by #118, #120 and #119, whose slower test runs finished later; every run was
+    # green and users were four merges behind. The "Is a newer build live?" step stops that.
     concurrency:
       group: ${{ github.workflow }}-deploy-main
       cancel-in-progress: false
@@ -261,6 +282,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # the guard below asks git whether the live build descends from this one
 
       - uses: google-github-actions/auth@v3
         with:
@@ -269,13 +292,30 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v3
 
+      # Skip when what is live already contains this commit. Compared against the live build, not
+      # main's head: a newer merge whose tests fail must not stop this one from going out.
+      # Anything unknown (no label, a commit git has never seen) deploys, as before.
+      - name: Is a newer build live?
+        id: guard
+        run: |
+          live=$(gcloud run services describe "$SERVICE" --project "$GCP_PROJECT" --region "$REGION" \
+                   --format='value(metadata.labels.commit)' 2>/dev/null || true)
+          echo "live: ${live:-unknown}  this: ${GITHUB_SHA:0:12}"
+          if [ -n "$live" ] && [ "$live" != "${GITHUB_SHA:0:12}" ] \
+             && git merge-base --is-ancestor "$GITHUB_SHA" "$live" 2>/dev/null; then
+            echo "::notice::Not deploying ${GITHUB_SHA:0:12}: live build $live already contains it"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and push image
+        if: steps.guard.outputs.skip != 'true'
         run: |
           gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
           docker build --platform linux/amd64 -t "$IMAGE:$GITHUB_SHA" .
           docker push "$IMAGE:$GITHUB_SHA"
 
       - name: Deploy to Cloud Run
+        if: steps.guard.outputs.skip != 'true'
         run: |
           gcloud run deploy "$SERVICE" \
             --project "$GCP_PROJECT" --region "$REGION" \
@@ -290,6 +330,7 @@ jobs:
             --quiet
 
       - name: Smoke test /health
+        if: steps.guard.outputs.skip != 'true'
         run: |
           url=$(gcloud run services describe "$SERVICE" --project "$GCP_PROJECT" --region "$REGION" --format='value(status.url)')
           echo "Service URL: $url"
@@ -302,6 +343,7 @@ jobs:
       # The weekly backup (scripts/backup.py) as a Cloud Run job, kept on the same commit as the app.
       # Skipped until infra/backup.sh --apply has created its service account; the schedule lives in that script.
       - name: Deploy backup job
+        if: steps.guard.outputs.skip != 'true'
         run: |
           if ! gcloud iam service-accounts describe "$BACKUP_SA" --project "$GCP_PROJECT" >/dev/null 2>&1; then
             echo "::notice::$BACKUP_SA not found - run infra/backup.sh --apply; backup job not deployed"; exit 0
