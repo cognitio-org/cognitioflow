@@ -733,6 +733,11 @@ window.addEventListener('blur',()=>pttUp(true)); document.addEventListener('visi
   b.addEventListener('contextmenu',e=>e.preventDefault());   // a long press on a phone is a hold, not a menu
   $('#micBtn').after(document.createTextNode(' '), b); })();
 $('#costState').onclick=()=>{ sessionCost=0; localStorage.setItem('cf.cost',0); showCost() }; showCost();
+function showWeekSpend(){ const el=$('#weekSpend'); if(!el) return;   // the last seven days from the cost log; unpriced calls are counted, never guessed
+  fetch('/api/spend/week').then(r=>r.ok?r.json():null).then(w=>{ if(!w||!w.calls){ el.textContent=''; return }
+    el.textContent=`· $${w.cost.toFixed(2)} this week`+(w.unpriced?` (+${w.unpriced} unpriced)`:'');
+    el.title=`AI spend over the last seven days: ${w.calls} calls, ${w.tokens.toLocaleString()} tokens\n`+w.features.map(f=>`${f.feature||'other'}: $${f.cost.toFixed(2)} · ${f.calls}`).join('\n') }).catch(()=>{}) }
+showWeekSpend();
 /* The spoken tutor: Gemini Live holds both halves of the turn, so the microphone stays open while it
    talks and it stops the moment he does. The browser only moves audio: PCM16 up at 16 kHz, PCM16 back
    at 24 kHz, played through one AudioContext queue so the pieces do not overlap or gap. */
