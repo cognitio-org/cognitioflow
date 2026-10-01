@@ -92,7 +92,7 @@ def pinned_storage(apply_migrations):
 _TRUNCATE = ("TRUNCATE courses, files, messages, notes, cards, reviews, "
              "note_versions, recordings, sessions, users, jobs, "
              "card_distractors, hint_cache, essay_questions, "
-             "essay_attempts, note_audio, streak_freezes, ai_calls CASCADE")
+             "essay_attempts, note_audio, streak_freezes, ai_calls, api_tokens CASCADE")
 
 
 @pytest.fixture(scope="session")

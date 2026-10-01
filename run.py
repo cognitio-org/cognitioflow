@@ -3538,6 +3538,12 @@ def _course_weeks(cid: str, sorted_notes: dict, today: date):
     return sorted(weeks), due
 
 
+@app.get("/api/due")
+def due_counts():
+    """Cards due today per course: a count, never a card. One of the three things a read-only key may read."""
+    today = _local_today().isoformat()
+    return {r["course_id"]: r["n"] for r in rows("SELECT course_id, COUNT(*) AS n FROM cards WHERE due IS NULL OR due<=? GROUP BY course_id", today)}
+
 @app.get("/api/today")
 def today_plan(user: dict = Depends(current_user)):
     """The home screen: who he is, and for each course the days to its exam, today's share of three hours,
