@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 import citecheck
 import weaktopics
+import pack
 import countdown
 import docketgen
 import embed
@@ -2781,6 +2782,17 @@ def _cases_in_notes(cid: str):
 def case_index(cid: str):
     """Every case the notes name, A-Z. `year` is the year the citation carries, or null."""
     return sorted(_cases_in_notes(cid).values(), key=lambda c: c["name"].casefold())
+
+@app.get("/api/courses/{cid}/pack")
+def print_pack(cid: str):
+    """Phase 18d: the printed pack, from the notes and the case index as they stand. No model call."""
+    c = rows("SELECT id,name,exam_date,brief FROM courses WHERE id=?", cid)
+    if not c: raise HTTPException(404)
+    ns = countdown.sort_notes([dict(n) for n in rows("SELECT id,title,body,length(body) AS chars FROM notes WHERE course_id=?", cid)])
+    # The method's three moves are Villanueva's (European Law): they print on that course's pages and no other.
+    method = "villanueva" in str((c[0]["brief"] or {}).get("lecturer", "") if isinstance(c[0]["brief"], dict) else "").lower()
+    out = pack.build(ns["weeks"], ns["reference"], list(_cases_in_notes(cid).values()), method=method)
+    return {"course": c[0]["name"], "exam_date": str(c[0]["exam_date"] or "")[:10] or None, **out}
 
 @app.get("/api/courses/{cid}/timeline")
 def case_timeline(cid: str):

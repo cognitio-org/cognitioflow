@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Print pack · CognitioFlow</title>
+<script src="/static/marked.min.js"></script>
+<style>
+  /* Paper first (Phase 18d): light, black ink, A4, a week per page, then the tab sheet. The pack is for revising
+     at home; it never goes into the exam, and the tab sheet carries nothing that would count as an annotation. */
+  :root{--ink:#111;--soft:#555;--rule:#bbb;--serif:Charter,"Iowan Old Style","Palatino Linotype",Georgia,serif;--sans:"Helvetica Neue",Helvetica,Arial,system-ui,sans-serif}
+  html,body{margin:0;background:#fff;color:var(--ink);font-family:var(--serif);font-size:10.5pt;line-height:1.45}
+  main{max-width:180mm;margin:0 auto;padding:12mm 0}
+  .bar{font-family:var(--sans);font-size:9pt;color:var(--soft);display:flex;justify-content:space-between;gap:1rem;margin-bottom:6mm}
+  .bar button{font:inherit;padding:.3rem .8rem;border:1px solid var(--rule);background:#fff;border-radius:4px;cursor:pointer}
+  .topic{page-break-after:always;break-after:page}
+  .topic h1{font-size:17pt;font-weight:500;margin:0 0 1mm;line-height:1.2}
+  .topic .wk{font-family:var(--sans);font-size:8pt;letter-spacing:.08em;text-transform:uppercase;color:var(--soft)}
+  .rule{border:.6pt solid var(--ink);border-left:2.4pt solid var(--ink);padding:3mm 4mm;margin:4mm 0;page-break-inside:avoid}
+  .rule p{margin:0 0 1.5mm} .rule p:last-child{margin:0}
+  h2{font-family:var(--sans);font-size:8.5pt;letter-spacing:.06em;text-transform:uppercase;margin:5mm 0 1.5mm;color:var(--ink)}
+  ol.outline{margin:0;padding-left:5mm;columns:2;column-gap:8mm} ol.outline li{break-inside:avoid;margin-bottom:.6mm}
+  table{width:100%;border-collapse:collapse;font-size:9.5pt} th,td{text-align:left;padding:1.2mm 2mm;border-bottom:.4pt solid var(--rule);vertical-align:top}
+  th{font-family:var(--sans);font-size:7.5pt;text-transform:uppercase;letter-spacing:.05em;color:var(--soft);font-weight:500}
+  td.yr{width:13mm;font-variant-numeric:tabular-nums} td.src{font-family:var(--sans);font-size:8pt;color:var(--soft);width:58mm}
+  .method{display:flex;gap:2mm;font-family:var(--sans);font-size:9pt} .method span{border:.6pt solid var(--ink);padding:1mm 2.5mm;border-radius:999px}
+  .more{font-family:var(--sans);font-size:8pt;color:var(--soft);margin-top:1mm}
+  .tabs h1{font-size:15pt;font-weight:500;margin:0 0 1mm} .tabs p{font-family:var(--sans);font-size:8.5pt;color:var(--soft);margin:0 0 4mm}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-top:.4pt dashed #999;border-left:.4pt dashed #999}
+  .lab{border-right:.4pt dashed #999;border-bottom:.4pt dashed #999;padding:3mm 2.5mm;min-height:11mm;display:flex;flex-direction:column;justify-content:center;page-break-inside:avoid}
+  .lab b{font-family:var(--sans);font-size:11pt;font-weight:600;font-variant-numeric:tabular-nums} .lab span{font-family:var(--sans);font-size:9pt;color:var(--ink)}
+  .empty{font-family:var(--sans);color:var(--soft);padding:2rem 0}
+  @media print{ .bar{display:none} main{padding:0;max-width:none} @page{size:A4;margin:14mm 14mm 14mm 16mm} }
+</style>
+</head>
+<body>
+<main>
+  <div class="bar"><span id="what">Loading the pack…</span><button type="button" id="printBtn">Print</button></div>
+  <div id="pack"></div>
+</main>
+<script>
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const md=t=>window.marked?marked.parse(t||''):'<p>'+esc(t)+'</p>';
+const q=new URLSearchParams(location.search), course=q.get('course')||'';
+document.getElementById('printBtn').onclick=()=>window.print();
+(async()=>{
+  const r=await fetch(`/api/courses/${encodeURIComponent(course)}/pack`); const box=document.getElementById('pack');
+  if(!r.ok){ box.innerHTML=`<p class="empty">This course has no pack (${r.status}).</p>`; return }
+  const p=await r.json(); document.title=`${p.course} — print pack`;
+  document.getElementById('what').textContent=`${p.course} · ${p.topics.length} week${p.topics.length===1?'':'s'} · ${p.tabs.length} tab labels · for revising at home, never for the exam`;
+  const topic=t=>`<section class="topic"><div class="wk">${esc(p.course)} · Week ${esc(t.week)}</div><h1>${esc(t.title)}</h1>
+    ${t.rule?`<div class="rule">${md(t.rule)}</div>`:''}
+    ${t.method.length?`<h2>The method</h2><div class="method">${t.method.map((m,i)=>`<span>${i+1}. ${esc(m)}</span>`).join('')}</div>`:''}
+    ${t.outline.length?`<h2>Outline</h2><ol class="outline">${t.outline.map(h=>`<li>${esc(h)}</li>`).join('')}</ol>`:''}
+    ${t.cases.length?`<h2>Leading cases, in the order they were decided</h2><table><thead><tr><th>Year</th><th>Case</th><th>From</th></tr></thead><tbody>${
+      t.cases.map(c=>`<tr><td class="yr">${c.year||'—'}</td><td><i>${esc(c.name)}</i>${c.cite?` <span class="src">${esc(c.cite)}</span>`:''}</td><td class="src">${esc(c.note)}</td></tr>`).join('')}</tbody></table>${
+      t.more_cases?`<div class="more">and ${t.more_cases} more in the case index</div>`:''}`:''}
+  </section>`;
+  const tabs=p.tabs.length?`<section class="tabs"><h1>Tab labels · ${esc(p.course)}</h1><p>Cut along the dashed lines. An article number and one word only: nothing here counts as an annotation.</p><div class="grid">${
+    p.tabs.map(t=>`<div class="lab"><b>${esc(t.label)}</b>${t.heading?`<span>${esc(t.heading)}</span>`:''}</div>`).join('')}</div></section>`:'';
+  box.innerHTML=(p.topics.length?p.topics.map(topic).join(''):'<p class="empty">No week notes yet.</p>')+tabs;
+  document.body.dataset.ready='1';
+  if(q.get('print')==='1') setTimeout(()=>window.print(),300);
+})();
+</script>
+</body>
+</html>
