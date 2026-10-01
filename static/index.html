@@ -120,17 +120,20 @@
         <button class="btn small" data-mode="explain">Explain</button>
         <button class="btn small" data-mode="apply" title="Give it the facts of a WG or exam question; it applies the articles and cases to them, step by step">Apply to facts</button>
         <button class="btn small" data-mode="notes">Build notes</button>
-        <span style="margin-left:auto;display:flex;gap:.4rem;align-items:center">
-          <select id="modelSel" class="small" aria-label="Model"><option value="auto">Auto model</option></select><span class="small muted" id="routeHint" title="Which model Auto will use for this message"></span>
-          <span class="seg" role="group" id="micMode" hidden title="Which speech engine Talk uses"><button class="btn small" type="button" data-mic="browser" aria-pressed="true">Browser</button><button class="btn small" type="button" data-mic="gemini" aria-pressed="false">Gemini</button></span>
+        <span class="tbar">
           <button class="btn small ghost" id="micBtn" aria-pressed="false" title="Dictate your answer">🎙 Talk</button>
           <button class="btn small ghost" id="speakBtn" aria-pressed="false" title="Read replies aloud — click again on a reply to hear its spoken version">🔊 Read aloud</button>
-          <span class="small muted" id="costState" title="Estimated API spend since you last cleared it; click to reset" style="cursor:pointer"></span><span class="small muted" id="weekSpend" title="AI spend over the last seven days, from the cost log"></span>
+          <details class="tmore" id="tutorMore"><summary class="btn small ghost" id="tutorMoreLabel" title="Model, speech engine, voice, conversation and the live tutor">Voice &amp; model ▾</summary>
+            <div class="tmore-panel" id="tutorMorePanel">
+              <label class="small muted">Model <select id="modelSel" class="small" aria-label="Model"><option value="auto">Auto model</option></select></label><span class="small muted" id="routeHint" title="Which model Auto will use for this message"></span>
+              <span class="seg" role="group" id="micMode" hidden title="Which speech engine Talk uses"><button class="btn small" type="button" data-mic="browser" aria-pressed="true">Browser</button><button class="btn small" type="button" data-mic="gemini" aria-pressed="false">Gemini</button></span>
+            </div></details>
         </span>
       </div>
       <div class="small muted" id="modeHint" style="margin:-.2rem 0 .5rem"></div>
       <div class="chat" id="chat" role="log" aria-live="polite"></div>
       <div class="composer"><textarea id="q" placeholder="Ask, or paste a garbled transcript — Enter to send, Shift+Enter for newline"></textarea><button class="btn primary" id="send">Send</button></div>
+      <div class="tfoot small muted"><span id="costState" title="Estimated API spend since you last cleared it; click to reset" style="cursor:pointer"></span><span id="weekSpend" title="AI spend over the last seven days, from the cost log"></span></div>
     </div>
   </div>
 </section>

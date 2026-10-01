@@ -3,16 +3,17 @@
    reinvented per file. Values are unchanged: a relocation, not a redesign. */
   :root{--ink:#1c1c1a;--graphite:#5c5b55;--rule:#dcdad3;--faint:#f3f2ee;--paper:#fbfbf9;--raised:#ffffff;--accent:var(--course,#24467a);--ok:#2e6b4a;--warn:#a4541f;--bad:#a8453f;--rule-strong:#8b8980;--tap:32px;
     --s1:.25rem;--s2:.5rem;--s3:.75rem;--s4:1rem;--s5:1.5rem;--s6:2.25rem;
-    --serif:Charter,"Iowan Old Style","Palatino Linotype",Georgia,serif;--sans:"Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;--r:4px}
+    --serif:Charter,"Iowan Old Style","Palatino Linotype",Georgia,serif;--sans:"Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;--r:4px;--r-md:8px;--r-lg:12px;
+    --fs-xs:.75rem;--fs-sm:.85rem;--fs-body:.94rem;--fs-md:1rem;--fs-lg:1.2rem}
   *{box-sizing:border-box} [hidden]{display:none!important} html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;height:100%}
-  h1,h2,h3{font-family:var(--serif);font-weight:500;margin:0 0 .4rem;line-height:1.2;letter-spacing:-.005em} h1{font-size:1.75rem} h2{font-size:1.3rem} h3{font-size:1.05rem}
+  h1,h2,h3{font-family:var(--serif);font-weight:500;margin:0 0 .4rem;line-height:1.2;letter-spacing:-.005em} h1{font-size:1.75rem} h2{font-size:1.3rem} h3{font-size:var(--fs-md)}
   p{margin:0 0 .7rem} button{font:inherit;cursor:pointer} input,select,textarea{font:inherit}
   .btn{border:1px solid var(--ink);background:var(--paper);color:var(--ink);padding:.45rem .9rem;border-radius:var(--r);line-height:1.2;min-height:var(--tap);display:inline-flex;align-items:center;justify-content:center;gap:.3rem} .btn:hover{background:var(--faint)}
-  .btn.primary{background:var(--ink);color:#fff} .btn.primary:hover{background:#333} .btn.small{padding:.3rem .6rem;font-size:.82rem;min-height:var(--tap);min-width:var(--tap);display:inline-flex;align-items:center;justify-content:center;gap:.3rem} .btn.ghost{border-color:var(--rule);color:var(--graphite);background:transparent} .btn.ghost:hover{color:var(--ink);border-color:var(--graphite);background:var(--faint)}
+  .btn.primary{background:var(--ink);color:#fff} .btn.primary:hover{background:#333} .btn.small{padding:.3rem .6rem;font-size:var(--fs-sm);min-height:var(--tap);min-width:var(--tap);display:inline-flex;align-items:center;justify-content:center;gap:.3rem} .btn.ghost{border-color:var(--rule);color:var(--graphite);background:transparent} .btn.ghost:hover{color:var(--ink);border-color:var(--graphite);background:var(--faint)}
   .btn[disabled]{opacity:.45;cursor:not-allowed} .btn:active:not([disabled]){transform:translateY(1px)} :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  kbd{font-family:var(--sans);font-size:.72em;line-height:1.25;padding:.02rem .34rem;border:1px solid var(--rule);border-bottom-width:2px;border-radius:4px;background:var(--faint);color:var(--graphite);white-space:nowrap;vertical-align:.08em}
-  .muted{color:var(--graphite)} .small{font-size:.85rem} ul.clean{list-style:none;margin:0;padding:0}
-  .tag{display:inline-block;font-size:.74rem;padding:.05rem .45rem;border:1px solid var(--rule);border-radius:999px;color:var(--graphite)} .tag.ok{border-color:var(--ok);color:var(--ok)} .tag.warn{border-color:var(--warn);color:var(--warn)}
+  kbd{font-family:var(--sans);font-size:.72em;line-height:1.25;padding:.02rem .34rem;border:1px solid var(--rule);border-bottom-width:2px;border-radius:var(--r);background:var(--faint);color:var(--graphite);white-space:nowrap;vertical-align:.08em}
+  .muted{color:var(--graphite)} .small{font-size:var(--fs-sm)} ul.clean{list-style:none;margin:0;padding:0}
+  .tag{display:inline-block;font-size:var(--fs-xs);padding:.05rem .45rem;border:1px solid var(--rule);border-radius:999px;color:var(--graphite)} .tag.ok{border-color:var(--ok);color:var(--ok)} .tag.warn{border-color:var(--warn);color:var(--warn)}
   .panel{border:1px solid var(--rule);border-radius:var(--r);padding:var(--s4) 1.1rem;background:var(--paper)} .panel.bar{border-left:4px solid var(--accent)}
   .hero{border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:var(--r);padding:var(--s5) var(--s5) var(--s5) var(--s5);background:var(--paper);display:grid;grid-template-columns:1fr auto;gap:var(--s5);align-items:center}
   .herobook{grid-template-columns:1fr 260px;align-items:center} .bookwrap{display:flex;flex-direction:column;align-items:center;gap:.4rem} .booknum{text-align:center} .hero h2{font-size:1.6rem;margin:.1rem 0 .4rem}
@@ -24,10 +25,10 @@
 
 /* Files: a readable title, what kind of material it is, and a week you can correct. */
 .fname{cursor:text;border-bottom:1px dashed transparent} .fname:hover{border-bottom-color:var(--rule-strong)}
-.fileorig{display:block;font-size:.72rem;opacity:.7}
+.fileorig{display:block;font-size:var(--fs-xs);opacity:.7}
 .wkedit{cursor:pointer;border-bottom:1px dashed transparent} .wkedit:hover{border-bottom-color:var(--rule-strong)}
 .wktitle{font-family:var(--serif);color:var(--graphite)}
-.rolechip{font-size:.7rem;letter-spacing:.02em;padding:.08rem .45rem;border-radius:999px;border:1px solid var(--rule);white-space:nowrap}
+.rolechip{font-size:var(--fs-xs);letter-spacing:.02em;padding:.08rem .45rem;border-radius:999px;border:1px solid var(--rule);white-space:nowrap}
 .rolechip.r-wg{border-color:var(--accent);color:var(--accent)}
 .rolechip.r-lecture,.rolechip.r-slides{color:var(--ink)}
 .rolechip.r-reader,.rolechip.r-cases{color:var(--graphite)}

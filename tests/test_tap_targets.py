@@ -44,7 +44,7 @@ def test_the_smallest_control_in_the_app_meets_it_too():
     """#focusBtn measured 45.7 x 18.9. It keeps its quiet look: the padding grows, not the type."""
     r = _rule("#focusBtn")
     assert "min-height:var(--tap)" in r
-    assert "font-size:.74rem" in r, "it should still read as a quiet chip, not a button"
+    assert "font-size:var(--fs-xs)" in r, "it should still read as a quiet chip, not a button"   # .74rem until the shared type scale (2026-10-02)
 
 
 def test_a_checkbox_is_hit_through_its_label():

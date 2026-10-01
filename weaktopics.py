@@ -36,7 +36,7 @@ def rank(reviews: list, drafts: list, labels: dict = None) -> dict:
                 step = str(c.get("step") or "").strip() if isinstance(c, dict) else ""
                 if step and c.get("met") is False and step not in missed:
                     missed.append(step)
-        t = {"week": week, "label": labels.get(week) or (f"Week {week}" if week else "No week"),
+        t = {"week": week, "label": labels.get(week) or (f"Week {week}" if week else "Cards without a week"),
              "reviews": len(last), "recalled": recalled, "missed": missed}
         if missed or (len(last) >= MIN_REVIEWS and recalled < WEAK_RECALL * len(last)):
             out["weak"].append(t)

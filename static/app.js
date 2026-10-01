@@ -244,7 +244,7 @@ async function loadStudy(){ if(!study.course) study.course=cid; setCourse(study.
   const body=$('#studyBody');
   if(!list.length){ body.innerHTML=`<div class="emptystate"><b>No notes for ${study.week==='ref'?'reference':'Week '+esc(study.week)} yet</b><span>The files for this week are in; the tutor can build the notes from them.</span><button class="btn small" type="button" id="studyBuild">Build Week ${esc(study.week)} notes with the tutor</button></div>`;
     const bb=$('#studyBuild'); if(bb) bb.onclick=()=>{ show('tutor'); setMode('notes'); $('#q').value=`Build my Week ${study.week} master notes from the ticked files.`; $('#q').focus(); }; return; }
-  body.innerHTML=(list.length>1?`<nav class="study-notes" aria-label="Notes">${list.map(n=>`<button class="btn small ghost" type="button" data-snote="${n.id}" aria-pressed="${n.id===study.note}">${esc(n.title)}</button>`).join('')}</nav>`:'')
+  body.innerHTML=(list.length>1?`<nav class="study-notes" aria-label="Notes">${list.map(n=>`<button class="btn small ghost" type="button" data-snote="${n.id}" aria-pressed="${n.id===study.note}">${esc(n.title)}${list.filter(x=>x.title===n.title).length>1?` <span class="muted">· ${Math.max(1,Math.round((n.chars||0)/1000))}k chars</span>`:''}</button>`).join('')}</nav>`:'')
     +`<article class="noteview study-note" id="studyNote">Loading…</article>`;
   body.classList.toggle('single',list.length<2);
   body.querySelectorAll('[data-snote]').forEach(b=>b.onclick=()=>{ study.note=b.dataset.snote; loadStudy(); });
@@ -512,11 +512,30 @@ function cfHeardClear(){ $('#chat')?.querySelector('.msg.user.live')?.remove() }
 function cfSaid(d){ if(!d.dataset.said) return; let el=d.querySelector(':scope > .said');
   if(!el){ el=document.createElement('div'); el.className='said'; el.setAttribute('aria-label','Spoken'); d.prepend(el) }
   el.textContent=d.dataset.said; }
+/* The Tutor toolbar (2026-10-02): Talk, Hold to talk and Read aloud stay in view; the voice, the conversation and the
+   live tutor move into one menu. Nodes are moved, not rebuilt, so every handler and id stays as it was. */
+function cfTidyBar(){ const p=$('#tutorMorePanel'); if(!p) return;
+  ['voiceSel','convBtn','convHint','dialogBtn'].forEach(id=>{ const el=document.getElementById(id); if(el&&el.parentElement!==p) p.appendChild(el) });
+  cfMoreLabel(); }
+function cfMoreLabel(){ const l=$('#tutorMoreLabel'); if(!l) return;
+  let conv=false; try{ conv=convOn }catch(e){}   // runs once before convOn is declared further down
+  const live=$('#dialogBtn')?.textContent.startsWith('●');
+  l.textContent=live?'● Live tutor ▾':conv?'● In conversation ▾':'Voice & model ▾'; l.classList.toggle('primary',!!(live||conv)); }
+/* Source tags ([WG: Assignment 4 2026-2027, Case 1; ...]) as small chips: the kind and the first source in view, all of it on hover. */
+const CF_SRC=/\[(WG|LECTURE|SLIDES|READER|SCH[UÜ]TZE[^\]:]*|SCRIPTUM|DCFR|NATIONAL|ADDED|OUTSIDE FILES)(?::\s*([^\]]*))?\]/g;
+function cfChips(d){ const walk=document.createTreeWalker(d,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement.closest('.said,code,pre,.src')?NodeFilter.FILTER_REJECT:(CF_SRC.test(n.nodeValue)?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_SKIP)});
+  const hits=[]; while(walk.nextNode()) hits.push(walk.currentNode);
+  for(const n of hits){ const f=document.createDocumentFragment(); let last=0; CF_SRC.lastIndex=0;
+    for(const m of n.nodeValue.matchAll(CF_SRC)){ f.append(n.nodeValue.slice(last,m.index));
+      const c=document.createElement('span'); c.className='src'; const first=(m[2]||'').split(/[;,]/)[0].trim();
+      c.textContent=m[1]+(first?' · '+(first.length>26?first.slice(0,25)+'…':first):''); c.title=m[0].slice(1,-1); f.append(c); last=m.index+m[0].length; }
+    f.append(n.nodeValue.slice(last)); n.replaceWith(f); } }
 /* A drill turn reads: verdict, what was missing, anything new, then the next question. Mark the first and the last so
    they stand out; the words are the tutor's, this only finds them. */
 function cfMark(d){ const v=[...d.querySelectorAll(':scope > p')].find(p=>/^[✓◐✗]/.test(p.textContent.trim()));
   if(v){ const c=v.textContent.trim()[0]; v.classList.add('verdict',c==='✓'?'ok':c==='◐'?'part':'miss') }
-  const q=[...d.querySelectorAll(':scope > blockquote')].reverse().find(b=>/^\s*Next:/.test(b.textContent)); if(q) q.classList.add('next') }
+  const q=[...d.querySelectorAll(':scope > blockquote')].reverse().find(b=>/^\s*Next:/.test(b.textContent)); if(q) q.classList.add('next');
+  cfChips(d); }
 function addMsg(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;$('#chat').appendChild(d);$('#chat').scrollTop=$('#chat').scrollHeight;return d}
 const MODE_UI={
   drill:{hint:'Drill: one question at a time, firm correction. Reply with your answer, or say what to drill.',ph:'Your answer — or "drill me on Art 34"'},
@@ -660,7 +679,7 @@ function initVoice(){
     sel.value=vs.some(v=>v.id===cfVoice)?cfVoice:(cfg.voice.voice||vs[0].id);
     sel.onchange=()=>{ cfVoice=sel.value; try{ localStorage.setItem('cf.voice',cfVoice) }catch(e){}
       cfSpeak(`Hi, I'm ${cfVoice}. Shall we start with direct effect, or would you rather I test you?`); };
-    $('#speakBtn').after(document.createTextNode(' '), sel); }
+    $('#speakBtn').after(document.createTextNode(' '), sel); cfTidyBar(); }
 }
 /* ---- Gemini dictation (Phase 8): mic → 16 kHz PCM → this app's relay → Vertex AI; only text comes back ---- */
 let gem=null;
@@ -752,7 +771,7 @@ const DIALOG_RATE=24000;
 let dlg=null;
 function dialogPaint(on){ const b=$('#dialogBtn'); if(!b) return;
   b.classList.toggle('primary',on); b.setAttribute('aria-pressed',on?'true':'false');
-  b.textContent=on?'● Speaking with you':'🎧 Live tutor'; }
+  b.textContent=on?'● Speaking with you':'🎧 Live tutor'; cfMoreLabel(); }
 async function startDialog(){
   if(dlg) return stopDialog();
   if(convOn) convStop();                               // one loop at a time
@@ -812,7 +831,7 @@ function stopDialog(){ if(dlg) dlg.stop(); }
   const bp=()=>{ bi.textContent=convBargeOn()?'interrupt by voice: on':'interrupt by voice: off'; bi.setAttribute('aria-pressed',convBargeOn()?'true':'false'); };
   bi.title='On: talking over the tutor stops it. Turn off if it stops itself on loud speakers — Escape and holding Space still work.';
   bi.onclick=()=>{ localStorage.setItem('cf.bargeIn',convBargeOn()?'0':'1'); bp(); }; bp(); hint.append(bi);
-  $('#speakBtn').after(document.createTextNode(' '), b, hint); })();
+  $('#speakBtn').after(document.createTextNode(' '), b, hint); cfTidyBar(); })();
 $('#speakBtn').onclick=()=>{ speakOn=!speakOn; if(speakOn) cfWarm(); localStorage.setItem('cf.speak',speakOn?'1':'0');
   $('#speakBtn').setAttribute('aria-pressed',speakOn?'true':'false'); $('#speakBtn').classList.toggle('primary',speakOn);
   if(!speakOn) cfHush(); else { if(lastSpeech) speak(lastSpeech); else toast('Replies will be read aloud — the tutor now writes a spoken version of each answer'); } };
@@ -862,7 +881,7 @@ function convGuard(){   // runs while a reply is on its way; returns its own off
 function convPaint(){ const b=$('#convBtn'); if(!b) return;
   b.classList.toggle('primary',convOn); b.setAttribute('aria-pressed',convOn?'true':'false');
   b.textContent=convOn?'● In conversation':'💬 Conversation';
-  const h=$('#convHint'); if(h) h.hidden=!convOn; }
+  const h=$('#convHint'); if(h) h.hidden=!convOn; cfMoreLabel(); }
 function convStop(why){ convOn=false; convBusy=false; try{ convRecog&&convRecog.stop() }catch(e){} convMicClose(); cfHush(); convPaint(); if(why) toast(why); }
 function convListen(){ if(!convOn||convBusy) return;
   try{ convRecog.start() }catch(e){}                      // already running: harmless
@@ -1963,7 +1982,7 @@ async function loadWeakTopics(){ const box=$('#weakTopics'); if(!box) return; le
     +(w.unknown.length?`<details><summary>Not yet known · ${w.unknown.length} (fewer than 5 reviews)</summary><ul>${w.unknown.map(line).join('')}</ul></details>`:'');
   box.querySelectorAll('[data-wgo]').forEach(b=>b.onclick=()=>{ const wk=b.dataset.wweek, go=b.dataset.wgo;
     if(go==='recall'){ rweak=false; rweek=wk; show('recall') } else if(go==='essay'){ cfWant.essay=wk; show('essay') } else openStudy(cid,wk,'notes') }); }
-async function loadProgress(){ loadCaseView(); loadWeakTopics(); const s=await api(`/courses/${cid}/stats`); $('#progSub').textContent=C().name; $('#p-cards').textContent=`${s.cards} (${s.retained})`; $('#p-reviews').textContent=s.reviews; $('#p-time').textContent=(s.study_minutes/60).toFixed(1)+' h'; $('#p-q').textContent=s.questions_asked;
+async function loadProgress(){ loadCaseView(); loadWeakTopics(); const s=await api(`/courses/${cid}/stats`); $('#progSub').textContent=C().name; $('#p-cards').textContent=s.cards; $('#p-cards').nextElementSibling.textContent=`Cards · ${s.retained} retained`; $('#p-reviews').textContent=s.reviews; $('#p-time').textContent=(s.study_minutes/60).toFixed(1)+' h'; $('#p-q').textContent=s.questions_asked;
   $('#p-next').textContent=s.due?`Clear ${s.due} due cards`:(s.cards<10?'Build the deck to at least 10 cards':(s.recall_accuracy!=null&&s.recall_accuracy<70?'Accuracy under 70% — drill the weak cards with the tutor':'Ask the tutor for an IRAC case question'));}
 
 /* init */
