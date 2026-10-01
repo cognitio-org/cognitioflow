@@ -1,5 +1,9 @@
 """
-Google sign-in (Phase 4). The signed session cookie is the only credential: no Bearer/API tokens.
+Google sign-in (Phase 4). The signed session cookie is the credential for everything the page does.
+
+One exception, approved by Matej on 2026-10-02 for Jarvis: a read-only Bearer key (`cfr_...`, see READ_ROUTES).
+It may GET Today, the due-card counts and weak topics, and nothing else - any other route or method is 403.
+Only its SHA-256 is stored; the owner makes one while signed in and sees it once.
 
   GET  /auth/login     -> Google OAuth (authlib)
   GET  /auth/callback  -> verify id_token, check ALLOWED_EMAILS, upsert users, set session
@@ -12,7 +16,7 @@ bypass user is always one real sign-in would admit; scripts/check_env.py refuses
 when ENV=production or when ALLOWED_EMAILS is empty.
 Config is read from os.environ per request, so tests can flip it.
 """
-import html, json, os, time, uuid
+import asyncio, hashlib, html, json, os, re, secrets, time, uuid
 from functools import lru_cache
 
 from authlib.integrations.starlette_client import OAuth, OAuthError
@@ -69,6 +73,35 @@ def _identity(session: dict):
     return None
 
 
+# ---------------------------------------------------------------- read-only keys
+TOKEN_PREFIX = "cfr_"
+READ_ROUTES = (re.compile(r"^/api/today$"), re.compile(r"^/api/due$"), re.compile(r"^/api/courses/[^/]+/weak-topics$"))
+
+
+def token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def owner_email() -> str:
+    """The account that may make keys: OWNER_EMAIL, else the first ALLOWED_EMAILS address."""
+    own = os.environ.get("OWNER_EMAIL", "").strip().lower()
+    return own or next((e.strip().lower() for e in os.environ.get("ALLOWED_EMAILS", "").split(",") if e.strip()), "")
+
+
+def _key_user(db, token: str):
+    """The user a live key belongs to, or None. Records when it was last used."""
+    if not token.startswith(TOKEN_PREFIX):
+        return None
+    with db() as d:
+        row = d.execute("SELECT t.id AS tid, u.id, u.email, u.name FROM api_tokens t JOIN users u ON u.id=t.user_id "
+                        "WHERE t.hash=? AND t.revoked IS NULL", (token_hash(token),)).fetchone()
+        if row:
+            d.execute("UPDATE api_tokens SET last_used=? WHERE id=?", (time.time(), row["tid"]))
+    if not row or str(row["email"]).lower() not in allowed_emails():   # an address taken off the list loses its key too
+        return None
+    return {"id": row["id"], "email": row["email"], "name": row["name"] or "", "scope": "read"}
+
+
 class AuthMiddleware:
     """Loads the session into scope['session'] (authlib needs it), gates access, re-signs the cookie on change."""
     def __init__(self, app): self.app = app
@@ -77,6 +110,17 @@ class AuthMiddleware:
         if scope["type"] == "websocket": return await self._websocket(scope, receive, send)
         if scope["type"] != "http": return await self.app(scope, receive, send)
         request = Request(scope)
+        bearer = request.headers.get("authorization", "")
+        if bearer[:7].lower() == "bearer ":   # a read-only key: never a session, never a cookie
+            user = await asyncio.to_thread(_key_user, scope["app"].state.db, bearer[7:].strip())
+            if user is None:
+                return await JSONResponse({"detail": "Unknown or revoked key"}, status_code=401)(scope, receive, send)
+            if scope["method"] != "GET" or not any(r.match(scope["path"]) for r in READ_ROUTES):
+                return await JSONResponse({"detail": "This key reads Today, the due counts and weak topics only"},
+                                          status_code=403)(scope, receive, send)
+            scope["session"] = {}
+            request.state.user = user
+            return await self.app(scope, receive, send)
         session = _load_session(request.cookies.get(COOKIE))
         before = json.dumps(session, sort_keys=True)
         scope["session"] = session
@@ -183,6 +227,42 @@ def logout(request: Request):
     resp = RedirectResponse("/auth/signed-out", status_code=303)
     resp.delete_cookie(COOKIE, httponly=True, secure=production() or request.url.hostname not in ("localhost", "127.0.0.1"), samesite="lax")
     return resp
+
+def _owner(request: Request) -> dict:
+    """The signed-in owner, by session only: a key can never make, list or revoke keys."""
+    user = current_user(request)
+    if user.get("scope") == "read" or str(user.get("email", "")).lower() != owner_email():
+        raise HTTPException(403, "Only the owner's signed-in session can manage keys")
+    return user
+
+
+@router.post("/api/tokens")
+def make_token(request: Request):
+    """A new read-only key for the owner. The key is in this response and nowhere else, ever."""
+    user = _owner(request)
+    token = TOKEN_PREFIX + secrets.token_urlsafe(32)
+    tid = uuid.uuid4().hex[:12]
+    with request.app.state.db() as d:
+        d.execute("INSERT INTO api_tokens(id,user_id,name,hash,scope,created) VALUES(?,?,?,?,?,?)",
+                  (tid, user["id"], "Jarvis (read-only)", token_hash(token), "read", time.time()))
+    return {"id": tid, "token": token, "scope": "read", "reads": ["/api/today", "/api/due", "/api/courses/{cid}/weak-topics"]}
+
+
+@router.get("/api/tokens")
+def list_tokens(request: Request):
+    user = _owner(request)
+    with request.app.state.db() as d:
+        return d.execute("SELECT id,name,scope,created,last_used,revoked FROM api_tokens WHERE user_id=? ORDER BY created DESC",
+                         (user["id"],)).fetchall()
+
+
+@router.delete("/api/tokens/{tid}")
+def revoke_token(tid: str, request: Request):
+    user = _owner(request)
+    with request.app.state.db() as d:
+        d.execute("UPDATE api_tokens SET revoked=? WHERE id=? AND user_id=? AND revoked IS NULL", (time.time(), tid, user["id"]))
+    return {"ok": True}
+
 
 @router.get("/auth/signed-out")
 def signed_out(): return _page("Signed out", "<p><a href='/'>Sign in again</a></p>")

@@ -371,6 +371,12 @@
       <span class="seg" role="group" aria-label="Order the case index" title="A–Z to tab the statute book; by year to read the doctrine as it developed"><button class="btn small" data-caseview="az" aria-pressed="true">A–Z</button><button class="btn small" data-caseview="year">By year</button></span></div>
     <div class="small muted" id="caseSub">every case across your notes · your tabbing checklist</div>
     <div id="caseIndex" class="small"></div><div id="caseTimeline" class="small" hidden></div></div>
+  <details class="panel" id="readKeys" style="margin-top:1rem"><summary><b>Read-only key for Jarvis</b> <span class="small muted">· reads Today, the due counts and weak topics, nothing else</span></summary>
+    <div class="small muted" style="margin:.5rem 0">The key is shown once. Keep it in the Keychain as <code>newsglobe.CF_READ_TOKEN</code>; revoke it here if it ever leaks.</div>
+    <button class="btn small" type="button" id="readKeyMake">Make a read-only key</button>
+    <div id="readKeyOnce" hidden style="margin:.6rem 0;display:flex;gap:.4rem;align-items:center"><input type="text" id="readKeyValue" readonly style="flex:1;font-family:monospace"><button class="btn small" type="button" id="readKeyCopy">Copy</button></div>
+    <ul class="clean small" id="readKeyList"></ul>
+  </details>
 </section>
 </main>
 </div>

@@ -1983,7 +1983,15 @@ async function loadWeakTopics(){ const box=$('#weakTopics'); if(!box) return; le
     +(w.unknown.length?`<details><summary>Not yet known · ${w.unknown.length} (fewer than 5 reviews)</summary><ul>${w.unknown.map(line).join('')}</ul></details>`:'');
   box.querySelectorAll('[data-wgo]').forEach(b=>b.onclick=()=>{ const wk=b.dataset.wweek, go=b.dataset.wgo;
     if(go==='recall'){ rweak=false; rweek=wk; show('recall') } else if(go==='essay'){ cfWant.essay=wk; show('essay') } else openStudy(cid,wk,'notes') }); }
-async function loadProgress(){ loadCaseView(); loadWeakTopics(); const s=await api(`/courses/${cid}/stats`); $('#progSub').textContent=C().name; $('#p-cards').textContent=s.cards; $('#p-cards').nextElementSibling.textContent=`Cards · ${s.retained} retained`; $('#p-reviews').textContent=s.reviews; $('#p-time').textContent=(s.study_minutes/60).toFixed(1)+' h'; $('#p-q').textContent=s.questions_asked;
+/* Read-only keys (2026-10-02, for Jarvis): made by the owner's session, shown once, revocable. */
+async function loadReadKeys(){ const ul=$('#readKeyList'); if(!ul) return; let ks=[];
+  try{ ks=await api('/tokens') }catch(_){ $('#readKeys').hidden=true; return }   // not the owner: no panel
+  const when=t=>t?new Date(t*1000).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'never';
+  ul.innerHTML=ks.map(k=>`<li>${esc(k.name)} · made ${when(k.created)} · last used ${when(k.last_used)} ${k.revoked?'· <span class="muted">revoked</span>':`<button class="btn small ghost" type="button" data-revoke="${esc(k.id)}">Revoke</button>`}</li>`).join('')||'<li class="muted">No keys yet.</li>';
+  ul.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{ await del(`/tokens/${b.dataset.revoke}`); toast('Key revoked'); loadReadKeys() }); }
+$('#readKeyMake').onclick=async()=>{ const k=await post('/tokens',{}); $('#readKeyValue').value=k.token; $('#readKeyOnce').hidden=false; $('#readKeyValue').select(); loadReadKeys(); };
+$('#readKeyCopy').onclick=async()=>{ try{ await navigator.clipboard.writeText($('#readKeyValue').value); toast('Copied — it will not be shown again') }catch(_){ $('#readKeyValue').select() } };
+async function loadProgress(){ loadReadKeys();  loadCaseView(); loadWeakTopics(); const s=await api(`/courses/${cid}/stats`); $('#progSub').textContent=C().name; $('#p-cards').textContent=s.cards; $('#p-cards').nextElementSibling.textContent=`Cards · ${s.retained} retained`; $('#p-reviews').textContent=s.reviews; $('#p-time').textContent=(s.study_minutes/60).toFixed(1)+' h'; $('#p-q').textContent=s.questions_asked;
   $('#p-next').textContent=s.due?`Clear ${s.due} due cards`:(s.cards<10?'Build the deck to at least 10 cards':(s.recall_accuracy!=null&&s.recall_accuracy<70?'Accuracy under 70% — drill the weak cards with the tutor':'Ask the tutor for an IRAC case question'));}
 
 /* init */
