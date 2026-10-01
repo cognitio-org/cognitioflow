@@ -4,8 +4,12 @@ List missing or unsafe environment configuration; exit non-zero if anything is w
 
     python3 scripts/check_env.py        # reads .env.local / .env the same way run.py does
 
-Secrets (Secret Manager in cloud, mounted as env vars): ANTHROPIC_API_KEY, DATABASE_URL,
-SESSION_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET. Plain env: ENV, AUTH, ALLOWED_EMAILS.
+Secrets (Secret Manager in cloud, mounted as env vars): LITELLM_API_KEY (or OPENROUTER_KEY), DATABASE_URL,
+SESSION_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET. Plain env: ENV, AUTH, ALLOWED_EMAILS, LLM_PROVIDER.
+
+Production never runs on the paid Anthropic API (Matej, 2026-09-30: "we don't use the Claude API"): with
+ENV=production, LLM_PROVIDER must be gateway or openrouter. Unset it would default to anthropic, which is how
+the credit ran dry that day, so the app refuses to start rather than fall back to it.
 
 run.py calls enforce() at startup. With ENV=production every problem is fatal (including AUTH=off).
 In dev only problems that make the app unusable are fatal; the rest print as warnings, so a
@@ -26,7 +30,10 @@ def problems(env=None) -> list:
     need("DATABASE_URL")
     if prod:
         if off: out.append(("AUTH=off is not allowed when ENV=production", True))
-        need({"gateway": "LITELLM_API_KEY", "openrouter": "OPENROUTER_KEY"}.get(get("LLM_PROVIDER").lower(), "ANTHROPIC_API_KEY"))
+        provider = get("LLM_PROVIDER").lower()
+        if provider not in ("gateway", "openrouter"):
+            out.append((f"LLM_PROVIDER={provider or '(unset)'} is not allowed when ENV=production: use gateway or openrouter, never the Anthropic API", True))
+        need({"gateway": "LITELLM_API_KEY", "openrouter": "OPENROUTER_KEY"}.get(provider, "LITELLM_API_KEY"))
     if off and not prod:
         need("ALLOWED_EMAILS")  # the bypass signs in as its first address
     else:

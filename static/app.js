@@ -279,7 +279,7 @@ function deskContext(note){ deskNote=note||null;
   if(deskCid!==cid){ deskCid=cid; $('#stLog').innerHTML=`<div class="st-empty small muted">Your notes and files for ${esc(C().name)} are loaded. Ask anything, or pick one below.</div>`; } }
 function deskMsg(role,text){ const d=document.createElement('div'); d.className='st-msg '+role; d.textContent=text; const l=$('#stLog'); l.querySelector('.st-empty')?.remove(); l.appendChild(d); l.scrollTop=l.scrollHeight; return d; }
 async function deskAsk(q,m){ q=(q||'').trim(); if(!q||deskBusy) return;
-  if(!cfg.has_key){ toast('No Claude API key on the server'); return; }
+  if(!cfg.has_key){ toast('No model key on the server'); return; }
   deskBusy=true; $('#stSend').disabled=true; $('#stQ').value='';
   deskMsg('user',q); const d=deskMsg('assistant','…'); d.classList.add('thinking');
   const where=study.week!=='ref'?`Week ${study.week}`:'the reference notes';
@@ -912,7 +912,7 @@ function convStart(){
 }
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&convOn){ cfHush(); } });
 
-async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_key){toast('No Claude API key on the server — add it to .env.local and restart');return}
+async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_key){toast('No model key on the server — set the provider key in .env.local and restart');return}
   cfHeardClear(); const um=addMsg('user',q); if(cfFromVoice){ um.classList.add('spoken'); um.title='Spoken' } cfFromVoice=false;
   $('#q').value=''; $('#send').disabled=true; const d=addMsg('assistant',''); let acc='', err='', early=null, spk=null, said=0;
   try{ const r=await fetch(`/api/courses/${cid}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:q,mode,model:$('#modelSel').value,speech:speakOn})});
@@ -1858,7 +1858,7 @@ function showQ(){ const it=quiz[qi]; rprog(qi,qTotal);
     const nx=document.createElement('div'); nx.className='qnext'; nx.innerHTML='<button class="btn small" id="qn">Next</button>';
     $('#qcard').appendChild(nx); $('#qn').onclick=()=>{ qi++; showQ(); }; $('#qn').focus();
   }); }
-$('#genCards').onclick=async()=>{if(!cfg.has_key){toast('No Claude API key on the server — add it to .env.local and restart');return} $('#genCards').disabled=true; toast('Writing cards…'); try{const r=await post(`/courses/${cid}/cards/generate`,{file_id:$('#genFrom').value||null,count:8});toast(`${r.made} cards added`);loadRecall()}catch(e){toast('Failed: '+e.message)} $('#genCards').disabled=false;};
+$('#genCards').onclick=async()=>{if(!cfg.has_key){toast('No model key on the server — set the provider key in .env.local and restart');return} $('#genCards').disabled=true; toast('Writing cards…'); try{const r=await post(`/courses/${cid}/cards/generate`,{file_id:$('#genFrom').value||null,count:8});toast(`${r.made} cards added`);loadRecall()}catch(e){toast('Failed: '+e.message)} $('#genCards').disabled=false;};
 $('#addCard').onclick=async()=>{const f=prompt('Front'); if(!f) return; const b=prompt('Back'); if(!b) return; await post(`/courses/${cid}/cards`,{front:f,back:b,source:'manual'}); loadRecall();};
 $('#showAll').onclick=()=>{$('#allCards').hidden=!$('#allCards').hidden};
 function renderAll(all){ $('#cardRows').innerHTML=all.map(c=>`<tr><td>${esc(c.front)}</td><td class="small">${esc(c.back)}</td><td class="small muted">${c.week?'W'+c.week:''}</td><td class="small muted">${c.due}</td><td><button class="btn small ghost" data-delcard="${c.id}">Remove</button></td></tr>`).join(''); document.querySelectorAll('[data-delcard]').forEach(b=>b.onclick=async()=>{

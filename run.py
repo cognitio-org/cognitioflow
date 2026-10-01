@@ -322,7 +322,7 @@ def healthz():
 
 @app.get("/api/config")
 def config(user: dict = Depends(current_user)): return {"email": user["email"], "model": MODEL, "cheap_model": CHEAP_MODEL, "strong_model": STRONG_MODEL, "models": MODELS,
-                      "has_key": bool(os.environ.get("ANTHROPIC_API_KEY")), "voice": {"gemini": voice.available(), "dialog": dialog.available(), **tts.describe()}}
+                      "has_key": llm.has_key(), "voice": {"gemini": voice.available(), "dialog": dialog.available(), **tts.describe()}}
 
 @app.websocket("/api/voice/live")
 async def voice_live(websocket: WebSocket, course: str = ""):
@@ -2497,7 +2497,7 @@ def _docket_start(cid: str, ids: list):
 
 def docket_autodraft(cid: str):
     """Queue a game for every week whose material is newer than its last game. Safe to call often."""
-    if not (DOCKET_AUTO and os.environ.get("ANTHROPIC_API_KEY")): return []
+    if not (DOCKET_AUTO and llm.has_key()): return []
     _docket_collect_stale(cid)
     weeks = _docket_due(cid)
     ids = _docket_queue(cid, weeks) if weeks else []
@@ -2606,7 +2606,7 @@ def docket_write_now(cid: str, w: DocketWriteIn, user: dict = Depends(current_us
     """Write a game for a week now, new material or not."""
     _own_course(cid, user)
     if not DOCKET_AUTO: raise HTTPException(400, "Games are written on the Mac and arrive here as drafts; the server does not write them.")
-    if not os.environ.get("ANTHROPIC_API_KEY"): raise HTTPException(400, "No Claude API key on the server.")
+    if not llm.has_key(): raise HTTPException(400, f"No model key on the server ({llm.key_name()}).")
     if not _docket_files(cid, w.week.strip()): raise HTTPException(400, f"No ticked files with text for week {w.week}.")
     _docket_collect_stale(cid)
     if rows("SELECT 1 FROM docket_games WHERE course_id=? AND week=? AND status='writing'", cid, w.week.strip()):
@@ -2905,7 +2905,7 @@ def _finish_transcription(job, segments, language):
         text = stt.format_capture(segments or [], rid)
         stamp = time.strftime("%d %b %H:%M"); block = f"\n\n## Live capture — transcript {stamp}\n" + text
         cleaned = False
-        if text and os.environ.get("ANTHROPIC_API_KEY") and os.environ.get("CF_AUTO_CLEAN", "1") == "1":
+        if text and llm.has_key() and os.environ.get("CF_AUTO_CLEAN", "1") == "1":
             try:
                 cid = rows("SELECT course_id FROM notes WHERE id=?", nid)[0]["course_id"]
                 text = clean_text(cid, text); cleaned = True
@@ -3653,5 +3653,5 @@ app.mount("/play/player", PlayerFiles(directory=PLAY_DIR / "player"), name="play
 
 if __name__ == "__main__":
     import uvicorn
-    print(f"\nCognitioFlow → http://localhost:8000   (model: {MODEL}, key set: {bool(os.environ.get('ANTHROPIC_API_KEY'))})\n")
+    print(f"\nCognitioFlow → http://localhost:8000   (model: {MODEL}, key set: {llm.has_key()})\n")
     uvicorn.run(app, host="127.0.0.1", port=8000)
