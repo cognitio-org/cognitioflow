@@ -1,0 +1,104 @@
+# Daily drill check (plan to exam day, 2026-10-02): every morning, on a throwaway Neon branch of production, open
+# what Matej drills with - for every course Today, the due cards, a quiz, one rating and the mock papers - with
+# model calls blocked. Read-only towards production: the one rating lands on the branch, which is deleted after.
+# Counts only in the log and the issue, never content. When it fails it opens (or comments on) a "drill-check"
+# issue, so a broken drill is found at 06:00 and not in the middle of a revision session.
+#
+# Same Neon pattern as the `test` job in deploy.yml (#138): create, mask the URI, run, always delete.
+name: drill check
+
+on:
+  schedule:
+    - cron: "0 4 * * *"      # 06:00 Amsterdam in summer time, 05:00 in winter
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: drill-check
+  cancel-in-progress: false
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEON_DATABASE: ${{ vars.NEON_DATABASE || 'cognitioflow' }}
+      NEON_ROLE: ${{ vars.NEON_ROLE || 'neondb_owner' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Branch expiry (safety net if the delete step never runs)
+        id: expiry
+        run: echo "at=$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Create Neon branch of production
+        id: neon
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          branch_name: drill-${{ github.run_id }}-${{ github.run_attempt }}
+          database: ${{ env.NEON_DATABASE }}
+          role: ${{ env.NEON_ROLE }}
+          expires_at: ${{ steps.expiry.outputs.at }}
+
+      # The action does not mask its db_url/password outputs, so fetch the URI here and mask it first.
+      - name: Connection string (masked)
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          BRANCH_ID: ${{ steps.neon.outputs.branch_id }}
+        run: |
+          uri=$(curl -fsS -H "Authorization: Bearer $NEON_API_KEY" -H "Accept: application/json" \
+            "https://console.neon.tech/api/v2/projects/$PROJECT_ID/connection_uri?branch_id=$BRANCH_ID&database_name=$NEON_DATABASE&role_name=$NEON_ROLE&pooled=false" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["uri"])')
+          echo "::add-mask::$uri"
+          echo "DATABASE_URL=$uri" >> "$GITHUB_ENV"
+
+      - name: Drill and mock on a copy of production
+        id: check
+        env:
+          AUTH: "off"
+          ALLOWED_EMAILS: matej@mgms.eu
+          ANTHROPIC_API_KEY: sk-ant-test-key
+          STORAGE: local
+        run: |
+          set -o pipefail
+          python scripts/drill_check.py 2>&1 | grep -vE '^\s*skip |DeprecationWarning|from authlib' | tee drill.txt
+
+      - name: Open or update the drill-check issue
+        if: failure() && steps.check.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          body=$(printf 'The daily drill check failed on a copy of production (%s).\n\n```\n%s\n```\n\nRun: %s\n' \
+            "$(date -u +%F)" "$(tail -n 40 drill.txt 2>/dev/null || echo 'no output')" "$run_url")
+          n=$(gh issue list --label drill-check --state open --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --body "$body"
+          else
+            gh label create drill-check --color B60205 --description "Daily drill check" 2>/dev/null || true
+            gh issue create --title "Drill check failed" --label drill-check --body "$body"
+          fi
+
+      - name: Delete Neon branch
+        if: always() && steps.neon.outputs.branch_id != ''
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          BRANCH_ID: ${{ steps.neon.outputs.branch_id }}
+        run: |
+          curl -fsS -o /dev/null -X DELETE -H "Authorization: Bearer $NEON_API_KEY" -H "Accept: application/json" \
+            "https://console.neon.tech/api/v2/projects/$PROJECT_ID/branches/$BRANCH_ID"
+          echo "Deleted Neon branch $BRANCH_ID"
