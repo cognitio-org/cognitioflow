@@ -1059,6 +1059,12 @@ HOUSE STYLE for notes (readability first):
 
 MODES = {
     "drill": ("Mode: Socratic drill. Ask one question, wait, then correct firmly and specifically. "
+              "When he has answered, the written part opens with a verdict line: **✓ Right**, **◐ Nearly** or **✗ Not yet**, "
+              "then one line in his own terms: what he got, and exactly what was missing or wrong. Build on his answer: "
+              "after Nearly or Not yet, ask a narrower question on the missing piece before moving on; after Right, go one "
+              "step further (the limit, the exception, the case that narrows it, or the rule applied to facts). Never re-state "
+              "a rule or case you showed him in the last few turns - name it (\"as in Tobacco Advertising\") and add only what "
+              "is new. End with the next question alone on its last line, as: > **Next:** ... "
               "When he is talking rather than answering — a greeting, a question about the course, a request — "
               "talk back like a tutor in a corridor, then return to drilling."),
     "explain": "Mode: explain. Give a tight, structured explanation with references to the files (file name, slide/page where visible).",
@@ -1080,11 +1086,20 @@ VOICE_RULE = ("VOICE IS ON: he is listening, not reading. Open your reply with <
               "tags, case names said as a person says them. Sound like a warm, encouraging tutor sitting next to him: "
               "contractions, a natural rhythm, a quick friendly word when it fits (\"Good question.\", \"Nearly -\"), never "
               "curt or clipped. Then close the tag and write the screen part as a compact "
-              "visual card he can glance at while you talk: a one-line **bold rule**, the deciding *case* with its "
-              "citation, and - when the structure has parts or steps - a small table or a ```mermaid flowchart. "
-              "No preamble, no repeating the spoken part. The spoken part asks or answers; the screen carries the "
-              "rules, articles and cases.")
+              "visual card he can glance at while you talk: when he has just answered, the verdict line first; then a "
+              "one-line **bold rule** and the deciding *case* with its citation, ONLY if they are new to this conversation; "
+              "and - when the structure has parts or steps - a small table or a ```mermaid flowchart. A question you ask "
+              "goes last, alone, as > **Next:** ... No preamble, no repeating the spoken part. The spoken part asks or "
+              "answers; the screen carries the rules, articles and cases.")
 SPEECH_BLOCK = re.compile(r"<speech>[\s\S]*?(?:</speech>|$)\s*")
+
+
+def _said_plain(content: str) -> str:
+    """A saved reply keeps what the tutor said aloud (asked for 2026-10-01: its spoken feedback was thrown away, so
+    the next turn re-taught what it had just said). The model reads it back as a plain line, not as the tag it is
+    asked to write, so a turn with the voice off does not learn to answer in tags."""
+    m = re.match(r"\s*<speech>([\s\S]*?)</speech>\s*", content or "")
+    return f"(Said aloud: {m.group(1).strip()})\n\n{content[m.end():]}" if m else (content or "")
 
 @app.get("/api/courses/{cid}/messages")
 def messages(cid: str): return rows("SELECT id,role,content,created FROM messages WHERE course_id=? ORDER BY created", cid)
@@ -1122,7 +1137,7 @@ def _tutor_prompt(cid: str, course, mode: str, speech: bool, question: str):
         system.append({"type": "text", "text": notes_block, "cache_control": {"type": "ephemeral"}})
     if speech:   # after the cached blocks, so turning the voice on does not throw the file cache away
         system.append({"type": "text", "text": VOICE_RULE})
-    history = [{"role": m["role"], "content": m["content"]} for m in messages(cid)][-30:]
+    history = [{"role": m["role"], "content": _said_plain(m["content"])} for m in messages(cid)][-30:]
     if history:   # the conversation so far is cached too: measured 2026-09-24, ~12k history tokens were re-sent uncached on every turn
         history[-1] = {"role": history[-1]["role"], "content": [{"type": "text", "text": history[-1]["content"], "cache_control": {"type": "ephemeral"}}]}
     return system, history, images, narrowed
@@ -1188,9 +1203,10 @@ def chat(cid: str, body: ChatIn):
                 yield f"data: {json.dumps({'usage': llm.usage(s.get_final_message(), body.mode)})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
-        full = SPEECH_BLOCK.sub("", "".join(out)).strip()   # the spoken part was for the ear; the record keeps the written answer
-        if full:
-            with db() as d: d.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uuid.uuid4().hex, cid, "assistant", full, time.time()))
+        reply = "".join(out).strip()
+        full = SPEECH_BLOCK.sub("", reply).strip()   # the written answer: what the citation check and the screen read
+        if full:   # the record keeps the spoken line too, so the next turn knows what it already said
+            with db() as d: d.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uuid.uuid4().hex, cid, "assistant", reply, time.time()))
             # An invented ECLI reads exactly like a real one. Every case, ECLI and article the answer cites is
             # looked up in the full text of the ticked files - not only the passages sent - and the ones found
             # nowhere are named under the answer. With nothing ticked there is nothing to check against, so
@@ -2507,7 +2523,8 @@ def search(cid: str, q: str, limit: int = 20):
     for f in rows("SELECT id,name,text,week FROM files WHERE course_id=? AND (name LIKE ? OR text LIKE ?) ORDER BY created DESC LIMIT ?", cid, like, like, limit):
         out.append({"kind": "file", "id": f["id"], "title": f["name"], "snippet": snip(f["text"]), "week": f["week"]})
     for m in rows("SELECT id,role,content,created FROM messages WHERE course_id=? AND content LIKE ? ORDER BY created DESC LIMIT ?", cid, like, limit):  # noqa: E501
-        out.append({"kind": "chat", "id": m["id"], "title": ("You: " if m["role"] == "user" else "Tutor: ") + m["content"][:60].replace("\n", " "), "snippet": snip(m["content"])})
+        text = re.sub(r"</?speech>", "", m["content"] or "")
+        out.append({"kind": "chat", "id": m["id"], "title": ("You: " if m["role"] == "user" else "Tutor: ") + text[:60].replace("\n", " "), "snippet": snip(text)})
     for c in rows("SELECT id,front,back FROM cards WHERE course_id=? AND (front LIKE ? OR back LIKE ?) LIMIT ?", cid, like, like, limit):
         out.append({"kind": "card", "id": c["id"], "title": c["front"], "snippet": snip(c["back"])})
     exact = {(o["kind"], o["id"]) for o in out}

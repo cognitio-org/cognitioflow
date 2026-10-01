@@ -19,6 +19,7 @@ The system instruction is built by the caller from the course's own tutor prompt
 so the spoken tutor answers under the same rules as the typed one.
 """
 import asyncio
+import logging
 import json
 import os
 import time
@@ -123,6 +124,7 @@ async def relay(websocket, system, connect=None, clock=time.monotonic, sleep=asy
             finally:
                 receiving.cancel()
     except Exception as e:   # Vertex refused, quota, model name wrong, network: the page falls back to its own loop
+        logging.getLogger("cf.voice").warning("Gemini live tutor failed: %s: %s", type(e).__name__, str(e)[:300])
         summary["error"] = f"The spoken tutor is unavailable right now ({type(e).__name__})."
         try:
             await websocket.send_json({"error": summary["error"]})

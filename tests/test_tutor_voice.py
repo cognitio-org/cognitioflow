@@ -1,4 +1,4 @@
-"""Voice on: Claude opens with a short <speech> block the page speaks at once; the record keeps the written answer.
+"""Voice on: Claude opens with a short <speech> block the page speaks at once; the record keeps both parts.
 
 Until 2026-09-24 the page sent speech: true and the server ignored it, so a spoken reply waited for the
 whole written answer and then read all of it aloud.
@@ -42,12 +42,50 @@ def test_voice_off_sends_no_voice_rule(client):
     assert all(b["text"] != run.VOICE_RULE for b in system)
 
 
-def test_the_spoken_part_streams_to_the_page_but_is_not_kept_in_the_record(client):
+def test_the_spoken_part_streams_to_the_page_and_is_kept_in_the_record(client):
+    # 2026-10-01: dropping it lost the tutor's spoken feedback, so the next turn re-taught what it had just said
     cid, _, body = _chat(client, speech=True)
     streamed = "".join(json.loads(l[6:]).get("t", "") for l in body.split("\n\n") if l.startswith("data: {"))
     assert "<speech>" in streamed
     saved = [m["content"] for m in client.get(f"/api/courses/{cid}/messages").json() if m["role"] == "assistant"]
-    assert saved == ["**Van Gend en Loos** (Case 26/62) [LECTURE]"]
+    assert saved == ["<speech>Direct effect needs a clear, precise, unconditional provision.</speech>"
+                     "**Van Gend en Loos** (Case 26/62) [LECTURE]"]
+
+
+def test_the_next_turn_reads_what_was_said_aloud_as_plain_text(client):
+    cid, _, _ = _chat(client, speech=True)
+
+    class FakeStream:
+        text_stream = iter(["ok"])
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    fake = mock.MagicMock()
+    fake.messages.stream.return_value = FakeStream()
+    with mock.patch.object(run, "client", return_value=fake):
+        client.post(f"/api/courses/{cid}/chat", json={"message": "and Costa?", "mode": "drill", "speech": False})
+    history = fake.messages.stream.call_args.kwargs["messages"]
+    said = [m for m in history if m["role"] == "assistant"][0]["content"]
+    said = said if isinstance(said, str) else said[0]["text"]
+    assert said.startswith("(Said aloud: Direct effect needs a clear, precise, unconditional provision.)")
+    assert "<speech>" not in said and "Van Gend en Loos" in said
+
+
+def test_a_reply_without_a_spoken_part_reads_back_unchanged():
+    assert run._said_plain("**Rule** text") == "**Rule** text" and run._said_plain(None) == ""
+
+
+def test_search_shows_the_words_not_the_tag(client):
+    cid, _, _ = _chat(client, speech=True)
+    hits = client.get(f"/api/courses/{cid}/search", params={"q": "unconditional"}).json()
+    chat = [h for h in (hits if isinstance(hits, list) else hits.get("results", [])) if h["kind"] == "chat"]
+    assert chat and all("<speech>" not in h["title"] + h["snippet"] for h in chat)
+
+
+def test_drill_marks_the_answer_then_asks_the_next_question_last():
+    d = run.MODES["drill"]
+    assert "✓ Right" in d and "◐ Nearly" in d and "✗ Not yet" in d and "> **Next:**" in d
+    assert "Never re-state" in d and "**Next:**" in run.VOICE_RULE
 
 
 def test_voice_sockets_are_allowed_an_hour_on_cloud_run():

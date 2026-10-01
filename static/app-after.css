@@ -118,8 +118,15 @@
 .msg.user.live::after{content:"";display:inline-block;width:.45em;height:.45em;margin-left:.55em;border-radius:50%;background:var(--accent);vertical-align:middle;animation:cf-listening 1.1s ease-in-out infinite}
 @keyframes cf-listening{50%{opacity:.2}}
 @media (prefers-reduced-motion:reduce){.msg.user.live::after{animation:none}}
-.msg .said{font-family:var(--serif);font-style:italic;color:var(--graphite);font-size:.92rem;line-height:1.45;margin:0 0 .6rem;padding:0 0 .55rem;border-bottom:1px solid var(--rule)}
-.msg .said::before{content:"🔊";font-style:normal;margin-right:.45rem;opacity:.75}
+/* The spoken line is the feedback, so it reads as plainly as the rest: not a grey italic aside (2026-10-01). */
+.msg .said{color:var(--ink);font-size:.95rem;line-height:1.55;margin:0 0 .65rem;padding:0 0 .6rem;border-bottom:1px solid var(--rule);white-space:normal}
+.msg .said::before{content:"🔊";margin-right:.45rem;opacity:.6}
+.msg.md p.verdict{margin-bottom:.4rem}
+.msg.md p.verdict>strong:first-child{font-weight:650}
+.msg.md p.verdict.ok>strong:first-child{color:var(--ok)} .msg.md p.verdict.part>strong:first-child{color:var(--warn)} .msg.md p.verdict.miss>strong:first-child{color:var(--bad)}
+.msg.md blockquote.next{margin:.75rem 0 .25rem;padding:.6rem .85rem;border-left:3px solid var(--accent);background:var(--raised);border-radius:6px;color:var(--ink);font-size:1rem}
+.msg.md blockquote.next p{margin:0}
+#chat{scrollbar-gutter:stable;padding-right:.4rem}   /* replies were running under the scrollbar */
 .modes{flex-wrap:wrap;row-gap:.4rem}
 .modes > span{flex-wrap:wrap;justify-content:flex-end;row-gap:.35rem}
 .modes .btn,.modes select{white-space:nowrap}
