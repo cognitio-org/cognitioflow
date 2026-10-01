@@ -1119,10 +1119,132 @@ EXAM_PREP_RULE = ("\nEXAM PREPARATION: this course's files include past exam pap
                   "Never show a past paper's model answer before he has answered that question himself.")
 
 
+# ---------------------------------------------------------------- the lean voice turn (asked for 2026-10-02)
+# Measured on the cost log 2026-10-01: a spoken turn sent ~88k tokens (files 45k, notes 40k, history) to answer in
+# ~350, and on the gateway model a cached token costs what a fresh one does. The files were also the first ~13% of
+# EU Law's 1.35M characters, the same slice every turn. A spoken turn drills one week, so it reads that week whole
+# - its notes and files - plus the past papers, the course-wide notes and a one-page map of every week.
+VOICE_LEAN = os.environ.get("CF_VOICE_LEAN", "on").strip().lower() == "on"
+VOICE_NOTES_CHARS = int(os.environ.get("CF_VOICE_NOTES_CHARS", "40000"))   # the week's own notes
+VOICE_FILES_CHARS = int(os.environ.get("CF_VOICE_FILES_CHARS", "30000"))   # the week's files, in the course's order of authority
+VOICE_EXAM_CHARS = int(os.environ.get("CF_VOICE_EXAM_CHARS", "15000"))     # past papers: drilling is exam-shaped
+VOICE_REF_CHARS = int(os.environ.get("CF_VOICE_REF_CHARS", "10000"))       # course-wide notes
+VOICE_MAP_CHARS = 3000
+VOICE_HISTORY = 10
+_TERM = re.compile(r"[a-z][a-z'\-]{3,}|\d{2,4}")
+_STOPWORDS = set("that this with from have what which when then they them their there your about would could should "
+                 "into than only also must does been being were will just like more most some such very each other "
+                 "case cases article articles question answer week court".split())
+_WORD_NUMBERS = "one two three four five six seven eight nine ten eleven twelve".split()
+_WEEK_TERMS: dict = {}   # course -> (signature, {week: set(terms)}); rebuilt when a note or a ticked file changes
+
+
+def _terms(text: str) -> set:
+    return {t for t in _TERM.findall((text or "").lower()) if t not in _STOPWORDS}
+
+
+def _week_terms(cid: str) -> dict:
+    sig = rows("SELECT (SELECT COUNT(*) FROM notes WHERE course_id=?) AS n, (SELECT COALESCE(MAX(updated),0) FROM notes WHERE course_id=?) AS u, "
+               "(SELECT COUNT(*) FROM files WHERE course_id=? AND selected=1) AS f, (SELECT COALESCE(SUM(chars),0) FROM files WHERE course_id=? AND selected=1) AS c",
+               cid, cid, cid, cid)[0]
+    sig = (sig["n"], float(sig["u"] or 0), sig["f"], int(sig["c"] or 0))
+    hit = _WEEK_TERMS.get(cid)
+    if hit and hit[0] == sig:
+        return hit[1]
+    weeks: dict = {}
+    for n in countdown.sort_notes([dict(r) for r in rows("SELECT id,title,body,length(body) AS chars FROM notes WHERE course_id=?", cid)])["weeks"].items():
+        weeks.setdefault(str(n[0]), set()).update(*(_terms(x["title"] + " " + (x["body"] or "")[:200000]) for x in n[1]))
+    for f in rows("SELECT name,week,text FROM files WHERE course_id=? AND selected=1 AND kind<>'image'", cid):
+        w = str(f["week"] or "").strip()
+        if w and (f["text"] or "").strip():
+            weeks.setdefault(w, set()).update(_terms(f["name"] + " " + (f["text"] or "")[:60000]))
+    _WEEK_TERMS[cid] = (sig, weeks)
+    return weeks
+
+
+def _named_week(text: str):
+    named = countdown.week_of(text)
+    if named is None:   # spoken, so "week three" as often as "week 3"
+        m = re.search(r"(?i)\b(?:week|wk)\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b", text or "")
+        named = (_WORD_NUMBERS.index(m.group(1).lower()) + 1) if m else None
+    return named
+
+
+def _voice_week(cid: str, question: str, recent: list):
+    """The week this spoken turn is about: one he names, else the week whose notes and files share the rarest words
+    with what he just said and what the tutor last asked (weighted 3, 2, then 1 for the turns before)."""
+    weeks = _week_terms(cid)
+    if not weeks:
+        return None
+    for said in [question] + list(reversed(recent[-4:])):   # a week he named stays the week until he names another
+        named = _named_week(said)
+        if named is not None and str(named) in weeks:
+            return str(named)
+    weighted = [(question, 3.0)] + [(m, 2.0 if i == 0 else 1.0) for i, m in enumerate(reversed(recent[-4:]))]
+    idf = {}
+    score = {w: 0.0 for w in weeks}
+    for text, weight in weighted:
+        for t in _terms(text):
+            if t not in idf:
+                df = sum(1 for ts in weeks.values() if t in ts)
+                idf[t] = 0.0 if not df else 1.0 / df   # a word in every week says nothing; one in a single week says a lot
+            if idf[t]:
+                for w, ts in weeks.items():
+                    if t in ts: score[w] += weight * idf[t]
+    best = max(score, key=lambda w: (score[w], -int(w) if w.isdigit() else 0))
+    return best if score[best] > 0 else None
+
+
+def _voice_context(cid: str, question: str, recent: list):
+    """(file parts, notes block, week) for a spoken turn: see VOICE_LEAN above. Whole-course turns use build_context."""
+    week = _voice_week(cid, question, recent)
+    fs = sorted(rows("SELECT name,week,role,kind,text FROM files WHERE course_id=? AND selected=1 ORDER BY created", cid),
+                key=lambda f: ROLE_ORDER.get(f.get("role") or "", len(ROLE_ORDER)))
+
+    def take(items, budget):
+        out, used = [], 0
+        for f in items:
+            t = f["text"] or ""
+            if not t.strip() or used >= budget: continue
+            t = t[:budget - used]; used += len(t)
+            out.append(f"<file name=\"{f['name']}\" week=\"{f['week']}\">\n{t}\n</file>")
+        return out
+    texts = [f for f in fs if f["kind"] != "image"]
+    parts = take([f for f in texts if (f["role"] or "") == "exam"], VOICE_EXAM_CHARS)
+    parts += take([f for f in texts if week and str(f["week"] or "").strip() == week and (f["role"] or "") != "exam"], VOICE_FILES_CHARS)
+    sorted_ = countdown.sort_notes([dict(n) for n in rows("SELECT id,title,body,length(body) AS chars FROM notes WHERE course_id=?", cid)])
+    notes, used = [], 0
+    for n in sorted(sorted_["weeks"].get(int(week), []) if week and week.isdigit() else [], key=lambda n: n["title"]):
+        body = (n["body"] or "")[:max(0, VOICE_NOTES_CHARS - used)]; used += len(body)
+        if body: notes.append(f"<note title=\"{n['title']}\">\n{body}\n</note>")
+    used = 0
+    for n in sorted(sorted_["reference"], key=lambda n: n["title"]):
+        body = (n["body"] or "")[:max(0, VOICE_REF_CHARS - used)]; used += len(body)
+        if body: notes.append(f"<note title=\"{n['title']}\">\n{body}\n</note>")
+    lines = []
+    for w in sorted({str(k) for k in sorted_["weeks"]} | {str(f["week"]).strip() for f in texts if str(f["week"] or "").strip()},
+                    key=lambda w: (not w.isdigit(), int(w) if w.isdigit() else 0, w)):
+        titles = [n["title"] for n in sorted_["weeks"].get(int(w), [])] if w.isdigit() else []
+        names = [f["name"] for f in texts if str(f["week"] or "").strip() == w]
+        lines.append(f"Week {w}: " + "; ".join(titles + names))
+    course_map = "\n".join(lines)[:VOICE_MAP_CHARS]
+    head = (f"SPOKEN TURN: this turn reads week {week} in full" if week else "SPOKEN TURN: no single week stood out, so this turn reads the past papers and course-wide notes") + \
+           (", plus the past papers and the course-wide notes. If he moves to another week, answer from the map below and his notes as far as they go, and say "
+            "the full material for that week arrives with his next turn.\nCOURSE MAP:\n" + course_map)
+    notes_block = head + ("\n\nHIS NOTES:\n" + "\n\n".join(notes) if notes else "")
+    return parts, notes_block, week
+
+
 def _tutor_prompt(cid: str, course, mode: str, speech: bool, question: str):
     """The system blocks and history a tutor turn sends. One builder, so the voice's cache warm-up
     (/warm) writes exactly the prefix the next real turn will read."""
-    text_parts, images, narrowed = build_context(cid, question)
+    past = messages(cid)
+    lean = speech and VOICE_LEAN
+    if lean:
+        text_parts, notes_lean, _week = _voice_context(cid, question, [m["content"] for m in past])
+        images, narrowed = [], None
+    else:
+        text_parts, images, narrowed = build_context(cid, question)
     exam_rule = EXAM_PREP_RULE if rows("SELECT 1 FROM files WHERE course_id=? AND selected=1 AND role='exam' LIMIT 1", cid) else ""
     system = [{"type": "text", "text": BASE_PROMPT + "\n" + (course["tutor_prompt"] or "") + exam_rule + "\n" + MODES.get(mode, MODES["drill"])}]
     log.debug("tutor system prompt (course %s, mode %s):\n%s", cid, mode, system[0]["text"])
@@ -1130,14 +1252,16 @@ def _tutor_prompt(cid: str, course, mode: str, speech: bool, question: str):
         heading = "COURSE PASSAGES (from the files you ticked; quote them):" if narrowed else "COURSE FILES:"
         trimmed = f"\n\n[Not included for this question: {', '.join(narrowed['trimmed'])}. Ask to read everything if you need them.]" if (narrowed and narrowed["trimmed"]) else ""
         system.append({"type": "text", "text": heading + "\n" + "\n\n".join(text_parts) + trimmed, "cache_control": {"type": "ephemeral"}})
+    elif lean and rows("SELECT 1 FROM files WHERE course_id=? AND selected=1 LIMIT 1", cid):
+        system.append({"type": "text", "text": "COURSE FILES: none for this turn's week; the course map lists every file. Say so if the question needs one."})
     else:
         system.append({"type": "text", "text": "COURSE FILES: none selected. Say so if the question needs them."})
-    notes_block = _study_notes_block(cid)
+    notes_block = notes_lean if lean else _study_notes_block(cid)
     if notes_block:   # his notes, week by week, cached like the files: asked for 2026-09-29 ("the tutor has all the notes loaded")
         system.append({"type": "text", "text": notes_block, "cache_control": {"type": "ephemeral"}})
     if speech:   # after the cached blocks, so turning the voice on does not throw the file cache away
         system.append({"type": "text", "text": VOICE_RULE})
-    history = [{"role": m["role"], "content": _said_plain(m["content"])} for m in messages(cid)][-30:]
+    history = [{"role": m["role"], "content": _said_plain(m["content"])} for m in past][-(VOICE_HISTORY if lean else 30):]
     if history:   # the conversation so far is cached too: measured 2026-09-24, ~12k history tokens were re-sent uncached on every turn
         history[-1] = {"role": history[-1]["role"], "content": [{"type": "text", "text": history[-1]["content"], "cache_control": {"type": "ephemeral"}}]}
     return system, history, images, narrowed
@@ -1166,8 +1290,11 @@ def warm(cid: str, body: WarmIn):
     if not course: raise HTTPException(404)
     if RETRIEVAL and embed.ready():   # each question gets its own passages, so there is no shared prefix to warm
         return {"warmed": False, "why": "retrieval narrows the files per question"}
-    system, history, _, _ = _tutor_prompt(cid, course[0], body.mode, True, "")
     chosen = _turn_model(body.mode, body.model, "", True)
+    price = llm.PRICES.get(chosen) or llm.PRICES.get(llm.resolve(chosen))
+    if price and price[1] >= price[0]:   # gpt-6-luna bills a cached token like a fresh one: warming only adds a call
+        return {"warmed": False, "why": "no cache discount on this model"}
+    system, history, _, _ = _tutor_prompt(cid, course[0], body.mode, True, "")
     try:
         r = client().messages.create(model=llm.resolve(chosen), max_tokens=1, system=system,
                                      messages=history + [{"role": "user", "content": "(loading the course; reply with one word)"}])
