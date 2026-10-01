@@ -89,7 +89,7 @@ jobs:
   test:
     needs: fast          # a broken PR has already failed, a minute in, without touching Neon
     runs-on: ubuntu-latest
-    timeout-minutes: 50   # 19m47s alone on 2026-09-17; on 2026-09-29 #125 and #127 hit 35 with several runs sharing Neon
+    timeout-minutes: 15   # migrations + reads only since 2026-09-30; the full suite here took 20-35 min
     # On main, a newer merge cancels this job, queued or running: its run tests a tree that already
     # holds this commit, and the deploy guard below would skip this build anyway. On 2026-09-29 five
     # main runs sat in line at ~20 Neon minutes each. Only this job is cancelled; `fast` still runs
@@ -107,11 +107,11 @@ jobs:
         with:
           fetch-depth: 0   # the scope step diffs against the base
 
-      # `fast` already ran this exact `make test` against a pgvector container in 1-3 minutes.
-      # This job re-runs it against a Neon branch: 21-22 minutes, almost all network to
-      # eu-central-1. That only earns its time when the change could behave differently against
-      # production's own database. #74, #75, #78 and #79 were CI and lint changes and each paid
-      # 21 minutes to re-prove what `fast` proved two minutes earlier.
+      # `fast` already ran `make test` against a pgvector container in 1-3 minutes. This job checks
+      # migrations and reads against a Neon branch of production. That only earns its time when
+      # the change could behave differently against production's own database. #74, #75, #78 and
+      # #79 were CI and lint changes and each paid 21 minutes to re-prove what `fast` proved two
+      # minutes earlier.
       #
       # The job still runs and still reports, so the required check is never left pending. It just
       # stops before touching Neon when no database-facing file changed.
@@ -197,15 +197,19 @@ jobs:
           echo "::add-mask::$uri"
           echo "DATABASE_URL=$uri" >> "$GITHUB_ENV"
 
-      - name: make test
+      # Not `make test`: its per-test TRUNCATE empties this copy after the first test, so 546 tests
+      # spent 20-35 minutes crossing to eu-central-1 to re-prove what `fast` proved in 1-3. What only
+      # production's own rows can show is checked here: migrations apply to them (twice, the second a
+      # no-op) and every GET route under /api answers 200 for the real data, with model calls
+      # blocked. Counts only, never content.
+      - name: Migrations and reads on a copy of production
         if: steps.scope.outputs.db == 'true'
         env:
           AUTH: "off"
           ALLOWED_EMAILS: matej@mgms.eu
           ANTHROPIC_API_KEY: sk-ant-test-key
           STORAGE: local
-          PYTEST_ADDOPTS: --durations=15   # the slowest tests, so the next speed-up is aimed, not guessed
-        run: make test
+        run: python scripts/ci_prod_copy_check.py
 
       # A direct API call: neondatabase/delete-branch-action (v3.2.1 included) still pins setup-node v4,
       # which runs on the deprecated Node 20.
