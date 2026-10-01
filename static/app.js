@@ -256,6 +256,7 @@ async function loadStudy(){ if(!study.course) study.course=cid; setCourse(study.
   el.appendChild(mk);
   if(study.tab==='tutor'){ study.tab='notes'; deskAsk(`Drill me on ${wk?'Week '+wk:'the course'}, one question at a time.`,'drill'); } }
 $('#studyBack').onclick=()=>show('home');
+$('#studyPack').onclick=()=>window.open(`/static/pack.html?course=${encodeURIComponent(cid)}&print=1`,'_blank');   // its own page, light, printed from there
 /* The practice screens open on the same week. Each reads cfWant once, when it next fills its week picker. */
 let cfWant={};
 function studyGo(tab){ const wk=study.week!=='ref'?study.week:'';
