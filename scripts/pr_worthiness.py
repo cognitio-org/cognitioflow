@@ -51,6 +51,26 @@ from dataclasses import dataclass, field
 
 MARKER = "<!-- pr-worthiness -->"
 BOT = "github-actions[bot]"
+# Only these authors get a model review, a verdict and (with --approve) an approval. The repo is public, so a
+# stranger's PR could carry text written to talk the model into approving it, and every review spends API money.
+# Anyone else gets one fixed notice comment and nothing more: no model call, no verdict, never an approval.
+# Security review 2026-10-01, M5. Extend with the repo variable PR_TRUSTED_AUTHORS (comma-separated logins).
+TRUSTED_AUTHORS = {"TEJ42000", BOT}
+
+
+def trusted_authors() -> set:
+    extra = {a.strip() for a in os.environ.get("PR_TRUSTED_AUTHORS", "").split(",") if a.strip()}
+    return {a.lower() for a in TRUSTED_AUTHORS | extra}
+
+
+def is_trusted(login: str) -> bool:
+    return bool(login) and login.lower() in trusted_authors()
+
+
+def untrusted_notice(login: str, sha: str, tests: str) -> str:
+    return (f"{MARKER}\nℹ️ **Not assessed.** Automatic review and approval run only on PRs from the repository "
+            f"owner's accounts; this one is from @{login or 'unknown'}. A person will look at it.\n"
+            f"<sub>{sha[:7]} · tests: {tests} · not assessed: outside author</sub>")
 CHECKER = "the PR checker itself"
 MODEL = os.environ.get("PR_CHECK_MODEL") or "claude-haiku-4-5"
 FALLBACK_MODEL = os.environ.get("PR_CHECK_FALLBACK_MODEL") or "z-ai/glm-5.3-flash"
@@ -400,8 +420,11 @@ def post(repo: str, pr: int, body: str) -> str:
     return "posted"
 
 
-def approve(repo: str, pr: int, sha: str, a: Assessment) -> str:
-    """Approve on an Approve verdict (once per commit); on Hold, withdraw earlier bot approvals."""
+def approve(repo: str, pr: int, sha: str, a: Assessment, author: str = "") -> str:
+    """Approve on an Approve verdict (once per commit); on Hold, withdraw earlier bot approvals.
+    Never approves a PR from outside TRUSTED_AUTHORS, whatever the verdict says."""
+    if a.verdict == "approve" and not is_trusted(author):
+        a = Assessment("hold", a.security, "outside author: never approved automatically", a.tests)
     mine = [r for r in _pages(gh("api", f"repos/{repo}/pulls/{pr}/reviews", "--paginate", "--slurp"))
             if (r.get("user") or {}).get("login") == BOT]
     if a.verdict == "approve":
@@ -424,7 +447,7 @@ def assessed_shas(repo: str, pr: int) -> set:
     for c in _pages(gh("api", f"repos/{repo}/issues/{pr}/comments", "--paginate", "--slurp")):
         body = c.get("body") or ""
         if MARKER in body:
-            shas.update(re.findall(r"<sub>([0-9a-f]{7}) · tests: (?:success|failure|cancelled|skipped)", body))
+            shas.update(re.findall(r"<sub>([0-9a-f]{7}) · tests: (?:success|failure|cancelled|skipped|pending|unknown)", body))
     return shas
 
 
@@ -445,7 +468,8 @@ def plan(prs: list, tests_by_pr: dict, assessed: dict, force: bool = False):
 
 
 def assess_pr(repo: str, number: int, tests: str, use_model: bool, do_post: bool, do_approve: bool) -> Assessment:
-    pr = json.loads(gh("pr", "view", str(number), "--repo", repo, "--json", "title,body,headRefOid,files"))
+    pr = json.loads(gh("pr", "view", str(number), "--repo", repo, "--json", "title,body,headRefOid,files,author"))
+    author = (pr.get("author") or {}).get("login", "")
     # The tests result belongs to the commit this run was started for; the head is read live. Those are
     # the same commit until someone pushes mid-run, and then they are not: the verdict would carry one
     # commit's tests under another commit's sha. Harmless when it reads "cancelled"; not harmless when it
@@ -456,6 +480,13 @@ def assess_pr(repo: str, number: int, tests: str, use_model: bool, do_post: bool
         print(f"#{number}: this run tested {started_for[:7]}, but the head is now {pr['headRefOid'][:7]}; "
               "leaving the verdict to that commit's own run")
         return None
+    if not is_trusted(author):   # before the diff is read: nothing from this PR reaches a model
+        tests = tests_from_checks(repo, number) if tests == "auto" else tests
+        body = untrusted_notice(author, pr["headRefOid"], tests)
+        print(f"--- #{number}: outside author @{author}, not assessed")
+        if do_post:
+            print(f"comment {post(repo, number, body)} on #{number}")
+        return Assessment("hold", 0, f"outside author @{author}: not assessed", tests)
     files = pr["files"]
     diff = gh("pr", "diff", str(number), "--repo", repo)
     tests = tests_from_checks(repo, number) if tests == "auto" else tests
@@ -487,7 +518,7 @@ def assess_pr(repo: str, number: int, tests: str, use_model: bool, do_post: bool
         print(f"comment {post(repo, number, body)} on #{number}")
     if do_approve:
         try:
-            print(f"review on #{number}: {approve(repo, number, pr['headRefOid'], assessment)}")
+            print(f"review on #{number}: {approve(repo, number, pr['headRefOid'], assessment, author)}")
         except GhError as e:
             print(f"review on #{number}: GitHub refused ({e})")
     return assessment
