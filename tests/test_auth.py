@@ -242,7 +242,7 @@ def test_index_never_mentions_the_key_variable():
 
 def test_check_env_rules(tmp_path):
     from scripts.check_env import enforce, problems
-    base = {"DATABASE_URL": "postgresql://x", "ANTHROPIC_API_KEY": "k", "SESSION_SECRET": "s" * 40,
+    base = {"DATABASE_URL": "postgresql://x", "LLM_PROVIDER": "gateway", "LITELLM_API_KEY": "k", "SESSION_SECRET": "s" * 40,
             "GOOGLE_CLIENT_ID": "id", "GOOGLE_CLIENT_SECRET": "sec", "ALLOWED_EMAILS": "a@b.c"}
     assert problems({**base, "ENV": "production"}) == []
     with pytest.raises(RuntimeError, match="AUTH=off"):
