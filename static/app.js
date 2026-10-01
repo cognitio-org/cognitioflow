@@ -464,7 +464,9 @@ async function loadTutor(){ if(speakOn) cfWarm();   // the voice is already on: 
   const fs=await api(`/courses/${cid}/files`); const sel=fs.filter(f=>f.selected); $('#tutorSub').textContent=`${C().name} · auto-routing: notes and cards on ${(cfg.cheap_model||'').replace('claude-','')}, drilling on ${(cfg.model||'').replace('claude-','')}`;
   $('#ctxList').innerHTML=sel.length?sel.map(f=>`<li><span>${esc(f.name)}</span></li>`).join(''):'<li class="muted">No files ticked in Files.</li>';
   const chars=sel.reduce((a,f)=>a+(f.chars||0),0); $('#ctxSize').textContent=chars?`≈ ${Math.round(chars/4/1000)}k tokens of text per message${chars>180000?' — over budget, later files will be truncated':''}`:'';
-  const ms=await api(`/courses/${cid}/messages`); const ch=$('#chat'); ch.innerHTML=''; ms.forEach(m=>{const d=addMsg(m.role,m.content); if(m.role==='assistant') render(d,m.content)}); if(!ms.length) addMsg('assistant',`Tutor for ${C().name}. Tick files in Files, then ask — or say "drill me on ${sel[0]?sel[0].name.replace(/\.\w+$/,''):'this week'}".`); ch.scrollTop=ch.scrollHeight;
+  const ms=await api(`/courses/${cid}/messages`); const ch=$('#chat'); ch.innerHTML=''; ms.forEach(m=>{ if(m.role!=='assistant'){ addMsg(m.role,m.content); return }
+    const sm=(m.content||'').match(/^\s*<speech>([\s\S]*?)<\/speech>\s*/), body=sm?m.content.slice(sm[0].length):m.content;
+    const d=addMsg('assistant',body); if(sm) d.dataset.said=sm[1].trim(); render(d,body).then(()=>{ cfSaid(d); cfMark(d) }) }); if(!ms.length) addMsg('assistant',`Tutor for ${C().name}. Tick files in Files, then ask — or say "drill me on ${sel[0]?sel[0].name.replace(/\.\w+$/,''):'this week'}".`); ch.scrollTop=ch.scrollHeight;
 }
 let mmTheme=null;   // the scheme mermaid was last initialised for, so a theme switch re-inits rather than latching
 function mmSetup(){
@@ -510,6 +512,11 @@ function cfHeardClear(){ $('#chat')?.querySelector('.msg.user.live')?.remove() }
 function cfSaid(d){ if(!d.dataset.said) return; let el=d.querySelector(':scope > .said');
   if(!el){ el=document.createElement('div'); el.className='said'; el.setAttribute('aria-label','Spoken'); d.prepend(el) }
   el.textContent=d.dataset.said; }
+/* A drill turn reads: verdict, what was missing, anything new, then the next question. Mark the first and the last so
+   they stand out; the words are the tutor's, this only finds them. */
+function cfMark(d){ const v=[...d.querySelectorAll(':scope > p')].find(p=>/^[✓◐✗]/.test(p.textContent.trim()));
+  if(v){ const c=v.textContent.trim()[0]; v.classList.add('verdict',c==='✓'?'ok':c==='◐'?'part':'miss') }
+  const q=[...d.querySelectorAll(':scope > blockquote')].reverse().find(b=>/^\s*Next:/.test(b.textContent)); if(q) q.classList.add('next') }
 function addMsg(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;$('#chat').appendChild(d);$('#chat').scrollTop=$('#chat').scrollHeight;return d}
 const MODE_UI={
   drill:{hint:'Drill: one question at a time, firm correction. Reply with your answer, or say what to drill.',ph:'Your answer — or "drill me on Art 34"'},
@@ -812,7 +819,7 @@ $('#speakBtn').onclick=()=>{ speakOn=!speakOn; if(speakOn) cfWarm(); localStorag
 function cfLive(d,t){ d._live=t; if(d._liveT) return;   // at most every 120 ms: formatted as it streams, the final render() adds the diagrams
   d._liveT=setTimeout(()=>{ d._liveT=null; const txt=d._live||'';
     if(!window.marked){ d.textContent=txt; return }
-    d.classList.add('md'); d.innerHTML=marked.parse(txt.replace(/```(?:mermaid|svg)[\s\S]*?(?:```|$)/g,'\n\n*drawing the diagram…*\n\n'),{breaks:true}); cfSaid(d);
+    d.classList.add('md'); d.innerHTML=marked.parse(txt.replace(/```(?:mermaid|svg)[\s\S]*?(?:```|$)/g,'\n\n*drawing the diagram…*\n\n'),{breaks:true}); cfSaid(d); cfMark(d);
     $('#chat').scrollTop=$('#chat').scrollHeight; },120); }
 const CF_SPEECH=/<speech>[\s\S]*?(?:<\/speech>|$)\s*/;
 function speak(text){ if(!speakOn||!text||!text.trim()) return Promise.resolve(false); return cfSpeak(text,{serverMax:TUTOR_SERVER_CHARS}); }
@@ -900,7 +907,7 @@ async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_
   }catch(e){err+='\n[error] '+e.message}
   clearTimeout(d._liveT); d._liveT=null;
   if(spk&&!spk.closed){ const m=acc.match(/<speech>([\s\S]*)/); if(m) spk.push(m[1].slice(said)); spk.close(); spk.closed=true; }
-  let raw=(acc.replace(CF_SPEECH,'')+err).trim(); const sm=raw.match(/<speech>([\s\S]*?)<\/speech>\s*$/); if(sm){ d.dataset.speech=sm[1].trim(); raw=raw.replace(sm[0],'').trim() } await render(d,raw); cfSaid(d);
+  let raw=(acc.replace(CF_SPEECH,'')+err).trim(); const sm=raw.match(/<speech>([\s\S]*?)<\/speech>\s*$/); if(sm){ d.dataset.speech=sm[1].trim(); raw=raw.replace(sm[0],'').trim() } await render(d,raw); cfSaid(d); cfMark(d);
   lastSpeech=d.dataset.speech||raw.replace(/```[\s\S]*?```/g,' (see the diagram on screen) ');
   if(d.dataset.unverified){   // cited by the tutor, found in none of the ticked files: check before relying on it
     const w=document.createElement('div'); w.className='small unverified'; w.style.cssText='margin-top:.4rem;color:var(--warn)';

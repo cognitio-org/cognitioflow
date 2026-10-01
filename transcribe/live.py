@@ -11,6 +11,7 @@ text — no key, token or credential. No audio is stored. Model and location com
 """
 import asyncio
 import json
+import logging
 import os
 import time
 
@@ -112,6 +113,9 @@ async def relay(websocket, terms, connect=None, clock=time.monotonic, sleep=asyn
             finally:
                 receiving.cancel()
     except Exception as e:  # Vertex refused, quota, network: the browser falls back to Browser mode for this attempt
+        # Logged, because for two weeks this failed on every attempt (the service account had no Vertex role) and
+        # nothing anywhere said so: the page quietly used the browser mic instead.
+        logging.getLogger("cf.voice").warning("Gemini dictation failed: %s: %s", type(e).__name__, str(e)[:300])
         summary["error"] = f"Gemini dictation is unavailable right now ({type(e).__name__})."
         try:
             await websocket.send_json({"error": summary["error"]})
