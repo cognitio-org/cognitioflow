@@ -70,3 +70,27 @@ def test_only_the_owner_can_make_keys(client, monkeypatch):
 def test_a_key_for_an_address_taken_off_the_list_stops_working(client, key, monkeypatch):
     monkeypatch.setenv("ALLOWED_EMAILS", "other@example.com")
     assert client.get("/api/today", headers=_h(key["token"])).status_code == 401
+
+
+def test_it_reads_mock_counts_and_nothing_of_the_text(client, key, pg):
+    """Mock exams as counts only (Matej, 2026-10-07): the key sees hit/partly/missed counts, never a question,
+    an answer, a model answer, a comment or a paper's name."""
+    import json, time, uuid
+    import mockexam
+    cid = client.post("/api/courses", json={"name": "Mock Law"}).json()["id"]
+    qid = uuid.uuid4().hex[:10]
+    pg.execute("INSERT INTO essay_questions(id,course_id,week,question,model,source,created) VALUES(%s,%s,'',%s,%s,%s,%s)",
+               (qid, cid, "SECRET QUESTION TEXT", "SECRET MODEL ANSWER", mockexam.source("June 2024", 1), time.time()))
+    grade = {"kind": "mock", "points": [{"point": "SECRET POINT", "standing": "hit", "comment": "SECRET COMMENT"},
+                                        {"point": "p2", "standing": "missed", "comment": "c"}],
+             "missing": ["SECRET AUTHORITY"], "overall": "SECRET OVERALL"}
+    pg.execute("INSERT INTO essay_attempts(id,question_id,course_id,answer,submitted,grade,updated) VALUES(%s,%s,%s,%s,%s,%s,%s)",
+               (uuid.uuid4().hex[:10], qid, cid, "SECRET ANSWER", time.time(), json.dumps(grade), time.time()))
+    pg.commit()
+    r = client.get(f"/api/courses/{cid}/mock/summary", headers=_h(key["token"]))
+    assert r.status_code == 200
+    body = r.json()
+    assert (body["papers"], body["papers_sat"], body["questions"], body["handed_in"]) == (1, 1, 1, 1)
+    assert (body["hit"], body["partly"], body["missed"]) == (1, 0, 1) and body["last_handed_in"]
+    assert "SECRET" not in r.text and "June 2024" not in r.text
+    assert client.get(f"/api/courses/{cid}/mock/papers", headers=_h(key["token"])).status_code == 403

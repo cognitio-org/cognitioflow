@@ -2225,6 +2225,29 @@ def mock_reset(cid: str, r: MockResetIn):
     return {"cleared": len(ids)}
 
 
+@app.get("/api/courses/{cid}/mock/summary")
+def mock_summary(cid: str):
+    """Mock exams as counts only, for the read-only key (Matej, 2026-10-07): papers banked and sat, questions handed
+    in, and the marker's points hit / partly / missed (it never gives a score, so these counts are the result). No
+    question, answer, model answer, comment, missing authority or paper name leaves here."""
+    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    qs = rows("SELECT id,source FROM essay_questions WHERE course_id=? AND source LIKE ?", cid, mockexam.SOURCE_PREFIX + "%")
+    paper_of = {q["id"]: (mockexam.parse_source(q["source"]) or ("",))[0] for q in qs}
+    standing = {"hit": 0, "partly": 0, "missed": 0}
+    handed, sat, last = 0, set(), None
+    for a in rows("SELECT question_id,submitted,grade,updated FROM essay_attempts WHERE course_id=?", cid):
+        if a["question_id"] not in paper_of or not a["submitted"]: continue
+        handed += 1
+        sat.add(paper_of[a["question_id"]])
+        g = a["grade"] if isinstance(a["grade"], dict) and a["grade"].get("kind") == "mock" else {}
+        for pt in g.get("points") or []:
+            s = (pt or {}).get("standing") if isinstance(pt, dict) else None
+            if s in standing: standing[s] += 1
+        if a["updated"]: last = max(last or 0, float(a["updated"]))
+    return {"papers": len(set(paper_of.values())), "papers_sat": len(sat), "questions": len(paper_of),
+            "handed_in": handed, **standing, "last_handed_in": last}
+
+
 @app.get("/api/courses/{cid}/recall-map")
 def recall_map(cid: str):
     """Week chips on Recall: due cards per week, whether the week has indexed files and cards, and the weak-card count."""

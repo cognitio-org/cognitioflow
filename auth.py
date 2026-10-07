@@ -1,7 +1,7 @@
 """
 Google sign-in (Phase 4). The signed session cookie is the credential for everything the page does.
 
-One exception, approved by Matej on 2026-10-02 for Jarvis: a read-only Bearer key (`cfr_...`, see READ_ROUTES).
+One exception, approved by Matej on 2026-10-02 for Jarvis: a read-only Bearer key (`cfr_...`, see READ_ROUTES); mock-exam counts added 2026-10-07 (Matej).
 It may GET Today, the due-card counts and weak topics, and nothing else - any other route or method is 403.
 Only its SHA-256 is stored; the owner makes one while signed in and sees it once.
 
@@ -75,7 +75,8 @@ def _identity(session: dict):
 
 # ---------------------------------------------------------------- read-only keys
 TOKEN_PREFIX = "cfr_"
-READ_ROUTES = (re.compile(r"^/api/today$"), re.compile(r"^/api/due$"), re.compile(r"^/api/courses/[^/]+/weak-topics$"))
+READ_ROUTES = (re.compile(r"^/api/today$"), re.compile(r"^/api/due$"), re.compile(r"^/api/courses/[^/]+/weak-topics$"),
+              re.compile(r"^/api/courses/[^/]+/mock/summary$"))
 
 
 def token_hash(token: str) -> str:
@@ -116,7 +117,7 @@ class AuthMiddleware:
             if user is None:
                 return await JSONResponse({"detail": "Unknown or revoked key"}, status_code=401)(scope, receive, send)
             if scope["method"] != "GET" or not any(r.match(scope["path"]) for r in READ_ROUTES):
-                return await JSONResponse({"detail": "This key reads Today, the due counts and weak topics only"},
+                return await JSONResponse({"detail": "This key reads Today, the due counts, weak topics and mock counts only"},
                                           status_code=403)(scope, receive, send)
             scope["session"] = {}
             request.state.user = user
@@ -245,7 +246,7 @@ def make_token(request: Request):
     with request.app.state.db() as d:
         d.execute("INSERT INTO api_tokens(id,user_id,name,hash,scope,created) VALUES(?,?,?,?,?,?)",
                   (tid, user["id"], "Jarvis (read-only)", token_hash(token), "read", time.time()))
-    return {"id": tid, "token": token, "scope": "read", "reads": ["/api/today", "/api/due", "/api/courses/{cid}/weak-topics"]}
+    return {"id": tid, "token": token, "scope": "read", "reads": ["/api/today", "/api/due", "/api/courses/{cid}/weak-topics", "/api/courses/{cid}/mock/summary"]}
 
 
 @router.get("/api/tokens")
