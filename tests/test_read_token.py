@@ -86,6 +86,7 @@ def test_it_reads_mock_counts_and_nothing_of_the_text(client, key, pg):
              "missing": ["SECRET AUTHORITY"], "overall": "SECRET OVERALL"}
     pg.execute("INSERT INTO essay_attempts(id,question_id,course_id,answer,submitted,grade,updated) VALUES(%s,%s,%s,%s,%s,%s,%s)",
                (uuid.uuid4().hex[:10], qid, cid, "SECRET ANSWER", time.time(), json.dumps(grade), time.time()))
+    pg.commit()
     r = client.get(f"/api/courses/{cid}/mock/summary", headers=_h(key["token"]))
     assert r.status_code == 200
     body = r.json()
