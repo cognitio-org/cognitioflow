@@ -1861,7 +1861,17 @@ function showQ(){ const it=quiz[qi]; rprog(qi,qTotal);
 $('#genCards').onclick=async()=>{if(!cfg.has_key){toast('No model key on the server — set the provider key in .env.local and restart');return} $('#genCards').disabled=true; toast('Writing cards…'); try{const r=await post(`/courses/${cid}/cards/generate`,{file_id:$('#genFrom').value||null,count:8});toast(`${r.made} cards added`);loadRecall()}catch(e){toast('Failed: '+e.message)} $('#genCards').disabled=false;};
 $('#addCard').onclick=async()=>{const f=prompt('Front'); if(!f) return; const b=prompt('Back'); if(!b) return; await post(`/courses/${cid}/cards`,{front:f,back:b,source:'manual'}); loadRecall();};
 $('#showAll').onclick=()=>{$('#allCards').hidden=!$('#allCards').hidden};
-function renderAll(all){ $('#cardRows').innerHTML=all.map(c=>`<tr><td>${esc(c.front)}</td><td class="small">${esc(c.back)}</td><td class="small muted">${c.week?'W'+c.week:''}</td><td class="small muted">${c.due}</td><td><button class="btn small ghost" data-delcard="${c.id}">Remove</button></td></tr>`).join(''); document.querySelectorAll('[data-delcard]').forEach(b=>b.onclick=async()=>{
+function renderAll(all){ $('#cardRows').innerHTML=all.map(c=>`<tr><td>${esc(c.front)}</td><td class="small">${esc(c.back)}</td><td class="small muted">${c.week?'W'+c.week:''}</td><td class="small muted">${c.due}</td><td><button class="btn small ghost" data-editcard="${c.id}">Edit</button> <button class="btn small ghost" data-delcard="${c.id}">Remove</button></td></tr>`).join('');
+  // Phase 19 — the flywheel: correcting an AI-written card teaches CognitioFlow your taste. When the
+  // card was AI-generated, the server records the (AI card -> your edited card) pair for later training.
+  document.querySelectorAll('[data-editcard]').forEach(b=>b.onclick=async()=>{
+    const c=all.find(x=>x.id===b.dataset.editcard); if(!c) return;
+    const f=prompt('Front', c.front); if(f===null) return;
+    const bk=prompt('Back', c.back); if(bk===null) return;
+    if(f===c.front && bk===c.back) return;   // nothing changed, nothing to save or capture
+    try{ await put(`/cards/${b.dataset.editcard}`,{front:f,back:bk}); toast('Card updated'); loadRecall(); }
+    catch(e){ toast('Failed: '+e.message); }});
+  document.querySelectorAll('[data-delcard]').forEach(b=>b.onclick=async()=>{
     // Unconfirmed until now, in a table of small buttons. The card carries its whole review
     // history, so one stray click threw away weeks of scheduling with nothing shown.
     const c=all.find(x=>x.id===b.dataset.delcard);

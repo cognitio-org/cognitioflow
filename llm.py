@@ -19,9 +19,18 @@ from __future__ import annotations
 import os
 
 PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic").strip().lower()
-PROVIDERS = ("anthropic", "openrouter", "gateway")
+PROVIDERS = ("anthropic", "openrouter", "gateway", "kernal")
 
 OPENROUTER_BASE = "https://openrouter.ai/api"
+#: `LLM_PROVIDER=kernal` (Phase 19): Matej's own LiteLLM router, OpenAI-compatible at router.kernal.one/v1.
+#: The direct OPENROUTER_KEY is dead; the whole cloud tier routes through Kernal, reusing the Phase-18
+#: OpenAI bridge (non-streaming create + a small SSE reader for the one streaming call). The key is
+#: KERNAL_API_KEY (read from os.environ; .env.local loads it from ~/.config/swarm/kernal_router_key).
+KERNAL_BASE = os.environ.get("CF_KERNAL_BASE", "https://router.kernal.one/v1").strip()
+KERNAL_TIMEOUT = float(os.environ.get("CF_KERNAL_TIMEOUT", "120"))
+#: What the picker offers on the kernal provider beyond the two tiers. CF_PICKER_MODELS overrides;
+#: router ids and anything EXPENSIVE (Opus/Fable/…) are refused, as everywhere.
+KERNAL_PICKER = "gemini-2.5-flash,gpt-5-nano"
 #: `LLM_PROVIDER=gateway`: the LiteLLM gateway's Anthropic Messages endpoint (2026-09-30: the Anthropic
 #: credit ran out and Matej moved the app off the paid Anthropic API). Same SDK, same streaming and
 #: cache_control blocks, tested end to end on gpt-6-luna. docs/privacy-gateway.md is the GDPR record.
@@ -66,8 +75,10 @@ PRICES = {
 DEFAULT_EXTRA_MODELS = "deepseek/deepseek-v4.1-flash,google/gemini-3.8-flash,google/gemini-3.1-flash-lite"
 
 DEFAULT_MAIN = "claude-sonnet-5-5"
-DEFAULT_CHEAP = {"anthropic": "claude-haiku-4-5", "openrouter": "deepseek/deepseek-v4.1-flash", "gateway": GATEWAY_MODEL}
-DEFAULT_MAIN_BY = {"gateway": GATEWAY_MODEL}   # the gateway serves no Claude on this key's budget
+DEFAULT_CHEAP = {"anthropic": "claude-haiku-4-5", "openrouter": "deepseek/deepseek-v4.1-flash",
+                 "gateway": GATEWAY_MODEL, "kernal": "gemini-2.5-flash"}
+DEFAULT_MAIN_BY = {"gateway": GATEWAY_MODEL,   # the gateway serves no Claude on this key's budget
+                   "kernal": "claude-sonnet-5"}   # Matej's router does serve Sonnet for the main tier
 
 
 class ConfigError(RuntimeError):
@@ -86,7 +97,8 @@ def is_router(model_id: str) -> bool:
 
 
 def key_name() -> str:
-    return {"openrouter": "OPENROUTER_KEY", "gateway": "LITELLM_API_KEY"}.get(_provider(), "ANTHROPIC_API_KEY")
+    return {"openrouter": "OPENROUTER_KEY", "gateway": "LITELLM_API_KEY",
+            "kernal": "KERNAL_API_KEY"}.get(_provider(), "ANTHROPIC_API_KEY")
 
 
 def has_key() -> bool:
@@ -100,8 +112,8 @@ def resolve(model_id: str) -> str:
     if is_router(model_id):
         raise ConfigError(f"{model_id} is a router id: it can select any model, including Fable. "
                           "Pick a concrete model; the app's ROUTE table is the router.")
-    if _provider() in ("anthropic", "gateway") or "/" in model_id:
-        return model_id
+    if _provider() in ("anthropic", "gateway", "kernal") or "/" in model_id:
+        return model_id   # kernal takes its own names (claude-sonnet-5, gemini-2.5-flash) as-is
     return CLAUDE_IDS.get(model_id, model_id)
 
 
@@ -115,6 +127,12 @@ def catalogue() -> list[str]:
             if m and m not in out and "/" not in m and not is_router(m) and not EXPENSIVE.search(m):
                 out.append(m)
         return out
+    if _provider() == "kernal":   # both configured tiers, then the picker extras (never a router/Fable)
+        out = [default_model("main"), default_model("cheap")]
+        for m in (x.strip() for x in os.environ.get("CF_PICKER_MODELS", KERNAL_PICKER).split(",")):
+            if m and m not in out and not is_router(m) and not EXPENSIVE.search(m):
+                out.append(m)
+        return list(dict.fromkeys(out))
     extra = os.environ.get("CF_EXTRA_MODELS", DEFAULT_EXTRA_MODELS)
     out = [CLAUDE_IDS[c] for c in CLAUDE_IDS]
     for m in (x.strip() for x in extra.split(",")):
@@ -162,6 +180,8 @@ def client():
         raise ConfigError(f"{key_name()} not set — add it to .env and restart.")
     if p == "anthropic":
         return anthropic.Anthropic()
+    if p == "kernal":
+        return _KernalClient(KERNAL_BASE, key)   # OpenAI-compatible; not the anthropic SDK
     if p == "gateway":
         return anthropic.Anthropic(base_url=GATEWAY_BASE, auth_token=key)
     return anthropic.Anthropic(
@@ -301,13 +321,16 @@ class _LocalBlock:
 
 
 class _LocalUsage:
-    def __init__(self, input_tokens: int, output_tokens: int):
+    #: Reused by the Kernal bridge (Phase 19): the local tier keeps provider="local"/cost=0 (own
+    #: hardware), while Kernal passes provider=None/cost=None so usage() fills provider=kernal and the
+    #: PRICES cost (the honest figure for a paid router call).
+    def __init__(self, input_tokens: int, output_tokens: int, provider="local", cost=0):
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
         self.cache_read_input_tokens = 0
         self.cache_creation_input_tokens = 0
-        self.cost = 0            # own hardware: the honest figure is zero, not unknown (Phase-9 rule 8)
-        self.provider = "local"  # usage() labels the ai_calls row provider=local
+        self.cost = cost         # own hardware: the honest figure is zero, not unknown (Phase-9 rule 8)
+        self.provider = provider  # usage() labels the ai_calls row provider=local
 
 
 class _LocalMessage:
@@ -398,6 +421,120 @@ def local_call(task, **kw):
     if not "".join(b.text for b in m.content if getattr(b, "type", "") == "text").strip():
         return None   # a model that spent its budget on nothing, or a 200 with empty content
     return m
+
+
+# ---------------------------------------------------------------- the Kernal cloud tier (Phase 19)
+# LLM_PROVIDER=kernal points the WHOLE cloud tier at Matej's OpenAI-compatible LiteLLM router, reusing
+# the Phase-18 bridge (`_to_openai_messages`, `_flatten_content`, `_LocalMessage`, `_LocalUsage`). It
+# speaks the same slice of the Anthropic SDK run.py uses — client().messages.create(...) and
+# client().messages.stream(...) — so run.py needs no change. Default OFF: unless LLM_PROVIDER=kernal,
+# none of this is reached and the anthropic/openrouter/gateway paths are untouched.
+
+def _kernal_body(model, system, messages, max_tokens, temperature, stream) -> dict:
+    body = {"model": model, "messages": _to_openai_messages(system, messages),
+            "max_tokens": int(max_tokens), "stream": bool(stream)}
+    if temperature is not None:
+        body["temperature"] = float(temperature)
+    return body
+
+
+def _kernal_usage(u: dict) -> _LocalUsage:
+    # provider=None, cost=None → usage() fills provider="kernal" and computes the PRICES cost (None when
+    # the model has no price, e.g. gemini-2.5-flash — honest, not a guess).
+    return _LocalUsage(int((u or {}).get("prompt_tokens", 0) or 0),
+                       int((u or {}).get("completion_tokens", 0) or 0), provider=None, cost=None)
+
+
+def _kernal_request(base_url, key, body):
+    import json as _json
+    import urllib.request
+    url = base_url.rstrip("/") + "/chat/completions"
+    return urllib.request.Request(
+        url, data=_json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json",
+                 "Authorization": "Bearer " + (key or "x"),
+                 "Accept": "text/event-stream" if body.get("stream") else "application/json"})
+
+
+class _KernalStream:
+    """The streaming reply as an SSE reader, exposing `text_stream` and `get_final_message()` — the slice
+    of the anthropic SDK's stream `hedged_stream` relies on. The connection opens on construction, so a
+    dead endpoint raises here and `hedged_stream` reports it like any other stream failure."""
+
+    def __init__(self, base_url, key, body):
+        import urllib.request
+        self._model = body["model"]
+        self._text: list = []
+        self._finish = ""
+        self._usage: dict = {}
+        self._resp = urllib.request.urlopen(_kernal_request(base_url, key, body), timeout=KERNAL_TIMEOUT)
+
+    @property
+    def text_stream(self):
+        import json as _json
+        for raw in self._resp:
+            line = raw.decode("utf-8", "replace").strip()
+            if not line or not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                chunk = _json.loads(data)
+            except Exception:
+                continue
+            if chunk.get("usage"):
+                self._usage = chunk["usage"]
+            choice = (chunk.get("choices") or [{}])[0]
+            if choice.get("finish_reason"):
+                self._finish = choice["finish_reason"]
+            piece = (choice.get("delta") or {}).get("content") or ""
+            if piece:
+                self._text.append(piece)
+                yield piece
+
+    def get_final_message(self) -> _LocalMessage:
+        stop = "max_tokens" if self._finish == "length" else "end_turn"
+        return _LocalMessage("".join(self._text), self._model, stop, _kernal_usage(self._usage))
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        try:
+            self._resp.close()
+        except Exception:
+            pass
+        return False
+
+
+class _KernalMessages:
+    def __init__(self, base_url, key):
+        self._base, self._key = base_url, key
+
+    def create(self, *, model, max_tokens=1024, system=None, messages=None, temperature=None, **_ignored) -> _LocalMessage:
+        """One non-streaming POST, returned in the Anthropic shape run.py reads. `_ignored` swallows
+        Anthropic-only kwargs (stop_sequences, cache_control wrappers already flattened) Kernal ignores."""
+        import json as _json
+        import urllib.request
+        body = _kernal_body(model, system, messages, max_tokens, temperature, False)
+        with urllib.request.urlopen(_kernal_request(self._base, self._key, body), timeout=KERNAL_TIMEOUT) as resp:
+            data = _json.loads(resp.read().decode("utf-8"))
+        choice = (data.get("choices") or [{}])[0]
+        text = ((choice.get("message") or {}).get("content")) or ""
+        stop = "max_tokens" if choice.get("finish_reason") == "length" else "end_turn"
+        return _LocalMessage(text, data.get("model") or model, stop, _kernal_usage(data.get("usage")))
+
+    def stream(self, *, model, max_tokens=1024, system=None, messages=None, temperature=None, **_ignored) -> _KernalStream:
+        return _KernalStream(self._base, self._key, _kernal_body(model, system, messages, max_tokens, temperature, True))
+
+
+class _KernalClient:
+    """The cloud tier on Matej's OpenAI-compatible Kernal router, exposing only `.messages.create` and
+    `.messages.stream` — the slice of the anthropic SDK run.py and `hedged_stream` call."""
+
+    def __init__(self, base_url, key):
+        self.messages = _KernalMessages(base_url, key)
 
 
 #: Seconds to wait for the first words before a second, identical request races the first. The gateway
