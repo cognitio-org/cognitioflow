@@ -47,7 +47,7 @@ ROOT = Path(__file__).parent
 MODEL = llm.default_model("main")         # drilling / explaining / notes (CF_MODEL, else the provider default)
 CHEAP_MODEL = llm.default_model("cheap")  # card generation, bulk work (CF_CHEAP_MODEL)
 STRONG_MODEL = os.environ.get("CF_STRONG_MODEL", MODEL)              # reconcile only; e.g. claude-fable-5-1 or claude-opus-5
-MODELS = (llm.catalogue() if llm.PROVIDER == "gateway" else
+MODELS = (llm.catalogue() if llm.PROVIDER in ("gateway", "kernal") else
           ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5", "claude-sonnet-5-5", "claude-opus-5", "claude-fable-5-1"])
 CONTEXT_CHAR_BUDGET = int(os.environ.get("CF_CONTEXT_CHARS", "180000"))
 RETRIEVAL = os.environ.get("RETRIEVAL", "off").strip().lower() == "on"   # Phase 10: passages instead of whole files
@@ -287,6 +287,7 @@ class CourseEdit(BaseModel): name: Optional[str] = None; accent: Optional[str] =
 class BriefPreviewIn(BaseModel): name: str = ""; brief: Optional[dict] = None; cid: Optional[str] = None
 class NoteIn(BaseModel): title: str = "Untitled"; body: str = ""
 class CardIn(BaseModel): front: str; back: str; source: str = ""; week: str = ""
+class CardEditIn(BaseModel): front: Optional[str] = None; back: Optional[str] = None; week: Optional[str] = None; source: Optional[str] = None
 class ReviewIn(BaseModel): rating: int  # 0 again, 1 hard, 2 good, 3 easy
 class SessionIn(BaseModel): day: str; topic: str; minutes: int = 60
 class ChatIn(BaseModel): message: str; mode: str = "drill"; model: Optional[str] = None; speech: bool = False  # model="auto" or explicit; speech=voice is on
@@ -1466,6 +1467,27 @@ def add_card(cid: str, c: CardIn):
                               (kid, cid, c.front, c.back, c.source, c.week.strip(), date.today().isoformat(), time.time()))
     return {"id": kid}
 
+@app.put("/api/cards/{kid}")
+def edit_card(kid: str, c: CardEditIn):
+    """Edit a card's text. The GOLD of Phase 19: when the card was AI-generated (gen_sample_id set) and
+    its front/back actually change, record the pair (the AI's card -> Matej's edited card) — the
+    correction/preference signal that teaches his taste. Only fields that are sent are changed; the
+    review history and schedule are untouched."""
+    cur = rows("SELECT * FROM cards WHERE id=?", kid)
+    if not cur: raise HTTPException(404)
+    cur = dict(cur[0])
+    front = c.front if c.front is not None else (cur.get("front") or "")
+    back = c.back if c.back is not None else (cur.get("back") or "")
+    week = c.week.strip() if c.week is not None else (cur.get("week") or "")
+    source = c.source if c.source is not None else (cur.get("source") or "")
+    with db() as d:
+        d.execute("UPDATE cards SET front=?,back=?,week=?,source=? WHERE id=?", (front, back, week, source, kid))
+    changed = front != (cur.get("front") or "") or back != (cur.get("back") or "")
+    if cur.get("gen_sample_id") and changed:
+        _capture_card_edit(kid, cur["gen_sample_id"], cur.get("course_id") or "",
+                           cur.get("front") or "", cur.get("back") or "", front, back)
+    return {"id": kid}
+
 @app.delete("/api/cards/{kid}")
 def del_card(kid: str):
     with db() as d: d.execute("DELETE FROM cards WHERE id=?", (kid,))
@@ -1476,12 +1498,16 @@ def review(kid: str, r: ReviewIn):
     """One rating. FSRS schedules from this card's own history (SCHEDULER=sm2 keeps the original arithmetic)."""
     c = rows("SELECT * FROM cards WHERE id=?", kid)
     if not c: raise HTTPException(404)
-    out = schedule.next_review(dict(c[0]), r.rating)
+    card = dict(c[0])
+    out = schedule.next_review(card, r.rating)
     with db() as d:
         d.execute("UPDATE cards SET ease=?,interval=?,reps=?,due=?,stability=?,difficulty=?,state=?,step=?,last_review=? WHERE id=?",
                   (out["ease"], out["interval"], out["reps"], out["due"], out.get("stability"), out.get("difficulty"),
                    out.get("state"), out.get("step"), out.get("last_review"), kid))
-        d.execute("INSERT INTO reviews VALUES(?,?,?,?)", (uuid.uuid4().hex, kid, r.rating, time.time()))
+        # Phase 19: tie the rating of an AI-generated card back to its generation (gen_sample_id), a light
+        # quality signal. Explicit column list so the new nullable column is set; other columns default.
+        d.execute("INSERT INTO reviews(id,card_id,rating,created,gen_sample_id) VALUES(?,?,?,?,?)",
+                  (uuid.uuid4().hex, kid, r.rating, time.time(), card.get("gen_sample_id")))
     return {"due": out["due"], "interval": out["interval"]}
 
 # Phase 18: when card generation runs on the self-hosted model, the prompt is grounded strictly in the
@@ -1503,12 +1529,23 @@ CARD_GROUNDING_RULES = (
 CARD_MIN_SOURCE_CHARS = int(os.environ.get("CF_CARD_MIN_SOURCE_CHARS", "400"))   # below this, the source is 'thin'
 
 
-def _capture_card_sample(sample_id, cid, m, source_kind, week, requested, made, source_text, cards, thin):
-    """De-identified training capture (Phase 18). Keeps only the system interaction — the source
-    material and the cards it produced — with identity and personal content stripped first by the same
-    pseudonymisation the privacy gateway uses (emails, IBANs, student numbers, phone numbers → tags).
-    The feedback signal (later edits, FSRS ratings) is joined in later through cards.gen_sample_id.
-    Best-effort: a capture failure must never fail card generation."""
+def _capture_on() -> bool:
+    """The flywheel can be switched off without a deploy (privacy by default — Art. 25). On by default:
+    capturing the de-identified interaction is the whole point of Phase 19 (Matej decision b)."""
+    return os.environ.get("CF_CARD_CAPTURE", "on").lower() != "off"
+
+
+def _capture_card_sample(sample_id, cid, m, source_kind, week, requested, made, source_text, cards, thin, grounded):
+    """De-identified training capture. Keeps only the system interaction — the source material and the
+    cards it produced — with identity and personal content stripped first by the same pseudonymisation
+    the privacy gateway uses (emails, IBANs, student numbers, phone numbers → tags). The feedback signal
+    (later edits, FSRS ratings) is joined in through cards.gen_sample_id.
+
+    Phase 19 (Matej decision b): this now runs on EVERY card generation — cloud AND the self-hosted path
+    — not only the grounded local path of Phase 18. `grounded` records which prompt was used.
+    Best-effort: a capture failure must never fail or slow card generation."""
+    if not _capture_on():
+        return
     try:
         provider = getattr(getattr(m, "usage", None), "provider", None) or llm.PROVIDER
         clean_source = gateway.minimise(source_text or "")[:200000]
@@ -1519,9 +1556,28 @@ def _capture_card_sample(sample_id, cid, m, source_kind, week, requested, made, 
                 "INSERT INTO card_gen_samples(id,at,course_id,provider,model,source_kind,week,grounded,thin,"
                 "requested,made,source_chars,source_text,cards_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (sample_id, time.time(), cid, provider, getattr(m, "model", "") or "", source_kind, week or "",
-                 True, bool(thin), requested, made, len(source_text or ""), clean_source, json.dumps(clean_cards)))
+                 bool(grounded), bool(thin), requested, made, len(source_text or ""), clean_source, json.dumps(clean_cards)))
     except Exception as e:   # noqa: BLE001
         print("card capture:", type(e).__name__, e)
+
+
+def _capture_card_edit(card_id, gen_sample_id, course_id, front_before, back_before, front_after, back_after):
+    """THE GOLD (Phase 19): the preference signal — the pair (the AI's card -> Matej's edited card),
+    recorded when a card the AI generated (cards.gen_sample_id set) is corrected. On the first edit of a
+    freshly generated card, *_before is the AI's original. De-identified with the same pseudonymisation
+    as the generation capture. Best-effort: a capture failure must never fail the edit."""
+    if not _capture_on():
+        return
+    try:
+        with db() as d:
+            d.execute(
+                "INSERT INTO card_edits(id,at,card_id,gen_sample_id,course_id,front_before,back_before,"
+                "front_after,back_after) VALUES(?,?,?,?,?,?,?,?,?)",
+                (uuid.uuid4().hex, time.time(), card_id, gen_sample_id, course_id or "",
+                 gateway.minimise(front_before or ""), gateway.minimise(back_before or ""),
+                 gateway.minimise(front_after or ""), gateway.minimise(back_after or "")))
+    except Exception as e:   # noqa: BLE001
+        print("card edit capture:", type(e).__name__, e)
 
 
 @app.post("/api/courses/{cid}/cards/generate")
@@ -1538,8 +1594,8 @@ def generate_cards(cid: str, g: GenIn):
     else:
         parts, _, _ = build_context(cid); src, week, txt, kind = "selected files", "", "\n\n".join(parts)[:60000], "selected"
     chosen = pick_model('cards', g.model)
-    # Grounded + captured only when the call actually routes to the self-hosted model (cheap tier, no
-    # explicit dropdown pick). local_call falls back to cloud on failure; grounding never hurts there.
+    # Grounded only when the call actually routes to the self-hosted model (cheap tier, no explicit
+    # dropdown pick). local_call falls back to cloud on failure; grounding never hurts there.
     grounded = llm.local_allows("cards") and chosen == CHEAP_MODEL
     thin = len((txt or "").strip()) < CARD_MIN_SOURCE_CHARS
     if grounded:
@@ -1555,7 +1611,9 @@ def generate_cards(cid: str, g: GenIn):
     if text.startswith("json"): text = text[4:]
     try: items = json.loads(text)
     except Exception: raise HTTPException(500, "Model returned non-JSON; try again.")
-    sample_id = uuid.uuid4().hex if grounded else None
+    # Phase 19 (Matej decision b): every generation — cloud and local — is captured, so each card gets a
+    # sample id and ties back to its interaction for the later edit/rating signal.
+    sample_id = uuid.uuid4().hex
     made, kept = 0, []
     with db() as d:
         for it in items:
@@ -1563,10 +1621,10 @@ def generate_cards(cid: str, g: GenIn):
                 d.execute("INSERT INTO cards(id,course_id,front,back,source,week,due,created,gen_sample_id) VALUES(?,?,?,?,?,?,?,?,?)",
                           (uuid.uuid4().hex[:10], cid, it["front"], it["back"], src, week, date.today().isoformat(), time.time(), sample_id)); made += 1
                 kept.append(it)
+    _capture_card_sample(sample_id, cid, m, kind, week, g.count, made, txt, kept, thin, grounded)
     if grounded:
-        _capture_card_sample(sample_id, cid, m, kind, week, g.count, made, txt, kept, thin)
         return {"made": made, "grounded": True, "thin": thin}
-    return {"made": made}   # default path unchanged, byte for byte
+    return {"made": made}   # response shape unchanged for the cloud path (callers read .made)
 
 
 # ---------------------------------------------------------------- oral grading (constant, cached)
