@@ -252,7 +252,152 @@ def describe() -> dict:
         "provider": _provider(),
         "has_key": has_key(),
         "models": [{"id": m, "label": label(m)} for m in catalogue()],
+        # Phase 18: the self-hosted tier is a per-task routing override on the cheap tier, not a
+        # catalogue entry the dropdown offers. Reported so a banner or #dot hint can say so.
+        "local": {"enabled": local_enabled(),
+                   "model": LOCAL_MODEL if local_enabled() else None,
+                   "tasks": list(LOCAL_TASKS) if local_enabled() else []},
     }
+
+
+# ---------------------------------------------------------------- the local tier (Phase 18)
+# A self-hosted, OpenAI-compatible endpoint (Ollama in dev, vLLM later) for the cheap/bulk tier.
+# Why it exists: privacy (student text never leaves our servers) + owning/fine-tuning the model + the
+# pitch — NOT cost (the Phase-9 cheap tier is already near-free). See docs/phases/PHASE-18-selfhosted-
+# generation.md and ~/reports/cf-phaseA-decisions.md.
+#
+# Default OFF: with CF_LOCAL_BASE_URL unset, local_allows() is always False, nothing below is reached,
+# and the cheap tier stays exactly as Phase 9 left it — byte for byte. Only the NON-STREAMING path is
+# bridged: the bulk tasks (cards first) do not stream, and the one streaming call (tutor chat) is MAIN
+# tier and stays cloud. The seam still speaks Anthropic-Messages to run.py; this translates to/from the
+# endpoint's OpenAI chat-completions format and hands back the same shape run.py already reads.
+LOCAL_BASE_URL = os.environ.get("CF_LOCAL_BASE_URL", "").strip()
+LOCAL_MODEL = os.environ.get("CF_LOCAL_MODEL", "qwen2.5:7b-instruct").strip()
+#: Which named bulk tasks may run on the local model. Each task flips to local on its own, once it has
+#: cleared the eval bar (docs/phases/PHASE-18). The list starts at `cards` — the proof of concept.
+LOCAL_TASKS = tuple(t.strip() for t in os.environ.get("CF_LOCAL_TASKS", "cards").split(",") if t.strip())
+LOCAL_TIMEOUT = float(os.environ.get("CF_LOCAL_TIMEOUT", "300"))   # a 7B on a laptop can take a while
+#: Low by default: the bulk tasks are grounded extraction (cards from the ticked text), where a 7B at a
+#: high temperature invents law and returns malformed JSON. A caller may still override per call.
+LOCAL_TEMPERATURE = float(os.environ.get("CF_LOCAL_TEMPERATURE", "0.2"))
+
+
+def local_enabled() -> bool:
+    """On only when an endpoint is named. Unset → the cheap tier is untouched (today's behaviour)."""
+    return bool(LOCAL_BASE_URL)
+
+
+def local_allows(task: str) -> bool:
+    """Whether this bulk task should run on the local model rather than the configured cloud tier."""
+    return bool(task) and local_enabled() and task in LOCAL_TASKS
+
+
+class _LocalBlock:
+    """One text block, in the shape run.py reads (`b.type == "text"`, `b.text`)."""
+    type = "text"
+
+    def __init__(self, text: str):
+        self.text = text
+
+
+class _LocalUsage:
+    def __init__(self, input_tokens: int, output_tokens: int):
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.cache_read_input_tokens = 0
+        self.cache_creation_input_tokens = 0
+        self.cost = 0            # own hardware: the honest figure is zero, not unknown (Phase-9 rule 8)
+        self.provider = "local"  # usage() labels the ai_calls row provider=local
+
+
+class _LocalMessage:
+    """A local reply dressed as an Anthropic Messages response: `content[].text`, `model`,
+    `stop_reason`, `usage`. Enough for the bulk call sites and `usage()`; images/streaming are not."""
+    def __init__(self, text: str, model: str, stop_reason: str, usage: _LocalUsage):
+        self.content = [_LocalBlock(text)]
+        self.model = model
+        self.stop_reason = stop_reason
+        self.usage = usage
+
+
+def _flatten_content(content) -> str:
+    """Anthropic content is a string or a list of blocks; the bulk tasks use text only. Non-text
+    blocks (e.g. images) are dropped — the local tier serves text-only bulk tasks for now."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for b in content:
+            if isinstance(b, str):
+                parts.append(b)
+            elif isinstance(b, dict) and b.get("type") == "text":
+                parts.append(b.get("text", ""))
+        return "\n\n".join(p for p in parts if p)
+    return str(content or "")
+
+
+def _to_openai_messages(system, messages) -> list:
+    """Anthropic (system + messages) → OpenAI chat-completions messages. A system prompt — string or
+    the cached-block array — becomes a single system message at the front."""
+    out = []
+    if system:
+        out.append({"role": "system", "content": _flatten_content(system)})
+    for msg in messages or []:
+        out.append({"role": msg.get("role", "user"), "content": _flatten_content(msg.get("content", ""))})
+    return out
+
+
+def local_create(*, messages, max_tokens=1024, system=None, temperature=None, **_ignored) -> _LocalMessage:
+    """One non-streaming call to the local endpoint, returned in the Anthropic shape run.py reads.
+
+    Uses stdlib urllib so the seam gains no dependency. Raises on any transport error; `local_call`
+    turns that into a fall-back to the configured cloud tier. `_ignored` swallows Anthropic-only kwargs
+    (e.g. `cache_control` wrappers already flattened, `stop_sequences`) the local endpoint does not take.
+    """
+    import json as _json
+    import urllib.request
+
+    body = {
+        "model": LOCAL_MODEL,
+        "messages": _to_openai_messages(system, messages),
+        "max_tokens": int(max_tokens),
+        "stream": False,
+    }
+    body["temperature"] = float(temperature) if temperature is not None else LOCAL_TEMPERATURE
+    url = LOCAL_BASE_URL.rstrip("/") + "/chat/completions"
+    req = urllib.request.Request(
+        url, data=_json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json",
+                 # Ollama ignores the bearer; a real OpenAI-compatible server (vLLM) may want one.
+                 "Authorization": "Bearer " + (os.environ.get("CF_LOCAL_KEY") or "local")})
+    with urllib.request.urlopen(req, timeout=LOCAL_TIMEOUT) as resp:
+        data = _json.loads(resp.read().decode("utf-8"))
+
+    choice = (data.get("choices") or [{}])[0]
+    text = ((choice.get("message") or {}).get("content")) or ""
+    finish = choice.get("finish_reason") or ""
+    stop_reason = "max_tokens" if finish == "length" else "end_turn"   # so _mark_if_cut / Continue work
+    u = data.get("usage") or {}
+    usage = _LocalUsage(int(u.get("prompt_tokens", 0) or 0), int(u.get("completion_tokens", 0) or 0))
+    return _LocalMessage(text, data.get("model") or LOCAL_MODEL, stop_reason, usage)
+
+
+def local_call(task, **kw):
+    """ask_model's hook: the local result for an allowed task, or None to fall back to the configured
+    cloud/gateway tier. Mirrors gateway.call's contract — any trouble (endpoint down, empty answer) is
+    a silent fall-back so the job still gets done."""
+    if not local_allows(task):
+        return None
+    try:
+        m = local_create(**kw)
+    except Exception as e:   # noqa: BLE001 — the job still gets done, on the cloud tier
+        import logging
+        logging.getLogger("cognitioflow.llm").warning(
+            "local %s failed (%s); falling back to the cloud tier", task, type(e).__name__)
+        return None
+    if not "".join(b.text for b in m.content if getattr(b, "type", "") == "text").strip():
+        return None   # a model that spent its budget on nothing, or a 200 with empty content
+    return m
 
 
 #: Seconds to wait for the first words before a second, identical request races the first. The gateway

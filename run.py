@@ -998,7 +998,12 @@ def ask_model(model, **kw):
     keeps the single seam the tests replace.
     """
     task = kw.pop("task", None)
-    m = gateway.call(task, **kw) if task and model == CHEAP_MODEL else None   # only the cheap tier's named bulk jobs may use the gateway lane
+    cheap = task and model == CHEAP_MODEL   # only the cheap tier's named bulk jobs leave the main path
+    # Phase 18: a named bulk task may run on the self-hosted model first (privacy + owning the model).
+    # Default OFF (CF_LOCAL_BASE_URL unset → local_allows is False); any trouble falls back below.
+    m = llm.local_call(task, **kw) if cheap else None
+    if m is None:
+        m = gateway.call(task, **kw) if cheap else None   # then the gateway lane, as before
     if m is None:
         m = client().messages.create(model=llm.resolve(model), **kw)
     llm.usage(m, task or "")   # the cost log; an empty task falls back to the request's path
@@ -1479,33 +1484,89 @@ def review(kid: str, r: ReviewIn):
         d.execute("INSERT INTO reviews VALUES(?,?,?,?)", (uuid.uuid4().hex, kid, r.rating, time.time()))
     return {"due": out["due"], "interval": out["interval"]}
 
+# Phase 18: when card generation runs on the self-hosted model, the prompt is grounded strictly in the
+# ticked material and the model is told to ABSTAIN rather than invent law — a 7B hallucinates case law
+# more readily than Haiku/DeepSeek, and an invented citation is the worst failure in a law card. This
+# system prompt is sent ONLY on the local path; the cloud cheap tier keeps its exact Phase-9 prompt, so
+# with CF_LOCAL_BASE_URL unset nothing here changes.
+CARD_GROUNDING_RULES = (
+    "You write flashcards for a Groningen LLB law exam, grounded strictly in the material you are given.\n"
+    "Rules:\n"
+    "1. Use ONLY what is in the material. Every rule, case name, citation and article number on a card "
+    "must appear in the text below.\n"
+    "2. Never invent or 'recall from memory' law that is not in the material. If you are not sure a "
+    "point is supported by the text, leave it out.\n"
+    "3. One precise, testable point per card.\n"
+    "4. If the material is thin, write FEWER cards — only what the text actually supports, even none.\n"
+    "Return ONLY the JSON array, nothing else."
+)
+CARD_MIN_SOURCE_CHARS = int(os.environ.get("CF_CARD_MIN_SOURCE_CHARS", "400"))   # below this, the source is 'thin'
+
+
+def _capture_card_sample(sample_id, cid, m, source_kind, week, requested, made, source_text, cards, thin):
+    """De-identified training capture (Phase 18). Keeps only the system interaction — the source
+    material and the cards it produced — with identity and personal content stripped first by the same
+    pseudonymisation the privacy gateway uses (emails, IBANs, student numbers, phone numbers → tags).
+    The feedback signal (later edits, FSRS ratings) is joined in later through cards.gen_sample_id.
+    Best-effort: a capture failure must never fail card generation."""
+    try:
+        provider = getattr(getattr(m, "usage", None), "provider", None) or llm.PROVIDER
+        clean_source = gateway.minimise(source_text or "")[:200000]
+        clean_cards = [{"front": gateway.minimise(c.get("front", "")), "back": gateway.minimise(c.get("back", ""))}
+                       for c in cards]
+        with db() as d:
+            d.execute(
+                "INSERT INTO card_gen_samples(id,at,course_id,provider,model,source_kind,week,grounded,thin,"
+                "requested,made,source_chars,source_text,cards_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (sample_id, time.time(), cid, provider, getattr(m, "model", "") or "", source_kind, week or "",
+                 True, bool(thin), requested, made, len(source_text or ""), clean_source, json.dumps(clean_cards)))
+    except Exception as e:   # noqa: BLE001
+        print("card capture:", type(e).__name__, e)
+
+
 @app.post("/api/courses/{cid}/cards/generate")
 def generate_cards(cid: str, g: GenIn):
     if g.note_id:   # his own notes, week by week: Property Law Week 6 has notes and no files (2026-09-29)
         n = rows("SELECT title,body FROM notes WHERE id=? AND course_id=?", g.note_id, cid)
         if not n: raise HTTPException(404)
         wk = countdown.week_of(n[0]["title"])
-        src, week, txt = n[0]["title"], str(wk) if wk is not None else "", (n[0]["body"] or "")[:60000]
+        src, week, txt, kind = n[0]["title"], str(wk) if wk is not None else "", (n[0]["body"] or "")[:60000], "note"
     elif g.file_id:
         f = rows("SELECT name,text,week FROM files WHERE id=?", g.file_id)
         if not f: raise HTTPException(404)
-        src, week, txt = f[0]["name"], f[0]["week"] or "", (f[0]["text"] or "")[:60000]
+        src, week, txt, kind = f[0]["name"], f[0]["week"] or "", (f[0]["text"] or "")[:60000], "file"
     else:
-        parts, _, _ = build_context(cid); src, week, txt = "selected files", "", "\n\n".join(parts)[:60000]
-    prompt = (f"From the material below, write {g.count} flashcards for a law exam: precise, one testable point each, "
-              "case names and article numbers where present. Return ONLY a JSON array of objects with keys 'front' and 'back'.\n\n" + txt)
-    m = ask_model(pick_model('cards', g.model), task="cards", max_tokens=3000, messages=[{"role": "user", "content": prompt}])
+        parts, _, _ = build_context(cid); src, week, txt, kind = "selected files", "", "\n\n".join(parts)[:60000], "selected"
+    chosen = pick_model('cards', g.model)
+    # Grounded + captured only when the call actually routes to the self-hosted model (cheap tier, no
+    # explicit dropdown pick). local_call falls back to cloud on failure; grounding never hurts there.
+    grounded = llm.local_allows("cards") and chosen == CHEAP_MODEL
+    thin = len((txt or "").strip()) < CARD_MIN_SOURCE_CHARS
+    if grounded:
+        prompt = (f"From the course material below, write up to {g.count} exam flashcards, grounded only in "
+                  "this text. Return ONLY a JSON array of objects with keys 'front' and 'back'.\n\n" + txt)
+        m = ask_model(chosen, task="cards", max_tokens=3000, system=CARD_GROUNDING_RULES,
+                      messages=[{"role": "user", "content": prompt}])
+    else:
+        prompt = (f"From the material below, write {g.count} flashcards for a law exam: precise, one testable point each, "
+                  "case names and article numbers where present. Return ONLY a JSON array of objects with keys 'front' and 'back'.\n\n" + txt)
+        m = ask_model(chosen, task="cards", max_tokens=3000, messages=[{"role": "user", "content": prompt}])
     text = "".join(b.text for b in m.content if b.type == "text").strip().strip("`")
     if text.startswith("json"): text = text[4:]
     try: items = json.loads(text)
     except Exception: raise HTTPException(500, "Model returned non-JSON; try again.")
-    made = 0
+    sample_id = uuid.uuid4().hex if grounded else None
+    made, kept = 0, []
     with db() as d:
         for it in items:
             if it.get("front") and it.get("back"):
-                d.execute("INSERT INTO cards(id,course_id,front,back,source,week,due,created) VALUES(?,?,?,?,?,?,?,?)",
-                          (uuid.uuid4().hex[:10], cid, it["front"], it["back"], src, week, date.today().isoformat(), time.time())); made += 1
-    return {"made": made}
+                d.execute("INSERT INTO cards(id,course_id,front,back,source,week,due,created,gen_sample_id) VALUES(?,?,?,?,?,?,?,?,?)",
+                          (uuid.uuid4().hex[:10], cid, it["front"], it["back"], src, week, date.today().isoformat(), time.time(), sample_id)); made += 1
+                kept.append(it)
+    if grounded:
+        _capture_card_sample(sample_id, cid, m, kind, week, g.count, made, txt, kept, thin)
+        return {"made": made, "grounded": True, "thin": thin}
+    return {"made": made}   # default path unchanged, byte for byte
 
 
 # ---------------------------------------------------------------- oral grading (constant, cached)
