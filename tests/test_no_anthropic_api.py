@@ -28,7 +28,7 @@ def test_production_starts_on_the_gateway_or_openrouter_without_an_anthropic_key
 def test_the_deploy_no_longer_mounts_the_anthropic_key():
     wf = open(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".github", "workflows", "deploy.yml")).read()
     deploy = wf[wf.index("gcloud run deploy"):wf.index("Smoke test /health")]
-    assert "ANTHROPIC_API_KEY" not in deploy and "LLM_PROVIDER=gateway" in deploy and "LITELLM_API_KEY=" in deploy
+    assert "ANTHROPIC_API_KEY" not in deploy and "LLM_PROVIDER=kernal" in deploy and "LITELLM_API_KEY=" in deploy
 
 
 def test_config_reports_the_active_providers_key_not_the_anthropic_one(client, monkeypatch):
