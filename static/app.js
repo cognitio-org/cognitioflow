@@ -13,7 +13,7 @@ const put=(p,b)=>api(p,{method:'PUT',headers:{'Content-Type':'application/json'}
 const del=p=>api(p,{method:'DELETE'});
 /* ---- ⌘K palette + search ---- */
 let palItems=[], palSel=0, palT=null;
-const PAL_SCREENS=[['home','Overview'],['study','Study'],['mock','Mock exam'],['library','Files'],['tutor','Tutor'],['notes','Notes'],['recall','Recall'],['advocate','Advocate'],['essay','Essay'],['arena','Arena'],['planner','Planner'],['progress','Progress']];
+const PAL_SCREENS=[['home','Overview'],['study','Study'],['mock','Mock exam'],['library','Files'],['tutor','Tutor'],['notes','Notes'],['recall','Recall'],['advocate','Advocate'],['essay','Essay'],['cases','Cases'],['arena','Arena'],['planner','Planner'],['progress','Progress']];
 /* The palette is role="dialog" over a dimmed page, but nothing held focus inside it: one Tab walked
    out to #focusBtn, the sidebar and the nav behind the dim, and Escape was bound on #palQ alone, so
    once focus left there was no keyboard way back out at all. The 3D player already solves this
@@ -92,8 +92,8 @@ let courses=[], cid=localStorage.getItem('cf.course')||'', mode='drill', cfg={};
 const C=()=>courses.find(c=>c.id===cid)||courses[0];
 
 /* nav */
-const SCREENS=['home','study','mock','library','tutor','notes','recall','advocate','essay','arena','planner','progress'];
-const loaders={home:loadHome,study:loadStudy,mock:loadMock,library:loadFiles,tutor:loadTutor,notes:loadNotes,recall:loadRecall,advocate:loadAdvocate,essay:loadEssay,arena:loadArena,planner:loadPlanner,progress:loadProgress};
+const SCREENS=['home','study','mock','library','tutor','notes','recall','advocate','essay','cases','arena','planner','progress'];
+const loaders={home:loadHome,study:loadStudy,mock:loadMock,library:loadFiles,tutor:loadTutor,notes:loadNotes,recall:loadRecall,advocate:loadAdvocate,essay:loadEssay,cases:loadCases,arena:loadArena,planner:loadPlanner,progress:loadProgress};
 function show(id){ if(!SCREENS.includes(id)) id='home'; document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.id===id)); document.querySelectorAll('[data-nav]').forEach(a=>a.classList.toggle('active',a.dataset.nav===id)); localStorage.setItem('cf.screen',id); loaders[id](); }
 document.addEventListener('click',e=>{const a=e.target.closest('a[data-nav]'); if(a){e.preventDefault(); show(a.dataset.nav)}});
 
@@ -1399,6 +1399,79 @@ $('#esBank').onclick=async()=>{
     toast(r.made ? `${r.made} question${r.made===1?'':'s'} banked` : 'Nothing banked — tick the files it should come from');
     await esNext();
   }catch(e){ toast('Could not build questions: '+e.message,'warn') }
+  finally{ b.disabled=false; b.textContent=label }
+};
+
+/* ---- Cases (Phase 20): the exam-hypothetical issue-spotter ----
+   One fact pattern, several MCQs on the issues it raises; you revise exam-style while doing MCQs. Each
+   MCQ is answered on its own and gives immediate corrective feedback — the explanation that teaches why
+   — the moment it is answered. The answer and the explanation are never in the page before the choice;
+   they come from /case/answer, so the teaching lands after you have committed. A miss is written back to
+   Recall through the app's one review path, exactly as the quiz and the games do. */
+let ct={case:null, answered:0};
+const CT_LETTERS='ABCD';
+
+function ctMeta(left){
+  if(!ct.case){ $('#ctMeta').textContent='No cases banked yet.'; return }
+  const n=ct.case.mcqs.length;
+  $('#ctMeta').textContent=`${left} in the bank · ${ct.case.length==='full'?'full exam':'short hypo'}`+
+    (ct.case.week?' · week '+ct.case.week:'')+(ct.case.source?' · '+ct.case.source:'')+
+    (ct.case.thin?' · thin source':'')+` · ${n} question${n===1?'':'s'}`;
+}
+function ctProgress(){ const t=ct.case?ct.case.mcqs.length:0;
+  $('#ctProg').firstElementChild.style.width=t?(ct.answered/t*100)+'%':'0'; }
+
+function ctShow(d){
+  ct.case=d.case||null; ct.answered=0; $('#ctDone').hidden=true;
+  if(!ct.case){ $('#ctFacts').textContent='Nothing banked for this view yet — tick the files it should come from, choose a length, then build cases.';
+    $('#ctQuestions').innerHTML=''; ctMeta(d.left||0); ctProgress(); return }
+  $('#ctFacts').textContent=ct.case.facts;
+  ctMeta(d.left||0); ctProgress();
+  $('#ctQuestions').innerHTML=ct.case.mcqs.map((m,qi)=>
+    `<div class="ctcard" id="ctq-${qi}" data-qid="${esc(m.id)}"><div class="ctq"><span class="ctnum">${qi+1}</span><span>${esc(m.question)}</span></div>`+
+    m.options.map((o,i)=>`<button class="ctopt" data-q="${qi}" data-opt="${i}"><span class="lt">${CT_LETTERS[i]}</span><span>${esc(o)}</span></button>`).join('')+
+    `<div class="ctfb" hidden></div></div>`).join('');
+  ct.case.mcqs.forEach((m,qi)=>$(`#ctq-${qi}`).querySelectorAll('.ctopt').forEach(b=>b.onclick=()=>ctAnswer(qi,+b.dataset.opt,b)));
+}
+
+async function ctAnswer(qi, choice, btn){
+  const card=$(`#ctq-${qi}`); if(card.dataset.done) return;
+  const opts=[...card.querySelectorAll('.ctopt')]; card.dataset.done='1'; opts.forEach(x=>x.onclick=null);
+  let r;
+  try{ r=await post(`/courses/${cid}/case/answer`,{qid:card.dataset.qid, selected_index:choice}); }
+  catch(e){ toast('Could not mark it: '+e.message,'warn'); card.dataset.done=''; opts.forEach((x,i)=>x.onclick=()=>ctAnswer(qi,i,x)); return }
+  opts.forEach((x,i)=>{ if(i===r.correct_index) x.classList.add('correct'); else if(x===btn) x.classList.add('wrong'); else x.classList.add('muted'); });
+  const fb=card.querySelector('.ctfb'); fb.hidden=false; fb.className='ctfb '+(r.correct?'ok':'bad');
+  fb.innerHTML=`<b>${r.correct?'✓ Right':'✗ Not yet'}</b> ${esc(r.explanation||'')}`+
+    (!r.correct&&r.due?` <span class="small muted">The gap is waiting in <a href="#recall" data-nav="recall">Recall</a>.</span>`:'');
+  ct.answered++; ctProgress();
+  if(ct.answered>=ct.case.mcqs.length){ $('#ctDone').hidden=false;
+    $('#ctDone').innerHTML='<b>Case done.</b><span>Press “Next case” for another, or build more from your files.</span>'; }
+}
+
+async function ctNext(){
+  try{ ctShow(await post(`/courses/${cid}/case/next`,{week:$('#ctWeek').value||'', length:$('#ctLength').value||''})) }
+  catch(e){ toast('Could not load a case: '+e.message,'warn') }
+}
+
+async function loadCases(){
+  const sel=$('#ctWeek');
+  try{ const map=await api(`/courses/${cid}/recall-map`);
+       sel.innerHTML='<option value="">all</option>'+map.weeks.filter(w=>w.week).map(w=>`<option value="${esc(w.week)}">${esc(w.week)}</option>`).join(''); }catch(e){}
+  await ctNext();
+}
+
+$('#ctWeek').addEventListener('change',()=>ctNext());
+$('#ctLength').addEventListener('change',()=>ctNext());
+$('#ctNext').onclick=()=>ctNext();
+$('#ctBank').onclick=async()=>{
+  const b=$('#ctBank'), label=b.textContent; b.disabled=true; b.textContent='Writing cases…';
+  try{
+    const r=await post(`/courses/${cid}/case/bank`,{count:1, length:$('#ctLength').value||'short', week:$('#ctWeek').value||''});
+    toast(r.made ? `${r.made} case${r.made===1?'':'s'} · ${r.mcqs} question${r.mcqs===1?'':'s'} banked`
+                 : (r.thin ? 'Nothing banked — that source is too thin for a case' : 'Nothing banked — tick the files it should come from'));
+    await ctNext();
+  }catch(e){ toast('Could not build cases: '+e.message,'warn') }
   finally{ b.disabled=false; b.textContent=label }
 };
 

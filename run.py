@@ -21,6 +21,7 @@ from pydantic import BaseModel
 import citecheck
 import weaktopics
 import pack
+import casetrainer
 import countdown
 import docketgen
 import embed
@@ -2233,6 +2234,206 @@ def essay_bank(cid: str, g: EssayBankIn):
     return {"made": made}
 
 
+# ---------------------------------------------------------------- the case trainer (Phase 20)
+# The exam-hypothetical issue-spotter Matej asked for: "MCQ that creates cases so you revise exam
+# questions while doing MCQ". A "case" is a realistic fact pattern plus N MCQs on the issues it raises.
+# It follows the oral/essay bank pattern exactly — a bank built from the student's own ticked files,
+# served one at a time — and reuses three things rather than inventing a fourth:
+#
+#   * The Phase-11 Question shape {question, options[4], correct_index, explanation} for each MCQ, so
+#     the page and the writer agree with the quiz and the games.
+#   * The grounding + abstain discipline of card generation (CARD_GROUNDING_RULES): the fact pattern
+#     and its MCQs are built ONLY from the ticked material, and the writer writes fewer — or none —
+#     when the source is thin, rather than invent law. The pure shapes live in casetrainer.py.
+#   * The ONE review path for "what you missed": a missed MCQ becomes a card rated 'Again'
+#     (casetrainer.rating_for), exactly as Phase 11 decided — never a second scheduler.
+#
+# The writer runs on the CHEAP/bulk tier (task="case"): the local 7B in dev when CF_LOCAL_TASKS names
+# it, else the configured cheap cloud tier (Kernal gemini-2.5-flash in prod). Banking a question is not
+# the analytical call — the analytical call, in this app, is marking an answer, and an MCQ marks itself.
+CASE_MIN_SOURCE_CHARS = int(os.environ.get("CF_CASE_MIN_SOURCE_CHARS", "600"))   # below this, the source is 'thin'
+
+CASE_GROUNDING_RULES = (
+    "You write exam practice for a Groningen LLB law exam, grounded strictly in the material you are given.\n"
+    "Rules:\n"
+    "1. Use ONLY what is in the material. Every rule, case name, citation and article number — in the facts, "
+    "in the options and in the explanations — must be supported by the text below.\n"
+    "2. Never invent or 'recall from memory' law that is not in the material. An invented citation is the "
+    "worst failure in a law question. If you are not sure a point is in the text, leave it out.\n"
+    "3. The fact pattern may invent parties, names and events, but only to raise issues the material "
+    "actually teaches — never an issue the text does not cover.\n"
+    "4. If the material is thin, write FEWER questions — only what the text supports, even none — and set "
+    "\"thin\": true on the case.\n"
+    "Return ONLY the JSON array, nothing else."
+)
+
+
+def _case_writer_prompt(n: int, spec: dict, txt: str, thin: bool) -> str:
+    """The grounded instruction handed to the cheap tier. The distractor standard is the same one /quiz
+    uses (DISTRACTOR_GUIDANCE) so the wrong options model a student's real error, not a random falsehood."""
+    thin_note = ("\nThe material below is short. Prefer ONE case with only the few questions it truly "
+                 "supports, and set \"thin\": true; do not pad it with issues the text does not raise.\n"
+                 if thin else "\n")
+    return (
+        f"From the material below, write {n} exam-style {spec['label'].lower()}(s) for this course: each a "
+        f"realistic fact pattern with embedded multiple-choice questions that test the legal ISSUES it raises "
+        f"(issue-spotting), so the student revises exam-style while doing MCQs.\n"
+        f"For each case:\n"
+        f"- Write {spec['facts']}. Invent the parties and facts, but every legal issue it turns on must be one "
+        f"the material actually teaches — a rule, a case or an article that appears below.\n"
+        f"- Then write between {spec['lo']} and {spec['hi']} multiple-choice questions on the issues in THOSE "
+        f"facts (aim for about {spec['mcqs']}). Write fewer, even none, if the material is too thin to support "
+        f"more — never invent law to reach a number.\n"
+        f"- Each question has exactly four options and ONE correct answer. The three wrong options must be "
+        + DISTRACTOR_GUIDANCE + ".\n"
+        f"- The explanation TEACHES: a sentence or two on why the right option is right and why the others are "
+        f"wrong, naming the rule, case or article from the material. Label anything you must reach outside the "
+        f"material [OUTSIDE FILES].\n"
+        'Return ONLY a JSON array of case objects, each with keys: "facts" (the fact pattern), "thin" (true if '
+        'the material was too thin for a full set), and "mcqs" — an array of objects with keys "concept" (3-6 '
+        'words naming the issue tested), "question", "options" (exactly four strings), "correct_index" (0-3 into '
+        'options) and "explanation".'
+        + thin_note + "\n" + txt)
+
+
+class CaseBankIn(BaseModel):
+    count: int = 1
+    length: str = "short"
+    file_id: str = ""
+    week: str = ""
+    model: Optional[str] = None
+
+
+@app.post("/api/courses/{cid}/case/bank")
+def case_bank(cid: str, g: CaseBankIn):
+    """Turn the student's own ticked material into exam-hypothetical cases, per course and week, on the
+    cheap tier. Grounded in the ticked files only; abstains (writes fewer/none, flags thin) when the
+    source is too thin to support a full set — never invents law."""
+    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    if g.file_id:
+        # scoped to the course, like essay_bank: an unscoped id would read another course's file.
+        f = rows("SELECT name,text,week FROM files WHERE id=? AND course_id=?", g.file_id, cid)
+        if not f: raise HTTPException(404)
+        src, week, txt = f[0]["name"], f[0]["week"] or "", (f[0]["text"] or "")[:60000]
+    else:
+        parts, _, _ = build_context(cid)
+        src, week, txt = "selected files", g.week, "\n\n".join(parts)[:60000]
+    if not txt.strip(): raise HTTPException(400, "No ticked files to build cases from.")
+    length = casetrainer.length_of(g.length)
+    spec = casetrainer.LENGTHS[length]
+    n = max(1, min(5, g.count))
+    thin = len(txt.strip()) < CASE_MIN_SOURCE_CHARS
+    prompt = _case_writer_prompt(n, spec, txt, thin)
+    m = ask_model(pick_model("cards", g.model), task="case", max_tokens=8000,
+                  system=CASE_GROUNDING_RULES, messages=[{"role": "user", "content": prompt}])
+    items = _model_json(m)
+    made, made_mcqs = 0, 0
+    with db() as d:
+        for raw in items if isinstance(items, list) else []:
+            c = casetrainer.normalise_case(raw)
+            if not c: continue
+            case_id = uuid.uuid4().hex[:10]
+            d.execute("INSERT INTO case_hypos(id,course_id,week,length,facts,source,thin,seen,created) "
+                      "VALUES(?,?,?,?,?,?,?,?,?)",
+                      (case_id, cid, week, length, c["facts"], src, 1 if (c["thin"] or thin) else 0, None, time.time()))
+            for i, q in enumerate(c["mcqs"]):
+                d.execute("INSERT INTO case_hypo_mcqs(id,case_id,course_id,ord,question,options,correct_index,explanation,concept,created) "
+                          "VALUES(?,?,?,?,?,CAST(? AS jsonb),?,?,?,?)",
+                          (uuid.uuid4().hex[:10], case_id, cid, i, q["question"], json.dumps(q["options"]),
+                           q["correct_index"], q["explanation"], q["concept"], time.time()))
+                made_mcqs += 1
+            made += 1
+    return {"made": made, "mcqs": made_mcqs, "length": length, "thin": thin}
+
+
+class CaseNextIn(BaseModel):
+    week: str = ""
+    length: str = ""
+
+
+def _case_mcqs(case_ids: list) -> dict:
+    """Every banked MCQ for these cases, grouped by case id, in writing order."""
+    out: dict = {}
+    if not case_ids: return out
+    ph = ",".join("?" for _ in case_ids)
+    for r in rows(f"SELECT * FROM case_hypo_mcqs WHERE case_id IN ({ph}) ORDER BY ord", *case_ids):
+        out.setdefault(r["case_id"], []).append(dict(r))
+    return out
+
+
+def _opts(value) -> list:
+    """The options column is JSONB (psycopg decodes it to a list); tolerate a string if one ever lands."""
+    if isinstance(value, list): return value
+    try: return json.loads(value)
+    except Exception: return []
+
+
+@app.post("/api/courses/{cid}/case/next")
+def case_next(cid: str, n: CaseNextIn):
+    """One case to work: its fact pattern and its MCQs, rotated through the bank (least-recently-seen
+    first). The MCQs travel WITHOUT their answer or explanation — the teaching comes after the choice,
+    through /case/answer, so the page cannot reveal it early."""
+    q, a = "SELECT * FROM case_hypos WHERE course_id=?", [cid]
+    if n.week: q += " AND week=?"; a.append(n.week)
+    length = casetrainer.length_of(n.length) if (n.length or "").strip() else ""
+    if length: q += " AND length=?"; a.append(length)
+    cases = [dict(r) for r in rows(q + " ORDER BY created", *a)]
+    by_case = _case_mcqs([c["id"] for c in cases])
+    bank = []
+    for c in cases:
+        c["mcqs"] = by_case.get(c["id"], [])
+        if casetrainer.valid_case(c): bank.append(c)
+    if not bank: return {"case": None, "left": 0}
+    pick = casetrainer.choose(bank)
+    with db() as d:
+        d.execute("UPDATE case_hypos SET seen=? WHERE id=?", (time.time(), pick["id"]))
+    mcqs = [{"id": m["id"], "ord": m["ord"], "question": m["question"], "options": _opts(m["options"])}
+            for m in pick["mcqs"]]
+    return {"case": {"id": pick["id"], "facts": pick["facts"], "length": pick["length"],
+                     "week": pick["week"] or "", "source": pick["source"] or "", "thin": bool(pick["thin"]),
+                     "mcqs": mcqs}, "left": len(bank)}
+
+
+class CaseAnswerIn(BaseModel):
+    qid: str
+    selected_index: int
+
+
+def _remember_case_answer(cid: str, case_id: str, question: str, right_text: str, concept: str, correct: bool) -> Optional[str]:
+    """"What you missed", through the app's one review path. A missed MCQ becomes a card rated 'Again',
+    so FSRS brings it back on its own; a later correct answer on the same MCQ rates that same card
+    'Good'. Nothing is created for an MCQ answered right the first time — the deck tracks what you
+    MISSED, not every MCQ you ever saw (Phase 11 / CLAUDE.md: no second scheduler). One card per MCQ:
+    `front`+`source` identify it, so replaying a case never leaves duplicates (as _remember_miss does)."""
+    source = f"case:{case_id}"[:200]
+    rating = casetrainer.rating_for(correct)
+    same = rows("SELECT id FROM cards WHERE course_id=? AND front=? AND source=?", cid, question, source)
+    if same:
+        return review(same[0]["id"], ReviewIn(rating=rating))["due"]
+    if correct:
+        return None   # right, with no card behind it: there is nothing to schedule
+    kid = uuid.uuid4().hex[:10]
+    with db() as d:
+        d.execute("INSERT INTO cards(id,course_id,front,back,source,concept,due,created) VALUES(?,?,?,?,?,?,?,?)",
+                  (kid, cid, question, right_text, source, (concept or "")[:80], date.today().isoformat(), time.time()))
+    return review(kid, ReviewIn(rating=rating))["due"]   # create, then rate — the Phase-11 "creates one, then rates it"
+
+
+@app.post("/api/courses/{cid}/case/answer")
+def case_answer(cid: str, a: CaseAnswerIn):
+    """Mark one MCQ and give immediate corrective feedback: whether it was right, which option was, and
+    the explanation that teaches why. A miss (or a later correction) goes through the review path."""
+    q = rows("SELECT * FROM case_hypo_mcqs WHERE id=? AND course_id=?", a.qid, cid)
+    if not q: raise HTTPException(404)
+    mcq = dict(q[0])
+    ci = int(mcq["correct_index"])
+    correct = int(a.selected_index) == ci
+    opts = _opts(mcq["options"])
+    right_text = opts[ci] if 0 <= ci < len(opts) else ""
+    due = _remember_case_answer(cid, mcq["case_id"], mcq["question"], right_text, mcq.get("concept") or "", correct)
+    return {"correct": correct, "correct_index": ci, "explanation": mcq.get("explanation") or "", "due": due}
+
+
 # ---------------------------------------------------------------- mock exams from his own past papers
 def _exam_files(cid: str):
     """His past papers for a course: files labelled Past exam, or named like one."""
@@ -2384,6 +2585,12 @@ def recall_map(cid: str):
 
 class QuizIn(BaseModel): count: int = 8; week: str = ""; weak: int = 0
 
+# Phase 11g's distractor machinery, named once so the case trainer (Phase 20) writes its wrong options
+# exactly the same way: student-error modelling — the mistake a student who half-knows the material
+# actually makes, not a random false statement. Both /quiz and /case/bank hand the model this standard.
+DISTRACTOR_GUIDANCE = ("plausible to a student who half-knows the material, the same form and length as the "
+                       "right answer, clearly wrong on a careful reading, never a paraphrase of the right answer")
+
 def _distractor_hash(back: str) -> str:
     """sha1 of a card's back — the cache key that ties a stored distractor set to the exact answer it was written for."""
     return hashlib.sha1((back or "").strip().encode("utf-8")).hexdigest()
@@ -2424,9 +2631,8 @@ def quiz(cid: str, qz: QuizIn):
     if need:  # only the cards without a valid stored set are sent to the model — zero calls when everything hit
         others = [c["back"][:200] for c in rows("SELECT id,back FROM cards WHERE course_id=? ORDER BY RANDOM() LIMIT 60", cid) if c["id"] not in ids]
         items = "\n".join(f"{i}. Q: {c['front']}\n   A: {c['back']}" for i, c in enumerate(need))
-        prompt = ("Write multiple-choice distractors for a law exam quiz. For each numbered question, give exactly three wrong answers: plausible to a student "
-                  "who half-knows the material, the same form and length as the right answer, clearly wrong on a careful reading, never a paraphrase of the "
-                  "right answer. Borrow names, articles and rules from the course's other cards where they fit.\n"
+        prompt = ("Write multiple-choice distractors for a law exam quiz. For each numbered question, give exactly three wrong answers: "
+                  + DISTRACTOR_GUIDANCE + ". Borrow names, articles and rules from the course's other cards where they fit.\n"
                   'Return ONLY a JSON array of objects {"i": <question number>, "wrong": [three strings]}.\n\nQUESTIONS:\n' + items +
                   "\n\nOTHER CARDS IN THIS COURSE (answers only):\n" + ("\n".join("- " + o for o in others) or "(none)"))
         got = _model_json(ask_model(CHEAP_MODEL, max_tokens=3000, messages=[{"role": "user", "content": prompt}]))
