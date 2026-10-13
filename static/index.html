@@ -24,6 +24,7 @@
     <li><a href="#recall" data-nav="recall">Recall</a></li>
     <li><a href="#advocate" data-nav="advocate">Advocate</a></li>
     <li><a href="#essay" data-nav="essay">Essay</a></li>
+    <li><a href="#cases" data-nav="cases">Cases</a></li>
     <li><a href="#arena" data-nav="arena">Arena</a></li>
     <li><a href="#planner" data-nav="planner">Planner</a></li>
     <li><a href="#progress" data-nav="progress">Progress</a></li>
@@ -283,6 +284,23 @@
         <button class="btn small ghost" id="esModelBtn" type="button" disabled aria-expanded="false" aria-controls="esModel">Show the model answer</button>
         <div class="esmodel" id="esModel" hidden></div></div>
     </aside>
+  </div>
+</section>
+
+<section id="cases" class="screen">
+  <div class="head"><div><h1>Cases</h1><div class="small muted" id="ctSub">Read the fact pattern, then spot the issues. What you miss comes back in Recall.</div></div>
+    <span><label class="ctlen small muted" for="ctLength">Length <select id="ctLength"><option value="short">Short hypo</option><option value="full">Full exam</option></select></label>
+      <label class="ctweek small muted" for="ctWeek">Week <select id="ctWeek"><option value="">all</option></select></label>
+      <button class="btn small" id="ctNext" type="button">Next case</button>
+      <button class="btn small ghost" id="ctBank" type="button" title="Write exam-hypothetical cases from the files you have ticked">Build cases from my files</button></span></div>
+  <div class="ctstage">
+    <div class="panel ctfacts" id="ctFactsPanel">
+      <div class="ctfactshead"><span class="small muted" id="ctMeta">No cases banked yet.</span></div>
+      <p class="ctfactstext" id="ctFacts">Build cases from your ticked files, choose a length, then press “Next case”.</p>
+    </div>
+    <div class="progress ctprog" id="ctProg"><span></span></div>
+    <div id="ctQuestions" aria-live="polite"></div>
+    <div class="rdone ctdone" id="ctDone" hidden></div>
   </div>
 </section>
 
