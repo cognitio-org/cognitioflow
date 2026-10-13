@@ -54,3 +54,30 @@
   .cf-skel::after{animation:none;background:none}
   .cf-spin{animation:none}
 }
+
+/* ───── S2 — dashboard: depth & hierarchy ─────
+   Course cards and stat panels gain the existing --lift so the overview reads as layered,
+   not flat. Cards lift a touch on pointer (transform, the blessed property); resting shadow
+   only, no idle motion. --lift-hover is the one new token, with a dark variant. */
+:root{--lift-hover:0 2px 4px rgba(40,30,10,.07),0 14px 30px rgba(40,30,10,.10)}
+@media(prefers-color-scheme:dark){:root{--lift-hover:0 0 0 1px rgba(255,244,222,.07),0 16px 36px rgba(0,0,0,.40)}}
+.today-card,.panel.stat,.ctcard{box-shadow:var(--lift)}
+.today-card,.ctcard{transition:box-shadow var(--dur) var(--ease-out),transform var(--dur) var(--ease-out)}
+.today-card:hover,.ctcard:hover{box-shadow:var(--lift-hover);transform:translateY(-2px)}
+
+/* ───── S3 — Arena: answer reveal ─────
+   When JS marks an option .correct/.wrong (on an ACTION — a submitted answer), it settles in:
+   one short scale+fade, never a loop. The colours themselves are already set in app-after.css. */
+.correct,.wrong{animation:cf-reveal .28s var(--ease-out)}
+@keyframes cf-reveal{from{transform:scale(.985);opacity:.85}to{transform:scale(1);opacity:1}}
+
+/* ───── S4 — Cases: the fact pattern reads like a printed document ─────
+   The hypothetical gets a gentle lift and a comfortable reading measure. */
+.panel.ctfacts{box-shadow:var(--lift)}
+.ctfactstext{max-width:42rem}
+
+@media(prefers-reduced-motion:reduce){
+  .today-card,.ctcard{transition:none}
+  .today-card:hover,.ctcard:hover{transform:none}
+  .correct,.wrong{animation:none}
+}
