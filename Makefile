@@ -5,8 +5,11 @@ PORT ?= 8000
 dev:
 	uvicorn run:app --reload --env-file .env.local --port $(PORT)
 
+# research/ holds Lector's tests. They need no database, so they run in the same command
+# rather than a separate one — CI calls `make test` and nothing else, and 38 tests that
+# only ever ran in scripts/check.sh would be 38 tests CI never sees.
 test:
-	pytest tests/ -v --tb=short -o faulthandler_timeout=300   # a test still running after 5 min prints where it is stuck
+	pytest tests/ research/ -v --tb=short -o faulthandler_timeout=300   # a test still running after 5 min prints where it is stuck
 
 migrate:
 	python -m migrate
