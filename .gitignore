@@ -32,3 +32,4 @@ blender/**/*.blend1
 docker-compose.override.yml
 # unfinished swarm output, parked so the local gate means something
 .parked/
+.codebase-index/
