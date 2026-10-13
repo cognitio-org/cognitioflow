@@ -31,9 +31,9 @@ def problems(env=None) -> list:
     if prod:
         if off: out.append(("AUTH=off is not allowed when ENV=production", True))
         provider = get("LLM_PROVIDER").lower()
-        if provider not in ("gateway", "openrouter"):
-            out.append((f"LLM_PROVIDER={provider or '(unset)'} is not allowed when ENV=production: use gateway or openrouter, never the Anthropic API", True))
-        need({"gateway": "LITELLM_API_KEY", "openrouter": "OPENROUTER_KEY"}.get(provider, "LITELLM_API_KEY"))
+        if provider not in ("gateway", "openrouter", "kernal"):
+            out.append((f"LLM_PROVIDER={provider or '(unset)'} is not allowed when ENV=production: use gateway, openrouter or kernal, never the Anthropic API", True))
+        need({"gateway": "LITELLM_API_KEY", "openrouter": "OPENROUTER_KEY", "kernal": "KERNAL_API_KEY"}.get(provider, "LITELLM_API_KEY"))
     if off and not prod:
         need("ALLOWED_EMAILS")  # the bypass signs in as its first address
     else:
