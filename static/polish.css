@@ -1,0 +1,83 @@
+/* CognitioFlow — Phase 21 polish layer (2026-10-13). Loads LAST.
+   ADDITIVE only. A semantic + motion token layer over the existing base tokens (which keep
+   working, unrenamed), smoother transitions on controls that ALREADY have hover/active states,
+   and reusable loading / skeleton / empty / error states. No identity change, no structure
+   change, no id or data-hook touched. Motion is transform+opacity, reduced-motion-gated, and
+   never idle — it fires on an action or an active load, matching the house rule. */
+
+:root{
+  /* Semantic roles mapped onto the base palette. Use these going forward; the base names
+     (--ink --paper --rule …) stay exactly as they are and keep working. */
+  --surface:var(--paper); --surface-raised:var(--raised); --surface-sunk:var(--faint);
+  --text:var(--ink); --text-muted:var(--graphite);
+  --border:var(--rule); --border-strong:var(--rule-strong);
+  /* Motion: the codebase already ships --ease and --lift; add durations so timing has one
+     source of truth. --ease-out falls back if library.css ever stops loading first. */
+  --dur-fast:120ms; --dur:200ms; --ease-out:var(--ease,cubic-bezier(.23,1,.32,1));
+}
+
+/* Smooth the hover/press/focus states these controls ALREADY have, so they feel considered
+   instead of snapping. Cheap properties only (colour + transform), never layout. */
+.btn,.seg .btn,nav a,.tag,.rolechip{
+  transition:background-color var(--dur-fast) var(--ease-out),
+             border-color var(--dur-fast) var(--ease-out),
+             color var(--dur-fast) var(--ease-out),
+             transform var(--dur-fast) var(--ease-out);
+}
+:focus-visible{transition:outline-color var(--dur-fast) var(--ease-out)}
+
+/* Loading skeleton — shown ONLY while content loads (active feedback, not idle motion).
+   A quiet sheen sweeps a neutral block; under reduced-motion it holds a static tint. */
+.cf-skel{position:relative;overflow:hidden;background:var(--surface-sunk);border-radius:var(--r);min-height:1em}
+.cf-skel::after{content:"";position:absolute;inset:0;transform:translateX(-100%);
+  background:linear-gradient(90deg,transparent,color-mix(in oklab,var(--surface-raised),transparent 30%),transparent);
+  animation:cf-shimmer 1.3s ease-in-out infinite}
+@keyframes cf-shimmer{100%{transform:translateX(100%)}}
+
+/* Inline spinner for in-flight actions. */
+.cf-spin{display:inline-block;width:1em;height:1em;vertical-align:-.15em;border-radius:50%;
+  border:2px solid var(--border);border-top-color:var(--accent);animation:cf-spin .7s linear infinite}
+@keyframes cf-spin{100%{transform:rotate(360deg)}}
+
+/* Empty state — refine the existing .emptystate (styled in book.css) without changing its
+   structure or where JS uses it: a clearer lead line against the muted body. */
+.emptystate{color:var(--text-muted)}
+.emptystate strong,.emptystate b{color:var(--text);font-weight:500}
+
+/* Inline error — a calm, legible block in the house red (--bad). */
+.cf-error{display:grid;gap:.3rem;padding:var(--s4);border:1px solid var(--bad);border-left:4px solid var(--bad);
+  border-radius:var(--r);background:color-mix(in oklab,var(--bad),transparent 92%);color:var(--text)}
+.cf-error .t{font-weight:500}
+
+@media(prefers-reduced-motion:reduce){
+  .btn,.seg .btn,nav a,.tag,.rolechip,:focus-visible{transition:none}
+  .cf-skel::after{animation:none;background:none}
+  .cf-spin{animation:none}
+}
+
+/* ───── S2 — dashboard: depth & hierarchy ─────
+   Course cards and stat panels gain the existing --lift so the overview reads as layered,
+   not flat. Cards lift a touch on pointer (transform, the blessed property); resting shadow
+   only, no idle motion. --lift-hover is the one new token, with a dark variant. */
+:root{--lift-hover:0 2px 4px rgba(40,30,10,.07),0 14px 30px rgba(40,30,10,.10)}
+@media(prefers-color-scheme:dark){:root{--lift-hover:0 0 0 1px rgba(255,244,222,.07),0 16px 36px rgba(0,0,0,.40)}}
+.today-card,.panel.stat,.ctcard{box-shadow:var(--lift)}
+.today-card,.ctcard{transition:box-shadow var(--dur) var(--ease-out),transform var(--dur) var(--ease-out)}
+.today-card:hover,.ctcard:hover{box-shadow:var(--lift-hover);transform:translateY(-2px)}
+
+/* ───── S3 — Arena: answer reveal ─────
+   When JS marks an option .correct/.wrong (on an ACTION — a submitted answer), it settles in:
+   one short scale+fade, never a loop. The colours themselves are already set in app-after.css. */
+.correct,.wrong{animation:cf-reveal .28s var(--ease-out)}
+@keyframes cf-reveal{from{transform:scale(.985);opacity:.85}to{transform:scale(1);opacity:1}}
+
+/* ───── S4 — Cases: the fact pattern reads like a printed document ─────
+   The hypothetical gets a gentle lift and a comfortable reading measure. */
+.panel.ctfacts{box-shadow:var(--lift)}
+.ctfactstext{max-width:42rem}
+
+@media(prefers-reduced-motion:reduce){
+  .today-card,.ctcard{transition:none}
+  .today-card:hover,.ctcard:hover{transform:none}
+  .correct,.wrong{animation:none}
+}
