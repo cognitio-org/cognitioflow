@@ -98,3 +98,40 @@ def test_the_server_writes_no_game_unless_asked_to(client, monkeypatch):
     d = client.get(f"/api/courses/{cid}/docket-drafts").json()
     assert d["auto"] is False and d["started"] == [] and not started
     assert client.post(f"/api/courses/{cid}/docket-drafts", json={"week": "3"}).status_code == 400
+
+
+def _course_multi(client, name="Across Weeks"):
+    cid = client.post("/api/courses", json={"name": name}).json()["id"]
+    client.post(f"/api/courses/{cid}/files", files={"file": ("W3 lecture.txt", io.BytesIO(b"Registration is constitutive. Art 3:89 BW."), "text/plain")}, data={"week": "3"})
+    client.post(f"/api/courses/{cid}/files", files={"file": ("W4 lecture.txt", io.BytesIO(b"Good faith acquisition under Art 3:86 BW."), "text/plain")}, data={"week": "4"})
+    client.post(f"/api/courses/{cid}/files", files={"file": ("W5 lecture.txt", io.BytesIO(b"Priority of limited rights, Art 3:21 BW."), "text/plain")}, data={"week": "5"})
+    return cid
+
+
+def test_scope_parsing_and_labels():
+    assert run._scope_weeks("5") == ["5"]
+    assert run._scope_weeks("3,4,5") == ["3", "4", "5"]
+    assert run._scope_weeks("all") is None and run._scope_weeks("") is None
+    assert run._scope_label("5") == "week 5"
+    assert run._scope_label("3,4,5") == "weeks 3, 4, 5"
+    assert run._scope_label("all") == "the whole course"
+
+
+def test_docket_files_honours_scope(client):
+    cid = _course_multi(client)
+    assert {f["week"] for f in run._docket_files(cid, "4")} == {"4"}               # one week
+    assert {f["week"] for f in run._docket_files(cid, "3,5")} == {"3", "5"}        # a chosen set
+    assert {f["week"] for f in run._docket_files(cid, "all")} == {"3", "4", "5"}   # the whole course
+
+
+def test_a_whole_course_game_draws_from_every_week(client):
+    cid = _course_multi(client)
+    fake = mock.MagicMock(); fake.messages.create.side_effect = [_reply(r) for r in [game(), {"verdict": "ok", "issues": []}]]
+    with mock.patch.object(run, "client", return_value=fake):
+        gid = run._docket_queue(cid, ["all"])[0]
+        run._docket_write(cid, gid)
+    sent = fake.messages.create.call_args_list[0].kwargs["messages"][0]["content"]
+    assert "W3 lecture.txt" in sent and "W4 lecture.txt" in sent and "W5 lecture.txt" in sent   # every week reached the writer
+    assert "covering the whole course" in sent
+    d = client.get(f"/api/courses/{cid}/docket-drafts").json()["games"][0]
+    assert d["status"] == "draft" and d["scope"] == "the whole course"
