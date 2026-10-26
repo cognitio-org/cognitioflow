@@ -158,3 +158,57 @@ def test_no_exam_signal_leaves_order_to_authority_and_coverage():
     tagged = run._tag_exam_relevance([a, b])
     assert all(f["_rel"] == 0.0 for f in tagged)
     assert {f["week"] for f in run._budget_across_weeks(tagged)} == {"1", "2"}
+
+
+# --- Phase B: games grounded in the shared EU-law / CJEU knowledge ------------------------------------------------ #
+class _FakeResp:
+    def __init__(self, payload): self._b = json.dumps(payload).encode()
+    def read(self): return self._b
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+def test_law_sources_off_by_default(monkeypatch):
+    monkeypatch.setattr(run, "DOCKET_RAG_URL", "")
+    assert run._law_sources([{"text": "Art 107 TFEU", "role": "exam"}]) == []
+
+
+def test_law_sources_parses_hits(monkeypatch):
+    monkeypatch.setattr(run, "DOCKET_RAG_URL", "http://127.0.0.1:8100")
+    hits = {"hits": [{"doc_id": "32019L0790", "title": "Copyright Directive", "snippet": "Article 17 governs online platforms."}]}
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _FakeResp(hits))
+    out = run._law_sources([{"text": "copyright online platforms", "role": "exam"}])
+    assert len(out) == 1 and out[0]["kind"] == "law" and out[0]["role"] == "cases"
+    assert "32019L0790" in out[0]["name"] and "Article 17" in out[0]["text"]
+
+
+def test_law_sources_degrade_on_error(monkeypatch):
+    monkeypatch.setattr(run, "DOCKET_RAG_URL", "http://127.0.0.1:8100")
+    def boom(*a, **k): raise OSError("connection refused")
+    monkeypatch.setattr("urllib.request.urlopen", boom)
+    assert run._law_sources([{"text": "anything", "role": "exam"}]) == []
+
+
+def test_a_game_can_cite_shared_law_because_it_joins_the_citecheck_corpus(client, monkeypatch):
+    """A citation to real EU law passes only because the retrieved law passage is added to the verification corpus;
+    with no law source the same citation would be flagged as not in the files."""
+    cid = _course(client, "State Aid Law")
+    law = [{"id": "law:12008E107", "name": "12008E107 — TFEU", "text": "Article 107 TFEU prohibits State aid that distorts competition.",
+            "role": "cases", "kind": "law", "week": "", "_rel": 0.0}]
+    g = game(); g["verdict"]["takeaway"] = "Remember Article 107 TFEU on State aid."
+
+    monkeypatch.setattr(run, "_law_sources", lambda files, k=4: law)
+    fake = mock.MagicMock(); fake.messages.create.side_effect = [_reply(g), _reply({"verdict": "ok", "issues": []})]
+    with mock.patch.object(run, "client", return_value=fake):
+        gid = run._docket_queue(cid, ["3"])[0]; run._docket_write(cid, gid)
+    sent = fake.messages.create.call_args_list[0].kwargs["messages"][0]["content"]
+    assert 'kind="law"' in sent and "Article 107 TFEU prohibits State aid" in sent     # law reached the writer as a source
+    row = run.rows("SELECT status FROM docket_games WHERE id=?", gid)[0]
+    assert row["status"] == "draft"                                                    # citation verified -> no failure
+
+    monkeypatch.setattr(run, "_law_sources", lambda files, k=4: [])                    # without the law source...
+    fake2 = mock.MagicMock(); fake2.messages.create.side_effect = [_reply(g), _reply(g)]  # write + one repair, same game
+    with mock.patch.object(run, "client", return_value=fake2):
+        gid2 = run._docket_queue(cid, ["3"])[0]; run._docket_write(cid, gid2)
+    row2 = run.rows("SELECT status,error FROM docket_games WHERE id=?", gid2)[0]
+    assert row2["status"] == "failed"                                                  # Article 107 TFEU now unverifiable

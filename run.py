@@ -2789,6 +2789,8 @@ def docket_game(cid: str, gid: str, user: dict = Depends(current_user)):
 DOCKET_AUTO = os.environ.get("CF_DOCKET_AUTO", "0") == "1"
 DOCKET_SETTLE_S = 90                  # an upload batch lands file by file; wait for it before writing
 DOCKET_REVIEW_MODEL = os.environ.get("CF_DOCKET_REVIEW_MODEL", STRONG_MODEL)
+DOCKET_RAG_URL = os.environ.get("CF_RAG_URL", "").rstrip("/")   # shared-knowledge RAG base, e.g. http://127.0.0.1:8100; empty disables
+DOCKET_LAW_CORPORA = os.environ.get("CF_RAG_LAW_CORPORA", "law:eu:3,law:eu:6,law:eu:2")  # EU legislation, CJEU, intl agreements
 _docket_writing: set = set()          # course ids with a writer thread in this process
 _docket_lock = threading.Lock()
 
@@ -2853,6 +2855,37 @@ def _docket_files(cid: str, scope: str) -> list:
     else:                                                          # a chosen set of weeks
         fs = rows(cols + f" AND week IN ({','.join('?' for _ in weeks)})", cid, *weeks)
     return _budget_across_weeks(_tag_exam_relevance(fs))
+
+
+def _law_sources(files: list, k: int = 4) -> list:
+    """Relevant EU-law and CJEU passages from the shared-knowledge RAG, as extra VERIFIED sources a game may cite
+    alongside the course files. Off unless CF_RAG_URL is set, and returns [] on any error or timeout, so a game
+    always writes from the course files alone when the knowledge service is unreachable. The query is the course's
+    exam language (or the first files' text), so the law that comes back is what the course actually examines."""
+    if not DOCKET_RAG_URL or not files:
+        return []
+    query = " ".join((f.get("text") or "")[:1500] for f in files if (f.get("role") or "") == "exam") \
+        or " ".join((f.get("text") or "")[:800] for f in files[:3])
+    if not query.strip():
+        return []
+    try:
+        import urllib.parse
+        import urllib.request
+        q = urllib.parse.urlencode({"q": query[:1200], "corpora": DOCKET_LAW_CORPORA, "k": k})
+        with urllib.request.urlopen(f"{DOCKET_RAG_URL}/api/rag/ask?{q}", timeout=8) as r:   # noqa: S310 — our own local service
+            hits = json.loads(r.read().decode()).get("hits", [])
+    except Exception as e:                               # noqa: BLE001 — knowledge service down -> course files only
+        print("docket law sources:", type(e).__name__, e)
+        return []
+    out = []
+    for h in hits:
+        text = (h.get("snippet") or h.get("text") or "").strip()
+        if not text:
+            continue
+        doc, title = h.get("doc_id", ""), (h.get("title") or "")[:80]
+        out.append({"id": f"law:{doc}", "name": (f"{doc} — {title}").strip(" —") or "EU law",
+                    "text": text, "role": "cases", "kind": "law", "week": "", "_rel": 0.0})
+    return out
 
 
 def _tag_exam_relevance(fs: list) -> list:
@@ -2928,17 +2961,22 @@ def _docket_write(cid: str, gid: str):
     try:
         files = _docket_files(cid, week)
         if not files: raise ValueError(f"No ticked files with text for {label}.")
+        law = _law_sources(files)                          # real EU law / CJEU to ground the game, course files first
+        files = files + law
         keyed = docketgen.source_keys(files)
         src = docketgen.sources_block(keyed)
         brief = (course.get("tutor_prompt") or "").strip()
         system = docketgen.WRITER + (f"\n\nCOURSE BRIEF (how this course is taught and examined):\n{brief}" if brief else "")
-        ask = f"Course: {course['name']}. Covering {label}.\n\n{src}\n\nWrite the game covering {label}."
+        lawnote = ("\n\nThe later SOURCES marked kind=\"law\" are EU legislation and CJEU case law; ground the law in them "
+                   "and in the course files, course files first. Cite only what the SOURCES say.") if law else ""
+        ask = f"Course: {course['name']}. Covering {label}.\n\n{src}\n\nWrite the game covering {label}.{lawnote}"
         def write(extra: str = ""):
             m = ask_model(MODEL, max_tokens=12000, system=system, messages=[{"role": "user", "content": ask + extra}])
             _set_docket(gid, updated=time.time())
             return _model_json(m), m.model
         game, used = write()
-        texts = [f["text"] for f in rows("SELECT text FROM files WHERE course_id=? AND selected=1 AND COALESCE(text,'')<>''", cid)]
+        texts = [f["text"] for f in rows("SELECT text FROM files WHERE course_id=? AND selected=1 AND COALESCE(text,'')<>''", cid)] \
+            + [l["text"] for l in law]                     # law passages are real sources too, so citations to them verify
         def problems(g):
             bad = docketgen.validate(g, keyed.keys())
             gone = [c["raw"] for c in citecheck.unverified(docketgen.all_text(g), texts)] if isinstance(g, dict) else []
