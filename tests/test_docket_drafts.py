@@ -135,3 +135,26 @@ def test_a_whole_course_game_draws_from_every_week(client):
     assert "covering the whole course" in sent
     d = client.get(f"/api/courses/{cid}/docket-drafts").json()["games"][0]
     assert d["status"] == "draft" and d["scope"] == "the whole course"
+
+
+def test_broad_scope_fills_with_exam_relevant_material():
+    """A broad scope orders each week's lower-authority files by how closely they match the past exam, so the
+    writer's budget fills with exam-relevant material; exams and WG still lead by authority."""
+    exam = {"week": "1", "role": "exam", "text": "State aid Article 107 TFEU selectivity private investor test"}
+    on = {"week": "2", "role": "lecture", "text": "State aid, Article 107 TFEU, selectivity and the market economy investor principle."}
+    off = {"week": "2", "role": "lecture", "text": "Free movement of goods, Article 34 TFEU, quantitative restrictions."}
+    tagged = run._tag_exam_relevance([exam, on, off])
+    assert tagged[1]["_rel"] > tagged[2]["_rel"] > 0.0                 # on-topic lecture scores above off-topic
+    picked = run._budget_across_weeks(run._tag_exam_relevance([exam, off, on]))   # off deliberately before on
+    assert picked[0]["role"] == "exam"                                # exam still leads by authority
+    wk2 = [f for f in picked if f["week"] == "2"]
+    assert wk2[0]["text"].startswith("State aid")                     # the exam-relevant lecture comes first
+
+
+def test_no_exam_signal_leaves_order_to_authority_and_coverage():
+    """With no exam/WG text, every relevance score is 0.0 and selection is the authority+coverage order."""
+    a = {"week": "1", "role": "lecture", "text": "offer and acceptance"}
+    b = {"week": "2", "role": "lecture", "text": "consideration and intention"}
+    tagged = run._tag_exam_relevance([a, b])
+    assert all(f["_rel"] == 0.0 for f in tagged)
+    assert {f["week"] for f in run._budget_across_weeks(tagged)} == {"1", "2"}

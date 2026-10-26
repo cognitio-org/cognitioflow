@@ -26,6 +26,7 @@ import countdown
 import docketgen
 import embed
 import essay
+import relevance
 import gateway
 import mockexam
 import llm
@@ -2816,9 +2817,11 @@ def _scope_label(scope: str) -> str:
 def _budget_across_weeks(fs: list) -> list:
     """Pick files authority-first within each week, then round-robin across the weeks until the writer's source
     budget (docketgen.SOURCE_CHARS) is spent. A broad scope then covers every week — past exams and WG first —
-    instead of letting one early week crowd the rest out. sources_block re-caps, so this only decides which files win."""
+    instead of letting one early week crowd the rest out. Within an authority tier, the file most relevant to what
+    the course examines wins (f['_rel'], set by _docket_files; 0.0 when there is no exam signal). sources_block
+    re-caps, so this only decides which files win."""
     by_week = {}
-    for f in sorted(fs, key=lambda f: (ROLE_ORDER.get(f.get("role") or "", len(ROLE_ORDER)), f.get("week") or "")):
+    for f in sorted(fs, key=lambda f: (ROLE_ORDER.get(f.get("role") or "", len(ROLE_ORDER)), -f.get("_rel", 0.0), f.get("week") or "")):
         by_week.setdefault(f.get("week") or "", []).append(f)
     queues, picked, budget = list(by_week.values()), [], docketgen.SOURCE_CHARS
     while budget > 0 and any(queues):
@@ -2849,7 +2852,19 @@ def _docket_files(cid: str, scope: str) -> list:
         fs = rows(cols, cid)
     else:                                                          # a chosen set of weeks
         fs = rows(cols + f" AND week IN ({','.join('?' for _ in weeks)})", cid, *weeks)
-    return _budget_across_weeks(fs)
+    return _budget_across_weeks(_tag_exam_relevance(fs))
+
+
+def _tag_exam_relevance(fs: list) -> list:
+    """Score each file by how closely it matches what the course examines — the past-exam text, or WG notes when
+    there are no exams — and stash it on f['_rel'], so a broad scope fills its budget with exam-relevant material.
+    No exam/WG signal -> every score 0.0 and selection falls back to authority + week coverage."""
+    query = " ".join(f.get("text") or "" for f in fs if (f.get("role") or "") == "exam") \
+        or " ".join(f.get("text") or "" for f in fs if (f.get("role") or "") == "wg")
+    scores = relevance.rank(query, [f.get("text") or "" for f in fs])
+    for f, s in zip(fs, scores):
+        f["_rel"] = s
+    return fs
 
 
 def _docket_collect_stale(cid: str):
