@@ -2796,11 +2796,60 @@ def _docket_code(course: dict) -> str:
     return f"CF-{course['id']}"
 
 
-def _docket_files(cid: str, week: str) -> list:
-    """The week's ticked text files, in the course's order of authority: past exams and WG material first."""
-    fs = rows("SELECT id,name,text,role,kind,label,week,created FROM files WHERE course_id=? AND week=? AND selected=1 "
-              "AND kind<>'image' AND COALESCE(text,'')<>''", cid, week)
-    return sorted(fs, key=lambda f: ROLE_ORDER.get(f.get("role") or "", len(ROLE_ORDER)))
+def _scope_weeks(scope: str):
+    """Parse a game scope into a list of weeks, or None for the whole course. '5' -> ['5'];
+    '3,4,5' -> ['3','4','5']; 'all' (or empty) -> None."""
+    scope = (scope or "").strip()
+    if not scope or scope.lower() == "all":
+        return None
+    return [w.strip() for w in scope.split(",") if w.strip()]
+
+
+def _scope_label(scope: str) -> str:
+    """A human name for a scope, for prompts, titles and the list: 'the whole course' / 'weeks 3, 4, 5' / 'week 5'."""
+    weeks = _scope_weeks(scope)
+    if weeks is None:
+        return "the whole course"
+    return ("week " if len(weeks) == 1 else "weeks ") + ", ".join(weeks)
+
+
+def _budget_across_weeks(fs: list) -> list:
+    """Pick files authority-first within each week, then round-robin across the weeks until the writer's source
+    budget (docketgen.SOURCE_CHARS) is spent. A broad scope then covers every week — past exams and WG first —
+    instead of letting one early week crowd the rest out. sources_block re-caps, so this only decides which files win."""
+    by_week = {}
+    for f in sorted(fs, key=lambda f: (ROLE_ORDER.get(f.get("role") or "", len(ROLE_ORDER)), f.get("week") or "")):
+        by_week.setdefault(f.get("week") or "", []).append(f)
+    queues, picked, budget = list(by_week.values()), [], docketgen.SOURCE_CHARS
+    while budget > 0 and any(queues):
+        for q in queues:
+            if not q:
+                continue
+            f = q.pop(0)
+            cost = min(len(f.get("text") or ""), docketgen.FILE_CHARS)
+            if not cost:
+                continue
+            picked.append(f)
+            budget -= cost
+            if budget <= 0:
+                break
+    return picked
+
+
+def _docket_files(cid: str, scope: str) -> list:
+    """The ticked text files a game is written from, for a scope — one week ('5'), several ('3,4,5') or the whole
+    course ('all') — in the course's order of authority: past exams and WG material first. A single week keeps the
+    old behaviour; a broad scope is trimmed across weeks to the writer's source budget so the course stays covered."""
+    weeks = _scope_weeks(scope)
+    cols = "SELECT id,name,text,role,kind,label,week,created FROM files WHERE course_id=? AND selected=1 AND kind<>'image' AND COALESCE(text,'')<>''"
+    if weeks is not None and len(weeks) == 1:                       # one week — unchanged
+        fs = rows(cols + " AND week=?", cid, weeks[0])
+        return sorted(fs, key=lambda f: ROLE_ORDER.get(f.get("role") or "", len(ROLE_ORDER)))
+    if weeks is None:                                              # whole course
+        fs = rows(cols, cid)
+    else:                                                          # a chosen set of weeks
+        fs = rows(cols + f" AND week IN ({','.join('?' for _ in weeks)})", cid, *weeks)
+    return _budget_across_weeks(fs)
 
 
 def _docket_collect_stale(cid: str):
@@ -2823,7 +2872,7 @@ def _docket_queue(cid: str, weeks: list) -> list:
         for w in weeks:
             gid = "g" + uuid.uuid4().hex[:11]
             d.execute("INSERT INTO docket_games(id,course_id,week,status,title,created,updated) VALUES(?,?,?,?,?,?,?)",
-                      (gid, cid, w, "writing", f"Week {w}", now, now)); ids.append(gid)
+                      (gid, cid, w, "writing", _scope_label(w).capitalize(), now, now)); ids.append(gid)
     return ids
 
 
@@ -2860,14 +2909,15 @@ def _docket_write(cid: str, gid: str):
     course = rows("SELECT * FROM courses WHERE id=?", cid)
     if not row or not course: return
     week, course = row[0]["week"], course[0]
+    label = _scope_label(week)
     try:
         files = _docket_files(cid, week)
-        if not files: raise ValueError(f"No ticked files with text for week {week}.")
+        if not files: raise ValueError(f"No ticked files with text for {label}.")
         keyed = docketgen.source_keys(files)
         src = docketgen.sources_block(keyed)
         brief = (course.get("tutor_prompt") or "").strip()
         system = docketgen.WRITER + (f"\n\nCOURSE BRIEF (how this course is taught and examined):\n{brief}" if brief else "")
-        ask = f"Course: {course['name']}. Week {week}.\n\n{src}\n\nWrite the game for week {week}."
+        ask = f"Course: {course['name']}. Covering {label}.\n\n{src}\n\nWrite the game covering {label}."
         def write(extra: str = ""):
             m = ask_model(MODEL, max_tokens=12000, system=system, messages=[{"role": "user", "content": ask + extra}])
             _set_docket(gid, updated=time.time())
@@ -2899,7 +2949,7 @@ def _docket_write(cid: str, gid: str):
                                messages=[{"role": "user", "content": f"{src}\n\nGAME:\n{docketgen.for_review(game)}"}])
                 issues = docketgen.review_issues(_model_json(m3))
         final = docketgen.finish(game, gid, _docket_code(course), keyed)
-        _set_docket(gid, status="draft", title=str(final.get("title") or f"Week {week}")[:120], game=final, model=used, error="",
+        _set_docket(gid, status="draft", title=str(final.get("title") or label.capitalize())[:120], game=final, model=used, error="",
                     review={"issues": issues, "unverified": gone, "revised": revised}, files=[f["id"] for f in files])
     except Exception as e:
         print("docket write:", type(e).__name__, e)
@@ -2916,7 +2966,7 @@ def _set_docket(gid: str, **fields):
 def _docket_view(g: dict, full: bool = False) -> dict:
     game = g.get("game") or {}
     rounds = [s["quiz"] for s in game.get("scenes") or [] if s.get("quiz")]
-    out = {"id": g["id"], "week": g["week"], "status": g["status"], "title": g["title"], "error": g["error"],
+    out = {"id": g["id"], "week": g["week"], "scope": _scope_label(g["week"]), "status": g["status"], "title": g["title"], "error": g["error"],
            "logline": game.get("logline", ""), "rounds": len(rounds), "review": g.get("review") or {}, "created": g["created"]}
     if full:
         out["questions"] = [{"question": q.get("question", ""), "options": [{k: o.get(k) for k in ("key", "text", "correct", "teaching")} for o in q.get("options") or []]}
@@ -2946,20 +2996,24 @@ def docket_draft(cid: str, gid: str, user: dict = Depends(current_user)):
     return _docket_view(dict(g[0]), full=True)
 
 
-class DocketWriteIn(BaseModel): week: str
+class DocketWriteIn(BaseModel):
+    week: str = ""          # one week, kept for back-compat
+    scope: str = ""         # 'all', '3,4,5' or a single week — the game's scope (preferred)
 
 
 @app.post("/api/courses/{cid}/docket-drafts")
 def docket_write_now(cid: str, w: DocketWriteIn, user: dict = Depends(current_user)):
-    """Write a game for a week now, new material or not."""
+    """Write a game now for a chosen scope — one week, several weeks or the whole course — new material or not."""
     _own_course(cid, user)
+    scope = (w.scope or w.week or "").strip()
+    label = _scope_label(scope)
     if not DOCKET_AUTO: raise HTTPException(400, "Games are written on the Mac and arrive here as drafts; the server does not write them.")
     if not llm.has_key(): raise HTTPException(400, f"No model key on the server ({llm.key_name()}).")
-    if not _docket_files(cid, w.week.strip()): raise HTTPException(400, f"No ticked files with text for week {w.week}.")
+    if not _docket_files(cid, scope): raise HTTPException(400, f"No ticked files with text for {label}.")
     _docket_collect_stale(cid)
-    if rows("SELECT 1 FROM docket_games WHERE course_id=? AND week=? AND status='writing'", cid, w.week.strip()):
-        raise HTTPException(409, f"A game for week {w.week} is already being written.")
-    ids = _docket_queue(cid, [w.week.strip()])
+    if rows("SELECT 1 FROM docket_games WHERE course_id=? AND week=? AND status='writing'", cid, scope):
+        raise HTTPException(409, f"A game covering {label} is already being written.")
+    ids = _docket_queue(cid, [scope])
     _docket_start(cid, ids)
     return {"id": ids[0]}
 
