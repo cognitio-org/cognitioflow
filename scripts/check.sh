@@ -37,6 +37,9 @@ else
   echo "── node: not installed — skipping, not failing"
 fi
 
+echo "── pytest (research: no database needed)"
+python3 -m pytest research/ -q || fail=1
+
 echo "── pytest"
 python3 -m pytest tests/ -q || fail=1
 
