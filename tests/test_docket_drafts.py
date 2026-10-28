@@ -189,6 +189,24 @@ def test_law_sources_degrade_on_error(monkeypatch):
     assert run._law_sources([{"text": "anything", "role": "exam"}]) == []
 
 
+def test_law_sources_fails_over_to_fallback_mirror(monkeypatch):
+    # primary (M4) down, fallback mirror up -> CF still cites law instead of going degraded
+    monkeypatch.setattr(run, "DOCKET_RAG_URL", "http://primary:8123, http://fallback:8124")
+    hits = {"hits": [{"doc_id": "32024R1143", "title": "GI reform", "snippet": "Article 51 opposition procedure."}]}
+    def pick(url, *a, **k):
+        if "primary" in url:
+            raise OSError("primary RAG down")
+        return _FakeResp(hits)
+    monkeypatch.setattr("urllib.request.urlopen", pick)
+    out = run._law_sources([{"text": "geographical indications enforcement", "role": "exam"}])
+    assert len(out) == 1 and "32024R1143" in out[0]["name"]       # fell through to the fallback mirror
+
+
+def test_law_sources_disabled_when_empty(monkeypatch):
+    monkeypatch.setattr(run, "DOCKET_RAG_URL", "")                # empty disables (back-compat)
+    assert run._law_sources([{"text": "anything", "role": "exam"}]) == []
+
+
 def test_a_game_can_cite_shared_law_because_it_joins_the_citecheck_corpus(client, monkeypatch):
     """A citation to real EU law passes only because the retrieved law passage is added to the verification corpus;
     with no law source the same citation would be flagged as not in the files."""

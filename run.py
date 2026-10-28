@@ -2789,7 +2789,7 @@ def docket_game(cid: str, gid: str, user: dict = Depends(current_user)):
 DOCKET_AUTO = os.environ.get("CF_DOCKET_AUTO", "0") == "1"
 DOCKET_SETTLE_S = 90                  # an upload batch lands file by file; wait for it before writing
 DOCKET_REVIEW_MODEL = os.environ.get("CF_DOCKET_REVIEW_MODEL", STRONG_MODEL)
-DOCKET_RAG_URL = os.environ.get("CF_RAG_URL", "").rstrip("/")   # shared-knowledge RAG base, e.g. http://127.0.0.1:8100; empty disables
+DOCKET_RAG_URL = os.environ.get("CF_RAG_URL", "").strip()   # one or more RAG bases, comma-separated: primary (M4) then fallback mirrors — a primary outage falls through, so law-games never go degraded. Empty disables.
 DOCKET_LAW_CORPORA = os.environ.get("CF_RAG_LAW_CORPORA", "law:eu:3,law:eu:6,law:eu:2")  # EU legislation, CJEU, intl agreements
 _docket_writing: set = set()          # course ids with a writer thread in this process
 _docket_lock = threading.Lock()
@@ -2864,19 +2864,24 @@ def _law_sources(files: list, k: int = 4) -> list:
     exam language (or the first files' text), so the law that comes back is what the course actually examines."""
     if not DOCKET_RAG_URL or not files:
         return []
+    urls = [u.strip().rstrip("/") for u in DOCKET_RAG_URL.split(",") if u.strip()]  # primary then fallback mirrors
     query = " ".join((f.get("text") or "")[:1500] for f in files if (f.get("role") or "") == "exam") \
         or " ".join((f.get("text") or "")[:800] for f in files[:3])
     if not query.strip():
         return []
-    try:
-        import urllib.parse
-        import urllib.request
-        q = urllib.parse.urlencode({"q": query[:1200], "corpora": DOCKET_LAW_CORPORA, "k": k})
-        with urllib.request.urlopen(f"{DOCKET_RAG_URL}/api/rag/ask?{q}", timeout=8) as r:   # noqa: S310 — our own local service
-            hits = json.loads(r.read().decode()).get("hits", [])
-    except Exception as e:                               # noqa: BLE001 — knowledge service down -> course files only
-        print("docket law sources:", type(e).__name__, e)
-        return []
+    import urllib.parse
+    import urllib.request
+    q = urllib.parse.urlencode({"q": query[:1200], "corpora": DOCKET_LAW_CORPORA, "k": k})
+    hits = []
+    for base in urls:                                    # failover: try each endpoint in order; first that returns law wins
+        try:
+            with urllib.request.urlopen(f"{base}/api/rag/ask?{q}", timeout=6) as r:   # noqa: S310 — our own local service
+                hits = json.loads(r.read().decode()).get("hits", [])
+            if hits:
+                break
+        except Exception as e:                           # noqa: BLE001 — this endpoint down -> try the next, then course files only
+            print("docket law sources:", base, type(e).__name__, e)
+            continue
     out = []
     for h in hits:
         text = (h.get("snippet") or h.get("text") or "").strip()
