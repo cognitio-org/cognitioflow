@@ -99,10 +99,11 @@ def test_speech_grading_signed_out_is_401_json_not_a_redirect(web):
     assert r.status_code == 302 and r.headers["location"] == "/auth/login"
 
 
-def test_ui_redirects_to_login(web):
+def test_root_serves_public_landing_when_signed_out(web):
     r = web.get("/", follow_redirects=False)
-    assert r.status_code == 302 and r.headers["location"] == "/auth/login"
-    assert web.get("/static/index.html", follow_redirects=False).status_code == 302  # shell only behind auth
+    assert r.status_code == 200  # the apex is the public front door now, not a bounce to sign-in
+    assert "Study law from" in r.text and "/auth/login" in r.text  # the landing + its Launch-the-app CTA
+    assert web.get("/static/index.html", follow_redirects=False).status_code == 302  # the app shell stays behind auth
     assert web.get("/static/marked.min.js").status_code == 200
 
 
@@ -114,7 +115,8 @@ def test_bearer_header_is_not_a_credential(web):
 def test_valid_session_cookie_is_200(web, auth_on):
     web.cookies.set("cf_session", _cookie_for(auth_on, "matej@mgms.eu"))
     assert web.get("/api/courses").status_code == 200
-    assert web.get("/", follow_redirects=False).status_code == 200
+    root = web.get("/", follow_redirects=False)
+    assert root.status_code == 200 and "Study law from" not in root.text  # signed-in gets the app shell, not the landing
 
 
 def test_bad_cookies_are_rejected(web, auth_on):
