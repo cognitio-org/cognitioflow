@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Objection! — CognitioFlow</title>
+<style>
+:root{--ink:#f4ecda;--muted:#cbb897;--gold:#e0b44e;--red:#d8352a;--green:#3fae6b;--bg:#06060a;--card:rgba(14,10,7,.9);--line:rgba(224,180,78,.3)}
+*{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);overflow:hidden;font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);user-select:none}
+.serif{font-family:ui-serif,Georgia,"Times New Roman",serif}
+#c{position:fixed;inset:0;z-index:0}
+#scrim{position:fixed;inset:0;z-index:1;pointer-events:none;box-shadow:inset 0 0 220px 40px rgba(0,0,0,.55)}
+#dot{position:fixed;left:50%;top:50%;width:7px;height:7px;margin:-3.5px;border-radius:50%;border:1.5px solid rgba(224,180,78,.8);z-index:3;pointer-events:none;opacity:0;transition:opacity .2s}
+#dot.on{opacity:1}
+#hud{position:fixed;top:0;left:0;right:0;z-index:4;display:flex;justify-content:space-between;padding:14px 18px;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.5),transparent)}
+.brand{display:flex;align-items:center;gap:10px}.brand .dot{width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 10px var(--gold)}
+.brand b{font-size:12px;letter-spacing:.16em;text-transform:uppercase}.brand span{color:var(--muted);font-size:12px}
+.stats{display:flex;gap:16px;align-items:center}.stat{text-align:right;line-height:1}.stat .v{font-size:19px;font-weight:700;color:var(--gold);font-variant-numeric:tabular-nums}.stat .l{font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-top:3px}
+.hearts{display:flex;gap:4px;font-size:18px}.hearts .x{opacity:.22}
+#sub{position:fixed;left:50%;top:72px;transform:translateX(-50%);max-width:560px;width:calc(100% - 36px);z-index:4;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 18px;backdrop-filter:blur(7px);box-shadow:0 14px 40px rgba(0,0,0,.6);opacity:0;pointer-events:none;transition:opacity .3s}
+#sub.show{opacity:1}#sub .tag{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--gold)}#sub .wk{font-size:11px;color:var(--muted);margin-left:8px}#sub .q{margin-top:8px;font-size:clamp(15px,2.2vw,18px);line-height:1.45;font-weight:500}
+#tbar{position:fixed;left:50%;top:72px;transform:translateX(-50%);width:560px;max-width:calc(100% - 36px);height:5px;margin-top:-9px;border-radius:9px;background:rgba(255,255,255,.12);overflow:hidden;z-index:4;opacity:0}
+#tbar.show{opacity:1}#tfill{height:100%;background:linear-gradient(90deg,var(--gold),#f0d27a)}#tfill.warn{background:linear-gradient(90deg,var(--red),#ff6a4d)}
+#prompt{position:fixed;left:0;right:0;bottom:66px;z-index:4;text-align:center;pointer-events:none}
+.key{display:inline-flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 16px;font-size:14px;font-weight:600;margin:0 6px}
+.kcap{font-size:11px;background:rgba(224,180,78,.18);border:1px solid var(--line);border-radius:6px;padding:2px 7px;color:var(--gold)}
+.kcap.red{background:rgba(216,53,42,.2);color:#ff8a7a;border-color:rgba(216,53,42,.4)}
+#move{position:fixed;left:18px;bottom:16px;z-index:4;color:var(--muted);font-size:11px;pointer-events:none}#move b{color:var(--gold)}
+#lock{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:4;color:var(--muted);font-size:12px;pointer-events:none;letter-spacing:.04em}
+#slam{position:fixed;inset:0;z-index:7;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0}#slam.go{animation:slam .6s ease}
+#slam b{font-family:ui-serif,Georgia,serif;font-weight:800;font-size:clamp(46px,12vw,120px);color:#fff;-webkit-text-stroke:2px var(--red);text-shadow:0 6px 30px rgba(216,53,42,.85);transform:rotate(-7deg)}
+@keyframes slam{0%{opacity:0;transform:scale(.4)}22%{opacity:1;transform:scale(1.08)}72%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.02)}}
+#flash{position:fixed;inset:0;z-index:6;pointer-events:none;opacity:0}#flash.g{animation:fg .5s}#flash.r{animation:fr .5s}
+@keyframes fg{0%{opacity:0}20%{opacity:.22;background:var(--green)}100%{opacity:0}}@keyframes fr{0%{opacity:0}20%{opacity:.26;background:var(--red)}100%{opacity:0}}
+#verdict,#overlay{position:fixed;inset:0;z-index:9;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(5,4,3,.5);backdrop-filter:blur(3px)}
+#verdict.show{display:flex}#overlay{display:flex}
+#vcard{max-width:560px;width:100%;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:26px;box-shadow:0 24px 60px rgba(0,0,0,.6)}
+#vtitle{font-size:26px;font-weight:800}#vtitle.ok{color:var(--green)}#vtitle.no{color:var(--red)}#vsub{color:var(--muted);font-size:13px;margin-top:4px}
+.ground{margin-top:16px;padding:14px 16px;border-left:3px solid var(--gold);background:rgba(224,180,78,.1);border-radius:0 10px 10px 0}.ground .g{font-size:15px;line-height:1.45}.ground .cite{margin-top:8px;font-size:12px;color:var(--gold)}.ground .why{margin-top:8px;font-size:13px;color:var(--muted);line-height:1.45}
+#vnext{margin-top:20px;width:100%;padding:15px;border-radius:12px;background:var(--gold);color:#1a1205;font-size:15px;cursor:pointer;border:none;font-weight:700}
+#ocard{max-width:600px;width:100%;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:32px 28px;box-shadow:0 30px 70px rgba(0,0,0,.65);text-align:center}
+#ocard h1{font-size:clamp(28px,6vw,44px);font-weight:800}#ocard .k{color:var(--gold)}#ocard p{color:var(--muted);font-size:14px;line-height:1.55;margin-top:12px}
+#stars{font-size:40px;letter-spacing:6px;margin:14px 0 4px}#ocard .big{font-size:40px;font-weight:800;color:var(--gold);margin-top:6px}
+#ostart,#oagain{margin-top:22px;padding:16px 30px;border-radius:14px;background:linear-gradient(180deg,#e8463a,#c22a20);color:#fff;font-size:17px;letter-spacing:.05em;text-transform:uppercase;cursor:pointer;border:none;font-weight:700}
+.rules{margin-top:18px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;color:var(--muted);font-size:12px}.rules span{border:1px solid var(--line);border-radius:999px;padding:6px 12px}
+#load{position:fixed;inset:0;z-index:12;display:flex;align-items:center;justify-content:center;background:var(--bg);transition:opacity .6s}#load.hide{opacity:0;pointer-events:none}
+#load .ring{width:38px;height:38px;border-radius:50%;margin:0 auto 14px;border:2px solid rgba(224,180,78,.2);border-top-color:var(--gold);animation:spin 1s linear infinite}#load .t{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);text-align:center}
+@keyframes spin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important}}
+</style></head>
+<body>
+<div id="c"></div><div id="scrim"></div><div id="flash"></div><div id="dot"></div>
+<div id="hud"><div class="brand"><span class="dot"></span><b>CognitioFlow</b><span id="hsub">· Objection! — EU Law</span></div>
+  <div class="stats"><div class="stat"><div class="v" id="score">0</div><div class="l">Score</div></div><div class="hearts" id="hearts"></div></div></div>
+<div id="tbar"><div id="tfill"></div></div>
+<div id="sub"><span class="tag">Counsel submits</span><span class="wk" id="wk"></span><div class="q serif" id="claim"></div></div>
+<div id="prompt"><span class="key"><span class="kcap red">SPACE</span> Objection</span><span class="key"><span class="kcap">E</span> Let it stand</span></div>
+<div id="move">walk <b>W A S D</b></div>
+<div id="lock">click to look around · ESC to release</div>
+<div id="slam"><b>OBJECTION!</b></div>
+<div id="verdict"><div id="vcard"><div id="vtitle"></div><div id="vsub"></div>
+  <div class="ground"><div class="g serif" id="vground"></div><div class="cite" id="vcite"></div><div class="why" id="vwhy"></div></div>
+  <button id="vnext">Resume →</button></div></div>
+<div id="overlay"><div id="ocard">
+  <div id="startView"><h1>Objection<span class="k">!</span></h1>
+    <p id="intro">You stand as counsel in the Grand Chamber. <b>Walk the floor</b> with W A S D and <b>look</b> with the mouse (click to capture). When a submission on EU law is put to the court, judge it: slam <b>SPACE</b> to object if it misstates the law, or <b>E</b> to let it stand — before the timer. Name the ground, build a combo, keep your three hearts.</p>
+    <div class="rules"><span>🚶 first-person</span><span>⏱ 9s a submission</span><span>❤️ 3 hearts</span></div>
+    <button id="ostart">Enter the chamber</button></div>
+  <div id="endView" style="display:none"><div id="stars"></div><h1 id="eTitle" class="k"></h1><div class="big" id="eScore"></div><p id="eLine"></p><button id="oagain">Play again</button></div>
+</div></div>
+<div id="load"><div><div class="ring"></div><div class="t" id="loadt">Reconstructing the chamber</div></div></div>
+
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/":"https://cdn.jsdelivr.net/npm/three@0.160.0/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
+import {DRACOLoader} from 'three/examples/jsm/loaders/DRACOLoader.js';
+const GLB="../assets/courtroom_web.glb";
+const $=s=>document.querySelector(s);
+let cam=null,renderer=null,scene=null;
+const pos=new THREE.Vector3(0,1.6,-6.5); let yaw=0,pitch=0; const keys={}; let locked=false;
+
+(async function(){
+  // 1) content (data-driven: swap the pack per course)
+  const COURSE=(new URLSearchParams(location.search).get('course')||'eu-law').replace(/[^a-z0-9-]/gi,'');
+  let PACK; try{ PACK=await (await fetch('content/'+COURSE+'.json')).json(); }catch(e){ $('#loadt').textContent='content load failed'; return; }
+  const ITEMS=PACK.items; if(PACK.title) $('#hsub').textContent='· '+PACK.title;
+
+  // 2) the 3D chamber — real courtroom mesh (CC0 models, Draco+WebP, ~0.8MB)
+  scene=new THREE.Scene(); scene.background=new THREE.Color(0x0b1a3a);  // deep EU blue, not black
+  // no fog — it was crushing the side walls to black
+  renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(innerWidth,innerHeight); renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.outputColorSpace=THREE.SRGBColorSpace; renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.15;
+  $('#c').appendChild(renderer.domElement);
+  cam=new THREE.PerspectiveCamera(62,innerWidth/innerHeight,0.05,120);
+  addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+  // light rig — fill the whole room so the walls read; warm key on the bench
+  scene.add(new THREE.HemisphereLight(0xb9c8ff,0x1a140c,0.75));   // soft sky fill — walls read, not flat
+  scene.add(new THREE.AmbientLight(0x8fa0c8,0.5));
+  const key=new THREE.SpotLight(0xffe9c6,260,26,Math.PI/5.2,0.5,1.3); key.position.set(0,5.2,6.6); key.target.position.set(0,0.7,8.0); scene.add(key,key.target);  // tight warm pool on the bench, short throw so it doesn't blast the back wall
+  const wallL=new THREE.PointLight(0x8fa8e8,95,42); wallL.position.set(-6.3,4.8,2); scene.add(wallL);   // dim cool side grazes
+  const wallR=new THREE.PointLight(0x8fa8e8,95,42); wallR.position.set(6.3,4.8,2); scene.add(wallR);
+  const warm=new THREE.PointLight(0xffb070,55,15); warm.position.set(0,2.3,6.6); scene.add(warm);       // local warm bounce, can't reach the back wall
+  const back=new THREE.PointLight(0xaebfff,75,34); back.position.set(0,4.5,-6); scene.add(back);         // lift the entrance end
+  // load the courtroom
+  const draco=new DRACOLoader(); draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/');
+  const loader=new GLTFLoader(); loader.setDRACOLoader(draco);
+  loader.load(GLB,(g)=>{ scene.add(g.scene); $('#load').classList.add('hide'); fp(); },
+    undefined,(err)=>{ $('#loadt').textContent='3D load failed'; console.error(err); });
+
+  // 3) first-person controls — pointer lock + WASD (served page allows pointer lock)
+  const cEl=renderer.domElement;
+  cEl.addEventListener('click',()=>{ if(!locked && $('#overlay').style.display==='none' && !$('#verdict').classList.contains('show')) cEl.requestPointerLock(); });
+  document.addEventListener('pointerlockchange',()=>{ locked=document.pointerLockElement===cEl; $('#dot').classList.toggle('on',locked); $('#lock').style.opacity=locked?0:1; });
+  document.addEventListener('mousemove',e=>{ if(locked){ yaw-=e.movementX*0.0022; pitch-=e.movementY*0.0022; pitch=Math.max(-1.0,Math.min(1.0,pitch)); } });
+  addEventListener('keydown',e=>{keys[e.code]=true;});
+  addEventListener('keyup',e=>{keys[e.code]=false;});
+  function fp(){
+    if(cam&&renderer){
+      const cp=Math.cos(pitch),sp=Math.sin(pitch);
+      const fwd=new THREE.Vector3(Math.sin(yaw)*cp,sp,Math.cos(yaw)*cp);
+      const rt=new THREE.Vector3(Math.cos(yaw),0,-Math.sin(yaw));
+      const v=0.075, play=($('#overlay').style.display==='none')&&!$('#verdict').classList.contains('show');
+      if(play){ if(keys['KeyW'])pos.addScaledVector(fwd,v); if(keys['KeyS'])pos.addScaledVector(fwd,-v); if(keys['KeyA'])pos.addScaledVector(rt,-v); if(keys['KeyD'])pos.addScaledVector(rt,v); }
+      pos.x=Math.max(-6.3,Math.min(6.3,pos.x)); pos.z=Math.max(-8.5,Math.min(5.5,pos.z)); pos.y=1.6;
+      cam.position.copy(pos); cam.lookAt(pos.x+fwd.x,pos.y+fwd.y,pos.z+fwd.z);
+      renderer.render(scene,cam);
+    }
+    requestAnimationFrame(fp);
+  }
+
+  // 4) game
+  const CFG={time:9.0,lives:3,base:100,combo:50}; let st,timerId,deadline,acting;
+  const shuffle=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a};
+  const hearts=()=>{$('#hearts').innerHTML=Array.from({length:CFG.lives},(_,i)=>`<span class="${i<st.lives?'':'x'}">❤️</span>`).join('')};
+  function start(){st={items:shuffle(ITEMS),idx:0,score:0,streak:0,lives:CFG.lives,correct:0,maxStreak:0};$('#overlay').style.display='none';$('#score').textContent='0';hearts();show();}
+  function show(){acting=false;const it=st.items[st.idx];$('#wk').textContent=it.wk||'';$('#claim').textContent='“'+it.text+'”';
+    $('#sub').classList.add('show');$('#tbar').classList.add('show');
+    const fill=$('#tfill');fill.classList.remove('warn');deadline=performance.now()+CFG.time*1000;clearInterval(timerId);
+    timerId=setInterval(()=>{const left=Math.max(0,deadline-performance.now())/1000;const pct=left/CFG.time*100;fill.style.width=pct+'%';if(pct<35)fill.classList.add('warn');if(left<=0){clearInterval(timerId);decide(null);}},60);}
+  function decide(obj){if(acting)return;acting=true;clearInterval(timerId);const it=st.items[st.idx];
+    $('#sub').classList.remove('show');$('#tbar').classList.remove('show');
+    const correct=obj===null?false:(obj?it.flawed:!it.flawed);if(obj)slam();
+    if(correct){const g=CFG.base+CFG.combo*st.streak;st.score+=g;st.streak++;st.correct++;st.maxStreak=Math.max(st.maxStreak,st.streak);$('#score').textContent=st.score;flash('g');}
+    else{st.lives--;st.streak=0;hearts();flash('r');}
+    setTimeout(()=>verdict(correct,obj,it),obj?560:260);}
+  function verdict(c,obj,it){ if(locked)document.exitPointerLock();
+    $('#vtitle').textContent=c?'Sustained':'Overruled';$('#vtitle').className=c?'ok':'no';
+    $('#vsub').textContent=it.flawed?(c?'Rightly objected — the submission misstates the law.':(obj===null?'Time ran out — this one was flawed.':'This submission was flawed — you should have objected.')):(c?'Correctly allowed — the submission is sound.':(obj===null?'Time ran out — this one was correct.':'This submission was a correct statement of law.'));
+    $('#vground').textContent=it.ground;$('#vcite').textContent=it.cite;$('#vwhy').textContent=it.why;$('#verdict').classList.add('show');}
+  $('#vnext').onclick=()=>{$('#verdict').classList.remove('show');st.idx++;if(st.lives<=0||st.idx>=st.items.length)end();else show();};
+  function end(){const total=st.items.length,won=st.lives>0,acc=st.correct/total;let stars=won?(acc>=0.95?3:acc>=0.8?2:1):0;const perfect=won&&st.correct===total;
+    $('#startView').style.display='none';$('#endView').style.display='block';$('#overlay').style.display='flex';
+    $('#stars').textContent='★★★'.slice(0,stars).padEnd(3,'☆');
+    $('#eTitle').textContent=!won?'Mistrial':perfect?'Flawless record':stars===3?'Masterful':stars===2?'Strong advocacy':'Case won';
+    $('#eScore').textContent=st.score+' pts';$('#eLine').textContent=`${st.correct}/${total} correct · best combo ×${st.maxStreak} · ${Math.round(acc*100)}% accuracy`;}
+  const slam=()=>{const s=$('#slam');s.classList.remove('go');void s.offsetWidth;s.classList.add('go');};
+  const flash=c=>{const f=$('#flash');f.className='';void f.offsetWidth;f.classList.add(c);};
+  $('#ostart').onclick=start;$('#oagain').onclick=()=>{$('#endView').style.display='none';$('#startView').style.display='block';start();};
+  addEventListener('keydown',e=>{
+   if($('#overlay').style.display!=='none'){if(e.code==='Space'||e.key==='Enter'){e.preventDefault();($('#endView').style.display==='block'?$('#oagain'):$('#ostart')).click();}return;}
+   if($('#verdict').classList.contains('show')){if(e.code==='Space'||e.key==='Enter'){e.preventDefault();$('#vnext').click();}return;}
+   if(e.code==='Space'){e.preventDefault();decide(true);}else if(e.key.toLowerCase()==='e'){decide(false);}
+  });
+})();
+</script>
+</body></html>

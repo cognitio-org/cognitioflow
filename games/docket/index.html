@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>The Docket — CognitioFlow</title>
+<style>
+:root{--ink:#f4ecda;--muted:#cbb897;--gold:#e0b44e;--red:#d8352a;--green:#3fae6b;--bg:#06060a;--card:rgba(14,10,7,.92);--line:rgba(224,180,78,.3)}
+*{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);overflow:hidden;font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);user-select:none}
+.serif{font-family:ui-serif,Georgia,"Times New Roman",serif}
+#c{position:fixed;inset:0;z-index:0}
+#scrim{position:fixed;inset:0;z-index:1;pointer-events:none;box-shadow:inset 0 0 220px 40px rgba(0,0,0,.5)}
+#dot{position:fixed;left:50%;top:50%;width:8px;height:8px;margin:-4px;border-radius:50%;border:1.5px solid rgba(224,180,78,.85);z-index:5;pointer-events:none;opacity:0;transition:opacity .2s}#dot.on{opacity:1}
+/* world beacons (projected) */
+.beacon{position:fixed;z-index:3;transform:translate(-50%,-50%);pointer-events:none;transition:opacity .2s}
+.beacon .ring{width:26px;height:26px;border-radius:50%;border:2px solid var(--gold);box-shadow:0 0 14px rgba(224,180,78,.6),inset 0 0 8px rgba(224,180,78,.3);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--gold);background:rgba(10,8,5,.4);animation:bpulse 2s ease-in-out infinite}
+@keyframes bpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
+.beacon .lbl{margin-top:5px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-shadow:0 1px 4px #000;text-align:center;white-space:nowrap}
+.beacon.aim .ring{border-color:#fff;box-shadow:0 0 22px rgba(224,180,78,.95);background:rgba(224,180,78,.25);color:#fff}
+.beacon.done .ring{animation:none}
+.beacon.ok .ring{border-color:var(--green);color:var(--green);box-shadow:0 0 14px rgba(63,174,107,.6)}
+.beacon.no .ring{border-color:var(--red);color:var(--red);box-shadow:0 0 14px rgba(216,53,42,.6)}
+#hud{position:fixed;top:0;left:0;right:0;z-index:4;display:flex;justify-content:space-between;padding:14px 18px;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.5),transparent)}
+.brand{display:flex;align-items:center;gap:10px}.brand .dot2{width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 10px var(--gold)}
+.brand b{font-size:12px;letter-spacing:.16em;text-transform:uppercase}.brand span{color:var(--muted);font-size:12px}
+.stats{display:flex;gap:16px;align-items:center}.stat{text-align:right;line-height:1}.stat .v{font-size:19px;font-weight:700;color:var(--gold);font-variant-numeric:tabular-nums}.stat .l{font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-top:3px}
+.hearts{display:flex;gap:4px;font-size:18px}.hearts .x{opacity:.22}
+/* the aimed claim panel */
+#claimp{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);max-width:620px;width:calc(100% - 36px);z-index:4;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 20px;backdrop-filter:blur(8px);box-shadow:0 18px 50px rgba(0,0,0,.6);opacity:0;pointer-events:none;transition:opacity .18s}
+#claimp.show{opacity:1}
+#claimp .where{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--gold)}
+#claimp .q{margin-top:8px;font-size:clamp(15px,2.2vw,19px);line-height:1.45;font-weight:500}
+#claimp .act{margin-top:12px;display:flex;gap:12px;align-items:center}
+.key{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--muted)}
+.kcap{font-size:11px;background:rgba(224,180,78,.18);border:1px solid var(--line);border-radius:6px;padding:3px 8px;color:var(--gold)}.kcap.red{background:rgba(216,53,42,.2);color:#ff8a7a;border-color:rgba(216,53,42,.4)}
+#reveal{margin-top:12px;border-left:3px solid var(--gold);padding:10px 14px;background:rgba(224,180,78,.1);border-radius:0 10px 10px 0;display:none}
+#reveal.show{display:block}#reveal .g{font-size:14px;line-height:1.45}#reveal .cite{margin-top:6px;font-size:12px;color:var(--gold)}
+#move{position:fixed;left:18px;bottom:16px;z-index:4;color:var(--muted);font-size:11px;pointer-events:none}#move b{color:var(--gold)}
+#lock{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:4;color:var(--muted);font-size:12px;pointer-events:none}
+#guide{position:fixed;right:18px;bottom:16px;z-index:4;color:var(--muted);font-size:11px;pointer-events:none;text-align:right}#guide b{color:var(--gold)}
+#flash{position:fixed;inset:0;z-index:6;pointer-events:none;opacity:0}#flash.g{animation:fg .5s}#flash.r{animation:fr .5s}
+@keyframes fg{0%{opacity:0}20%{opacity:.2;background:var(--green)}100%{opacity:0}}@keyframes fr{0%{opacity:0}20%{opacity:.24;background:var(--red)}100%{opacity:0}}
+#toast{position:fixed;left:50%;top:84px;transform:translateX(-50%);z-index:6;font-weight:800;font-size:18px;letter-spacing:.02em;opacity:0;pointer-events:none;text-shadow:0 2px 10px #000}#toast.show{animation:pop 1.1s ease}
+@keyframes pop{0%{opacity:0;transform:translateX(-50%) scale(.8)}18%{opacity:1;transform:translateX(-50%) scale(1.1)}70%{opacity:1}100%{opacity:0}}
+#overlay{position:fixed;inset:0;z-index:9;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(5,4,3,.55);backdrop-filter:blur(3px)}
+#ocard{max-width:620px;width:100%;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:32px 28px;box-shadow:0 30px 70px rgba(0,0,0,.65);text-align:center}
+#ocard h1{font-size:clamp(28px,6vw,44px);font-weight:800}#ocard .k{color:var(--gold)}#ocard p{color:var(--muted);font-size:14px;line-height:1.55;margin-top:12px}
+#stars{font-size:40px;letter-spacing:6px;margin:14px 0 4px}#ocard .big{font-size:38px;font-weight:800;color:var(--gold);margin-top:6px}
+#recap{margin-top:16px;text-align:left;max-height:230px;overflow:auto}
+.rc{border-left:3px solid var(--line);padding:8px 12px;margin:8px 0;font-size:13px;line-height:1.4}.rc.hit{border-color:var(--green)}.rc.miss{border-color:var(--red)}.rc .c{color:var(--gold);font-size:11px;margin-top:3px}
+#ostart,#oagain{margin-top:22px;padding:16px 30px;border-radius:14px;background:linear-gradient(180deg,#e8463a,#c22a20);color:#fff;font-size:17px;letter-spacing:.05em;text-transform:uppercase;cursor:pointer;border:none;font-weight:700}
+.rules{margin-top:18px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;color:var(--muted);font-size:12px}.rules span{border:1px solid var(--line);border-radius:999px;padding:6px 12px}
+#load{position:fixed;inset:0;z-index:12;display:flex;align-items:center;justify-content:center;background:var(--bg);transition:opacity .6s}#load.hide{opacity:0;pointer-events:none}
+#load .ring{width:38px;height:38px;border-radius:50%;margin:0 auto 14px;border:2px solid rgba(224,180,78,.2);border-top-color:var(--gold);animation:spin 1s linear infinite}#load .t{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);text-align:center}
+@keyframes spin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important}}
+</style></head>
+<body>
+<div id="c"></div><div id="scrim"></div><div id="flash"></div><div id="dot"></div>
+<div id="beacons"></div>
+<div id="hud"><div class="brand"><span class="dot2"></span><b>CognitioFlow</b><span id="hsub">· The Docket — EU Law</span></div>
+  <div class="stats"><div class="stat"><div class="v" id="found">0/0</div><div class="l">Issues spotted</div></div><div class="stat"><div class="v" id="score">0</div><div class="l">Score</div></div><div class="hearts" id="hearts"></div></div></div>
+<div id="toast"></div>
+<div id="claimp"><div class="where" id="where"></div><div class="q serif" id="claim"></div>
+  <div class="act"><span class="key"><span class="kcap red">F</span> Flag the flaw</span><span class="key"><span class="kcap">G</span> It's sound</span></div>
+  <div id="reveal"><div class="g serif" id="rg"></div><div class="cite" id="rc"></div></div></div>
+<div id="move">walk <b>W A S D</b></div>
+<div id="lock">click to look · ESC to release</div>
+<div id="guide">walk near a <b>glowing submission</b> to hear it, then judge</div>
+<div id="overlay"><div id="ocard">
+  <div id="startView"><h1>The <span class="k">Docket</span></h1>
+    <p>Six submissions have been planted around the chamber — some misstate EU law, some are sound. <b>Walk up</b> to each glowing marker (W A S D, mouse to look), <b>step up to it</b> to hear the submission, then <b>flag the flaw (F)</b> or <b>pass it as sound (G)</b>. Spot every real issue; a wrong call costs a heart.</p>
+    <div class="rules"><span>🔎 issue-spotter</span><span>🚶 first-person</span><span>❤️ 3 hearts</span></div>
+    <button id="ostart">Enter the chamber</button></div>
+  <div id="endView" style="display:none"><div id="stars"></div><h1 id="eTitle" class="k"></h1><div class="big" id="eScore"></div><p id="eLine"></p><div id="recap"></div><button id="oagain">New docket</button></div>
+</div></div>
+<div id="load"><div><div class="ring"></div><div class="t" id="loadt">Reconstructing the chamber</div></div></div>
+
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/":"https://cdn.jsdelivr.net/npm/three@0.160.0/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
+import {DRACOLoader} from 'three/examples/jsm/loaders/DRACOLoader.js';
+const GLB="../assets/courtroom_web.glb";
+const $=s=>document.querySelector(s);
+// station world positions in the GLB frame (Y up, floor Y=0; bench at +Z, entrance at -Z)
+const SLOTS={"Claimant's table":[-2.3,0.95,4.0],"Respondent's table":[2.3,0.95,4.0],"The bench":[0,1.5,7.5],"Witness box":[3.3,1.05,6.6],"Clerk's desk":[-1.2,0.9,6.0],"The rostrum":[0,1.05,2.6]};
+const EYE=1.6;
+let cam=null,renderer=null,scene=null; const pos=new THREE.Vector3(0,EYE,-6.5); let yaw=0,pitch=0; const keys={}; let locked=false;
+let stations=[], aimIdx=-1, st=null;
+
+(async function(){
+  const COURSE=(new URLSearchParams(location.search).get('course')||'eu-law').replace(/[^a-z0-9-]/gi,'');
+  let PACK; try{ PACK=await (await fetch('content/'+COURSE+'.json')).json(); }catch(e){ $('#loadt').textContent='content load failed'; return; }
+  if(PACK.title)$('#hsub').textContent='· '+PACK.title;
+  const items=PACK.items;
+  // three.js scene + the CJEU courtroom mesh (Draco+WebP, ~0.8MB)
+  scene=new THREE.Scene(); scene.background=new THREE.Color(0x0b1a3a);  // deep EU blue, no fog
+  renderer=new THREE.WebGLRenderer({antialias:true}); renderer.setSize(innerWidth,innerHeight); renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.outputColorSpace=THREE.SRGBColorSpace; renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.15;
+  $('#c').appendChild(renderer.domElement);
+  cam=new THREE.PerspectiveCamera(62,innerWidth/innerHeight,0.05,120);
+  addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+  scene.add(new THREE.HemisphereLight(0xb9c8ff,0x1a140c,0.75)); scene.add(new THREE.AmbientLight(0x8fa0c8,0.5));
+  const klight=new THREE.SpotLight(0xffe9c6,260,26,Math.PI/5.2,0.5,1.3); klight.position.set(0,5.2,6.6); klight.target.position.set(0,0.7,8.0); scene.add(klight,klight.target);
+  const wallL=new THREE.PointLight(0x8fa8e8,95,42); wallL.position.set(-6.3,4.8,2); scene.add(wallL);
+  const wallR=new THREE.PointLight(0x8fa8e8,95,42); wallR.position.set(6.3,4.8,2); scene.add(wallR);
+  const warm=new THREE.PointLight(0xffb070,55,15); warm.position.set(0,2.3,6.6); scene.add(warm);
+  const back=new THREE.PointLight(0xaebfff,75,34); back.position.set(0,4.5,-6); scene.add(back);
+  const draco=new DRACOLoader(); draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/');
+  const loader=new GLTFLoader(); loader.setDRACOLoader(draco);
+  await new Promise(res=>loader.load(GLB,(g)=>{ scene.add(g.scene); $('#load').classList.add('hide'); res(); }, undefined, (e)=>{ $('#loadt').textContent='3D load failed'; console.error(e); res(); }));
+
+  // build stations from content (placed at their named courtroom slots)
+  const bx=$('#beacons');
+  stations=items.map((it,i)=>{
+    const p=SLOTS[it.station]||[(i%2?2:-2),0,5+i*0.4];
+    const el=document.createElement('div'); el.className='beacon';
+    el.innerHTML=`<div class="ring">⚖︎</div><div class="lbl">${it.station||''}</div>`;
+    bx.appendChild(el);
+    return {it,pos:new THREE.Vector3(p[0],p[1],p[2]),el,judged:false,correct:null};
+  });
+
+  // first-person
+  const cEl=$('#c');
+  cEl.addEventListener('click',()=>{ if(!locked && $('#overlay').style.display==='none') cEl.requestPointerLock(); });
+  document.addEventListener('pointerlockchange',()=>{locked=document.pointerLockElement===cEl;$('#dot').classList.toggle('on',locked);$('#lock').style.opacity=locked?0:1;});
+  document.addEventListener('mousemove',e=>{if(locked){yaw-=e.movementX*0.0022;pitch-=e.movementY*0.0022;pitch=Math.max(-1.0,Math.min(1.0,pitch));}});
+  addEventListener('keydown',e=>{keys[e.code]=true;});
+  addEventListener('keyup',e=>{keys[e.code]=false;});
+
+  const tmp=new THREE.Vector3();
+  function loop(){
+    if(cam){
+      const cp=Math.cos(pitch),sp=Math.sin(pitch);
+      const fwd=new THREE.Vector3(Math.sin(yaw)*cp,sp,Math.cos(yaw)*cp);
+      const rt=new THREE.Vector3(Math.cos(yaw),0,-Math.sin(yaw));
+      const v=0.075, play=st&&$('#overlay').style.display==='none';
+      if(play){ if(keys['KeyW'])pos.addScaledVector(fwd,v); if(keys['KeyS'])pos.addScaledVector(fwd,-v); if(keys['KeyA'])pos.addScaledVector(rt,-v); if(keys['KeyD'])pos.addScaledVector(rt,v); }
+      pos.x=Math.max(-6.3,Math.min(6.3,pos.x)); pos.z=Math.max(-8.5,Math.min(5.5,pos.z)); pos.y=EYE;
+      cam.position.copy(pos); cam.lookAt(pos.x+fwd.x,pos.y+fwd.y,pos.z+fwd.z);
+      renderer.render(scene,cam);
+      // project station beacons; the ACTIVE one = nearest unjudged within reach (no pixel-aim needed)
+      let active=-1,bestD=1e9;
+      stations.forEach((s,i)=>{
+        tmp.copy(s.pos).project(cam);
+        const infront=tmp.z<1;
+        if(!s.judged){
+          s.el.style.opacity = infront?1:0;
+          if(infront){ s.el.style.left=((tmp.x*0.5+0.5)*innerWidth)+'px'; s.el.style.top=((-tmp.y*0.5+0.5)*innerHeight)+'px'; }
+          const dist=cam.position.distanceTo(s.pos);
+          if(st && dist<5.5 && dist<bestD){ bestD=dist; active=i; }
+        }
+      });
+      if(active!==aimIdx){ if(aimIdx>=0&&stations[aimIdx])stations[aimIdx].el.classList.remove('aim'); aimIdx=active;
+        if(active>=0){stations[active].el.classList.add('aim'); openClaim(stations[active]);} else closeClaim(); }
+    }
+    requestAnimationFrame(loop);
+  } loop();
+
+  function openClaim(s){ $('#where').textContent=s.it.station||'Submission'; $('#claim').textContent='“'+s.it.text+'”'; $('#reveal').classList.remove('show'); $('#claimp').classList.add('show'); }
+  function closeClaim(){ $('#claimp').classList.remove('show'); }
+
+  // judging
+  function judge(flagFlawed){
+    if(aimIdx<0||!st)return; const s=stations[aimIdx]; if(s.judged)return;
+    const correct = flagFlawed ? s.it.flawed : !s.it.flawed;
+    s.judged=true; s.correct=correct; s.el.classList.remove('aim'); s.el.classList.add('done', correct?'ok':'no');
+    s.el.querySelector('.ring').textContent = correct?'✓':'✗';
+    if(correct){ const g=120+(s.it.flawed?60:0); st.score+=g; if(s.it.flawed)st.found++; $('#score').textContent=st.score; $('#found').textContent=st.found+'/'+st.totalIssues; flash('g'); toast(s.it.flawed?'Issue spotted!':'Cleared — sound','var(--green)'); }
+    else{ st.lives--; hearts(); flash('r'); toast(s.it.flawed?'Missed issue':'Over-objected','var(--red)'); }
+    // reveal the ground on the panel briefly
+    $('#rg').textContent=s.it.ground; $('#rc').textContent=s.it.cite; $('#reveal').classList.add('show');
+    st.done++;
+    setTimeout(()=>{ s.el.style.opacity=0; }, 1400);
+    if(st.lives<=0 || st.done>=stations.length) setTimeout(end,900);
+  }
+  addEventListener('keydown',e=>{
+    if($('#overlay').style.display!=='none'){ if(e.code==='Space'||e.key==='Enter'){e.preventDefault();($('#endView').style.display==='block'?$('#oagain'):$('#ostart')).click();} return; }
+    const k=e.key.toLowerCase();
+    if(k==='f'){e.preventDefault();judge(true);} else if(k==='g'){judge(false);}
+  });
+
+  const hearts=()=>{$('#hearts').innerHTML=Array.from({length:3},(_,i)=>`<span class="${i<st.lives?'':'x'}">❤️</span>`).join('')};
+  const toast=(t,col)=>{const el=$('#toast');el.textContent=t;el.style.color=col;el.classList.remove('show');void el.offsetWidth;el.classList.add('show');};
+  const flash=c=>{const f=$('#flash');f.className='';void f.offsetWidth;f.classList.add(c);};
+  function start(){ st={score:0,found:0,done:0,lives:3,totalIssues:items.filter(i=>i.flawed).length};
+    stations.forEach(s=>{s.judged=false;s.correct=null;s.el.className='beacon';s.el.querySelector('.ring').textContent='⚖︎';});
+    $('#overlay').style.display='none';$('#score').textContent='0';$('#found').textContent='0/'+st.totalIssues;hearts(); }
+  function end(){ if(locked)document.exitPointerLock();
+    const won=st.lives>0, acc=st.found/st.totalIssues; let stars=acc>=1&&won?3:acc>=0.75?2:acc>=0.5?1:0;
+    $('#startView').style.display='none';$('#endView').style.display='block';$('#overlay').style.display='flex';
+    $('#stars').textContent='★★★'.slice(0,stars).padEnd(3,'☆');
+    $('#eTitle').textContent=stars===3?'Clerk of the Court':stars===2?'Sharp advocate':stars===1?'Junior counsel':'Back to the books';
+    $('#eScore').textContent=st.score+' pts';
+    $('#eLine').textContent=`${st.found}/${st.totalIssues} issues spotted · ${st.lives} heart${st.lives!==1?'s':''} left`;
+    $('#recap').innerHTML=stations.map(s=>`<div class="rc ${s.correct?'hit':'miss'}"><b>${s.it.station}:</b> ${s.it.flawed?'FLAW — ':'Sound — '}${s.it.ground}<div class="c">${s.it.cite}</div></div>`).join('');
+  }
+  $('#ostart').onclick=start; $('#oagain').onclick=()=>{$('#endView').style.display='none';$('#startView').style.display='block';start();};
+})();
+</script>
+</body></html>
