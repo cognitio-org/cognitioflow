@@ -183,4 +183,6 @@ def test_run_py_has_no_filesystem_access_to_user_content():
     for banned in ("UPLOADS", "AUDIO", "WATCH", "read_bytes", "write_bytes", "google.cloud"):
         assert banned not in src, banned
     lines = [l for l in src.splitlines() if "FileResponse" in l and not l.startswith("from fastapi")]
-    assert len(lines) == 1 and "index.html" in lines[0]
+    # Only the static app shells are served off the filesystem (the app UI and the public landing);
+    # user content always goes through storage.py. Anything else served by FileResponse is a regression.
+    assert lines and all("static" in l and ("index.html" in l or "landing.html" in l) for l in lines)
