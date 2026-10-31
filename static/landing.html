@@ -1,0 +1,276 @@
+<title>CognitioFlow</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Space+Mono:wght@400;700&family=Newsreader:ital,opsz@1,18..72&display=swap">
+<style>
+/* Deep tinted obsidian, layered surfaces, 1px specular rim-light instead of drop shadow, OKLCH glow.
+   Cyan is the one working accent; indigo lives only in the ambient light + constellation; gold only verifies. */
+:root{
+  --floor:#050509; --bg:#07080d; --surface:#0d0f15; --surface2:#13161f; --pop:#1a1e28;
+  --line:rgba(255,255,255,.065); --line2:rgba(255,255,255,.12); --hair:rgba(255,255,255,.09);
+  --rim:rgba(255,255,255,.10);
+  --fg:#f3f4f8; --fg-dim:#ccd0db; --muted:#878ca0; --faint:#555a6d;
+  --cyan:#3ad6c6; --cyan-soft:rgba(58,214,198,.12);
+  --indigo:#6f7bff;
+  --gold:#dcc088; --gold-soft:rgba(220,192,136,.1);
+  --sans:"DM Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"Space Mono",ui-monospace,monospace;
+  --serif:"Newsreader",Georgia,serif;
+  --ease:cubic-bezier(.16,1,.3,1);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--floor);color:var(--fg);font-family:var(--sans);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+/* two disciplined light sources in OKLCH — a cool cyan key above, a faint indigo bounce low-left. No neon blobs. */
+body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(70vw 42vh at 50% -14vh, oklch(.62 .11 220 / .16), transparent 62%),
+    radial-gradient(52vw 40vh at 12% 112%, oklch(.55 .15 285 / .10), transparent 60%)}
+#fx{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.6}
+.grain{position:fixed;inset:0;z-index:2;pointer-events:none;opacity:.03;mix-blend-mode:overlay}
+.wrap{position:relative;z-index:3;max-width:1120px;margin:0 auto;
+  padding-left:max(24px,env(safe-area-inset-left,0px));padding-right:max(24px,env(safe-area-inset-right,0px))}
+
+header{padding-block:24px}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.brand{font-weight:700;font-size:18px;letter-spacing:-.02em;display:flex;align-items:center;gap:10px}
+.glyph{width:15px;height:15px;border-radius:5px;border:1px solid var(--line2);position:relative;background:var(--surface)}
+.glyph::after{content:"";position:absolute;inset:3px;border-radius:2px;background:var(--cyan);box-shadow:0 0 10px rgba(58,214,198,.7)}
+.nav{display:flex;gap:26px}
+.nav a{font-family:var(--mono);font-size:12px;color:var(--muted);text-decoration:none;transition:color .16s var(--ease)}
+.nav a:hover{color:var(--fg)}
+
+/* cursor-following specular rim — a hairline that lights where the pointer is */
+.spec{position:relative}
+.spec::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;opacity:0;transition:opacity .25s var(--ease);
+  background:radial-gradient(170px 170px at var(--mx,50%) var(--my,0%), rgba(120,205,255,.55), transparent 62%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude}
+.spec:hover::after{opacity:1}
+
+/* hero 65/35 */
+.hero{display:grid;grid-template-columns:minmax(0,1.06fr) minmax(0,.94fr);gap:44px;align-items:center;padding-block:44px 64px}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:24px;display:inline-flex;align-items:center;gap:9px}
+.eyebrow .pulse{width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 0 0 rgba(58,214,198,.5);animation:pulse 2.6s var(--ease) infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(58,214,198,.45)}70%{box-shadow:0 0 0 7px rgba(58,214,198,0)}100%{box-shadow:0 0 0 0 rgba(58,214,198,0)}}
+h1{font-weight:700;font-size:clamp(2.5rem,5.2vw,3.75rem);line-height:1.05;letter-spacing:-.025em;margin:0;
+  background:linear-gradient(180deg,#ffffff,#d9dbe6);-webkit-background-clip:text;background-clip:text;color:transparent}
+.lede{font-size:18px;line-height:1.55;color:var(--muted);margin:24px 0 0;max-width:46ch}
+.lede em{font-family:var(--serif);font-style:italic;color:var(--fg-dim);font-size:19px}
+.cta{display:flex;gap:12px;flex-wrap:wrap;margin-top:34px;align-items:center}
+.btn{font-weight:600;font-size:15px;padding:12px 20px;border-radius:11px;text-decoration:none;letter-spacing:-.01em;
+  transition:transform .16s var(--ease),border-color .16s var(--ease),background .16s var(--ease),box-shadow .16s var(--ease)}
+.btn.pri{color:#04140f;background:var(--cyan);box-shadow:0 1px 0 rgba(255,255,255,.3) inset,0 8px 28px rgba(58,214,198,.18)}
+.btn.pri:hover{transform:translateY(-1.5px);box-shadow:0 1px 0 rgba(255,255,255,.4) inset,0 12px 38px rgba(58,214,198,.3)}
+.btn.sec{color:var(--fg);background:var(--surface);border:1px solid var(--line);box-shadow:0 1px 0 var(--hair) inset}
+.btn.sec:hover{transform:translateY(-1.5px);border-color:var(--line2)}
+.kbd{font-family:var(--mono);font-size:11.5px;color:var(--faint);display:inline-flex;align-items:center;gap:6px}
+.kbd b{font-weight:400;color:var(--muted);border:1px solid var(--line2);border-radius:5px;padding:2px 6px;background:rgba(255,255,255,.04)}
+
+/* functional artifact: live cited answer */
+.panel{background:linear-gradient(180deg,var(--surface),#0b0d12);border:1px solid var(--line);border-radius:14px;
+  box-shadow:0 1px 0 var(--rim) inset,0 24px 60px -20px rgba(0,0,0,.7);overflow:hidden}
+.panel .top{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--faint)}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px rgba(58,214,198,.8)}
+.panel .top .sp{margin-left:auto;color:var(--muted)}
+.panel .body{padding:18px 16px 16px}
+.q{font-size:13.5px;color:var(--muted);margin:0 0 12px}
+.a{font-size:14.5px;line-height:1.6;color:var(--fg-dim);margin:0}
+.tag{font-family:var(--mono);font-size:10px;letter-spacing:.04em;padding:1px 6px;border-radius:5px;border:1px solid var(--cyan-soft);color:var(--cyan);background:var(--cyan-soft);white-space:nowrap}
+.tag.n{color:var(--muted);border-color:var(--line2);background:rgba(255,255,255,.035)}
+.verify{display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-family:var(--mono);font-size:11px;color:var(--gold);
+  border:1px solid rgba(220,192,136,.34);background:var(--gold-soft);border-radius:7px;padding:5px 9px}
+.spark{display:flex;align-items:flex-end;gap:3px;margin-top:16px;height:24px}
+.spark i{width:5px;border-radius:2px;background:var(--line2);transform-origin:bottom;animation:bar 2.4s var(--ease) infinite}
+.spark i.on{background:var(--cyan);box-shadow:0 0 8px rgba(58,214,198,.4)}
+@keyframes bar{0%,100%{transform:scaleY(.85)}50%{transform:scaleY(1)}}
+
+section{padding-block:108px}
+.kick{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);margin:0 0 14px}
+h2{font-weight:700;font-size:clamp(1.65rem,3vw,2.05rem);line-height:1.15;letter-spacing:-.02em;margin:0 0 10px;max-width:20ch}
+.sub{color:var(--muted);max-width:56ch;margin:0;font-size:16px}
+
+.bento{display:grid;grid-template-columns:1.5fr 1fr;gap:16px;margin-top:40px}
+.card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px;overflow:hidden;
+  box-shadow:0 1px 0 var(--rim) inset;transition:transform .16s var(--ease),border-color .16s var(--ease),background .16s var(--ease)}
+.card:hover{transform:translateY(-1.5px);border-color:var(--line2);background:var(--surface2)}
+.card h3{font-weight:600;font-size:18px;letter-spacing:-.015em;margin:0 0 7px}
+.card p{margin:0;color:var(--muted);font-size:14.5px;line-height:1.55}
+.card .lab{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:14px;display:block}
+.hero-card{grid-row:span 2;display:flex;flex-direction:column;min-height:300px}
+.hero-card .viz{flex:1;margin:18px -22px -22px;border-top:1px solid var(--line);position:relative;
+  background:radial-gradient(120% 90% at 50% 120%, oklch(.5 .13 270 / .22), transparent 60%),linear-gradient(170deg,#0c0e13,#08090d)}
+.hero-card .viz::before{content:"";position:absolute;left:22px;right:22px;top:46%;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(220,192,136,.5),transparent)}
+.hero-card .viz span{position:absolute;left:22px;bottom:16px;font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--muted)}
+
+.method{display:grid;grid-template-columns:230px 1fr;gap:28px;margin-top:40px}
+.method .steps{display:flex;flex-direction:column}
+.row{display:grid;grid-template-columns:2.2em 1fr;gap:12px;padding:18px 0;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.row .n{font-family:var(--mono);font-size:13px;color:var(--cyan)}
+.row b{font-weight:600}.row span{color:var(--muted)}
+.stick{align-self:start;position:sticky;top:30px}
+
+.quote{display:grid;grid-template-columns:1.2fr .8fr;gap:30px;align-items:center}
+.quote blockquote{font-family:var(--serif);font-style:italic;font-size:clamp(1.3rem,2.4vw,1.7rem);line-height:1.4;margin:0;color:var(--fg)}
+.quote .who{font-family:var(--mono);font-size:12px;color:var(--muted);line-height:1.7}
+.quote .who b{color:var(--fg-dim);font-weight:400}
+
+footer{position:relative;z-index:3;padding-block:40px 56px;border-top:1px solid var(--line);
+  display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--faint)}
+footer a{color:var(--cyan);text-decoration:none}
+
+/* scroll-reveal: short travel (12px), snappy, once */
+.rise{opacity:0;transform:translateY(12px);transition:opacity .6s var(--ease),transform .6s var(--ease)}
+.rise.in{opacity:1;transform:none}
+.d1{transition-delay:.04s}.d2{transition-delay:.12s}.d3{transition-delay:.2s}
+@media (max-width:820px){.hero{grid-template-columns:1fr;gap:32px}.bento{grid-template-columns:1fr}.hero-card{grid-row:auto;min-height:200px}.method{grid-template-columns:1fr}.quote{grid-template-columns:1fr}.nav{display:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.rise{opacity:1;transform:none}}
+</style>
+
+<canvas id="fx"></canvas>
+<svg class="grain" xmlns="http://www.w3.org/2000/svg"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.82" numOctaves="2" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(#n)"/></svg>
+
+<div class="wrap">
+  <header>
+    <div class="bar">
+      <div class="brand"><span class="glyph"></span>CognitioFlow</div>
+      <nav class="nav"><a href="#engine">engine</a><a href="#method">method</a><a href="#court">courtroom</a></nav>
+    </div>
+  </header>
+
+  <div class="hero">
+    <div>
+      <div class="eyebrow rise d1"><span class="pulse"></span>AI study engine &middot; for law students</div>
+      <h1 class="rise d1">Study law from<br>your own sources.</h1>
+      <p class="lede rise d2">CognitioFlow drills, explains and quizzes you &mdash; reasoning <em>only</em> from the lectures, working-group notes and readers you actually tick. It shows its sources, and it never guesses.</p>
+      <div class="cta rise d2">
+        <a class="btn pri" href="/auth/login">Launch the app</a>
+        <a class="btn sec" href="#engine">How it works</a>
+        <span class="kbd">reasons from <b>your files</b> only</span>
+      </div>
+    </div>
+    <div class="panel spec rise d3">
+      <div class="top"><span class="dot"></span>TUTOR<span class="sp">EU LAW &middot; WEEK 6</span></div>
+      <div class="body">
+        <p class="q">Can a Member State justify a quantitative restriction on imports?</p>
+        <p class="a">Only within the exhaustive grounds of <span class="tag">WG</span> Art. 36 TFEU, and the measure must be proportionate <span class="tag n">LECTURE</span>. Mandatory requirements extend this for indistinctly-applicable measures.</p>
+        <div class="verify">&#10003; Art. 34 TFEU &middot; verified against your files</div>
+        <div class="spark"><i style="height:30%"></i><i style="height:45%"></i><i style="height:40%"></i><i class="on" style="height:62%"></i><i class="on" style="height:70%"></i><i class="on" style="height:88%"></i></div>
+      </div>
+    </div>
+  </div>
+
+  <section id="engine">
+    <p class="kick rise">01 &mdash; the engine</p>
+    <h2 class="rise">A tutor that stays inside your syllabus.</h2>
+    <p class="sub rise">Most study tools invent. CognitioFlow reasons from the files you tick, tags where every claim comes from, and marks anything beyond them plainly.</p>
+    <div class="bento">
+      <div class="card hero-card spec rise d1">
+        <span class="lab">Walkable 3D courtroom</span>
+        <h3>Stand inside the Court of Justice.</h3>
+        <p>Study procedure where it happens &mdash; walk the gallery into the Grand Chamber, bench and bar in place, so the shape of a hearing is somewhere you've stood.</p>
+        <div class="viz"><span>GRAND CHAMBER &middot; WALKABLE</span></div>
+      </div>
+      <div class="card spec rise d2">
+        <span class="lab">Provenance</span>
+        <h3>Cited, source-tagged answers.</h3>
+        <p>Every claim is tagged &mdash; lecture, working group, slides, reader &mdash; so you always know its authority.</p>
+      </div>
+      <div class="card spec rise d3">
+        <span class="lab">Adaptive</span>
+        <h3>Revision that tracks your gaps.</h3>
+        <p>Drills built from your own content, getting harder exactly where you haven't mastered it yet.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="method">
+    <p class="kick rise">02 &mdash; the method</p>
+    <div class="method">
+      <div class="stick">
+        <h2 class="rise">Built around how exams are marked.</h2>
+        <p class="sub rise">It drills the structure examiners reward, not just the facts.</p>
+      </div>
+      <div class="steps">
+        <div class="row rise d1"><span class="n">01</span><div><b>Applicability</b> &mdash; <span>does the rule reach these facts at all?</span></div></div>
+        <div class="row rise d1"><span class="n">02</span><div><b>Restriction &amp; scope</b> &mdash; <span>how far does it extend, and where does it stop?</span></div></div>
+        <div class="row rise d2"><span class="n">03</span><div><b>Justification &amp; proportionality</b> &mdash; <span>is the interference justified, and proportionate?</span></div></div>
+        <div class="row rise d2"><span class="n">04</span><div><b>IRAC throughout</b> &mdash; <span>issue, rule, application, conclusion, in your own words.</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="court">
+    <div class="quote">
+      <blockquote class="rise">&ldquo;I built the study tool I wanted for my own law degree &mdash; one that never guesses, and shows its sources.&rdquo;</blockquote>
+      <div class="who rise d1"><b>Made by a law student (LLB)</b><br>University of Groningen.<br>Privacy-first &mdash; your materials stay yours.</div>
+    </div>
+  </section>
+
+  <footer>
+    <div>COGNITIOFLOW &mdash; justice, drilled</div>
+    <div><a href="https://cognitioflow.ai">cognitioflow.ai</a></div>
+  </footer>
+</div>
+
+<script>
+(function(){
+  var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* 1) Cursor-following specular rim on panels/cards */
+  document.querySelectorAll('.spec').forEach(function(el){
+    el.addEventListener('pointermove', function(e){
+      var r = el.getBoundingClientRect();
+      el.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+      el.style.setProperty('--my', (e.clientY - r.top) + 'px');
+    });
+  });
+
+  /* 2) Scroll reveal — add .in once, short snappy travel */
+  if (reduce){ document.querySelectorAll('.rise').forEach(function(n){n.classList.add('in');}); }
+  else {
+    var io = new IntersectionObserver(function(es){
+      es.forEach(function(en){ if(en.isIntersecting){ en.target.classList.add('in'); io.unobserve(en.target); } });
+    }, {threshold:.15, rootMargin:'0px 0px -8% 0px'});
+    document.querySelectorAll('.rise').forEach(function(n){io.observe(n);});
+  }
+
+  /* 3) Restrained legal constellation behind the hero — nodes + proximity filaments, gentle pointer pull.
+        Capped node count + DPR, paused when the tab is hidden; off entirely for reduced-motion. */
+  var cv = document.getElementById('fx');
+  if (reduce || !cv || !cv.getContext){ if(cv) cv.style.display='none'; return; }
+  var ctx = cv.getContext('2d'), W=0, H=0, DPR=Math.min(devicePixelRatio||1, 1.5), nodes=[], pm={x:-999,y:-999}, raf=0;
+  function size(){
+    W=cv.clientWidth=innerWidth; H=cv.clientHeight=Math.min(innerHeight,760);
+    cv.width=W*DPR; cv.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
+    var n=Math.min(46, Math.round(W/26)); nodes=[];
+    for(var i=0;i<n;i++) nodes.push({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.16,vy:(Math.random()-.5)*.16});
+  }
+  function tick(){
+    ctx.clearRect(0,0,W,H);
+    for(var i=0;i<nodes.length;i++){
+      var a=nodes[i];
+      a.x+=a.vx; a.y+=a.vy;
+      if(a.x<0||a.x>W) a.vx*=-1; if(a.y<0||a.y>H) a.vy*=-1;
+      var dxp=a.x-pm.x, dyp=a.y-pm.y, dp=dxp*dxp+dyp*dyp;
+      if(dp<24000){ var f=(1-dp/24000)*.04; a.vx+=dxp/Math.sqrt(dp+1)*f; a.vy+=dyp/Math.sqrt(dp+1)*f; a.vx*=.985; a.vy*=.985; }
+      for(var j=i+1;j<nodes.length;j++){
+        var b=nodes[j], dx=a.x-b.x, dy=a.y-b.y, d=dx*dx+dy*dy;
+        if(d<16000){ var o=(1-d/16000)*.22; ctx.strokeStyle='rgba(120,180,230,'+o.toFixed(3)+')'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); }
+      }
+    }
+    for(var k=0;k<nodes.length;k++){ ctx.fillStyle='rgba(150,205,235,.5)'; ctx.beginPath(); ctx.arc(nodes[k].x,nodes[k].y,1.3,0,6.283); ctx.fill(); }
+    raf=requestAnimationFrame(tick);
+  }
+  addEventListener('pointermove',function(e){pm.x=e.clientX;pm.y=e.clientY;});
+  addEventListener('resize',size,{passive:true});
+  document.addEventListener('visibilitychange',function(){
+    if(document.hidden){ cancelAnimationFrame(raf); raf=0; } else if(!raf){ raf=requestAnimationFrame(tick); }
+  });
+  size(); tick();
+})();
+</script>

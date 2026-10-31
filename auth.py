@@ -60,7 +60,7 @@ def _cookie_header(session: dict, secure: bool) -> str:
     return r.headers["set-cookie"]
 
 def _public(path: str) -> bool:
-    if path in ("/health", "/healthz", "/sw.js") or path.startswith("/auth/"): return True   # /sw.js: see run.retire_service_worker
+    if path in ("/", "/health", "/healthz", "/sw.js") or path.startswith("/auth/"): return True   # "/" serves the public landing to signed-out visitors; /sw.js: see run.retire_service_worker
     return path.startswith("/static/") and path != "/static/index.html"  # the UI shell is only served behind auth
 
 def _identity(session: dict):

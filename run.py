@@ -300,7 +300,13 @@ def rows(q, *a):
         return list(c.execute(q, a).fetchall())
 
 @app.get("/")
-def index(): return FileResponse(ROOT / "static" / "index.html", headers={"Cache-Control": "no-cache"})
+def index(request: Request):
+    # Signed-out visitors see the public marketing landing; signed-in users get the app shell.
+    # "/" is in auth._public so the middleware lets anonymous requests reach here instead of
+    # bouncing them to /auth/login. The landing's "Launch the app" button points at /auth/login.
+    if getattr(request.state, "user", None) is None:
+        return FileResponse(ROOT / "static" / "landing.html", headers={"Cache-Control": "no-cache"})
+    return FileResponse(ROOT / "static" / "index.html", headers={"Cache-Control": "no-cache"})
 
 # A service worker from an earlier site on this domain (Workbox, scope "/") still controls browsers that visited it,
 # and serves them its cached /static/app.js: found 2026-09-30, his Chrome was running a 147 KB app.js while the
