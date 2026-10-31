@@ -1,0 +1,24 @@
+# Enable GitHub auto-merge on PRs labeled `automerge`.
+# GitHub performs the actual merge only after main's required checks
+# (fast, test, worthiness) pass — this job just arms it. No label = manual,
+# which keeps auth/schema/tags/money PRs a human decision.
+name: automerge
+
+on:
+  pull_request_target:
+    types: [labeled, opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  arm:
+    if: contains(github.event.pull_request.labels.*.name, 'automerge') && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable auto-merge (squash)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"
