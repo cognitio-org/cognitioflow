@@ -13,7 +13,7 @@
   --fg:#f3f4f8; --fg-dim:#ccd0db; --muted:#878ca0; --faint:#555a6d;
   --cyan:#3ad6c6; --cyan-soft:rgba(58,214,198,.12);
   --indigo:#6f7bff;
-  --gold:#dcc088; --gold-soft:rgba(220,192,136,.1);
+  --gold:#e5a93c; --gold-soft:rgba(229,169,60,.1);   /* Legal Gold — law-book gilding, the one authority accent */
   --sans:"DM Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --mono:"Space Mono",ui-monospace,monospace;
   --serif:"Newsreader",Georgia,serif;
@@ -239,38 +239,67 @@ footer a{color:var(--cyan);text-decoration:none}
     document.querySelectorAll('.rise').forEach(function(n){io.observe(n);});
   }
 
-  /* 3) Restrained legal constellation behind the hero — nodes + proximity filaments, gentle pointer pull.
-        Capped node count + DPR, paused when the tab is hidden; off entirely for reduced-motion. */
+  /* 3) Precedent & citation lattice behind the hero — landmark cases as nodes, linked by how they cite
+        one another (applies / distinguishes / limits). A citation pulse travels one edge at a time and
+        the pointer brightens nearby precedents. Capped + paused when hidden; a single static frame for
+        reduced-motion, so the lattice still reads without any movement. */
   var cv = document.getElementById('fx');
-  if (reduce || !cv || !cv.getContext){ if(cv) cv.style.display='none'; return; }
-  var ctx = cv.getContext('2d'), W=0, H=0, DPR=Math.min(devicePixelRatio||1, 1.5), nodes=[], pm={x:-999,y:-999}, raf=0;
+  if (!cv || !cv.getContext){ return; }
+  var ctx = cv.getContext('2d'), W=0, H=0, DPR=Math.min(devicePixelRatio||1, 1.5), raf=0, t0=Date.now(), pm={x:-9999,y:-9999};
+  var GOLD='229,169,60', TEAL='58,214,198', LIMIT='224,138,96';  // authority · applies · limits
+  /* landmark EU-law precedents: normalized position, authority tier (1 highest), label */
+  var N=[
+    {x:.12,y:.30,a:1,l:'Van Gend en Loos'}, {x:.25,y:.56,a:1,l:'Costa v ENEL'},
+    {x:.16,y:.82,a:2,l:'Simmenthal'},       {x:.34,y:.84,a:2,l:'Factortame'},
+    {x:.31,y:.15,a:2,l:'Int. Handelsges.'}, {x:.50,y:.23,a:1,l:'Dassonville'},
+    {x:.64,y:.45,a:1,l:'Cassis de Dijon'},  {x:.79,y:.27,a:1,l:'Keck'},
+    {x:.91,y:.50,a:2,l:'Gourmet'},          {x:.47,y:.67,a:2,l:'Francovich'},
+    {x:.71,y:.72,a:2,l:'Marshall'},         {x:.85,y:.83,a:2,l:'Faccini Dori'},
+    {x:.59,y:.88,a:3,l:'Mangold'},          {x:.41,y:.44,a:3,l:'Consten & Grundig'}
+  ];
+  /* edges [from,to,kind]: 0 applies(teal) · 1 distinguishes(gold) · 2 limits(dashed) */
+  var E=[[0,1,0],[1,2,0],[2,3,0],[9,3,0],[4,1,0],[5,6,0],[6,7,1],[5,7,1],[7,8,2],[10,11,0],[11,12,1],[5,13,0],[6,9,0]];
   function size(){
     W=cv.clientWidth=innerWidth; H=cv.clientHeight=Math.min(innerHeight,760);
     cv.width=W*DPR; cv.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
-    var n=Math.min(46, Math.round(W/26)); nodes=[];
-    for(var i=0;i<n;i++) nodes.push({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.16,vy:(Math.random()-.5)*.16});
   }
-  function tick(){
+  function pos(n,t){  /* calm sinusoidal float (no random walk) so case labels stay legible */
+    return {x:(0.07+n.x*0.86)*W + Math.sin(t*0.00018 + n.x*31)*7,
+            y:(0.10+n.y*0.80)*H + Math.cos(t*0.00015 + n.y*27)*7};
+  }
+  function near(p){ var dx=p.x-pm.x, dy=p.y-pm.y; return Math.max(0, 1 - (dx*dx+dy*dy)/22500); }
+  function draw(t){
     ctx.clearRect(0,0,W,H);
-    for(var i=0;i<nodes.length;i++){
-      var a=nodes[i];
-      a.x+=a.vx; a.y+=a.vy;
-      if(a.x<0||a.x>W) a.vx*=-1; if(a.y<0||a.y>H) a.vy*=-1;
-      var dxp=a.x-pm.x, dyp=a.y-pm.y, dp=dxp*dxp+dyp*dyp;
-      if(dp<24000){ var f=(1-dp/24000)*.04; a.vx+=dxp/Math.sqrt(dp+1)*f; a.vy+=dyp/Math.sqrt(dp+1)*f; a.vx*=.985; a.vy*=.985; }
-      for(var j=i+1;j<nodes.length;j++){
-        var b=nodes[j], dx=a.x-b.x, dy=a.y-b.y, d=dx*dx+dy*dy;
-        if(d<16000){ var o=(1-d/16000)*.22; ctx.strokeStyle='rgba(120,180,230,'+o.toFixed(3)+')'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); }
-      }
+    var P=[], i; for(i=0;i<N.length;i++) P.push(pos(N[i],t));
+    for(var e=0;e<E.length;e++){
+      var a=P[E[e][0]], b=P[E[e][1]], kind=E[e][2], col=kind===1?GOLD:kind===2?LIMIT:TEAL;
+      ctx.strokeStyle='rgba('+col+','+(0.12+Math.max(near(a),near(b))*0.5).toFixed(3)+')';
+      ctx.lineWidth=1; ctx.setLineDash(kind===2?[4,4]:[]);
+      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
     }
-    for(var k=0;k<nodes.length;k++){ ctx.fillStyle='rgba(150,205,235,.5)'; ctx.beginPath(); ctx.arc(nodes[k].x,nodes[k].y,1.3,0,6.283); ctx.fill(); }
-    raf=requestAnimationFrame(tick);
+    ctx.setLineDash([]);
+    if(raf){  /* one citation firing along an edge at a time */
+      var period=1500, idx=Math.floor(t/period)%E.length, f=(t%period)/period;
+      var ea=P[E[idx][0]], eb=P[E[idx][1]], pc=E[idx][2]===1?GOLD:E[idx][2]===2?LIMIT:TEAL;
+      var px=ea.x+(eb.x-ea.x)*f, py=ea.y+(eb.y-ea.y)*f;
+      ctx.fillStyle='rgba('+pc+',0.95)'; ctx.beginPath(); ctx.arc(px,py,2.2,0,6.283); ctx.fill();
+      ctx.fillStyle='rgba('+pc+',0.22)'; ctx.beginPath(); ctx.arc(px,py,5,0,6.283); ctx.fill();
+    }
+    ctx.font='10px ui-monospace,"Space Mono",monospace'; ctx.textBaseline='middle';
+    for(var k=0;k<N.length;k++){
+      var p=P[k], g=near(p), col=N[k].a===1?GOLD:TEAL;
+      ctx.fillStyle='rgba('+col+','+(0.5+g*0.4).toFixed(3)+')';
+      ctx.beginPath(); ctx.arc(p.x,p.y,N[k].a===1?2.6:1.8,0,6.283); ctx.fill();
+      if(N[k].a===1||g>0.02){ ctx.fillStyle='rgba(210,220,235,'+(0.26+g*0.6).toFixed(3)+')'; ctx.fillText(N[k].l,p.x+7,p.y); }
+    }
   }
+  function tick(){ draw(Date.now()-t0); raf=requestAnimationFrame(tick); }
   addEventListener('pointermove',function(e){pm.x=e.clientX;pm.y=e.clientY;});
   addEventListener('resize',size,{passive:true});
   document.addEventListener('visibilitychange',function(){
     if(document.hidden){ cancelAnimationFrame(raf); raf=0; } else if(!raf){ raf=requestAnimationFrame(tick); }
   });
-  size(); tick();
+  size();
+  if(reduce){ draw(0); } else tick();   /* reduced-motion: one static lattice frame, no animation */
 })();
 </script>
