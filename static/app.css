@@ -33,3 +33,26 @@
 .rolechip.r-lecture,.rolechip.r-slides{color:var(--ink)}
 .rolechip.r-reader,.rolechip.r-cases{color:var(--graphite)}
 .rolechip.r-admin,.rolechip.r-assignment,.rolechip.r-note{color:var(--graphite);opacity:.9}
+/* Authority clearance badge — a file's standing for this course's exam method.
+   Built on --gilt (Legal Gold) so rank 1 reads the same across every course, not the course accent. */
+.authchip{display:inline-flex;align-items:center;gap:.34rem;font-size:var(--fs-xs);letter-spacing:.02em;
+  padding:.08rem .5rem .08rem .26rem;border-radius:999px;border:1px solid var(--rule);color:var(--graphite);white-space:nowrap}
+.authchip>i{font-style:normal;font-weight:600;font-size:.78em;line-height:1;min-width:1.15em;height:1.15em;
+  display:inline-flex;align-items:center;justify-content:center;border-radius:999px;background:var(--faint);color:var(--graphite)}
+.authchip.a1{border-color:var(--gilt);color:var(--gilt);background:var(--gilt-soft,rgba(184,135,47,.14));font-weight:500}
+.authchip.a1>i{background:var(--gilt);color:var(--paper)}
+.authchip.a2{border-color:color-mix(in oklab,var(--gilt) 55%,var(--rule));color:var(--ink)}
+.authchip.a2>i{background:color-mix(in oklab,var(--gilt) 42%,var(--faint));color:var(--ink)}
+.authchip.a3{color:var(--ink)}
+.authchip.a4{color:var(--graphite)}
+.authchip.a5{color:var(--graphite);opacity:.72;border-style:dashed}
+.authchip.unranked{color:var(--graphite);opacity:.7;border-style:dashed}
+/* authority dots in the tutor's Reading list — same scale, read at a glance */
+#ctxList li{display:flex;align-items:center;gap:.45rem}
+.authdot{display:inline-block;width:.5rem;height:.5rem;border-radius:999px;flex:0 0 auto;
+  background:var(--rule-strong);box-shadow:0 0 0 1px var(--rule) inset}
+.authdot.a1{background:var(--gilt);box-shadow:none}
+.authdot.a2{background:color-mix(in oklab,var(--gilt) 55%,var(--graphite))}
+.authdot.a3{background:var(--graphite)}
+.authdot.a4{background:var(--rule-strong)}
+.authdot.a5{background:var(--rule-strong);opacity:.55}

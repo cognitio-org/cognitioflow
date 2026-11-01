@@ -371,19 +371,21 @@ async function loadFiles(){
   sylFill(fs);
   if(!fs.length){ $('#fileRows').innerHTML='<tr><td colspan="7"><div class="emptystate"><b>No files yet</b><span>Drop the Week 2 slides and a transcript in to start.</span><button class="btn small" type="button" onclick="document.getElementById(\'fileInput\').click()">Choose files</button></div></td></tr>'; }
   else {
+    const ranks=authRanks();   // this course's authority order, for the clearance badges and the sort
     const groups={}; fs.forEach(f=>{ const k=f.week?('Week '+f.week):'Unsorted'; (groups[k]=groups[k]||[]).push(f) });
     const order=Object.keys(groups).sort((a,b)=>{ if(a==='Unsorted')return 1; if(b==='Unsorted')return -1; return (+a.slice(5))-(+b.slice(5)) });
     const row=f=>`<tr><td><label class="tick"><input type="checkbox" ${f.selected?'checked':''} data-toggle="${f.id}" aria-label="Include in tutor context"></label></td>`+
       `<td><span class="fname" data-rename="${f.id}" title="Click to rename — the upload keeps its own filename">${esc(f.label||f.name)}</span>`+
       `${f.label&&f.label!==f.name?`<span class="small muted fileorig">${esc(f.name)}</span>`:''}</td>`+
-      `<td>${f.role?`<span class="rolechip r-${f.role}">${ROLE_NAMES[f.role]||f.role}</span>`:`<span class="muted small">${f.kind}</span>`}</td>`+
+      `<td>${authChip(f,ranks)}</td>`+
       `<td><span class="wkedit" data-week="${f.id}" title="Click to change the week">${esc(f.week)||'<span class=muted>—</span>'}</span></td>`+
       `<td class="small muted">${f.chars?Math.round(f.chars/1000)+'k':'–'}</td>`+
       `<td><span class="tag ${f.status==='indexed'?'ok':(f.status==='no text'?'warn':'')}">${f.status}</span></td>`+
       `<td><button class="btn small ghost" data-view="${f.id}" ${f.kind==='image'?'disabled':''}>Text</button> <button class="btn small ghost" data-del="${f.id}">Remove</button></td></tr>`;
     $('#fileRows').innerHTML=order.map(k=>{ const g=groups[k]; const on=g.filter(f=>f.selected).length; const ids=g.map(f=>f.id).join(',');
       const wk=k.startsWith('Week ')?k.slice(5):''; const title=(sylTitles[wk]||'');
-      return `<tr class="grouphead"><td><input type="checkbox" data-group="${ids}" ${on===g.length?'checked':''} ${on&&on<g.length?'data-some="1"':''} aria-label="Tick all in ${k}"></td><td colspan="6"><b>${k}</b>${title?` <span class="wktitle">${esc(title)}</span>`:''} <span class="small muted">· ${g.length} file${g.length>1?'s':''}, ${on} on</span></td></tr>` + g.map(row).join(''); }).join('');
+      const gs=g.slice().sort((a,b)=>authRank(a.role,ranks)-authRank(b.role,ranks));   // strongest authority first within the week
+      return `<tr class="grouphead"><td><input type="checkbox" data-group="${ids}" ${on===g.length?'checked':''} ${on&&on<g.length?'data-some="1"':''} aria-label="Tick all in ${k}"></td><td colspan="6"><b>${k}</b>${title?` <span class="wktitle">${esc(title)}</span>`:''} <span class="small muted">· ${g.length} file${g.length>1?'s':''}, ${on} on</span></td></tr>` + gs.map(row).join(''); }).join('');
     document.querySelectorAll('[data-some="1"]').forEach(c=>c.indeterminate=true);
     document.querySelectorAll('[data-group]').forEach(b=>b.onchange=async()=>{ const ids=b.dataset.group.split(','); await Promise.all(ids.map(id=>post(`/files/${id}/toggle-to`,{on:b.checked}))); loadFiles(); });
   }
@@ -402,6 +404,26 @@ async function loadFiles(){
 }
 
 const ROLE_NAMES={exam:'Past exam',wg:'WG notes',lecture:'Lecture',slides:'Slides',reader:'Reader',cases:'Case law',assignment:'Assignment',admin:'Course info',note:'Note'};
+/* Authority clearance — lower rank = stronger authority for this course's exam method.
+   WG worked answers and past papers are what the examiner rewards; textbook commentary sits lowest.
+   This default is only a fallback: each course's brief.authority_order (highest first) overrides it. */
+const AUTH_DEFAULT={wg:1,exam:1,lecture:2,note:2,slides:3,cases:3,assignment:3,reader:4,admin:5};
+const AUTH_MAX=5;
+/* Map a free-text authority-order line ("[WG]", "Working group", "Schütze") to a file role. */
+function authTagRole(t){ const s=String(t).toLowerCase().replace(/[\[\]]/g,'').trim();
+  if(/wg|working\s*group/.test(s))return'wg'; if(/lect/.test(s))return'lecture';
+  if(/slide/.test(s))return'slides'; if(/read|textbook|sch(ü|u)tz/.test(s))return'reader';
+  if(/case|judg|ecj|cjeu/.test(s))return'cases'; if(/exam|past\s*paper/.test(s))return'exam';
+  if(/assign/.test(s))return'assignment'; if(/\bnote/.test(s))return'note';
+  if(/admin|course\s*info|guide/.test(s))return'admin'; return null; }
+/* Per-course rank map: the course's own authority_order wins; unlisted roles keep the default. */
+function authRanks(){ const m={...AUTH_DEFAULT}; const ord=(C()&&C().brief&&C().brief.authority_order)||[];
+  ord.forEach((t,i)=>{ const r=authTagRole(t); if(r) m[r]=Math.min(i+1,AUTH_MAX); }); return m; }
+function authRank(role,ranks){ return (ranks||authRanks())[role]||AUTH_MAX; }
+/* A ranked clearance badge: rank pip + role name, tiered by authority. */
+function authChip(f,ranks){ if(!f.role) return `<span class="authchip unranked" title="Not labelled yet — use “Label files”">${esc(f.kind||'file')}</span>`;
+  const r=authRank(f.role,ranks), name=ROLE_NAMES[f.role]||f.role;
+  return `<span class="authchip a${r}" title="Authority rank ${r} of ${AUTH_MAX} — ${esc(name)}${r===1?' · strongest':(r===AUTH_MAX?' · lowest':'')}"><i>${r}</i>${esc(name)}</span>`; }
 let sylTitles={};       // week number -> the title the syllabus gives it
 $('#relabelBtn')&&($('#relabelBtn').onclick=async()=>{ const b=$('#relabelBtn'); b.disabled=true; toast('Labelling…');
   try{ const r=await post(`/courses/${cid}/relabel`,{}); toast(r.warning||`${r.labelled} file(s) labelled`); loadFiles(); }
@@ -463,7 +485,9 @@ const drop=$('#drop'); ['dragenter','dragover'].forEach(ev=>drop.addEventListene
 /* tutor */
 async function loadTutor(){ if(speakOn) cfWarm();   // the voice is already on: have the course ready before he speaks
   const fs=await api(`/courses/${cid}/files`); const sel=fs.filter(f=>f.selected); $('#tutorSub').textContent=`${C().name} · auto-routing: notes and cards on ${(cfg.cheap_model||'').replace('claude-','')}, drilling on ${(cfg.model||'').replace('claude-','')}`;
-  $('#ctxList').innerHTML=sel.length?sel.map(f=>`<li><span>${esc(f.name)}</span></li>`).join(''):'<li class="muted">No files ticked in Files.</li>';
+  const ranks=authRanks(); const selSorted=sel.slice().sort((a,b)=>authRank(a.role,ranks)-authRank(b.role,ranks));   // the tutor reads strongest authority first
+  $('#ctxList').innerHTML=selSorted.length?selSorted.map(f=>{ const r=authRank(f.role,ranks); const nm=ROLE_NAMES[f.role]||f.role||'unlabelled';
+    return `<li><span class="authdot a${r}" title="Authority rank ${r} — ${esc(nm)}" aria-hidden="true"></span><span>${esc(f.name)}</span></li>`; }).join(''):'<li class="muted">No files ticked in Files.</li>';
   const chars=sel.reduce((a,f)=>a+(f.chars||0),0); $('#ctxSize').textContent=chars?`≈ ${Math.round(chars/4/1000)}k tokens of text per message${chars>180000?' — over budget, later files will be truncated':''}`:'';
   const ms=await api(`/courses/${cid}/messages`); const ch=$('#chat'); ch.innerHTML=''; ms.forEach(m=>{ if(m.role!=='assistant'){ addMsg(m.role,m.content); return }
     const sm=(m.content||'').match(/^\s*<speech>([\s\S]*?)<\/speech>\s*/), body=sm?m.content.slice(sm[0].length):m.content;
