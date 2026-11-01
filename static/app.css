@@ -76,3 +76,23 @@
 .bpc.doc{border-color:color-mix(in oklab,var(--gilt) 45%,var(--rule));color:var(--ink)}
 .bpc.seen{opacity:.75}
 @media(prefers-reduced-motion:reduce){.bpbar i{transition:none}}
+/* Exam readiness — per examined doctrine; ready/shaky/weak on the ok/gilt/bad scale */
+.rdhead{display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;flex-wrap:wrap}
+.rdoverall{display:flex;gap:.4rem;flex-wrap:wrap;flex-shrink:0}
+.rdband{font-size:var(--fs-xs);padding:.05rem .5rem;border-radius:999px;border:1px solid var(--rule);color:var(--graphite)}
+.rdband.r-ready{border-color:var(--ok);color:var(--ok)}
+.rdband.r-shaky{border-color:var(--gilt);color:var(--gilt)}
+.rdband.r-weak{border-color:var(--bad);color:var(--bad)}
+.rdtopics{display:flex;flex-direction:column;margin-top:.7rem}
+.rdtopic{padding:.6rem 0;border-top:1px solid var(--rule)}
+.rdtopic:first-child{border-top:none}
+.rdline{display:flex;align-items:center;gap:.5rem}
+.rddot{width:.55rem;height:.55rem;border-radius:999px;flex:0 0 auto;background:var(--rule-strong)}
+.s-ready .rddot{background:var(--ok)} .s-shaky .rddot{background:var(--gilt)} .s-weak .rddot{background:var(--bad)}
+.rdname{font-weight:600;flex:1;min-width:0}
+.rdstatus{font-size:var(--fs-xs);letter-spacing:.03em;text-transform:uppercase;color:var(--graphite)}
+.s-ready .rdstatus{color:var(--ok)} .s-shaky .rdstatus{color:var(--gilt)} .s-weak .rdstatus{color:var(--bad)}
+.rdbar{height:6px;border-radius:999px;background:var(--faint);overflow:hidden;margin:.35rem 0 .25rem;box-shadow:0 0 0 1px var(--rule) inset}
+.rdbar i{display:block;height:100%;border-radius:999px;background:var(--rule-strong);transition:width .5s var(--ease,ease)}
+.s-ready .rdbar i{background:var(--ok)} .s-shaky .rdbar i{background:var(--gilt)} .s-weak .rdbar i{background:var(--bad)}
+@media(prefers-reduced-motion:reduce){.rdbar i{transition:none}}

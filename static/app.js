@@ -2137,10 +2137,29 @@ $('#bpBuild')&&($('#bpBuild').onclick=async()=>{ const b=$('#bpBuild'); const wa
   catch(e){ toast(e.message||'Could not build the blueprint'); b.textContent=was; }
   b.disabled=false; });
 $('#bpSave')&&($('#bpSave').onclick=async()=>{ if(!bpProposal) return; const b=$('#bpSave'); b.disabled=true;
-  try{ const r=await post(`/courses/${cid}/blueprint/apply`,bpProposal); toast(r.topics?`Blueprint saved · ${r.topics} topic${r.topics===1?'':'s'}`:'Blueprint cleared'); await loadBlueprint(); }
+  try{ const r=await post(`/courses/${cid}/blueprint/apply`,bpProposal); toast(r.topics?`Blueprint saved · ${r.topics} topic${r.topics===1?'':'s'}`:'Blueprint cleared'); await loadBlueprint(); loadReadiness(); }
   catch(e){ toast(e.message||'Could not save'); } b.disabled=false; });
 $('#bpDiscard')&&($('#bpDiscard').onclick=()=>loadBlueprint());
-async function loadProgress(){ loadReadKeys();  loadCaseView(); loadWeakTopics(); loadBlueprint(); const s=await api(`/courses/${cid}/stats`); $('#progSub').textContent=C().name; $('#p-cards').textContent=s.cards; $('#p-cards').nextElementSibling.textContent=`Cards · ${s.retained} retained`; $('#p-reviews').textContent=s.reviews; $('#p-time').textContent=(s.study_minutes/60).toFixed(1)+' h'; $('#p-q').textContent=s.questions_asked;
+/* Exam readiness — per examined doctrine, from the blueprint + your cards. Read-only. */
+async function loadReadiness(){ const panel=$('#readinessPanel'); if(!panel) return;
+  let d; try{ d=await api(`/courses/${cid}/readiness`); }catch(e){ panel.hidden=true; return; }
+  if(!d||!d.blueprint){ panel.hidden=true; return; }     // only meaningful once a blueprint is saved
+  panel.hidden=false;
+  const bs=(d.overall||{}).by_status||{};
+  $('#rdOverall').innerHTML=`<span class="rdband r-ready">${bs.ready||0} ready</span>`+
+    `<span class="rdband r-shaky">${bs.shaky||0} shaky</span><span class="rdband r-weak">${bs.weak||0} weak</span>`;
+  const row=t=>{ const pct=Math.round((t.score||0)*100);
+    const sub=[t.cards_total?`${t.cards_total} card${t.cards_total===1?'':'s'}`:'no cards yet'];
+    if(t.cards_due) sub.push(`${t.cards_due} due`);
+    if(t.drills_attempted) sub.push(`recall ${t.drills_passed}/${t.drills_attempted}`);
+    return `<div class="rdtopic s-${esc(t.status)}">`+
+      `<div class="rdline"><span class="rddot" aria-hidden="true"></span><span class="rdname">${esc(t.topic)}</span>`+
+      `<span class="rdstatus">${esc(t.status)}</span></div>`+
+      `<div class="rdbar"><i style="width:${pct}%"></i></div>`+
+      `<div class="rdsub small muted">${t.weight}% of exam · ${sub.join(' · ')}</div></div>`; };
+  $('#rdTopics').innerHTML=d.topics.length?d.topics.map(row).join(''):
+    '<div class="emptystate"><b>No examined topics</b><span>Save an exam blueprint first.</span></div>'; }
+async function loadProgress(){ loadReadKeys();  loadCaseView(); loadWeakTopics(); loadBlueprint(); loadReadiness(); const s=await api(`/courses/${cid}/stats`); $('#progSub').textContent=C().name; $('#p-cards').textContent=s.cards; $('#p-cards').nextElementSibling.textContent=`Cards · ${s.retained} retained`; $('#p-reviews').textContent=s.reviews; $('#p-time').textContent=(s.study_minutes/60).toFixed(1)+' h'; $('#p-q').textContent=s.questions_asked;
   $('#p-next').textContent=s.due?`Clear ${s.due} due cards`:(s.cards<10?'Build the deck to at least 10 cards':(s.recall_accuracy!=null&&s.recall_accuracy<70?'Accuracy under 70% — drill the weak cards with the tutor':'Ask the tutor for an IRAC case question'));}
 
 /* init */

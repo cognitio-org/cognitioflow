@@ -97,6 +97,7 @@ import logging
 from psycopg.types.json import Jsonb
 import course_brief as cb
 import blueprint as bp
+import readiness
 
 log = logging.getLogger("cognitioflow")
 if os.environ.get("CF_LOG_LEVEL"):   # e.g. CF_LOG_LEVEL=DEBUG logs each tutor system prompt (never the API key)
@@ -943,6 +944,42 @@ def blueprint_get(cid: str):
         raise HTTPException(404)
     return (r[0]["brief"] or {}).get(bp.BLUEPRINT_KEY) or {
         "topics": [], "exam_format": "", "method": "", "note": "", "source_papers": []}
+
+
+@app.get("/api/courses/{cid}/readiness")
+def course_readiness(cid: str):
+    """Exam-readiness per examined doctrine: for each blueprint topic, its cards (matched by the topic
+    name or its doctrines appearing in a card) give retention, and recall history on those cards gives
+    the drill rate. Scored by readiness.py. Read-only; empty until a blueprint is applied and cards exist."""
+    r = rows("SELECT brief FROM courses WHERE id=?", cid)
+    if not r:
+        raise HTTPException(404)
+    topics = bp.examined_topics(r[0]["brief"] or {})
+    if not topics:
+        return {"topics": [], "overall": readiness.overall([]), "blueprint": False}
+    today = date.today().isoformat()
+    cards = rows("SELECT id, LOWER(COALESCE(front,'') || ' ' || COALESCE(back,'') || ' ' || COALESCE(concept,'')) AS hay, "
+                 "CASE WHEN due IS NULL OR due<=? THEN 1 ELSE 0 END AS is_due FROM cards WHERE course_id=?", today, cid)
+    revs = rows("SELECT card_id, COUNT(*) AS n, SUM(CASE WHEN rating>=2 THEN 1 ELSE 0 END) AS passed "
+                "FROM reviews WHERE card_id IN (SELECT id FROM cards WHERE course_id=?) GROUP BY card_id", cid)
+    rev = {x["card_id"]: (int(x["n"] or 0), int(x["passed"] or 0)) for x in revs}
+    rows_out, doctrines = [], []
+    for t in topics:
+        terms = [s.lower() for s in ([t["topic"]] + (t.get("doctrines") or [])) if s and len(s) >= 3]
+        ct = cd = at = pa = 0
+        for c in cards:
+            if terms and any(term in c["hay"] for term in terms):
+                ct += 1
+                cd += int(c["is_due"] or 0)
+                n, p = rev.get(c["id"], (0, 0)); at += n; pa += p
+        doc = readiness.Doctrine(key=t["topic"], cards_total=ct, cards_due=cd,
+                                 drills_attempted=at, drills_passed=pa)
+        rows_out.append({"topic": t["topic"], "weight": int(t.get("weight") or 0),
+                         "cards_total": ct, "cards_due": cd, "drills_attempted": at, "drills_passed": pa,
+                         "score": readiness.score(doc), "status": readiness.status(doc)})
+        doctrines.append(doc)
+    rows_out.sort(key=lambda x: (x["score"], -x["weight"]))   # weakest and heaviest-examined first — where to study
+    return {"topics": rows_out, "overall": readiness.overall(doctrines), "blueprint": True}
 
 
 @app.delete("/api/files/{fid}")
