@@ -922,7 +922,7 @@ def blueprint_apply(cid: str, p: BlueprintApplyIn):
     list removes an applied blueprint again. Idempotent via normalise_blueprint."""
     blu = _checked(bp.normalise_blueprint, p.model_dump())
     with db() as d:
-        cur = d.execute("SELECT brief FROM courses WHERE id=?", (cid,)).fetchone()
+        cur = d.execute("SELECT name,tutor_prompt,brief FROM courses WHERE id=?", (cid,)).fetchone()
         if not cur:
             raise HTTPException(404)
         brief = dict(cur["brief"] or {})
@@ -930,8 +930,9 @@ def blueprint_apply(cid: str, p: BlueprintApplyIn):
             brief[bp.BLUEPRINT_KEY] = blu
         else:
             brief.pop(bp.BLUEPRINT_KEY, None)
-        d.execute("UPDATE courses SET brief=? WHERE id=?", (Jsonb(brief), cid))
-    return {"topics": len(blu["topics"]), "applied": bool(blu["topics"])}
+        prompt = cb.course_prompt(brief, cur["name"], cur["tutor_prompt"])   # refocus the tutor + generators now
+        d.execute("UPDATE courses SET brief=?, tutor_prompt=? WHERE id=?", (Jsonb(brief), prompt, cid))
+    return {"topics": len(blu["topics"]), "applied": bool(blu["topics"]), "tutor_prompt": prompt}
 
 
 @app.get("/api/courses/{cid}/blueprint")

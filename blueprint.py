@@ -18,6 +18,49 @@ MAX_LIST = 6             # formats / doctrines / seen_in kept per topic
 SYLLABUS_CHARS = 8000    # the syllabus is context, not the main signal — past papers lead
 
 BLUEPRINT_KEY = "blueprint"   # where an applied blueprint lives inside courses.brief
+# Appended to the compiled course prompt, so the tutor AND every generator that seeds from it
+# (apply-to-facts, mock marking, the card / essay / case writers) steer toward what the exam tests.
+BLUEPRINT_HEADER = ("EXAM FOCUS (what this course examines — weight your teaching, questions and drills "
+                    "toward the heavier topics; do not neglect the lighter ones):")
+BLOCK_TOPICS = 10   # the prompt names the heaviest topics; a long tail adds tokens without steering
+
+
+def examined_topics(brief):
+    """The applied blueprint's topics (heaviest first, as stored), or []. For prompts and, later, readiness."""
+    b = (brief or {}).get(BLUEPRINT_KEY) if isinstance(brief, dict) else None
+    return [t for t in ((b or {}).get("topics") or []) if isinstance(t, dict) and t.get("topic")]
+
+
+def blueprint_block(brief):
+    """A compact prompt fragment naming the examined topics by weight, format and doctrines. Empty when
+    no blueprint is applied, so a course without one reads exactly as before."""
+    topics = examined_topics(brief)
+    if not topics:
+        return ""
+    lines = [BLUEPRINT_HEADER]
+    for t in topics[:BLOCK_TOPICS]:
+        tail = []
+        w = t.get("weight")
+        if isinstance(w, (int, float)) and w:
+            tail.append(f"{int(w)}%")
+        fmts = [x for x in (t.get("formats") or []) if x][:2]
+        if fmts:
+            tail.append("/".join(fmts))
+        docs = [x for x in (t.get("doctrines") or []) if x][:3]
+        if docs:
+            tail.append("; ".join(docs))
+        lines.append("- " + t["topic"] + (" — " + " · ".join(tail) if tail else ""))
+    method = ((brief or {}).get(BLUEPRINT_KEY) or {}).get("method")
+    if method:
+        lines.append("Answer method the exam rewards: " + method)
+    return "\n".join(lines)
+
+
+def strip_blueprint(text):
+    """Remove a previously appended EXAM FOCUS block, so recompiling never stacks two."""
+    t = text or ""
+    i = t.find(BLUEPRINT_HEADER)
+    return (t[:i] if i >= 0 else t).rstrip()
 
 
 class BlueprintError(ValueError):
