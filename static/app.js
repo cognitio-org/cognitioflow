@@ -2125,6 +2125,7 @@ function bpRender(b,proposed){ const topics=(b&&b.topics)||[];
   const bits=[]; if(b&&b.exam_format) bits.push(esc(b.exam_format)); if(b&&b.method) bits.push('Method: '+esc(b.method));
   if(b&&b.note) bits.push(esc(b.note));
   if(proposed){ const src=b.source||{}; bits.unshift(`<b>Proposed</b> from ${src.papers||0} paper${src.papers===1?'':'s'}${src.syllabus?' + syllabus':''} — not saved`); }
+  else if(topics.length){ bits.unshift('<b>In use</b> — your tutor and practice questions focus on these'); }
   $('#bpMeta').innerHTML=bits.join(' · ');
   $('#bpSave').hidden=$('#bpDiscard').hidden=!proposed;
   $('#bpBuild').textContent=topics.length&&!proposed?'Rebuild from papers':'Build from papers'; }

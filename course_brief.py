@@ -11,6 +11,8 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
+import blueprint as bp
+
 PROMPTS = Path(__file__).parent / "prompts"
 
 # (key, label, kind) — kind is "text", "long", "date" or "list". Order is the form order.
@@ -117,7 +119,7 @@ def brief_is_empty(brief) -> bool:
     if not isinstance(brief, dict):
         return True
     return not any((v if isinstance(v, list) else _text(v))
-                   for k, v in brief.items() if k != SYLLABUS_KEY)
+                   for k, v in brief.items() if k not in (SYLLABUS_KEY, bp.BLUEPRINT_KEY))
 
 
 # ---------------------------------------------------------------- syllabus (Phase 13)
@@ -277,6 +279,10 @@ def compile_prompt(brief: dict, name: str = "") -> str:
     block = syllabus_block(b)
     if block:
         lines.append(block)
+    # The exam focus last of all: a weighting the tutor and the generators steer by, read from the blueprint.
+    focus = bp.blueprint_block(b)
+    if focus:
+        lines.append(focus)
     return "\n".join(lines)
 
 
@@ -287,7 +293,8 @@ def course_prompt(brief, name: str, stored: str) -> str:
     to compile. The old block is stripped first so applying twice does not stack two schedules."""
     if not brief_is_empty(brief):
         return compile_prompt(brief, name)
-    return "\n".join(x for x in (strip_syllabus(stored), syllabus_block(brief)) if x)
+    base = bp.strip_blueprint(strip_syllabus(stored))
+    return "\n".join(x for x in (base, syllabus_block(brief), bp.blueprint_block(brief)) if x)
 
 
 def slugify(name: str) -> str:
