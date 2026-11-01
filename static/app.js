@@ -2105,7 +2105,41 @@ async function loadReadKeys(){ const ul=$('#readKeyList'); if(!ul) return; let k
   ul.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{ await del(`/tokens/${b.dataset.revoke}`); toast('Key revoked'); loadReadKeys() }); }
 $('#readKeyMake').onclick=async()=>{ const k=await post('/tokens',{}); $('#readKeyValue').value=k.token; $('#readKeyOnce').hidden=false; $('#readKeyValue').select(); loadReadKeys(); };
 $('#readKeyCopy').onclick=async()=>{ try{ await navigator.clipboard.writeText($('#readKeyValue').value); toast('Copied — it will not be shown again') }catch(_){ $('#readKeyValue').select() } };
-async function loadProgress(){ loadReadKeys();  loadCaseView(); loadWeakTopics(); const s=await api(`/courses/${cid}/stats`); $('#progSub').textContent=C().name; $('#p-cards').textContent=s.cards; $('#p-cards').nextElementSibling.textContent=`Cards · ${s.retained} retained`; $('#p-reviews').textContent=s.reviews; $('#p-time').textContent=(s.study_minutes/60).toFixed(1)+' h'; $('#p-q').textContent=s.questions_asked;
+/* Exam blueprint — what the course examines, weighted from past papers + syllabus.
+   Read-only: Build proposes (writes nothing), Save persists it onto the course. */
+let bpProposal=null;        // an unsaved extract; null when we are showing what is applied
+const BP_CONF={high:'well-evidenced',medium:'some evidence',low:'thin evidence'};
+function bpTopicRow(t){ const w=Math.max(0,Math.min(100,+t.weight||0));
+  const chip=(cls,arr)=>arr&&arr.length?`<span class="bpc ${cls}">${arr.map(esc).join('</span><span class="bpc '+cls+'">')}</span>`:'';
+  return `<div class="bptopic">`+
+    `<div class="bptop"><span class="bpname">${esc(t.topic)}</span><span class="bpwt">${w}%</span>`+
+      `<span class="bpconf c-${esc(t.confidence||'medium')}" title="${BP_CONF[t.confidence]||''}">${esc(t.confidence||'medium')}</span></div>`+
+    `<div class="bpbar"><i style="width:${w}%"></i></div>`+
+    (t.note?`<div class="bpnote small muted">${esc(t.note)}</div>`:'')+
+    `<div class="bpchips">${chip('fmt',t.formats)}${chip('doc',t.doctrines)}${chip('seen',t.seen_in)}</div>`+
+    `</div>`; }
+function bpRender(b,proposed){ const topics=(b&&b.topics)||[];
+  $('#bpTopics').innerHTML=topics.length?topics.map(bpTopicRow).join(''):
+    (proposed?'<div class="emptystate"><b>No examined topics found</b><span>The papers and syllabus did not yield a clear pattern yet.</span></div>':
+      '<div class="emptystate"><b>No blueprint yet</b><span>Press “Build from papers” to read what this course examines.</span></div>');
+  const bits=[]; if(b&&b.exam_format) bits.push(esc(b.exam_format)); if(b&&b.method) bits.push('Method: '+esc(b.method));
+  if(b&&b.note) bits.push(esc(b.note));
+  if(proposed){ const src=b.source||{}; bits.unshift(`<b>Proposed</b> from ${src.papers||0} paper${src.papers===1?'':'s'}${src.syllabus?' + syllabus':''} — not saved`); }
+  $('#bpMeta').innerHTML=bits.join(' · ');
+  $('#bpSave').hidden=$('#bpDiscard').hidden=!proposed;
+  $('#bpBuild').textContent=topics.length&&!proposed?'Rebuild from papers':'Build from papers'; }
+async function loadBlueprint(){ if(!$('#blueprintPanel')) return; bpProposal=null;
+  try{ bpRender(await api(`/courses/${cid}/blueprint`),false); }
+  catch(e){ $('#bpTopics').innerHTML=''; $('#bpMeta').textContent=''; } }
+$('#bpBuild')&&($('#bpBuild').onclick=async()=>{ const b=$('#bpBuild'); const was=b.textContent; b.disabled=true; b.textContent='Reading your papers…'; $('#bpMeta').textContent='';
+  try{ bpProposal=await post(`/courses/${cid}/blueprint/extract`); bpRender(bpProposal,true); }
+  catch(e){ toast(e.message||'Could not build the blueprint'); b.textContent=was; }
+  b.disabled=false; });
+$('#bpSave')&&($('#bpSave').onclick=async()=>{ if(!bpProposal) return; const b=$('#bpSave'); b.disabled=true;
+  try{ const r=await post(`/courses/${cid}/blueprint/apply`,bpProposal); toast(r.topics?`Blueprint saved · ${r.topics} topic${r.topics===1?'':'s'}`:'Blueprint cleared'); await loadBlueprint(); }
+  catch(e){ toast(e.message||'Could not save'); } b.disabled=false; });
+$('#bpDiscard')&&($('#bpDiscard').onclick=()=>loadBlueprint());
+async function loadProgress(){ loadReadKeys();  loadCaseView(); loadWeakTopics(); loadBlueprint(); const s=await api(`/courses/${cid}/stats`); $('#progSub').textContent=C().name; $('#p-cards').textContent=s.cards; $('#p-cards').nextElementSibling.textContent=`Cards · ${s.retained} retained`; $('#p-reviews').textContent=s.reviews; $('#p-time').textContent=(s.study_minutes/60).toFixed(1)+' h'; $('#p-q').textContent=s.questions_asked;
   $('#p-next').textContent=s.due?`Clear ${s.due} due cards`:(s.cards<10?'Build the deck to at least 10 cards':(s.recall_accuracy!=null&&s.recall_accuracy<70?'Accuracy under 70% — drill the weak cards with the tutor':'Ask the tutor for an IRAC case question'));}
 
 /* init */

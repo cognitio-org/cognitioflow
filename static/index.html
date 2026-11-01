@@ -383,6 +383,15 @@
     <div class="panel stat"><div class="n" id="p-q">–</div><div class="l">Tutor questions</div></div>
   </div>
   <div class="panel bar"><div class="small muted">Recommended</div><h3 id="p-next"></h3></div>
+  <div class="panel blueprint" id="blueprintPanel" style="margin-top:1rem">
+    <div class="bphead"><div><h3>What this course examines</h3>
+      <div class="small muted" id="bpSub">Read from your past papers and syllabus. Each weight is that topic's share of the exam — not how much is taught.</div></div>
+      <span class="bptools"><button class="btn small" id="bpBuild" type="button" title="Read your past papers and syllabus into a weighted map of what the exam actually tests. Nothing is saved until you choose to.">Build from papers</button>
+        <button class="btn small primary" id="bpSave" type="button" hidden title="Keep this blueprint on the course">Save blueprint</button>
+        <button class="btn small ghost" id="bpDiscard" type="button" hidden>Discard</button></span></div>
+    <div class="bpmeta small muted" id="bpMeta" role="status"></div>
+    <div id="bpTopics" class="bptopics" aria-live="polite"></div>
+  </div>
   <div class="panel" style="margin-top:1rem"><h3>Weak topics</h3>
     <div class="small muted">each week's last 20 card reviews, and the method steps missed in your last two essays on it</div>
     <div id="weakTopics" class="small"></div></div>

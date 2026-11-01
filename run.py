@@ -96,6 +96,7 @@ def db():
 import logging
 from psycopg.types.json import Jsonb
 import course_brief as cb
+import blueprint as bp
 
 log = logging.getLogger("cognitioflow")
 if os.environ.get("CF_LOG_LEVEL"):   # e.g. CF_LOG_LEVEL=DEBUG logs each tutor system prompt (never the API key)
@@ -876,6 +877,71 @@ def syllabus_get(cid: str):
     r = rows("SELECT brief FROM courses WHERE id=?", cid)
     if not r: raise HTTPException(404)
     return cb.normalise_syllabus((r[0]["brief"] or {}).get(cb.SYLLABUS_KEY))
+
+
+class BlueprintApplyIn(BaseModel):
+    topics: list = []; exam_format: str = ""; method: str = ""; note: str = ""; source_papers: list = []
+
+
+@app.post("/api/courses/{cid}/blueprint/extract")
+def blueprint_extract(cid: str):
+    """Read this course's past-exam/mock files and applied syllabus, and propose a weighted map of
+    what it examines. Writes nothing — the panel shows the blueprint before anything consumes it,
+    so a wrong reading costs a re-read, not a change to the course."""
+    c = rows("SELECT name,brief FROM courses WHERE id=?", cid)
+    if not c:
+        raise HTTPException(404)
+    brief = c[0]["brief"] or {}
+    fs = rows("SELECT name,role,text FROM files WHERE course_id=? AND kind<>'image' AND COALESCE(text,'')<>''", cid)
+    papers = [{"name": f["name"], "text": f["text"]} for f in fs
+              if ((f["role"] or "") == "exam" or mockexam.looks_like_exam(f["name"]))
+              and not (f["text"] or "").startswith("[extraction failed")]
+    syl = cb.syllabus_block(brief)
+    if not papers and not syl:
+        raise HTTPException(422, "Nothing to read a blueprint from yet. Upload a past exam (label it ‘Past exam’), "
+                                 "or read a syllabus under Files first.")
+    ctx = bp.build_context(papers, syllabus_block=syl,
+                           exam_format=(brief.get("exam_format") or ""),
+                           method=(brief.get("method") or ""))
+    model = pick_model("summarise", None)   # cheap tier; the strong model is unreachable here, as in syllabus
+    got = _model_json(ask_model(model, task="summarise", max_tokens=4000, system=bp.RULES,
+                                messages=[{"role": "user", "content": ctx}]))
+    try:
+        blu = bp.normalise_blueprint(got, source_papers=[p["name"] for p in papers])
+    except bp.BlueprintError as e:
+        raise HTTPException(502, f"The model's reply was not a blueprint ({e}). Try again.")
+    if not blu["topics"] and not blu["note"]:
+        blu["note"] = "Nothing in the material reads as an examined topic."
+    return {**blu, "source": {"papers": len(papers), "syllabus": bool(syl)}, "model": model}
+
+
+@app.post("/api/courses/{cid}/blueprint/apply")
+def blueprint_apply(cid: str, p: BlueprintApplyIn):
+    """Persist a reviewed blueprint under courses.brief['blueprint']. Adds a key to the jsonb brief —
+    no schema change — so a later slice can point the tutor and the generators at it. An empty topics
+    list removes an applied blueprint again. Idempotent via normalise_blueprint."""
+    blu = _checked(bp.normalise_blueprint, p.model_dump())
+    with db() as d:
+        cur = d.execute("SELECT brief FROM courses WHERE id=?", (cid,)).fetchone()
+        if not cur:
+            raise HTTPException(404)
+        brief = dict(cur["brief"] or {})
+        if blu["topics"]:
+            brief[bp.BLUEPRINT_KEY] = blu
+        else:
+            brief.pop(bp.BLUEPRINT_KEY, None)
+        d.execute("UPDATE courses SET brief=? WHERE id=?", (Jsonb(brief), cid))
+    return {"topics": len(blu["topics"]), "applied": bool(blu["topics"])}
+
+
+@app.get("/api/courses/{cid}/blueprint")
+def blueprint_get(cid: str):
+    """The blueprint applied now, so the panel can show it without re-reading the papers."""
+    r = rows("SELECT brief FROM courses WHERE id=?", cid)
+    if not r:
+        raise HTTPException(404)
+    return (r[0]["brief"] or {}).get(bp.BLUEPRINT_KEY) or {
+        "topics": [], "exam_format": "", "method": "", "note": "", "source_papers": []}
 
 
 @app.delete("/api/files/{fid}")
