@@ -56,3 +56,23 @@
 .authdot.a3{background:var(--graphite)}
 .authdot.a4{background:var(--rule-strong)}
 .authdot.a5{background:var(--rule-strong);opacity:.55}
+/* Exam blueprint — weighted map of what a course examines, on the Legal-Gold scale */
+.bphead{display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;flex-wrap:wrap}
+.bptools{display:flex;gap:.4rem;flex-wrap:wrap;flex-shrink:0}
+.bpmeta{margin:.55rem 0 .1rem;line-height:1.5}
+.bptopics{display:flex;flex-direction:column;gap:.85rem;margin-top:.7rem}
+.bptopic{padding-top:.1rem}
+.bptop{display:flex;align-items:baseline;gap:.5rem}
+.bpname{font-weight:600;flex:1;min-width:0}
+.bpwt{font-variant-numeric:tabular-nums;font-weight:600;color:var(--gilt)}
+.bpconf{font-size:var(--fs-xs);letter-spacing:.02em;padding:.02rem .4rem;border-radius:999px;border:1px solid var(--rule);color:var(--graphite)}
+.bpconf.c-high{border-color:var(--gilt);color:var(--gilt)}
+.bpconf.c-low{border-style:dashed;opacity:.75}
+.bpbar{height:7px;border-radius:999px;background:var(--faint);overflow:hidden;margin:.32rem 0 .1rem;box-shadow:0 0 0 1px var(--rule) inset}
+.bpbar i{display:block;height:100%;border-radius:999px;background:var(--gilt);transition:width .5s var(--ease,ease)}
+.bpnote{margin:.1rem 0 .15rem}
+.bpchips{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.35rem}
+.bpc{font-size:var(--fs-xs);padding:.04rem .42rem;border-radius:999px;border:1px solid var(--rule);color:var(--graphite);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.bpc.doc{border-color:color-mix(in oklab,var(--gilt) 45%,var(--rule));color:var(--ink)}
+.bpc.seen{opacity:.75}
+@media(prefers-reduced-motion:reduce){.bpbar i{transition:none}}
