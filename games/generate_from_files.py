@@ -63,6 +63,21 @@ COURSES = {
             ("Week 6 · Materials", "564706_wk6_content.txt"),
         ],
     },
+    "intleu": {
+        "name": "International & European Law", "dir": "intleu", "cites": "eu", "out": "intl-eu-law.json",
+        "docket_title": "The Docket — spot the flaws (Intro to International & European Law)",
+        "objection_title": "Objection! — International & European Law",
+        "sources": [
+            ("Week 1", "470358_week1_answers.txt"),
+            ("Week 2", "470358_week2_answers.txt"),
+            ("Week 3", "470358_week3_answers.txt"),
+            ("Week 4", "470358_week4_answers.txt"),
+            ("Week 5", "470358_week5_answers.txt"),
+            ("Week 6", "470358_week6_answers.txt"),
+            ("Exam answers", "470358_exam2024_answers.txt"),
+            ("Model answers", "470358_model_answers_mc.txt"),
+        ],
+    },
 }
 
 # selected by main()
