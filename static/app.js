@@ -2147,8 +2147,9 @@ async function loadReadiness(){ const panel=$('#readinessPanel'); if(!panel) ret
   panel.hidden=false;
   const bs=(d.overall||{}).by_status||{};
   $('#rdOverall').innerHTML=`<span class="rdband r-ready">${bs.ready||0} ready</span>`+
-    `<span class="rdband r-shaky">${bs.shaky||0} shaky</span><span class="rdband r-weak">${bs.weak||0} weak</span>`;
-  const row=t=>{ const pct=Math.round((t.score||0)*100);
+    `<span class="rdband r-shaky">${bs.shaky||0} shaky</span><span class="rdband r-weak">${bs.weak||0} weak</span>`+
+    (bs.gap?`<span class="rdband r-gap">${bs.gap} gap</span>`:'');
+  const row=t=>{ const pct=t.status==='gap'?0:Math.round((t.score||0)*100);   // no cards → empty bar, not a half-ready one
     const sub=[t.cards_total?`${t.cards_total} card${t.cards_total===1?'':'s'}`:'no cards yet'];
     if(t.cards_due) sub.push(`${t.cards_due} due`);
     if(t.drills_attempted) sub.push(`recall ${t.drills_passed}/${t.drills_attempted}`);
@@ -2158,7 +2159,21 @@ async function loadReadiness(){ const panel=$('#readinessPanel'); if(!panel) ret
       `<div class="rdbar"><i style="width:${pct}%"></i></div>`+
       `<div class="rdsub small muted">${t.weight}% of exam · ${sub.join(' · ')}</div></div>`; };
   $('#rdTopics').innerHTML=d.topics.length?d.topics.map(row).join(''):
-    '<div class="emptystate"><b>No examined topics</b><span>Save an exam blueprint first.</span></div>'; }
+    '<div class="emptystate"><b>No examined topics</b><span>Save an exam blueprint first.</span></div>';
+  const tg=d.tagging||{},foot=$('#rdFoot');
+  if(foot){ if(tg.total){ foot.hidden=false;
+      $('#rdCoverage').textContent=tg.untagged
+        ? `${tg.tagged} of ${tg.total} cards tagged to a doctrine — tag the rest for exact readiness`
+        : `all ${tg.total} cards tagged to a doctrine`;
+      const b=$('#rdTag'); b.hidden=!tg.untagged; b.textContent=tg.tagged?'Tag remaining cards':'Tag cards to doctrines';
+    } else foot.hidden=true; } }
+/* Tag cards to the examined doctrines so readiness counts the right cards. One model pass over untagged cards. */
+$('#rdTag')&&($('#rdTag').onclick=async()=>{ const b=$('#rdTag'),was=b.textContent; b.disabled=true; b.textContent='Tagging…';
+  try{ const r=await post(`/courses/${cid}/cards/tag`,{all:false});
+    toast(r.tagged?`Tagged ${r.tagged} card${r.tagged===1?'':'s'}`+(r.failed?` · ${r.failed} skipped`:''):'Nothing to tag');
+    await loadReadiness(); }
+  catch(e){ toast(e.message||'Could not tag cards'); b.textContent=was; }
+  finally{ b.disabled=false; } });
 async function loadProgress(){ loadReadKeys();  loadCaseView(); loadWeakTopics(); loadBlueprint(); loadReadiness(); const s=await api(`/courses/${cid}/stats`); $('#progSub').textContent=C().name; $('#p-cards').textContent=s.cards; $('#p-cards').nextElementSibling.textContent=`Cards · ${s.retained} retained`; $('#p-reviews').textContent=s.reviews; $('#p-time').textContent=(s.study_minutes/60).toFixed(1)+' h'; $('#p-q').textContent=s.questions_asked;
   $('#p-next').textContent=s.due?`Clear ${s.due} due cards`:(s.cards<10?'Build the deck to at least 10 cards':(s.recall_accuracy!=null&&s.recall_accuracy<70?'Accuracy under 70% — drill the weak cards with the tutor':'Ask the tutor for an IRAC case question'));}
 

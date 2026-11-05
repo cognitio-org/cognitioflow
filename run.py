@@ -98,6 +98,7 @@ from psycopg.types.json import Jsonb
 import course_brief as cb
 import blueprint as bp
 import readiness
+import card_tagging as ct
 
 log = logging.getLogger("cognitioflow")
 if os.environ.get("CF_LOG_LEVEL"):   # e.g. CF_LOG_LEVEL=DEBUG logs each tutor system prompt (never the API key)
@@ -933,7 +934,14 @@ def blueprint_apply(cid: str, p: BlueprintApplyIn):
             brief.pop(bp.BLUEPRINT_KEY, None)
         prompt = cb.course_prompt(brief, cur["name"], cur["tutor_prompt"])   # refocus the tutor + generators now
         d.execute("UPDATE courses SET brief=?, tutor_prompt=? WHERE id=?", (Jsonb(brief), prompt, cid))
-    return {"topics": len(blu["topics"]), "applied": bool(blu["topics"]), "tutor_prompt": prompt}
+    # If topic names changed, some cards.doctrine tags now point at topics that no longer exist. We don't
+    # wipe them (a re-extract often reproduces the same names) — we just report how many so the UI can
+    # suggest a re-tag. Readiness already treats a stale tag as untagged.
+    used = [x["doctrine"] for x in rows("SELECT DISTINCT COALESCE(doctrine,'') AS doctrine FROM cards "
+                                         "WHERE course_id=? AND COALESCE(doctrine,'')<>''", cid)]
+    stale = len(ct.stale_tags(used, [t["topic"] for t in blu["topics"]])) if blu["topics"] else len(used)
+    return {"topics": len(blu["topics"]), "applied": bool(blu["topics"]), "tutor_prompt": prompt,
+            "stale_tags": stale}
 
 
 @app.get("/api/courses/{cid}/blueprint")
@@ -958,28 +966,85 @@ def course_readiness(cid: str):
     if not topics:
         return {"topics": [], "overall": readiness.overall([]), "blueprint": False}
     today = date.today().isoformat()
-    cards = rows("SELECT id, LOWER(COALESCE(front,'') || ' ' || COALESCE(back,'') || ' ' || COALESCE(concept,'')) AS hay, "
+    cards = rows("SELECT id, COALESCE(doctrine,'') AS doctrine, "
+                 "LOWER(COALESCE(front,'') || ' ' || COALESCE(back,'') || ' ' || COALESCE(concept,'')) AS hay, "
                  "CASE WHEN due IS NULL OR due<=? THEN 1 ELSE 0 END AS is_due FROM cards WHERE course_id=?", today, cid)
     revs = rows("SELECT card_id, COUNT(*) AS n, SUM(CASE WHEN rating>=2 THEN 1 ELSE 0 END) AS passed "
                 "FROM reviews WHERE card_id IN (SELECT id FROM cards WHERE course_id=?) GROUP BY card_id", cid)
     rev = {x["card_id"]: (int(x["n"] or 0), int(x["passed"] or 0)) for x in revs}
-    rows_out, doctrines = [], []
+    # A card the model tagged counts only toward its own topic (precise). A card left untagged — or tagged
+    # to a topic the blueprint no longer has — falls back to the old substring match, so readiness still
+    # reads before any tagging runs and never silently loses a card to a stale tag.
+    live_keys = {t["topic"] for t in topics}
+    rows_out, doctrines, tagged_n = [], [], 0
     for t in topics:
         terms = [s.lower() for s in ([t["topic"]] + (t.get("doctrines") or [])) if s and len(s) >= 3]
-        ct = cd = at = pa = 0
+        c_total = cd = at = pa = 0
         for c in cards:
-            if terms and any(term in c["hay"] for term in terms):
-                ct += 1
+            tag = c["doctrine"]
+            if tag and tag in live_keys:
+                hit = (tag == t["topic"])
+            else:
+                hit = bool(terms) and any(term in c["hay"] for term in terms)
+            if hit:
+                c_total += 1
                 cd += int(c["is_due"] or 0)
                 n, p = rev.get(c["id"], (0, 0)); at += n; pa += p
-        doc = readiness.Doctrine(key=t["topic"], cards_total=ct, cards_due=cd,
+        doc = readiness.Doctrine(key=t["topic"], cards_total=c_total, cards_due=cd,
                                  drills_attempted=at, drills_passed=pa)
         rows_out.append({"topic": t["topic"], "weight": int(t.get("weight") or 0),
-                         "cards_total": ct, "cards_due": cd, "drills_attempted": at, "drills_passed": pa,
+                         "cards_total": c_total, "cards_due": cd, "drills_attempted": at, "drills_passed": pa,
                          "score": readiness.score(doc), "status": readiness.status(doc)})
         doctrines.append(doc)
-    rows_out.sort(key=lambda x: (x["score"], -x["weight"]))   # weakest and heaviest-examined first — where to study
-    return {"topics": rows_out, "overall": readiness.overall(doctrines), "blueprint": True}
+    tagged_n = sum(1 for c in cards if c["doctrine"] and c["doctrine"] in live_keys)
+    untagged_n = len(cards) - tagged_n
+    # Weakest and heaviest-examined first — where to study. A gap (no cards) scores 0.5 internally but is
+    # the most urgent thing to prepare, so it sorts as 0.0 here; the returned per-topic score is untouched.
+    rows_out.sort(key=lambda x: (0.0 if x["status"] == "gap" else x["score"], -x["weight"]))
+    return {"topics": rows_out, "overall": readiness.overall(doctrines), "blueprint": True,
+            "tagging": {"tagged": tagged_n, "untagged": untagged_n, "total": len(cards)}}
+
+
+class CardTagIn(BaseModel):
+    all: bool = False   # default: tag only untagged cards; all=true re-tags the whole deck
+
+
+@app.post("/api/courses/{cid}/cards/tag")
+def cards_tag(cid: str, p: CardTagIn):
+    """Classify this course's cards into the applied blueprint's examined topics and store the topic on
+    each card (cards.doctrine), so readiness counts by doctrine instead of guessing by substring. Writes
+    only a topic the model actually chose; a card it can't place stays untagged. Does not touch drilling
+    or the due queue — readiness is a score, not the study schedule."""
+    r = rows("SELECT brief FROM courses WHERE id=?", cid)
+    if not r:
+        raise HTTPException(404)
+    topics = bp.examined_topics(r[0]["brief"] or {})
+    if not topics:
+        raise HTTPException(422, "No exam blueprint applied yet. Build and save a blueprint first, then tag.")
+    keys = ct.topic_keys(topics)
+    cards = rows("SELECT id, front, back, COALESCE(doctrine,'') AS doctrine FROM cards WHERE course_id=?", cid)
+    if not p.all:
+        # "Untagged" must mean the same here as in readiness: a card whose doctrine is not a live topic —
+        # which covers both the never-tagged ('' ) and the stale-tagged (renamed topic). Filtering in
+        # Python keeps that definition in one place and leaves cid the only SQL value.
+        live = set(keys)
+        cards = [c for c in cards if c["doctrine"] not in live]
+    if not cards:
+        return {"tagged": 0, "cards": 0, "failed": 0, "note": "every card is already tagged to a live topic"}
+    model = pick_model("summarise", None)   # cheap/bulk tier, off the Anthropic API — as blueprint extract
+    tagged, failed = {}, 0
+    for batch in ct.batches(cards, 30):
+        try:
+            got = _model_json(ask_model(model, task="summarise", max_tokens=1500, system=ct.RULES,
+                                        messages=[{"role": "user", "content": ct.build_prompt(topics, batch)}]))
+            tagged.update(ct.parse_tags(got, batch, keys))
+        except Exception:
+            failed += len(batch)   # a bad batch just leaves its cards untagged; readiness still text-matches them
+    if tagged:
+        with db() as d:
+            for card_id, key in tagged.items():
+                d.execute("UPDATE cards SET doctrine=? WHERE id=? AND course_id=?", (key, card_id, cid))
+    return {"tagged": len(tagged), "cards": len(cards), "failed": failed, "model": model}
 
 
 @app.delete("/api/files/{fid}")
