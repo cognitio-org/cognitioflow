@@ -771,6 +771,7 @@ def generate_from_concepts(cid: str, body: GenerateIn):
             made_questions += 1
         elif why_not:
             dropped.append(f"{con['name']}: {why_not}")
+    _autotag_untagged(cid, now)   # keep a blueprint-focused deck tagged; no-op without a blueprint
     return {"concepts": len(todo), "cards": made_cards, "questions": made_questions, "dropped": dropped}
 
 # ---------------------------------------------------------------- syllabus in, weeks and topics out (Phase 13)
@@ -1005,6 +1006,44 @@ def course_readiness(cid: str):
             "tagging": {"tagged": tagged_n, "untagged": untagged_n, "total": len(cards)}}
 
 
+def _tag_cards(cid, keys, topics, cards):
+    """Classify cards ([{id,front,back}]) into the blueprint topic keys via the cheap off-Anthropic tier
+    and persist cards.doctrine. Returns (tagged_count, failed_count, model). Shared by the on-demand
+    endpoint and the generation-time auto-pass, so "tag a card" means one thing."""
+    model = pick_model("summarise", None)   # cheap/bulk tier, off the Anthropic API — as blueprint extract
+    tagged, failed = {}, 0
+    for batch in ct.batches(cards, 30):
+        try:
+            got = _model_json(ask_model(model, task="summarise", max_tokens=1500, system=ct.RULES,
+                                        messages=[{"role": "user", "content": ct.build_prompt(topics, batch)}]))
+            tagged.update(ct.parse_tags(got, batch, keys))
+        except Exception:
+            failed += len(batch)   # a bad batch just leaves its cards untagged; readiness still text-matches
+    if tagged:
+        with db() as d:
+            for card_id, key in tagged.items():
+                d.execute("UPDATE cards SET doctrine=? WHERE id=? AND course_id=?", (key, card_id, cid))
+    return len(tagged), failed, model
+
+
+def _autotag_untagged(cid, since):
+    """Best-effort: after a bulk generation, tag just the cards it made (created>=since, still untagged)
+    against the applied blueprint, so a blueprint-focused deck stays tagged without pressing the button.
+    No blueprint -> no-op. Scoped by time so model-declined cards aren't re-sent on every later generation.
+    Never raises into the generator — a tagging failure just leaves the new cards for the Tag button."""
+    try:
+        r = rows("SELECT brief FROM courses WHERE id=?", cid)
+        topics = bp.examined_topics((r[0]["brief"] if r else None) or {})
+        if not topics:
+            return
+        cards = rows("SELECT id, front, back FROM cards WHERE course_id=? AND COALESCE(doctrine,'')='' "
+                     "AND created>=?", cid, float(since) - 1.0)
+        if cards:
+            _tag_cards(cid, ct.topic_keys(topics), topics, cards)
+    except Exception:
+        pass
+
+
 class CardTagIn(BaseModel):
     all: bool = False   # default: tag only untagged cards; all=true re-tags the whole deck
 
@@ -1031,20 +1070,8 @@ def cards_tag(cid: str, p: CardTagIn):
         cards = [c for c in cards if c["doctrine"] not in live]
     if not cards:
         return {"tagged": 0, "cards": 0, "failed": 0, "note": "every card is already tagged to a live topic"}
-    model = pick_model("summarise", None)   # cheap/bulk tier, off the Anthropic API — as blueprint extract
-    tagged, failed = {}, 0
-    for batch in ct.batches(cards, 30):
-        try:
-            got = _model_json(ask_model(model, task="summarise", max_tokens=1500, system=ct.RULES,
-                                        messages=[{"role": "user", "content": ct.build_prompt(topics, batch)}]))
-            tagged.update(ct.parse_tags(got, batch, keys))
-        except Exception:
-            failed += len(batch)   # a bad batch just leaves its cards untagged; readiness still text-matches them
-    if tagged:
-        with db() as d:
-            for card_id, key in tagged.items():
-                d.execute("UPDATE cards SET doctrine=? WHERE id=? AND course_id=?", (key, card_id, cid))
-    return {"tagged": len(tagged), "cards": len(cards), "failed": failed, "model": model}
+    tagged, failed, model = _tag_cards(cid, keys, topics, cards)
+    return {"tagged": tagged, "cards": len(cards), "failed": failed, "model": model}
 
 
 @app.delete("/api/files/{fid}")
@@ -1791,7 +1818,7 @@ def generate_cards(cid: str, g: GenIn):
     # Phase 19 (Matej decision b): every generation — cloud and local — is captured, so each card gets a
     # sample id and ties back to its interaction for the later edit/rating signal.
     sample_id = uuid.uuid4().hex
-    made, kept = 0, []
+    made, kept, t0 = 0, [], time.time()
     with db() as d:
         for it in items:
             if it.get("front") and it.get("back"):
@@ -1799,6 +1826,7 @@ def generate_cards(cid: str, g: GenIn):
                           (uuid.uuid4().hex[:10], cid, it["front"], it["back"], src, week, date.today().isoformat(), time.time(), sample_id)); made += 1
                 kept.append(it)
     _capture_card_sample(sample_id, cid, m, kind, week, g.count, made, txt, kept, thin, grounded)
+    _autotag_untagged(cid, t0)   # keep a blueprint-focused deck tagged; no-op without a blueprint
     if grounded:
         return {"made": made, "grounded": True, "thin": thin}
     return {"made": made}   # response shape unchanged for the cloud path (callers read .made)
