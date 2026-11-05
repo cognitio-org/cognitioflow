@@ -52,8 +52,9 @@ class FakeMessage:
 
 # ---- provider selection -------------------------------------------------------------------
 
-def test_default_provider_is_anthropic():
-    assert load().PROVIDER == "anthropic"
+def test_default_provider_is_gateway():
+    # Never the forbidden Anthropic API, even as the unset-env default (hard rule 2026-09-30).
+    assert load().PROVIDER == "gateway"
 
 
 def test_unknown_provider_is_refused():
@@ -63,7 +64,8 @@ def test_unknown_provider_is_refused():
 
 
 def test_key_name_follows_provider():
-    assert load().key_name() == "ANTHROPIC_API_KEY"
+    assert load().key_name() == "LITELLM_API_KEY"   # the default is now the gateway, not anthropic
+    assert load("anthropic").key_name() == "ANTHROPIC_API_KEY"
     assert load("openrouter").key_name() == "OPENROUTER_KEY"
 
 
