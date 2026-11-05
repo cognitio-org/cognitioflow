@@ -3359,8 +3359,12 @@ def print_pack(cid: str):
     c = rows("SELECT id,name,exam_date,brief FROM courses WHERE id=?", cid)
     if not c: raise HTTPException(404)
     ns = countdown.sort_notes([dict(n) for n in rows("SELECT id,title,body,length(body) AS chars FROM notes WHERE course_id=?", cid)])
-    # The method's three moves are Villanueva's (European Law): they print on that course's pages and no other.
-    method = "villanueva" in str((c[0]["brief"] or {}).get("lecturer", "") if isinstance(c[0]["brief"], dict) else "").lower()
+    # Print the exam-method steps when the course DEFINES a method in its brief (any course, not only
+    # European Law) — the steps still only appear on a week whose notes actually name >=2 of the moves
+    # (pack.METHOD_HITS). The villanueva/lecturer check is kept as a fallback so European Law's
+    # verified pack (PR #69) prints even if its brief's method field is blank.
+    brief = c[0]["brief"] if isinstance(c[0]["brief"], dict) else {}
+    method = bool(str(brief.get("method") or "").strip()) or "villanueva" in str(brief.get("lecturer") or "").lower()
     out = pack.build(ns["weeks"], ns["reference"], list(_cases_in_notes(cid).values()), method=method)
     return {"course": c[0]["name"], "exam_date": str(c[0]["exam_date"] or "")[:10] or None, **out}
 
