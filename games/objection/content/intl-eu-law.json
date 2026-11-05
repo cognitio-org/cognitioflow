@@ -1,0 +1,186 @@
+{
+  "course": "International & European Law",
+  "title": "Objection! — International & European Law",
+  "items": [
+    {
+      "text": "The European Union constitutes a new order of international law whose subjects include not only Member States but also their nationals.",
+      "flawed": false,
+      "ground": "This is established in the Van Gend & Loos judgment where the Court explicitly states that the Community constitutes a 'new order of international law' and that its subjects include both Member States and their nationals.",
+      "cite": "Van Gend & Loos, page 12",
+      "wk": "Week 1",
+      "why": "This principle was revolutionary because it established that EU law creates a legal system that operates independently of national legal systems and directly affects individuals.",
+      "source": "470358_week1_answers.txt"
+    },
+    {
+      "text": "The European Union is merely an international organization that only creates obligations between Member States, not rights for individuals.",
+      "flawed": true,
+      "ground": "This is established in the Van Gend & Loos judgment where the Court explicitly states that the Community constitutes a 'new order of international law' and that its subjects include both Member States and their nationals.",
+      "cite": "Van Gend & Loos, page 12",
+      "wk": "Week 1",
+      "why": "This principle was revolutionary because it established that EU law creates a legal system that operates independently of national legal systems and directly affects individuals.",
+      "source": "470358_week1_answers.txt"
+    },
+    {
+      "text": "EU law takes precedence over national law and cannot be overridden by domestic legal provisions regardless of their form or hierarchy.",
+      "flawed": false,
+      "ground": "This principle was established in the Costa v ENEL judgment where the Court ruled that EU law constitutes an independent source of law that supersedes national law.",
+      "cite": "Costa v ENEL, page 593",
+      "wk": "Week 1",
+      "why": "This principle ensures the uniform application of EU law across all Member States and prevents national courts from applying domestic law that conflicts with EU law.",
+      "source": "470358_week1_answers.txt"
+    },
+    {
+      "text": "National law can override EU law when it is of higher constitutional rank or when it is a fundamental principle of the national legal system.",
+      "flawed": true,
+      "ground": "This principle was established in the Costa v ENEL judgment where the Court ruled that EU law constitutes an independent source of law that supersedes national law.",
+      "cite": "Costa v ENEL, page 593",
+      "wk": "Week 1",
+      "why": "This principle ensures the uniform application of EU law across all Member States and prevents national courts from applying domestic law that conflicts with EU law.",
+      "source": "470358_week1_answers.txt"
+    },
+    {
+      "text": "Treaty provisions can create direct effect for individuals only if they are clear, unconditional, and adapted to produce direct effects in the relationship between Member States and their subjects.",
+      "flawed": false,
+      "ground": "This requirement was established in the Van Gend & Loos judgment where the Court set out the three conditions that must be met for Treaty provisions to have direct effect.",
+      "cite": "Van Gend & Loos, page 13",
+      "wk": "Week 1",
+      "why": "This principle allows individuals to invoke Treaty rights directly in national courts, but only when the provisions meet specific criteria regarding clarity, unconditional nature, and relevance to individual relationships.",
+      "source": "470358_week1_answers.txt"
+    },
+    {
+      "text": "Treaty provisions can create direct effect for individuals if they are merely clear and unconditional, regardless of whether they concern the relationship between Member States and their subjects.",
+      "flawed": true,
+      "ground": "This requirement was established in the Van Gend & Loos judgment where the Court set out the three conditions that must be met for Treaty provisions to have direct effect.",
+      "cite": "Van Gend & Loos, page 13",
+      "wk": "Week 1",
+      "why": "This principle allows individuals to invoke Treaty rights directly in national courts, but only when the provisions meet specific criteria regarding clarity, unconditional nature, and relevance to individual relationships.",
+      "source": "470358_week1_answers.txt"
+    },
+    {
+      "text": "The Commission has the power to withdraw a legislative proposal under specific conditions.",
+      "flawed": false,
+      "ground": "The Court in Council v Commission (C-409/13) clarified that the Commission can withdraw proposals but must comply with procedural requirements.",
+      "cite": "C-409/13 Council v Commission",
+      "wk": "Week 2",
+      "why": "The judgment established that the Commission's power to withdraw proposals is limited by institutional balance and requires proper justification and consultation.",
+      "source": "470358_week2_answers.txt"
+    },
+    {
+      "text": "The Commission can withdraw any legislative proposal at any time without regard to procedural requirements or institutional balance.",
+      "flawed": true,
+      "ground": "The Court in Council v Commission (C-409/13) clarified that the Commission can withdraw proposals but must comply with procedural requirements.",
+      "cite": "C-409/13 Council v Commission",
+      "wk": "Week 2",
+      "why": "The judgment established that the Commission's power to withdraw proposals is limited by institutional balance and requires proper justification and consultation.",
+      "source": "470358_week2_answers.txt"
+    },
+    {
+      "text": "In the areas of shared competence, the EU and Member States must comply with the principle of mutual and sincere cooperation.",
+      "flawed": false,
+      "ground": "This is stated in the source as a requirement when exercising shared competence under Article 4(3) TEU.",
+      "cite": "Art 4(3) TEU",
+      "wk": "Week 3",
+      "why": "The principle ensures that both levels of government work together in a cooperative manner when the EU has exercised its competence in shared areas.",
+      "source": "470358_week3_answers.txt"
+    },
+    {
+      "text": "The principle of mutual and sincere cooperation only applies to exclusive competence, not shared competence.",
+      "flawed": true,
+      "ground": "This is stated in the source as a requirement when exercising shared competence under Article 4(3) TEU.",
+      "cite": "Art 4(3) TEU",
+      "wk": "Week 3",
+      "why": "The principle ensures that both levels of government work together in a cooperative manner when the EU has exercised its competence in shared areas.",
+      "source": "470358_week3_answers.txt"
+    },
+    {
+      "text": "The principle of pre-emption means that in fields of shared competence, Member States may not adopt legally binding acts on specific subject matters on which the EU has adopted legally binding acts, unless explicitly allowed.",
+      "flawed": false,
+      "ground": "The source explains that pre-emption applies to the scope of application of EU legal acts and that exceptions exist in specific Treaty provisions.",
+      "cite": "Article 2(2) TFEU",
+      "wk": "Week 3",
+      "why": "This rule prevents Member States from acting in areas where the EU has already adopted binding legislation, ensuring coherence in EU law.",
+      "source": "470358_week3_answers.txt"
+    },
+    {
+      "text": "The principle of pre-emption applies to all areas of shared competence without exception, even when the EU has not adopted any binding acts.",
+      "flawed": true,
+      "ground": "The source explains that pre-emption applies to the scope of application of EU legal acts and that exceptions exist in specific Treaty provisions.",
+      "cite": "Article 2(2) TFEU",
+      "wk": "Week 3",
+      "why": "This rule prevents Member States from acting in areas where the EU has already adopted binding legislation, ensuring coherence in EU law.",
+      "source": "470358_week3_answers.txt"
+    },
+    {
+      "text": "The principle of subsidiarity requires that the EU should only act when it is more effective than national action, and this principle is justiciable before the Court.",
+      "flawed": false,
+      "ground": "The source states that the Member States wanted the respect for subsidiarity to be justiciable before the Court, and that it is embodied in Article 5(3) TEU.",
+      "cite": "Art 5(3) TEU",
+      "wk": "Week 3",
+      "why": "This provision ensures that EU action is proportionate and only taken when necessary, with judicial review available to check compliance.",
+      "source": "470358_week3_answers.txt"
+    },
+    {
+      "text": "The principle of subsidiarity is not justiciable before the Court, but only applies to the internal market and does not allow for judicial review of EU actions.",
+      "flawed": true,
+      "ground": "The source states that the Member States wanted the respect for subsidiarity to be justiciable before the Court, and that it is embodied in Article 5(3) TEU.",
+      "cite": "Art 5(3) TEU",
+      "wk": "Week 3",
+      "why": "This provision ensures that EU action is proportionate and only taken when necessary, with judicial review available to check compliance.",
+      "source": "470358_week3_answers.txt"
+    },
+    {
+      "text": "The Commission has the power to withdraw a proposal as long as the Council has not acted, provided it complies with the principles of sincere cooperation and institutional balance.",
+      "flawed": false,
+      "ground": "This is the established case law of the Court of Justice regarding the Commission's withdrawal powers.",
+      "cite": "C-409/13 Council v Commission",
+      "wk": "Week 6",
+      "why": "The Commission's withdrawal of the animal cloning directive was justified under this case law as long as the reasons were cogent and the principles were respected.",
+      "source": "470358_week6_answers.txt"
+    },
+    {
+      "text": "The Commission does not have the power to withdraw a proposal once the Council has acted, as this would violate the principle of institutional balance and the requirement for mutual cooperation between EU institutions.",
+      "flawed": true,
+      "ground": "This is the established case law of the Court of Justice regarding the Commission's withdrawal powers.",
+      "cite": "C-409/13 Council v Commission",
+      "wk": "Week 6",
+      "why": "The Commission's withdrawal of the animal cloning directive was justified under this case law as long as the reasons were cogent and the principles were respected.",
+      "source": "470358_week6_answers.txt"
+    },
+    {
+      "text": "The conduct of private groups can be attributed to a state if the state exercises effective control over their actions.",
+      "flawed": false,
+      "ground": "This is based on the ILC Articles on Responsibility of States for Internationally Wrongful Acts which reflect customary international law, and the principle established in the Nicaragua case.",
+      "cite": "Article 8 ARSIWA",
+      "wk": "Exam answers",
+      "why": "The kidnapping of Mr. Gvero was found to be attributable to Sokovia because the state provided training, equipment, and information to the Patriots, demonstrating effective control over their actions.",
+      "source": "470358_exam2024_answers.txt"
+    },
+    {
+      "text": "The conduct of private groups can be attributed to a state if the state merely provides supplies to them, regardless of control over their activities.",
+      "flawed": true,
+      "ground": "This is based on the ILC Articles on Responsibility of States for Internationally Wrongful Acts which reflect customary international law, and the principle established in the Nicaragua case.",
+      "cite": "Article 8 ARSIWA",
+      "wk": "Exam answers",
+      "why": "The kidnapping of Mr. Gvero was found to be attributable to Sokovia because the state provided training, equipment, and information to the Patriots, demonstrating effective control over their actions.",
+      "source": "470358_exam2024_answers.txt"
+    },
+    {
+      "text": "Regulations of the EU have direct effect and prevail over conflicting national law.",
+      "flawed": false,
+      "ground": "This is established by the principle of supremacy of EU law over national law as confirmed in the Costa v ENEL case, and the direct applicability of regulations under Article 288(2) TFEU.",
+      "cite": "Article 288(2) TFEU",
+      "wk": "Exam answers",
+      "why": "The TCO Regulation's requirement for removal of terrorist content within one hour prevails over Cyprus's national law that allows up to one week, because EU regulations have direct effect and supremacy.",
+      "source": "470358_exam2024_answers.txt"
+    },
+    {
+      "text": "EU regulations can only have direct effect if they are clear and unconditional, but they never override national law in any circumstance.",
+      "flawed": true,
+      "ground": "This is established by the principle of supremacy of EU law over national law as confirmed in the Costa v ENEL case, and the direct applicability of regulations under Article 288(2) TFEU.",
+      "cite": "Article 288(2) TFEU",
+      "wk": "Exam answers",
+      "why": "The TCO Regulation's requirement for removal of terrorist content within one hour prevails over Cyprus's national law that allows up to one week, because EU regulations have direct effect and supremacy.",
+      "source": "470358_exam2024_answers.txt"
+    }
+  ]
+}

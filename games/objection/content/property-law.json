@@ -1,0 +1,114 @@
+{
+  "course": "Property Law",
+  "title": "Objection! — your Property Law topics",
+  "items": [
+    {
+      "text": "The transfer of ownership of goods is generally governed by the principle of consensual transfer, which requires a meeting of minds between the parties regarding the transfer of ownership.",
+      "flawed": false,
+      "ground": "This principle is central to the discussion in Sagaert's article, which contrasts consensual systems with delivery systems in European private law.",
+      "cite": "V. Sagaert, Consensual versus Delivery Systems in European Private Law – Consensus about Tradition? In: Rules for the Transfer of Movables. A Candidate for European Harmonisation or National Reforms?, W. Faber & B. Lurger, eds., Munich 2008, pp. 9-46",
+      "wk": "Week 3 · Materials",
+      "why": "Sagaert's analysis emphasizes that consensual systems require agreement between parties for the transfer of ownership, in contrast to systems where delivery alone suffices.",
+      "source": "564706_wk3_content.txt"
+    },
+    {
+      "text": "The transfer of ownership of goods is generally governed by the principle of delivery alone, regardless of the parties' agreement.",
+      "flawed": true,
+      "ground": "This principle is central to the discussion in Sagaert's article, which contrasts consensual systems with delivery systems in European private law.",
+      "cite": "V. Sagaert, Consensual versus Delivery Systems in European Private Law – Consensus about Tradition? In: Rules for the Transfer of Movables. A Candidate for European Harmonisation or National Reforms?, W. Faber & B. Lurger, eds., Munich 2008, pp. 9-46",
+      "wk": "Week 3 · Materials",
+      "why": "Sagaert's analysis emphasizes that consensual systems require agreement between parties for the transfer of ownership, in contrast to systems where delivery alone suffices.",
+      "source": "564706_wk3_content.txt"
+    },
+    {
+      "text": "Acquisitive prescription allows a person to acquire ownership of goods after a certain period of continuous and peaceful possession, provided they meet the conditions set out in the relevant legal system.",
+      "flawed": false,
+      "ground": "This principle is discussed in the context of the DCFR and is analyzed by Salomons, who evaluates how acquisitive prescription fits into the broader framework of property law.",
+      "cite": "A.F. Salomons, The Purpose and Coherence of the Rules on Good Faith Acquisition and Acquisitive Prescription in the Draft Common Frame of Reference: A Tale of Two Gatekeepers, ERPL 2013-3, p. 843-862",
+      "wk": "Week 3 · Materials",
+      "why": "Salomons explores how acquisitive prescription functions as a legal mechanism for acquiring ownership, similar to good faith acquisition, within the DCFR.",
+      "source": "564706_wk3_content.txt"
+    },
+    {
+      "text": "Acquisitive prescription does not allow for the acquisition of ownership of goods; it only serves to protect possession of immovable property.",
+      "flawed": true,
+      "ground": "This principle is discussed in the context of the DCFR and is analyzed by Salomons, who evaluates how acquisitive prescription fits into the broader framework of property law.",
+      "cite": "A.F. Salomons, The Purpose and Coherence of the Rules on Good Faith Acquisition and Acquisitive Prescription in the Draft Common Frame of Reference: A Tale of Two Gatekeepers, ERPL 2013-3, p. 843-862",
+      "wk": "Week 3 · Materials",
+      "why": "Salomons explores how acquisitive prescription functions as a legal mechanism for acquiring ownership, similar to good faith acquisition, within the DCFR.",
+      "source": "564706_wk3_content.txt"
+    },
+    {
+      "text": "Limited rights in property law are typically acquired through specific legal mechanisms rather than general acquisition rules.",
+      "flawed": false,
+      "ground": "The introduction by F.M.J. Verstijlen discusses how limited rights are created through particular legal instruments.",
+      "cite": "F.M.J. Verstijlen - Introduction to limited rights",
+      "wk": "Week 5 · Materials",
+      "why": "The author explains that limited rights require specific legal creation mechanisms as opposed to general ownership acquisition.",
+      "source": "564706_wk5_content.txt"
+    },
+    {
+      "text": "Limited rights can be acquired through the same mechanisms as full ownership, such as purchase or inheritance.",
+      "flawed": true,
+      "ground": "The introduction by F.M.J. Verstijlen discusses how limited rights are created through particular legal instruments.",
+      "cite": "F.M.J. Verstijlen - Introduction to limited rights",
+      "wk": "Week 5 · Materials",
+      "why": "The author explains that limited rights require specific legal creation mechanisms as opposed to general ownership acquisition.",
+      "source": "564706_wk5_content.txt"
+    },
+    {
+      "text": "Property rights in land may be structured as private, common, or open access arrangements with distinct economic implications.",
+      "flawed": false,
+      "ground": "This proposition is supported by the Ekbäck article which investigates different property rights models and their economic principles.",
+      "cite": "P Ekbäck, Private, Common, and Open Access Property Rights in Land – An Investigation of Economic Principles and Legislation, Nordic Journal of Surveying and Real Estate Research 2009, 57-74",
+      "wk": "Week 6 · Materials",
+      "why": "The article specifically examines how different property rights structures (private, common, open access) affect land use and economic outcomes.",
+      "source": "564706_wk6_content.txt"
+    },
+    {
+      "text": "Property rights in land are always structured as either private or public with no intermediate common access models.",
+      "flawed": true,
+      "ground": "This proposition is supported by the Ekbäck article which investigates different property rights models and their economic principles.",
+      "cite": "P Ekbäck, Private, Common, and Open Access Property Rights in Land – An Investigation of Economic Principles and Legislation, Nordic Journal of Surveying and Real Estate Research 2009, 57-74",
+      "wk": "Week 6 · Materials",
+      "why": "The article specifically examines how different property rights structures (private, common, open access) affect land use and economic outcomes.",
+      "source": "564706_wk6_content.txt"
+    },
+    {
+      "text": "European property law systems show variation in their approach to land ownership and access rights across different member states.",
+      "flawed": false,
+      "ground": "This is evident from the comparative analysis in the General Report and Country Report on The Netherlands which examines different national approaches.",
+      "cite": "Real Property Law and Procedure in the European Union; General Report, May 2005. Chapters 1-4",
+      "wk": "Week 6 · Materials",
+      "why": "The report explicitly compares property law systems across European jurisdictions including the Netherlands to demonstrate diversity in approaches.",
+      "source": "564706_wk6_content.txt"
+    },
+    {
+      "text": "All European countries have identical property law systems with no variation in their approaches to land ownership.",
+      "flawed": true,
+      "ground": "This is evident from the comparative analysis in the General Report and Country Report on The Netherlands which examines different national approaches.",
+      "cite": "Real Property Law and Procedure in the European Union; General Report, May 2005. Chapters 1-4",
+      "wk": "Week 6 · Materials",
+      "why": "The report explicitly compares property law systems across European jurisdictions including the Netherlands to demonstrate diversity in approaches.",
+      "source": "564706_wk6_content.txt"
+    },
+    {
+      "text": "Property rights systems can be analyzed through economic principles to understand their efficiency and outcomes.",
+      "flawed": false,
+      "ground": "The Ekbäck article specifically investigates economic principles underlying different property rights arrangements.",
+      "cite": "P Ekbäck, Private, Common, and Open Access Property Rights in Land – An Investigation of Economic Principles and Legislation, Nordic Journal of Surveying and Real Estate Research 2009, 57-74",
+      "wk": "Week 6 · Materials",
+      "why": "The article's title and content explicitly focus on investigating economic principles and legislation regarding property rights.",
+      "source": "564706_wk6_content.txt"
+    },
+    {
+      "text": "Property rights systems cannot be analyzed through economic principles because they are purely legal constructs without economic dimensions.",
+      "flawed": true,
+      "ground": "The Ekbäck article specifically investigates economic principles underlying different property rights arrangements.",
+      "cite": "P Ekbäck, Private, Common, and Open Access Property Rights in Land – An Investigation of Economic Principles and Legislation, Nordic Journal of Surveying and Real Estate Research 2009, 57-74",
+      "wk": "Week 6 · Materials",
+      "why": "The article's title and content explicitly focus on investigating economic principles and legislation regarding property rights.",
+      "source": "564706_wk6_content.txt"
+    }
+  ]
+}

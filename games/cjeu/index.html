@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CJEU Gallery — CognitioFlow</title>
+<style>
+:root{--ink:#f3ecdd;--muted:#c9ba98;--gold:#d8ad52;--bg:#06060a}
+*{margin:0;box-sizing:border-box}html,body{height:100%;background:var(--bg);overflow:hidden;font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink)}
+#c{position:fixed;inset:0;display:block}
+#bar{position:fixed;top:0;left:0;right:0;z-index:5;display:flex;align-items:center;gap:10px;padding:14px 18px;background:linear-gradient(180deg,rgba(0,0,0,.55),transparent);pointer-events:none}
+#bar .dot{width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 10px var(--gold)}
+#bar b{font-size:12px;letter-spacing:.16em;text-transform:uppercase}#bar span{color:var(--muted);font-size:12px}
+#cross{position:fixed;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:rgba(255,255,255,.5);z-index:4;pointer-events:none;opacity:0;transition:opacity .3s}
+#enter{position:fixed;inset:0;z-index:9;display:flex;align-items:center;justify-content:center;background:radial-gradient(60% 60% at 50% 45%,rgba(20,16,8,.6),var(--bg));cursor:pointer;transition:opacity .6s}
+#enter.hide{opacity:0;pointer-events:none}
+#enter .inner{text-align:center;max-width:460px;padding:24px}
+#enter .ring{width:40px;height:40px;border-radius:50%;margin:0 auto 18px;border:2px solid rgba(216,173,82,.2);border-top-color:var(--gold);animation:spin 1s linear infinite}
+#enter .t{font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:var(--gold)}
+#enter .s{font-size:13px;color:var(--muted);margin-top:12px;line-height:1.6}
+#enter .k{display:inline-block;margin:14px 4px 0;padding:4px 9px;border:1px solid rgba(216,173,82,.3);border-radius:5px;font-size:11px;color:var(--ink);letter-spacing:.08em}
+@keyframes spin{to{transform:rotate(360deg)}}
+#err{position:fixed;inset:0;z-index:10;display:none;align-items:center;justify-content:center;padding:24px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6}
+</style></head>
+<body>
+<canvas id="c"></canvas>
+<div id="bar"><span class="dot"></span><b>CognitioFlow</b><span>· Court of Justice of the EU — the Gallery</span></div>
+<div id="cross"></div>
+<div id="enter"><div class="inner">
+  <div class="ring" id="ring"></div>
+  <div class="t" id="etitle">Preparing the Gallery</div>
+  <div class="s" id="esub">Modelled after the Perrault concourse, Luxembourg</div>
+  <div id="ekeys" style="display:none">
+    <div class="s">Click to enter · walk the Court of Justice</div>
+    <span class="k">W A S D</span><span class="k">move</span><span class="k">mouse</span><span class="k">look</span><span class="k">shift</span><span class="k">run</span><span class="k">esc</span><span class="k">release</span>
+  </div>
+</div></div>
+<div id="err"></div>
+<script type="importmap">{"imports":{
+"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+"three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {PointerLockControls} from 'three/addons/controls/PointerLockControls.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
+import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
+import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+const fail=m=>{const e=document.getElementById('err');e.style.display='flex';e.textContent=m;document.getElementById('enter').classList.add('hide');};
+try{
+// ---------- dimensions (metres) ----------
+const L=66, W=13, H=9;              // length, width, height of the concourse
+const Xleft=-W/2, Xright=W/2;        // left wall / right facade
+const FIN_GAP=0.55, FIN_W=0.07, FIN_D=0.5, FIN_H=8.4;
+
+const renderer=new THREE.WebGLRenderer({canvas:document.getElementById('c'),antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.8));
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=0.82;
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color('#bfb093');
+scene.fog=new THREE.Fog('#c3b595', 42, 170);
+
+// image-based lighting for believable gold + floor reflections
+const pmrem=new THREE.PMREMGenerator(renderer);
+scene.environment=pmrem.fromScene(new RoomEnvironment(renderer),0.04).texture;
+
+const camera=new THREE.PerspectiveCamera(66,innerWidth/innerHeight,0.05,400);
+camera.position.set(1.5,1.7,6);
+
+// ---------- lighting ----------
+const hemi=new THREE.HemisphereLight('#fff4de','#4a4640',0.4); scene.add(hemi);
+const amb=new THREE.AmbientLight('#fff0d8',0.09); scene.add(amb);
+
+// the hero: low warm sun raking through the louvres from the right
+const sun=new THREE.DirectionalLight('#ffe3b6',3.4);
+sun.position.set(40,10,-8);           // from right, low, angled down-corridor
+sun.target.position.set(-6,0,-30);
+sun.castShadow=true;
+sun.shadow.mapSize.set(4096,4096);
+sun.shadow.camera.near=1; sun.shadow.camera.far=120;
+const sc=44; sun.shadow.camera.left=-sc; sun.shadow.camera.right=sc;
+sun.shadow.camera.top=sc; sun.shadow.camera.bottom=-sc;
+sun.shadow.bias=-0.0002; sun.shadow.normalBias=0.03;
+scene.add(sun); scene.add(sun.target);
+
+// ---------- materials ----------
+const floorMat=new THREE.MeshStandardMaterial({color:'#c3bcae',roughness:0.5,metalness:0.0,envMapIntensity:0.4});
+const wallMat=new THREE.MeshStandardMaterial({color:'#d4cec1',roughness:0.95,metalness:0.0,envMapIntensity:0.45});
+const darkMat=new THREE.MeshStandardMaterial({color:'#15161a',roughness:0.5,metalness:0.2});
+const ceilMat=new THREE.MeshStandardMaterial({color:'#101014',roughness:0.85});
+const goldMat=new THREE.MeshStandardMaterial({color:'#c4902f',roughness:0.26,metalness:0.96,envMapIntensity:1.9,emissive:'#5a3b11',emissiveIntensity:0.55});
+const glowMat=new THREE.MeshBasicMaterial({color:'#f0e6cd'}); // emissive strips / sky
+const skyMat =new THREE.MeshBasicMaterial({color:'#e4d7b9',fog:false});
+
+// ---------- floor ----------
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(W,L+10),floorMat);
+floor.rotation.x=-Math.PI/2; floor.position.set(0,0,-L/2+3); floor.receiveShadow=true; scene.add(floor);
+
+// faint reflection streak where the sun hits (baked as a soft gradient strip)
+// ---------- ceiling ----------
+const ceil=new THREE.Mesh(new THREE.PlaneGeometry(W,L+10),ceilMat);
+ceil.rotation.x=Math.PI/2; ceil.position.set(0,H,-L/2+3); scene.add(ceil);
+// linear ceiling lights (3 runs down the length)
+for(const x of [-3.2,0,3.0]){
+  const strip=new THREE.Mesh(new THREE.BoxGeometry(0.14,0.06,L),glowMat);
+  strip.position.set(x,H-0.08,-L/2+3); scene.add(strip);
+  const pl=new THREE.RectAreaLight?null:null; // keep light count low; emissive + sun carry it
+}
+
+// ---------- left wall + mezzanine ----------
+const lwall=new THREE.Mesh(new THREE.BoxGeometry(0.3,H,L+10),wallMat);
+lwall.position.set(Xleft-0.15,H/2,-L/2+3); lwall.receiveShadow=true; scene.add(lwall);
+// mezzanine ledge
+const ledge=new THREE.Mesh(new THREE.BoxGeometry(1.3,0.3,L+10),wallMat);
+ledge.position.set(Xleft+0.65,4.5,-L/2+3); ledge.castShadow=true; ledge.receiveShadow=true; scene.add(ledge);
+// upper wall band (slightly recessed darker) above ledge
+const band=new THREE.Mesh(new THREE.BoxGeometry(0.2,0.1,L+10),darkMat);
+band.position.set(Xleft+0.1,4.33,-L/2+3); scene.add(band);
+// dark base skirt with kiosks
+const skirt=new THREE.Mesh(new THREE.BoxGeometry(0.34,1.15,L+10),darkMat);
+skirt.position.set(Xleft+0.02,0.575,-L/2+3); scene.add(skirt);
+// railing balusters on the mezzanine (instanced)
+const balGeo=new THREE.BoxGeometry(0.03,0.95,0.03);
+const balMat=new THREE.MeshStandardMaterial({color:'#0e0e10',roughness:0.6,metalness:0.3});
+const nBal=Math.floor((L)/0.16);
+const bal=new THREE.InstancedMesh(balGeo,balMat,nBal);
+const m4=new THREE.Matrix4();
+for(let i=0;i<nBal;i++){ m4.makeTranslation(Xleft+1.28, 5.1, 3-i*0.16); bal.setMatrixAt(i,m4);}
+scene.add(bal);
+const handrail=new THREE.Mesh(new THREE.BoxGeometry(0.05,0.05,L),darkMat);
+handrail.position.set(Xleft+1.28,5.6,-L/2+3); scene.add(handrail);
+// upper storey: dark glazing band + mullions (multi-floor feel from the photo)
+const glassBand=new THREE.Mesh(new THREE.BoxGeometry(0.1,2.6,L),new THREE.MeshStandardMaterial({color:'#1b1d24',roughness:0.3,metalness:0.4,envMapIntensity:0.6}));
+glassBand.position.set(Xleft+0.14,6.8,-L/2+3); scene.add(glassBand);
+const mullGeo=new THREE.BoxGeometry(0.16,2.7,0.08); const nMull=Math.floor(L/1.6);
+const mull=new THREE.InstancedMesh(mullGeo,wallMat,nMull);
+for(let i=0;i<nMull;i++){ m4.makeTranslation(Xleft+0.16,6.8,3-i*1.6); mull.setMatrixAt(i,m4);} scene.add(mull);
+// recessed warm floor lights along left base
+const dotGeo=new THREE.CircleGeometry(0.05,12);
+const dotMat=new THREE.MeshBasicMaterial({color:'#ffcf8a'});
+for(let z=2; z>-L; z-=3){
+  const d=new THREE.Mesh(dotGeo,dotMat); d.rotation.x=-Math.PI/2; d.position.set(Xleft+0.5,0.02,z); scene.add(d);
+}
+// black service kiosks jutting from the base
+for(let z=-4; z>-L; z-=14){
+  const k=new THREE.Mesh(new THREE.BoxGeometry(1.1,1.2,2.2),darkMat);
+  k.position.set(Xleft+0.9,0.6,z); k.castShadow=true; k.receiveShadow=true; scene.add(k);
+}
+
+// ---------- right facade: bright sky behind, vertical gold louvres ----------
+const sky=new THREE.Mesh(new THREE.PlaneGeometry(2,H+2,1,1),skyMat);
+sky.position.set(Xright+0.9,H/2,-L/2+3); sky.rotation.y=-Math.PI/2; sky.scale.z=(L+12)/2; scene.add(sky);
+// glass line (subtle)
+const glass=new THREE.Mesh(new THREE.PlaneGeometry(L+12,H),
+  new THREE.MeshStandardMaterial({color:'#cfe0e8',roughness:0.08,metalness:0,transparent:true,opacity:0.12}));
+glass.rotation.y=-Math.PI/2; glass.position.set(Xright+0.35,H/2,-L/2+3); scene.add(glass);
+// louvres (instanced, cast the stripe shadows)
+const finGeo=new THREE.BoxGeometry(FIN_D,FIN_H,FIN_W);
+const nFin=Math.floor((L+8)/FIN_GAP);
+const fins=new THREE.InstancedMesh(finGeo,goldMat,nFin);
+fins.castShadow=true; fins.receiveShadow=true;
+for(let i=0;i<nFin;i++){ m4.makeTranslation(Xright-0.1, FIN_H/2+0.1, 4-i*FIN_GAP); fins.setMatrixAt(i,m4);}
+fins.instanceMatrix.needsUpdate=true; scene.add(fins);
+// top & bottom rails of the facade
+for(const y of [0.08,H-0.2]){
+  const r=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.22,L+8),darkMat);
+  r.position.set(Xright-0.1,y,-L/2+3); scene.add(r);
+}
+// far end: a monumental doorway into the Grand Chamber (built below)
+const endZ=-L+2.9, doorW=5.0, doorH=4.6;
+for(const sx of [-1,1]){
+  const w=(W-doorW)/2;
+  const p=new THREE.Mesh(new THREE.BoxGeometry(w,H,0.4),wallMat);
+  p.position.set(sx*(doorW/2+w/2),H/2,endZ); p.receiveShadow=true; scene.add(p);
+}
+const lintel=new THREE.Mesh(new THREE.BoxGeometry(doorW,H-doorH,0.4),wallMat);
+lintel.position.set(0,doorH+(H-doorH)/2,endZ); scene.add(lintel);
+// reveal frame (dark jamb) around the opening
+const jamb=new THREE.Mesh(new THREE.BoxGeometry(doorW+0.3,doorH+0.3,0.12),darkMat);
+jamb.position.set(0,doorH/2,endZ+0.22); scene.add(jamb);
+const jambHole=new THREE.Mesh(new THREE.BoxGeometry(doorW,doorH,0.14),new THREE.MeshBasicMaterial({color:'#000',fog:false}));
+// (hole is visual cutout illusion; actual opening is the gap between jambs)
+buildCourtroom();
+
+// a few distant silhouettes for scale
+const figMat=new THREE.MeshStandardMaterial({color:'#17171b',roughness:0.8});
+for(const [x,z] of [[0,-14],[2,-22],[-1.5,-30],[1,-44]]){
+  const body=new THREE.Mesh(new THREE.CapsuleGeometry(0.22,1.0,4,8),figMat);
+  body.position.set(x,0.85,z); body.castShadow=true; scene.add(body);
+  const head=new THREE.Mesh(new THREE.SphereGeometry(0.13,10,10),figMat);
+  head.position.set(x,1.62,z); scene.add(head);
+}
+
+// ---------- the Grand Chamber (walk through the far doors) ----------
+function buildCourtroom(){
+  const ZF=-L+2.7, ZB=ZF-30, XW=11, HC=11, cz=(ZF+ZB)/2;
+  const M=new THREE.Matrix4();
+  const lightWood=new THREE.MeshStandardMaterial({color:'#bb9663',roughness:0.55,metalness:0.04,envMapIntensity:0.5});
+  const mahog   =new THREE.MeshStandardMaterial({color:'#6c4026',roughness:0.45,metalness:0.05,envMapIntensity:0.5});
+  const deepWood=new THREE.MeshStandardMaterial({color:'#7a5230',roughness:0.5,metalness:0.05,envMapIntensity:0.5});
+  const seatMat =new THREE.MeshStandardMaterial({color:'#2a2320',roughness:0.6,metalness:0.1});
+  const orange  =new THREE.MeshStandardMaterial({color:'#bf6a2f',roughness:0.85,metalness:0});
+  const runnerMat=new THREE.MeshStandardMaterial({color:'#17264a',roughness:0.9,metalness:0});
+
+  // polished mahogany floor + dark soffit (the gold canopy is the ceiling feature)
+  const floorWood=new THREE.MeshStandardMaterial({color:'#572f1b',roughness:0.22,metalness:0,envMapIntensity:1.2});
+  const f=new THREE.Mesh(new THREE.PlaneGeometry(XW*2,30),floorWood);
+  f.rotation.x=-Math.PI/2; f.position.set(0,0,cz); f.receiveShadow=true; scene.add(f);
+  const c=new THREE.Mesh(new THREE.PlaneGeometry(XW*2,30),ceilMat);
+  c.rotation.x=Math.PI/2; c.position.set(0,HC,cz); scene.add(c);
+  // honey wood-slat walls with battens
+  for(const sx of [-1,1]){ const w=new THREE.Mesh(new THREE.BoxGeometry(0.3,HC,30),lightWood); w.position.set(sx*XW,HC/2,cz); w.receiveShadow=true; scene.add(w);
+    const n=Math.floor(30/1.2), bat=new THREE.InstancedMesh(new THREE.BoxGeometry(0.06,HC-0.6,0.05),deepWood,n);
+    for(let i=0;i<n;i++){ M.makeTranslation(sx*(XW-0.16),HC/2,ZB+0.6+i*1.2); bat.setMatrixAt(i,M);} scene.add(bat); }
+  const bw=new THREE.Mesh(new THREE.BoxGeometry(XW*2,HC,0.3),lightWood); bw.position.set(0,HC/2,ZB); bw.receiveShadow=true; scene.add(bw);
+
+  // *** horseshoe amphitheatre (matched to the real Grande Salle) ***
+  const Zc=ZB+9, R1=6.6, gap=THREE.MathUtils.degToRad(38);
+  // central orange oval floor
+  const oval=new THREE.Mesh(new THREE.CircleGeometry(4.0,48),orange);
+  oval.rotation.x=-Math.PI/2; oval.scale.set(1,0.8,1); oval.position.set(0,0.02,Zc); scene.add(oval);
+  // curved mahogany bench (segments) wrapping back+sides, opening toward the doors (+Z)
+  const nSeg=40;
+  for(let i=0;i<nSeg;i++){
+    const a=gap+(i/(nSeg-1))*(2*Math.PI-2*gap);
+    const x=Math.sin(a)*R1, z=Zc+Math.cos(a)*R1, ry=-a;
+    const d=new THREE.Mesh(new THREE.BoxGeometry(1.05,1.0,0.55),mahog); d.position.set(x,1.0,z); d.rotation.y=ry; d.castShadow=true; scene.add(d);
+    const b=new THREE.Mesh(new THREE.BoxGeometry(1.05,0.9,0.8),deepWood); b.position.set(x,0.45,z); b.rotation.y=ry; scene.add(b);
+  }
+  // chair helper: seat + high back + pedestal (reads as a chair, not a cube)
+  function mkChair(x,z,ry,sc,yb){
+    const g=new THREE.Group(); g.position.set(x,yb||0,z); g.rotation.y=ry;
+    const seat=new THREE.Mesh(new THREE.BoxGeometry(0.6*sc,0.13,0.56*sc),seatMat); seat.position.y=0.9*sc; seat.castShadow=true; g.add(seat);
+    const back=new THREE.Mesh(new THREE.BoxGeometry(0.58*sc,0.95*sc,0.1),seatMat); back.position.set(0,1.4*sc,-0.25*sc); back.castShadow=true; g.add(back);
+    const ped=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.12,0.8*sc,8),deepWood); ped.position.y=0.4*sc; g.add(ped);
+    scene.add(g);
+  }
+  // 15 judges' high-backed chairs, facing the centre
+  for(let i=0;i<15;i++){
+    const a=gap+((i+0.5)/15)*(2*Math.PI-2*gap);
+    const x=Math.sin(a)*(R1+0.82), z=Zc+Math.cos(a)*(R1+0.82);
+    mkChair(x,z,Math.atan2(-x,Zc-z),1.05,0);
+  }
+  // clean curved bench front (modesty panel) facing the well
+  for(let i=0;i<nSeg;i++){
+    const a=gap+(i/(nSeg-1))*(2*Math.PI-2*gap);
+    const x=Math.sin(a)*(R1-0.32), z=Zc+Math.cos(a)*(R1-0.32), ry=-a;
+    const p=new THREE.Mesh(new THREE.BoxGeometry(1.08,1.35,0.1),mahog); p.position.set(x,0.68,z); p.rotation.y=ry; p.castShadow=true; scene.add(p);
+  }
+  // registrar desk + advocate lectern inside the horseshoe
+  const greffier=new THREE.Mesh(new THREE.BoxGeometry(4.0,0.95,1.1),mahog); greffier.position.set(0,0.48,Zc-R1+2.2); greffier.castShadow=true; scene.add(greffier);
+  const lectern=new THREE.Mesh(new THREE.BoxGeometry(0.9,1.25,0.7),lightWood); lectern.position.set(0,0.62,Zc+1.2); lectern.castShadow=true; scene.add(lectern);
+  // EU flags on the back wall
+  for(const sx of [-1,1]){ const flag=new THREE.Mesh(new THREE.PlaneGeometry(1.1,2.2),runnerMat); flag.position.set(sx*4.2,5.6,ZB+0.3); scene.add(flag);
+    const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,3.6,8),deepWood); pole.position.set(sx*3.6,4.8,ZB+0.35); scene.add(pole); }
+
+  // *** golden draped canopy — hanging tubes, longer toward the centre (Perrault's mesh) ***
+  const cols=19, rows=26, gx=17.0, gz=26.0;
+  const canopy=new THREE.InstancedMesh(new THREE.CylinderGeometry(0.045,0.045,1,6),goldMat,cols*rows); let ci=0;
+  for(let aa=0;aa<cols;aa++) for(let bb=0;bb<rows;bb++){
+    const x=-gx/2+aa*(gx/(cols-1))+(Math.random()-0.5)*0.3;
+    const z=ZB+2+bb*(gz/(rows-1))+(Math.random()-0.5)*0.3;
+    const dc=Math.min(1,Math.hypot(x/8,(z-Zc)/11));
+    const len=3.3-2.0*dc+Math.random()*0.5;
+    M.makeScale(1,len,1); M.setPosition(x,HC-len/2-0.05,z); canopy.setMatrixAt(ci++,M);
+  }
+  canopy.castShadow=false; scene.add(canopy);
+
+  // tiered curved counsel/public seating on the open side, centre aisle clear
+  for(let r=0;r<4;r++){
+    const rad=R1+2.6+r*1.7, y=0.2+r*0.34;
+    for(let k=-3;k<=3;k++){
+      if(k===0) continue;
+      const a=THREE.MathUtils.degToRad(k*16);
+      const x=Math.sin(a)*rad, z=Zc+Math.cos(a)*rad, ry=Math.atan2(-x,Zc-z);
+      const dtop=new THREE.Mesh(new THREE.BoxGeometry(1.4,0.07,0.56),mahog); dtop.position.set(x,y+0.72,z); dtop.rotation.y=ry; dtop.castShadow=true; scene.add(dtop);
+      const fx=Math.sin(a)*(rad-0.26), fz=Zc+Math.cos(a)*(rad-0.26);
+      const dfr=new THREE.Mesh(new THREE.BoxGeometry(1.4,0.66,0.05),mahog); dfr.position.set(fx,y+0.38,fz); dfr.rotation.y=ry; dfr.castShadow=true; scene.add(dfr);
+      const cx=Math.sin(a)*(rad+0.6), czz=Zc+Math.cos(a)*(rad+0.6);
+      mkChair(cx,czz,ry,0.82,y);
+    }
+  }
+
+  // warm cinematic rig: soft ambient + hemispheric fill + a key over the bench + glow beneath the canopy
+  scene.add(new THREE.AmbientLight('#fff1dc',0.2));
+  scene.add(new THREE.HemisphereLight('#efe6d2','#241c12',0.5));
+  const key=new THREE.DirectionalLight('#fff0d8',0.95); key.position.set(7,17,ZF-6); key.target.position.set(0,1,Zc);
+  key.castShadow=true; key.shadow.mapSize.set(2048,2048); key.shadow.camera.near=1; key.shadow.camera.far=72;
+  const ks=23; key.shadow.camera.left=-ks; key.shadow.camera.right=ks; key.shadow.camera.top=ks; key.shadow.camera.bottom=-ks; key.shadow.bias=-0.0003;
+  scene.add(key); scene.add(key.target);
+  const l1=new THREE.PointLight('#ffe6bc',34,40,2); l1.position.set(0,HC-1.4,Zc+3); scene.add(l1);
+  const l2=new THREE.PointLight('#ffe9c6',24,34,2); l2.position.set(0,HC-1.4,ZF-9); scene.add(l2);
+  const l3=new THREE.PointLight('#ffd9a0',18,22,2); l3.position.set(0,2.2,ZB+3); scene.add(l3);
+}
+
+// ---------- post: gentle bloom for the sun glow ----------
+const composer=new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene,camera));
+const bloom=new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight),0.2,0.45,0.9);
+composer.addPass(bloom);
+
+// ---------- controls ----------
+const controls=new PointerLockControls(camera,renderer.domElement);
+const enter=document.getElementById('enter'), cross=document.getElementById('cross');
+document.getElementById('ring').style.display='none';
+document.getElementById('etitle').textContent='The Gallery';
+document.getElementById('ekeys').style.display='block';
+enter.addEventListener('click',()=>controls.lock());
+controls.addEventListener('lock',()=>{enter.classList.add('hide');cross.style.opacity=1;});
+controls.addEventListener('unlock',()=>{enter.classList.remove('hide');cross.style.opacity=0;});
+scene.add(controls.getObject());
+if(location.search.includes('debug')) window.__cam=camera;
+
+const keys={};
+addEventListener('keydown',e=>keys[e.code]=true);
+addEventListener('keyup',e=>keys[e.code]=false);
+const vel=new THREE.Vector3(), dir=new THREE.Vector3();
+function move(dt){
+  const sp=(keys['ShiftLeft']||keys['ShiftRight']?6.2:3.1);
+  dir.set(0,0,0);
+  if(keys['KeyW']||keys['ArrowUp'])dir.z+=1;
+  if(keys['KeyS']||keys['ArrowDown'])dir.z-=1;
+  if(keys['KeyA']||keys['ArrowLeft'])dir.x-=1;
+  if(keys['KeyD']||keys['ArrowRight'])dir.x+=1;
+  dir.normalize();
+  vel.x=dir.x*sp; vel.z=dir.z*sp;
+  controls.moveRight(vel.x*dt); controls.moveForward(vel.z*dt);
+  // zone-based collision: gallery -> doorway -> Grand Chamber
+  const o=controls.getObject(); const z=o.position.z;
+  if(z > -61.5){                 // gallery concourse
+    o.position.x=Math.max(Xleft+0.8,Math.min(Xright-0.9,o.position.x));
+    o.position.z=Math.min(6.5,o.position.z);
+    if(o.position.z < -60.5 && Math.abs(o.position.x) > 2.2) o.position.z=-60.5; // end wall, except the door gap
+  } else if(z > -65){            // threshold / doorway
+    o.position.x=Math.max(-2.2,Math.min(2.2,o.position.x));
+  } else {                       // Grand Chamber
+    o.position.x=Math.max(-10.3,Math.min(10.3,o.position.x));
+    o.position.z=Math.max(-79,o.position.z);
+  }
+  o.position.y=1.7;
+}
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight); composer.setSize(innerWidth,innerHeight);
+});
+let last=performance.now();
+renderer.setAnimationLoop(()=>{
+  const now=performance.now(); const dt=Math.min(0.05,(now-last)/1000); last=now;
+  if(controls.isLocked)move(dt);
+  composer.render();
+});
+}catch(e){ fail('Scene error: '+(e&&e.message||e)); console.error(e); }
+</script>
+</body></html>

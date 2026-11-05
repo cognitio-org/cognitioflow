@@ -1,0 +1,19 @@
+# Never commit ingested course materials (copyright / private) or heavy binaries.
+_ingest/
+assets/splat/
+assets/cc0/
+assets/build/
+assets/courtroom_cc0.glb
+assets/courtroom.glb
+assets/*_preview.png
+assets/courtroom_preview.png
+# keep only the compressed web asset the games actually load:
+!assets/courtroom_web.glb
+# backups / scratch
+*.json.bak
+*.json.generic.bak
+__pycache__/
+*.pyc
+*.blend
+*.blend1
+cjeu/ref/

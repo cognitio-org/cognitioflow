@@ -1,0 +1,60 @@
+{
+  "course": "Property Law",
+  "title": "The Docket — spot the flaws (your Property Law material)",
+  "items": [
+    {
+      "text": "The transfer of ownership of goods is generally governed by the principle of delivery alone, regardless of the parties' agreement.",
+      "flawed": true,
+      "ground": "This principle is central to the discussion in Sagaert's article, which contrasts consensual systems with delivery systems in European private law.",
+      "cite": "V. Sagaert, Consensual versus Delivery Systems in European Private Law – Consensus about Tradition? In: Rules for the Transfer of Movables. A Candidate for European Harmonisation or National Reforms?, W. Faber & B. Lurger, eds., Munich 2008, pp. 9-46",
+      "station": "Claimant's table",
+      "why": "Sagaert's analysis emphasizes that consensual systems require agreement between parties for the transfer of ownership, in contrast to systems where delivery alone suffices.",
+      "source": "564706_wk3_content.txt"
+    },
+    {
+      "text": "The transfer of ownership of goods is generally governed by the principle of consensual transfer, which requires a meeting of minds between the parties regarding the transfer of ownership.",
+      "flawed": false,
+      "ground": "This principle is central to the discussion in Sagaert's article, which contrasts consensual systems with delivery systems in European private law.",
+      "cite": "V. Sagaert, Consensual versus Delivery Systems in European Private Law – Consensus about Tradition? In: Rules for the Transfer of Movables. A Candidate for European Harmonisation or National Reforms?, W. Faber & B. Lurger, eds., Munich 2008, pp. 9-46",
+      "station": "Respondent's table",
+      "why": "Sagaert's analysis emphasizes that consensual systems require agreement between parties for the transfer of ownership, in contrast to systems where delivery alone suffices.",
+      "source": "564706_wk3_content.txt"
+    },
+    {
+      "text": "Acquisitive prescription does not allow for the acquisition of ownership of goods; it only serves to protect possession of immovable property.",
+      "flawed": true,
+      "ground": "This principle is discussed in the context of the DCFR and is analyzed by Salomons, who evaluates how acquisitive prescription fits into the broader framework of property law.",
+      "cite": "A.F. Salomons, The Purpose and Coherence of the Rules on Good Faith Acquisition and Acquisitive Prescription in the Draft Common Frame of Reference: A Tale of Two Gatekeepers, ERPL 2013-3, p. 843-862",
+      "station": "The bench",
+      "why": "Salomons explores how acquisitive prescription functions as a legal mechanism for acquiring ownership, similar to good faith acquisition, within the DCFR.",
+      "source": "564706_wk3_content.txt"
+    },
+    {
+      "text": "Acquisitive prescription allows a person to acquire ownership of goods after a certain period of continuous and peaceful possession, provided they meet the conditions set out in the relevant legal system.",
+      "flawed": false,
+      "ground": "This principle is discussed in the context of the DCFR and is analyzed by Salomons, who evaluates how acquisitive prescription fits into the broader framework of property law.",
+      "cite": "A.F. Salomons, The Purpose and Coherence of the Rules on Good Faith Acquisition and Acquisitive Prescription in the Draft Common Frame of Reference: A Tale of Two Gatekeepers, ERPL 2013-3, p. 843-862",
+      "station": "Witness box",
+      "why": "Salomons explores how acquisitive prescription functions as a legal mechanism for acquiring ownership, similar to good faith acquisition, within the DCFR.",
+      "source": "564706_wk3_content.txt"
+    },
+    {
+      "text": "Limited rights can be acquired through the same mechanisms as full ownership, such as purchase or inheritance.",
+      "flawed": true,
+      "ground": "The introduction by F.M.J. Verstijlen discusses how limited rights are created through particular legal instruments.",
+      "cite": "F.M.J. Verstijlen - Introduction to limited rights",
+      "station": "Clerk's desk",
+      "why": "The author explains that limited rights require specific legal creation mechanisms as opposed to general ownership acquisition.",
+      "source": "564706_wk5_content.txt"
+    },
+    {
+      "text": "Limited rights in property law are typically acquired through specific legal mechanisms rather than general acquisition rules.",
+      "flawed": false,
+      "ground": "The introduction by F.M.J. Verstijlen discusses how limited rights are created through particular legal instruments.",
+      "cite": "F.M.J. Verstijlen - Introduction to limited rights",
+      "station": "The rostrum",
+      "why": "The author explains that limited rights require specific legal creation mechanisms as opposed to general ownership acquisition.",
+      "source": "564706_wk5_content.txt"
+    }
+  ]
+}

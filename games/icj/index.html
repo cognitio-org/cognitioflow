@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ICJ Great Hall — CognitioFlow</title>
+<style>
+:root{--ink:#f3ecdd;--muted:#c9ba98;--gold:#d8ad52;--bg:#06060a}
+*{margin:0;box-sizing:border-box}html,body{height:100%;background:var(--bg);overflow:hidden;font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink)}
+#c{position:fixed;inset:0}
+#bar{position:fixed;top:0;left:0;right:0;z-index:5;display:flex;align-items:center;gap:10px;padding:14px 18px;background:linear-gradient(180deg,rgba(0,0,0,.6),transparent);pointer-events:none}
+#bar .dot{width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 10px var(--gold)}
+#bar b{font-size:12px;letter-spacing:.16em;text-transform:uppercase}#bar span{color:var(--muted);font-size:12px}
+#hint{position:fixed;bottom:16px;left:0;right:0;z-index:5;text-align:center;color:var(--muted);font-size:12px;letter-spacing:.04em;pointer-events:none;text-shadow:0 1px 6px rgba(0,0,0,.8)}
+#load{position:fixed;inset:0;z-index:9;display:flex;align-items:center;justify-content:center;background:var(--bg);transition:opacity .6s}
+#load.hide{opacity:0;pointer-events:none}
+#load .inner{text-align:center}#load .ring{width:38px;height:38px;border-radius:50%;margin:0 auto 14px;border:2px solid rgba(216,173,82,.2);border-top-color:var(--gold);animation:spin 1s linear infinite}
+#load .t{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}#load .s{font-size:11px;color:var(--muted);opacity:.7;margin-top:8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+#err{position:fixed;inset:0;z-index:10;display:none;align-items:center;justify-content:center;padding:24px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6}
+</style></head>
+<body>
+<div id="c"></div>
+<div id="bar"><span class="dot"></span><b>CognitioFlow</b><span>· ICJ Great Hall of Justice — photoreal (Gaussian splat)</span></div>
+<div id="hint">drag to orbit &nbsp;·&nbsp; scroll to zoom &nbsp;·&nbsp; right-drag to pan &nbsp;·&nbsp; W A S D to fly</div>
+<div id="load"><div class="inner"><div class="ring"></div><div class="t">Loading the Great Hall</div><div class="s">reconstructed from real footage · COLMAP + Brush</div></div></div>
+<div id="err"></div>
+<script type="importmap">{"imports":{
+"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+"three/":"https://cdn.jsdelivr.net/npm/three@0.160.0/"
+}}</script>
+<script type="module">
+import * as GaussianSplats3D from 'https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/build/gaussian-splats-3d.module.js';
+const SPLAT = '../assets/splat/icj_hall.ply';   // Brush export (Y-up)
+function fail(m){const e=document.getElementById('err');e.style.display='flex';e.textContent=m;document.getElementById('load').classList.add('hide');}
+try{
+  const viewer = new GaussianSplats3D.Viewer({
+    rootElement: document.getElementById('c'),
+    cameraUp: [0, -1, 0],                      // this COLMAP frame reads Y-down
+    initialCameraPosition: [-5.37, -7.56, -3],
+    initialCameraLookAt: [-5.37, -9.0, 23.29],
+    sphericalHarmonicsDegree: 2,
+    sharedMemoryForWorkers: false,
+    useBuiltInControls: true,
+    dynamicScene: false
+  });
+  viewer.addSplatScene(SPLAT, {format: GaussianSplats3D.SceneFormat.Ply, showLoadingUI: false, progressiveLoad: true})
+    .then(()=>{ document.getElementById('load').classList.add('hide'); viewer.start(); })
+    .catch(e=>fail('Could not load the splat: '+(e&&e.message||e)));
+}catch(e){ fail('Viewer error: '+(e&&e.message||e)); }
+</script>
+</body></html>

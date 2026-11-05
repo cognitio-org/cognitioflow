@@ -1,0 +1,60 @@
+{
+  "course": "European Law",
+  "title": "The Docket — spot the flaws (your EU Law WG material)",
+  "items": [
+    {
+      "text": "A service under Art 56 TFEU must involve a tangible performance that is provided for free, not for remuneration.",
+      "flawed": true,
+      "ground": "The model answer explicitly states this definition and applies it to remote medical consultations, showing that such services fall within the scope of Art 56 TFEU.",
+      "cite": "Art 56 TFEU",
+      "station": "Claimant's table",
+      "why": "The model answer uses this definition to establish that MediLink's remote medical consultations qualify as services under Art 56 TFEU, which is necessary for applying the free movement rules.",
+      "source": "5969842_wk3_model.txt"
+    },
+    {
+      "text": "A service within the meaning of Art 56 TFEU involves a non-tangible performance that is normally provided for remuneration and is of a temporary nature.",
+      "flawed": false,
+      "ground": "The model answer explicitly states this definition and applies it to remote medical consultations, showing that such services fall within the scope of Art 56 TFEU.",
+      "cite": "Art 56 TFEU",
+      "station": "Respondent's table",
+      "why": "The model answer uses this definition to establish that MediLink's remote medical consultations qualify as services under Art 56 TFEU, which is necessary for applying the free movement rules.",
+      "source": "5969842_wk3_model.txt"
+    },
+    {
+      "text": "Article 52 TFEU only allows restrictions to be justified if they are necessary and proportionate to the objective pursued, not simply because they relate to public interest.",
+      "flawed": true,
+      "ground": "The model answer explicitly cites Gebhard and Laval as examples of cases where such justifications were accepted, and applies this principle to the Slovenian law.",
+      "cite": "Article 52 TFEU",
+      "station": "The bench",
+      "why": "The model answer argues that the Slovenian law's objective of protecting public health constitutes a valid justification under Article 52 TFEU, which is a key principle for assessing the legality of restrictions.",
+      "source": "5969842_wk3_model.txt"
+    },
+    {
+      "text": "Restrictions to the freedom to provide services can be justified on the basis of imperative requirements in the public interest under Article 52 TFEU.",
+      "flawed": false,
+      "ground": "The model answer explicitly cites Gebhard and Laval as examples of cases where such justifications were accepted, and applies this principle to the Slovenian law.",
+      "cite": "Article 52 TFEU",
+      "station": "Witness box",
+      "why": "The model answer argues that the Slovenian law's objective of protecting public health constitutes a valid justification under Article 52 TFEU, which is a key principle for assessing the legality of restrictions.",
+      "source": "5969842_wk3_model.txt"
+    },
+    {
+      "text": "Article 101 TFEU only applies to formal written agreements between undertakings, not to informal cooperation or public statements of support.",
+      "flawed": true,
+      "ground": "The functional definition of an undertaking includes any entity engaged in economic activity, and cooperation can take the form of concerted practice without requiring a formal agreement.",
+      "cite": "Art 101 TFEU",
+      "station": "Clerk's desk",
+      "why": "The law recognizes that cooperation in the form of public statements of support can constitute a concerted practice under Article 101 TFEU, even without a written agreement.",
+      "source": "5984748_wk5_assignment_model.txt"
+    },
+    {
+      "text": "Article 101 TFEU applies to agreements or concerted practices that restrict competition, regardless of whether they are formal written contracts.",
+      "flawed": false,
+      "ground": "The functional definition of an undertaking includes any entity engaged in economic activity, and cooperation can take the form of concerted practice without requiring a formal agreement.",
+      "cite": "Art 101 TFEU",
+      "station": "The rostrum",
+      "why": "The law recognizes that cooperation in the form of public statements of support can constitute a concerted practice under Article 101 TFEU, even without a written agreement.",
+      "source": "5984748_wk5_assignment_model.txt"
+    }
+  ]
+}
