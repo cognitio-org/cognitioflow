@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 
-PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic").strip().lower()
+PROVIDER = os.environ.get("LLM_PROVIDER", "gateway").strip().lower()
 PROVIDERS = ("anthropic", "openrouter", "gateway", "kernal")
 
 OPENROUTER_BASE = "https://openrouter.ai/api"

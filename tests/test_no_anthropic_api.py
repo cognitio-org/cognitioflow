@@ -44,3 +44,12 @@ def test_nothing_in_the_app_looks_for_the_anthropic_key_any_more():
     root = os.path.dirname(os.path.dirname(__file__))
     for name in ("run.py", "gateway.py"):
         assert "ANTHROPIC_API_KEY" not in open(os.path.join(root, name)).read(), name
+
+
+def test_llm_does_not_default_to_the_anthropic_provider():
+    # The LLM_PROVIDER default must not lead with the forbidden Anthropic API. Source-level so it
+    # needs no database (conftest requires Postgres; this guard must run without it).
+    root = os.path.dirname(os.path.dirname(__file__))
+    src = open(os.path.join(root, "llm.py")).read()
+    assert 'os.environ.get("LLM_PROVIDER", "anthropic")' not in src
+    assert 'os.environ.get("LLM_PROVIDER", "gateway")' in src
