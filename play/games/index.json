@@ -19,5 +19,45 @@
     "title": "The Joint Programme",
     "path": "IIEL/w2-legislative-procedures-horizontal-effect.json",
     "mode": "case"
+  },
+  {
+    "course": "IIEL",
+    "id": "objection-eu",
+    "mode": "standalone",
+    "title": "Objection!",
+    "logline": "Judge EU-law submissions in the Grand Chamber — object, or let them stand.",
+    "url": "/play/arcade/objection/index.html?course=eu-law"
+  },
+  {
+    "course": "PROP",
+    "id": "objection-prop",
+    "mode": "standalone",
+    "title": "Objection!",
+    "logline": "Judge submissions on property law — object, or let them stand.",
+    "url": "/play/arcade/objection/index.html?course=property-law"
+  },
+  {
+    "course": "IIEL",
+    "id": "docket-eu",
+    "mode": "standalone",
+    "title": "The Docket",
+    "logline": "Take the EU-law docket, case by case.",
+    "url": "/play/arcade/docket/index.html?course=eu-law"
+  },
+  {
+    "course": "PROP",
+    "id": "docket-prop",
+    "mode": "standalone",
+    "title": "The Docket",
+    "logline": "Take the property-law docket, case by case.",
+    "url": "/play/arcade/docket/index.html?course=property-law"
+  },
+  {
+    "course": "IIEL",
+    "id": "cjeu-courtroom",
+    "mode": "standalone",
+    "title": "The Grand Chamber",
+    "logline": "Walk the CJEU Grand Chamber in 3D.",
+    "url": "/play/arcade/cjeu/index.html"
   }
 ]

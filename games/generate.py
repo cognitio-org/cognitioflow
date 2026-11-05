@@ -262,7 +262,8 @@ def write_packs(items: list, course="European Law"):
     objection = {"course": course, "title": "Objection! — Direct effect, primacy & references",
                  "items": [{k: it[k] for k in ("text", "flawed", "ground", "cite", "wk", "why", "source")} for it in items]}
     for sub, pack in (("docket", docket), ("objection", objection)):
-        p = GAMES / sub / "content" / "eu-law.json"
+        # games now live under play/arcade/ (served); write their content there, not under games/.
+        p = GAMES.parent / "play" / "arcade" / sub / "content" / "eu-law.json"
         if p.exists():
             bak = p.with_suffix(".json.bak")
             if not bak.exists():

@@ -2864,15 +2864,23 @@ def _docket_for(course: dict) -> list:
     def belongs(code: str) -> bool:
         names = {code.casefold()} | {str(a).casefold() for a in aliases.get(code, [])}
         return bool(names & mine)
-    return [g for g in index if isinstance(g, dict) and g.get("id") and g.get("path") and belongs(str(g.get("course", "")))]
+    # a catalogue entry is either a player game (has `path`) or a standalone arcade game (has `url`).
+    return [g for g in index if isinstance(g, dict) and g.get("id") and (g.get("path") or g.get("url")) and belongs(str(g.get("course", "")))]
 
 @app.get("/api/courses/{cid}/docket")
 def docket(cid: str, draft: str = "", user: dict = Depends(current_user)):
     """The 3D player's library: the hand-made games for this course, then the ones written from his files that he
     approved. `draft` adds one unapproved draft, so he can play it before he decides."""
     course = _own_course(cid, user)
-    out = [{"id": g["id"], "course": g.get("course", ""), "title": g.get("title", ""), "path": f"/api/courses/{cid}/docket/{g['id']}"}
-           for g in _docket_for(course)]
+    out = []
+    for g in _docket_for(course):
+        if g.get("mode") == "standalone":
+            # a self-contained arcade game — the player opens its /play/arcade url directly (no game JSON).
+            out.append({"id": g["id"], "course": g.get("course", ""), "title": g.get("title", ""),
+                        "logline": g.get("logline", ""), "mode": "standalone", "url": g["url"]})
+        else:
+            out.append({"id": g["id"], "course": g.get("course", ""), "title": g.get("title", ""),
+                        "path": f"/api/courses/{cid}/docket/{g['id']}"})
     for g in rows("SELECT id,title,status FROM docket_games WHERE course_id=? AND (status='approved' OR (id=? AND status='draft')) "
                   "ORDER BY created", cid, draft):
         out.append({"id": g["id"], "course": _docket_code(course), "title": g["title"], "path": f"/api/courses/{cid}/docket/{g['id']}",
@@ -2886,7 +2894,9 @@ def docket_game(cid: str, gid: str, user: dict = Depends(current_user)):
     if mine and mine[0]["game"]:
         return Response(content=json.dumps(mine[0]["game"], ensure_ascii=False), media_type="application/json", headers={"Cache-Control": "private, no-cache"})
     g = next((g for g in _docket_for(course) if g["id"] == gid), None)
-    path = (GAMES_DIR / g["path"]).resolve() if g else None
+    # standalone arcade entries carry a `url`, not a `path`; they are served by the /play/arcade mount,
+    # never through this JSON endpoint, so a missing path is a 404 here (guard against KeyError).
+    path = (GAMES_DIR / g["path"]).resolve() if g and g.get("path") else None
     if not path or not path.is_relative_to(GAMES_DIR.resolve()) or not path.is_file(): raise HTTPException(404)
     return Response(content=path.read_text(encoding="utf-8"), media_type="application/json", headers={"Cache-Control": "private, no-cache"})
 
@@ -4219,6 +4229,9 @@ class PlayerFiles(StaticFiles):
         return resp
 
 app.mount("/play/player", PlayerFiles(directory=PLAY_DIR / "player"), name="play")
+# Standalone 3D games (objection / docket / cjeu) relocated under play/ so they ship with `COPY play/`.
+# They are listed in the one catalogue (play/games/index.json) as mode:"standalone" with a /play/arcade url.
+app.mount("/play/arcade", PlayerFiles(directory=PLAY_DIR / "arcade"), name="arcade")
 
 
 if __name__ == "__main__":

@@ -30,16 +30,19 @@ export async function loadIndex() {
   try {
     const indexUrl = IN_APP ? `/api/courses/${encodeURIComponent(APP_COURSE)}/docket${APP_DRAFT ? `?draft=${encodeURIComponent(APP_DRAFT)}` : ''}` : new URL('index.json', GAMES_BASE).href;
     const data = await fetchJSON(indexUrl);
-    if (Array.isArray(data)) list = data.filter((g) => g && g.id && g.path);
+    if (Array.isArray(data)) list = data.filter((g) => g && g.id && (g.path || g.url));
   } catch (err) {
     console.warn('[data] index.json unavailable, using fixtures only', err);
   }
-  const entries = list.map((g) => ({ ...g, url: new URL(g.path, GAMES_BASE).href, fixture: FIXTURES[g.id] || null }));
+  // standalone arcade entries already carry an absolute url; player games build one from their path.
+  const entries = list.map((g) => ({ ...g, url: g.url || new URL(g.path, GAMES_BASE).href, fixture: FIXTURES[g.id] || null }));
   for (const [id, url] of Object.entries(FIXTURES)) {
     if (!entries.some((e) => e.id === id)) entries.push({ id, url, fixture: null, isFixture: true });
   }
   // Fill in course/title/logline for the cards (games are small, so fetch them all).
   await Promise.all(entries.map(async (e) => {
+    // standalone games carry title/logline/course inline from index.json — no game JSON to fetch.
+    if (e.mode === 'standalone') { e.rounds = 0; return; }
     try {
       const g = await loadGameFrom(e);
       e.course = g.course; e.title = g.title; e.logline = g.logline; e.rounds = g.scenes.filter((s) => s.quiz).length;
@@ -48,7 +51,7 @@ export async function loadIndex() {
       e.error = String(err);
     }
   }));
-  return entries.filter((e) => e.game);
+  return entries.filter((e) => e.game || e.mode === 'standalone');
 }
 
 async function loadGameFrom(entry) {

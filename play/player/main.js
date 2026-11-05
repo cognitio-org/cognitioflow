@@ -150,7 +150,7 @@ async function toLibrary() {
   stage.pause(false);
   stage.freeze(false);
   ui.showScreen('library');
-  ui.renderLibrary(entries, (e) => play(e.game));
+  ui.renderLibrary(entries, (e) => openEntry(e));
   audio.music('arrival');
   await stage.showBackdrop(entries[0]?.game?.scenes.find((s) => s.phase !== 'arrival')?.set || 'courtroom');
   $('#library h1')?.focus({ preventScroll: true });
@@ -382,6 +382,13 @@ async function playScene(s, scene, i, round, totalRounds, { jumpToQuiz = false, 
   return null;
 }
 
+// Launch a catalogue entry: a self-contained arcade game navigates the (iframe) window to its own
+// page; a player game runs in-player as before. Centralised so every library callback routes here.
+function openEntry(e) {
+  if (e.mode === 'standalone') { location.href = e.url; return; }
+  play(e.game);
+}
+
 async function play(game, { at = null, sceneIdx = 0, quiz = false, verdict = false, auto = false } = {}) {
   if (session) session.dead = true;
   ui.cancelWaits();
@@ -560,7 +567,9 @@ async function boot() {
   const entry = wanted && entries.find((e) => e.id === wanted);
   document.documentElement.classList.add('is-ready');
   if (entry) {
-    ui.renderLibrary(entries, (e) => play(e.game));
+    // a deep-linked standalone game has no in-player `game` — launch it by its own url.
+    if (entry.mode === 'standalone') { openEntry(entry); return; }
+    ui.renderLibrary(entries, (e) => openEntry(e));
     const at = params.get('at');
     play(entry.game, {
       at,
