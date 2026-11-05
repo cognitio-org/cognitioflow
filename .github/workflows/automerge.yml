@@ -17,8 +17,16 @@ jobs:
     if: contains(github.event.pull_request.labels.*.name, 'automerge') && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
+      # Arm auto-merge under a PAT (AUTODEPLOY_PAT) rather than GITHUB_TOKEN. Why: when GitHub
+      # completes an auto-merge enabled by GITHUB_TOKEN, the resulting push to main is attributed to
+      # the Actions bot, and GitHub does NOT trigger downstream workflows from a GITHUB_TOKEN push
+      # (anti-recursion) — so deploy.yml (on: push main) never fires and the merge sits undeployed
+      # until a manual deploy-catchup kick. Arming it under a real PAT attributes the merge to that
+      # user, so the push DOES trigger deploy.yml → merge auto-deploys, hands-off. Falls back to
+      # GITHUB_TOKEN when the secret is unset (current behaviour: merges, but needs the manual kick).
+      # The PAT is fine-grained, this repo only, Contents:write + Pull requests:write.
       - name: Enable auto-merge (squash)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.AUTODEPLOY_PAT || secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: gh pr merge --auto --squash "$PR_URL"
