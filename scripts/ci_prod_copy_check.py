@@ -111,7 +111,15 @@ def main() -> int:
                     continue
                 params = set(re.findall(r"{(\w+)}", route))
                 if route in GID:
-                    ids["gid"] = first_id(get(GID[route].format(**ids))[1])
+                    lst = get(GID[route].format(**ids))[1]
+                    lst = lst if isinstance(lst, list) else []
+                    if route == "/api/courses/{cid}/docket/{gid}":
+                        # only path-backed games resolve through this JSON endpoint; standalone arcade
+                        # entries (url, no path) 404 here by design, so probe a path-backed one or skip.
+                        cand = next((g for g in lst if isinstance(g, dict) and g.get("path")), None)
+                        ids["gid"] = cand.get("id") if cand else None
+                    else:
+                        ids["gid"] = first_id(lst)
                 missing = sorted(p for p in params if ids.get(p) is None)
                 if missing:
                     skipped.append(f"{course['id']} {route} (no {', '.join(missing)})")
