@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Lector, the fourth daemon in the eu.mgms.cognitio family.
+     Installed by research/install.sh, which rewrites REPO_PATH to the real checkout. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>eu.mgms.cognitio.lector</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>REPO_PATH/research/lector.py</string>
+    <string>--once</string>
+  </array>
+
+  <!-- 07:45, before the 08:30 to-do run, so the digest is already there when it reports. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>7</integer>
+    <key>Minute</key><integer>45</integer>
+  </dict>
+
+  <key>RunAtLoad</key><false/>
+  <key>StandardOutPath</key><string>HOME_PATH/.cognitio/lector/stdout.log</string>
+  <key>StandardErrorPath</key><string>HOME_PATH/.cognitio/lector/stderr.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>LECTOR_CONTACT</key><string>matej@mgms.eu</string>
+  </dict>
+</dict>
+</plist>
