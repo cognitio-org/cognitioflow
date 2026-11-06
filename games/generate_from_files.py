@@ -217,7 +217,9 @@ def write_packs(items):
     obj = {"course": COURSE["name"], "title": COURSE["objection_title"],
            "items": [{k: it[k] for k in ("text","flawed","ground","cite","wk","why","source")} for it in items]}
     for sub, pack in (("docket", docket), ("objection", obj)):
-        p = GAMES / sub / "content" / COURSE["out"]
+        # The games now live under play/arcade/ (served by `COPY play/`); write their content there.
+        # Input still reads from games/_ingest/ (private source, never served). See TXT below.
+        p = GAMES.parent / "play" / "arcade" / sub / "content" / COURSE["out"]
         bak = p.with_suffix(".json.generic.bak")
         if p.exists() and not bak.exists():
             bak.write_text(p.read_text(), encoding="utf-8")

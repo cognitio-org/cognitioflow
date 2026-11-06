@@ -131,11 +131,11 @@ export class UI {
           el('h3', { class: 'lib-title', text: e.title }),
           el('p', { class: 'lib-logline', text: e.logline }),
           el('div', { class: 'lib-meta' },
-            el('span', { text: rounds ? `${rounds} examination round${rounds === 1 ? '' : 's'}` : 'Story only' }),
+            el('span', { text: e.mode === 'standalone' ? '3D arcade game' : (rounds ? `${rounds} examination round${rounds === 1 ? '' : 's'}` : 'Story only') }),
             e.isFixture ? el('span', { class: 'lib-tag', text: 'fixture' }) : null),
           status,
-          el('button', { class: 'btn btn-primary lib-play', type: 'button', onclick: () => onOpen(e), 'aria-label': `Take the case: ${e.title}` },
-            prog?.completed ? 'Replay case' : 'Take the case', el('span', { class: 'btn-arrow', 'aria-hidden': 'true', text: '→' })));
+          el('button', { class: 'btn btn-primary lib-play', type: 'button', onclick: () => onOpen(e), 'aria-label': `${e.mode === 'standalone' ? 'Play' : 'Take the case'}: ${e.title}` },
+            e.mode === 'standalone' ? 'Play' : (prog?.completed ? 'Replay case' : 'Take the case'), el('span', { class: 'btn-arrow', 'aria-hidden': 'true', text: '→' })));
         grid.append(card);
       }
     }
