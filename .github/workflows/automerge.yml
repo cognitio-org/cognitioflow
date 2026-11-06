@@ -27,6 +27,17 @@ jobs:
       # The PAT is fine-grained, this repo only, Contents:write + Pull requests:write.
       - name: Enable auto-merge (squash)
         env:
-          GH_TOKEN: ${{ secrets.AUTODEPLOY_PAT || secrets.GITHUB_TOKEN }}
+          PAT: ${{ secrets.AUTODEPLOY_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
-        run: gh pr merge --auto --squash "$PR_URL"
+        run: |
+          # Prefer the PAT (its merge triggers deploy.yml). If it is missing OR invalid/expired, fall
+          # back to the default token so the PR still auto-merges — deploy then rides the deploy-catchup
+          # backstop. A present-but-bad PAT used to hard-fail arming (401 Bad credentials); this no longer
+          # breaks the pipeline, it just degrades to the catch-up path.
+          if [ -n "$PAT" ] && GH_TOKEN="$PAT" gh pr merge --auto --squash "$PR_URL"; then
+            echo "armed with AUTODEPLOY_PAT — the merge will trigger deploy.yml"
+          else
+            echo "::warning::AUTODEPLOY_PAT missing or invalid — falling back to GITHUB_TOKEN; the merge will NOT trigger deploy (relies on deploy-catchup.yml)."
+            GH_TOKEN="$GITHUB_TOKEN" gh pr merge --auto --squash "$PR_URL"
+          fi
