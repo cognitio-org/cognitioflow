@@ -144,7 +144,8 @@ def test_docket_lists_only_this_courses_games(client):
     assert eu and {g["course"] for g in eu} == {"IIEL"}
     game = client.get(eu[0]["path"])
     assert game.status_code == 200 and game.json()["id"] == eu[0]["id"]
-    assert client.get("/api/courses/prop/docket").json() == []
+    prop = client.get("/api/courses/prop/docket").json()
+    assert prop and {g["course"] for g in prop} == {"PROP"}   # Property Law has its own games now; the docket still lists only this course's
     assert client.get(f"/api/courses/prop/docket/{eu[0]['id']}").status_code == 404   # an IIEL game is not a Property Law game
     assert client.get("/api/courses/eu/docket/..%2F..%2Frun").status_code == 404
     assert client.get("/api/courses/eu/docket/nope").status_code == 404
