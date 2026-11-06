@@ -50,6 +50,9 @@ def score(d: Doctrine) -> float:
 
 
 def status(d: Doctrine) -> str:
+    _validate(d)
+    if d.cards_total == 0:
+        return "gap"            # examined, but nothing made to drill it yet — a coverage gap, not "shaky"
     doctrine_score = score(d)
     if doctrine_score >= 0.8:
         return "ready"
@@ -62,12 +65,12 @@ def overall(doctrines: list[Doctrine]) -> dict:
     if not doctrines:
         return {
             "mean_score": 0.0,
-            "by_status": {"ready": 0, "shaky": 0, "weak": 0},
+            "by_status": {"ready": 0, "shaky": 0, "weak": 0, "gap": 0},
             "weakest": [],
         }
 
     scores = [score(doctrine) for doctrine in doctrines]
-    by_status = {"ready": 0, "shaky": 0, "weak": 0}
+    by_status = {"ready": 0, "shaky": 0, "weak": 0, "gap": 0}
     for doctrine in doctrines:
         by_status[status(doctrine)] += 1
 

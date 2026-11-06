@@ -74,8 +74,9 @@ def test_score_uses_equal_weighting_and_rounds_to_three_decimals():
     ("doctrine", "expected"),
     [
         (Doctrine("exactly-ready", cards_total=10, cards_due=4, drills_attempted=1, drills_passed=1), "ready"),
-        (Doctrine("exactly-shaky"), "shaky"),
+        (Doctrine("exactly-shaky", cards_total=10, cards_due=0), "shaky"),   # retention 1.0, never drilled -> 0.5
         (Doctrine("below-shaky", cards_total=10, cards_due=10), "weak"),
+        (Doctrine("no-cards"), "gap"),                                        # examined, nothing made to drill it
     ],
 )
 def test_status_thresholds(doctrine, expected):
@@ -87,14 +88,24 @@ def test_overall_mean_status_counts_and_weakest_ties():
         Doctrine("z-weak", cards_total=10, cards_due=10),                                    # score 0.0
         Doctrine("ready", cards_total=10, cards_due=2, drills_attempted=1, drills_passed=1),  # 0.5*0.8 + 0.5*1.0 = 0.9
         Doctrine("a-weak", cards_total=10, cards_due=10),                                    # score 0.0
-        Doctrine("shaky"),                                                                   # 0.5*1.0 + 0.5*0.0 = 0.5
+        Doctrine("shaky", cards_total=10, cards_due=0),                                       # 0.5*1.0 + 0.5*0.0 = 0.5
     ]
 
     assert overall(doctrines) == {
         "mean_score": 0.35,   # (0.0 + 0.9 + 0.0 + 0.5) / 4
-        "by_status": {"ready": 1, "shaky": 1, "weak": 2},
+        "by_status": {"ready": 1, "shaky": 1, "weak": 2, "gap": 0},
         "weakest": ["a-weak", "z-weak", "shaky"],   # by (score, key): 0.0/a, 0.0/z, 0.5/shaky
     }
+
+
+def test_overall_counts_zero_card_doctrines_as_gaps():
+    doctrines = [
+        Doctrine("covered", cards_total=10, cards_due=2, drills_attempted=1, drills_passed=1),  # ready
+        Doctrine("untouched"),                                                                  # 0 cards -> gap
+        Doctrine("also-untouched"),                                                             # 0 cards -> gap
+    ]
+    out = overall(doctrines)
+    assert out["by_status"] == {"ready": 1, "shaky": 0, "weak": 0, "gap": 2}
 
 
 def test_overall_limits_weakest_to_three_doctrines():
@@ -111,6 +122,6 @@ def test_overall_limits_weakest_to_three_doctrines():
 def test_overall_empty_list():
     assert overall([]) == {
         "mean_score": 0.0,
-        "by_status": {"ready": 0, "shaky": 0, "weak": 0},
+        "by_status": {"ready": 0, "shaky": 0, "weak": 0, "gap": 0},
         "weakest": [],
     }
