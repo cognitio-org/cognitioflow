@@ -1494,3 +1494,68 @@ def test_the_tutor_stream_reports_what_the_answer_cost(client, monkeypatch):
     # a real id, so llm.PRICES can price it: a fake one returns cost None, which is
     # correct - llm.py will not put a figure on screen that does not match the bill.
     assert isinstance(u["cost"], float) and u["cost"] > 0, "a cost the UI can add up"
+
+
+# ---- /concepts/build-all : one-click "build the whole course deck" (reuses extract + idempotent generate) ----
+
+def test_build_all_404_on_missing_course(client):
+    assert client.post("/api/courses/nope/concepts/build-all").status_code == 404
+
+
+def test_build_all_handles_a_course_with_nothing_to_build(client, monkeypatch):
+    import types
+    import run
+    cid = _cid(client)
+    empty = types.SimpleNamespace(
+        content=[types.SimpleNamespace(type="text", text='{"concepts": [], "cards": []}')], model="fake-cheap")
+    monkeypatch.setattr(run, "ask_model", lambda *a, **k: empty)   # never the network, never a strong model
+    r = client.post(f"/api/courses/{cid}/concepts/build-all")
+    assert r.status_code == 200
+    assert r.json()["totals"]["cards"] == 0
+
+
+def test_build_all_builds_a_week_deck_then_is_idempotent_and_cheap(client, monkeypatch):
+    import types
+    import json as _json
+    import concepts
+    import run
+    cid = _cid(client)
+    text = ("Article 34 TFEU prohibits quantitative restrictions and all measures having equivalent "
+            "effect between Member States, a rule that reaches any national measure capable of hindering trade.")
+    client.post(f"/api/courses/{cid}/files",
+                files={"file": ("buildall_w9.txt", io.BytesIO(text.encode()), "text/plain")},
+                data={"week": "9"})
+
+    concept_reply = _json.dumps({"concepts": [{
+        "name": "Equivalent effect (build-all test)", "kind": "test",
+        "statement": "A national measure capable of hindering intra-Union trade is a measure of equivalent effect.",
+        "limbs": ["a national measure", "capable of hindering trade"],
+        "traps": ["confusing it with a quantitative restriction"],
+        "authority": "", "method_tag": "Free Movement",
+        "quote": "all measures having equivalent effect between Member States",
+    }]})
+    cards_reply = _json.dumps({"cards": [
+        {"front": "What counts as a measure of equivalent effect?",
+         "back": "Any national measure capable of hindering intra-Union trade, directly or indirectly."},
+        {"front": "What does Article 34 prohibit beyond quotas?",
+         "back": "All measures having equivalent effect between Member States."},
+    ]})
+
+    seen_models = []
+
+    def fake_ask(model, *a, **k):
+        seen_models.append(model)
+        reply = concept_reply if k.get("system") == concepts.EXTRACT_RULES else cards_reply
+        return types.SimpleNamespace(content=[types.SimpleNamespace(type="text", text=reply)], model="fake-cheap")
+
+    monkeypatch.setattr(run, "ask_model", fake_ask)
+
+    first = client.post(f"/api/courses/{cid}/concepts/build-all").json()
+    assert first["weeks"].get("9", {}).get("concepts", 0) >= 1
+    assert first["weeks"]["9"]["cards"] >= 1
+    assert first["totals"]["cards"] >= 1
+    # cheap model only — never a strong/tutor model
+    assert seen_models and all(m == run.CHEAP_MODEL for m in seen_models), seen_models
+
+    again = client.post(f"/api/courses/{cid}/concepts/build-all").json()
+    assert again["totals"]["cards"] == 0   # idempotent: nothing new on the second pass
