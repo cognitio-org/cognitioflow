@@ -1148,7 +1148,7 @@ async function advNext(){
   try{
     const r=await post(`/courses/${cid}/oral/next`,{week:$('#advWeek').value||'',mastery:adv.mastery,cooldown:adv.cooldown});
     if(!r.question){ advShowIdle(); $('#advCount').textContent='No questions yet — press "Build questions from my files".'; return; }
-    adv.q=r.question; advShowLive();
+    adv.q=r.question; adv.graded=null; advShowLive();
     $('#advQ').textContent=r.question.question; $('#advCourse').textContent=C().name+($('#advWeek').value?` · week ${$('#advWeek').value}`:'');
     $('#advPos').textContent=`question ${adv.asked+1} · ${r.left} in the bank`;
     $('#advTags').innerHTML=`<span class="tag">${esc(r.question.concept)}</span>`;
@@ -1162,6 +1162,7 @@ async function advSubmit(text){
   if(!text||adv.busy) return;
   const own=adv.own, q=adv.q;   // pinned: grading takes a few seconds and the stage can change meanwhile
   if(!own&&!q){ toast('Press Start, or ask your own question'); return; }
+  if(!own && q && adv.graded===q.id){ advNext(); return; }   // already graded this card — a second answer moves on, never a second review (one scheduler)
   adv.busy=true; advQuiet();
   advBubble('me',text); $('#advType').value='';
   const think=advBubble('tutor','Weighing that…'); think.classList.add('thinking');
@@ -1173,7 +1174,7 @@ async function advSubmit(text){
   }catch(e){ think.remove(); adv.busy=false; toast('Could not grade that — '+(e.message||'say it again')); return; }
   think.remove();
   adv.asked++; adv.mastery[g.concept]=g.mastery;
-  if(!own) advCool(q.id, g.mastery==='solid'?6:(g.mastery==='shaky'?2:1));
+  if(!own){ advCool(q.id, g.mastery==='solid'?6:(g.mastery==='shaky'?2:1)); adv.graded=q.id; }   // mark answered: no re-grade until the next question
   if(g.mastery==='missed') adv.misses[g.concept]=(adv.misses[g.concept]||0)+1;
   else if(g.mastery==='solid') adv.misses[g.concept]=0;
   if(g.note) adv.notes.unshift({concept:g.concept,text:g.note});
