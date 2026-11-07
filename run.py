@@ -774,6 +774,52 @@ def generate_from_concepts(cid: str, body: GenerateIn):
     _autotag_untagged(cid, now)   # keep a blueprint-focused deck tagged; no-op without a blueprint
     return {"concepts": len(todo), "cards": made_cards, "questions": made_questions, "dropped": dropped}
 
+
+def _deck_counts(cid: str):
+    """Cards and applied-problems per week for a course — used to attribute a build-all run per week."""
+    cards = {r["w"]: r["n"] for r in rows(
+        "SELECT COALESCE(week,'') AS w, COUNT(*) AS n FROM cards WHERE course_id=? GROUP BY COALESCE(week,'')", cid)}
+    qs = {r["w"]: r["n"] for r in rows(
+        "SELECT COALESCE(week,'') AS w, COUNT(*) AS n FROM essay_questions "
+        "WHERE course_id=? AND kind='problem' GROUP BY COALESCE(week,'')", cid)}
+    return cards, qs
+
+
+@app.post("/api/courses/{cid}/concepts/build-all")
+def build_all_decks(cid: str):
+    """One action: extract concepts for every week that has selected material, then write cards + one applied
+    problem per concept across the whole course. Reuses the per-week extractor and the idempotent generator
+    (cheap model only, no new schema), so a fresh course with a syllabus applied goes from zero cards to a full
+    deck in a single call instead of a manual per-week loop."""
+    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    weeks = [r["w"] for r in rows(
+        "SELECT DISTINCT COALESCE(week,'') AS w FROM files WHERE course_id=? AND selected=1 "
+        "AND COALESCE(week,'')<>'' AND COALESCE(text,'')<>'' ORDER BY w", cid)][:20]
+    summary = {w: {"concepts": 0, "cards": 0, "questions": 0, "dropped": []} for w in weeks}
+    for w in weeks:
+        try:
+            ex = extract_concepts(cid, ConceptsIn(week=w))
+            summary[w]["concepts"] = ex.get("saved", 0)
+            summary[w]["dropped"].extend(ex.get("dropped") or [])
+        except HTTPException as e:
+            summary[w]["dropped"].append(str(e.detail))
+    before_c, before_q = _deck_counts(cid)
+    gen_dropped = []
+    for _ in range(12):                                   # generate is whole-course + idempotent; loop until nothing new
+        g = generate_from_concepts(cid, GenerateIn(week="", limit=20))
+        gen_dropped.extend(g.get("dropped") or [])
+        if not g.get("concepts", 0): break
+    after_c, after_q = _deck_counts(cid)
+    for w in summary:
+        summary[w]["cards"] = max(0, after_c.get(w, 0) - before_c.get(w, 0))
+        summary[w]["questions"] = max(0, after_q.get(w, 0) - before_q.get(w, 0))
+    all_weeks = set(before_c) | set(after_c) | set(before_q) | set(after_q) | set(weeks)
+    totals = {"weeks": len(weeks),
+              "concepts": sum(s["concepts"] for s in summary.values()),
+              "cards": sum(max(0, after_c.get(w, 0) - before_c.get(w, 0)) for w in all_weeks),
+              "questions": sum(max(0, after_q.get(w, 0) - before_q.get(w, 0)) for w in all_weeks)}
+    return {"weeks": summary, "totals": totals, "dropped": gen_dropped}
+
 # ---------------------------------------------------------------- syllabus in, weeks and topics out (Phase 13)
 SYLLABUS_CHARS = 60000   # a syllabus is five to fifteen pages; the cap is a guard against a whole reader being picked
 

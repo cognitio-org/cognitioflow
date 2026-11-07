@@ -435,6 +435,14 @@ async function upload(files){ for(const f of files){ const fd=new FormData(); fd
   b.title='Give every file a readable title and say what kind of material it is'; b.textContent='Label files';
   $('#inferBtn').after(document.createTextNode(' '), b); })();
 $('#inferBtn').onclick=async()=>{const b=$('#inferBtn');b.disabled=true;b.textContent='Detecting…';try{const r=await post(`/courses/${cid}/infer-weeks`);toast(r.tagged?`Sorted ${r.tagged} file(s) into weeks`:'Nothing to sort — all files already have a week');loadFiles()}catch(e){toast('Failed: '+e.message)}b.disabled=false;b.textContent='Detect weeks'};
+$('#buildDecks').onclick=async()=>{const b=$('#buildDecks');b.disabled=true;b.textContent='Building…';const st=$('#deckState');if(st)st.textContent='';
+  try{const r=await post(`/courses/${cid}/concepts/build-all`);const t=r.totals||{},weeks=r.weeks||{};
+    const parts=Object.keys(weeks).sort((x,y)=>x-y||x.localeCompare(y)).map(w=>`W${w}: ${weeks[w].cards} cards`).join(' · ');
+    if(st)st.textContent=`${t.concepts||0} concepts · ${t.cards||0} cards · ${t.questions||0} problems across ${t.weeks||0} week(s)`;
+    toast(parts?`Built — ${parts}`:'Nothing to build — tick files and set their weeks first');
+    if(typeof loadRecall==='function')loadRecall();
+  }catch(e){if(st)st.textContent='Failed: '+e.message;toast('Failed: '+e.message)}
+  b.disabled=false;b.textContent='Build week decks'};
 /* syllabus in, weeks and topics out. The panel holds a proposal; only Apply writes anything. */
 /* The proposal belongs to the course it was read from. cid can change under it — the course
    switcher only reassigns cid — and applying then writes one course's schedule onto another,
