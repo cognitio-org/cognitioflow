@@ -1,0 +1,48 @@
+{
+  "course": "European Law",
+  "title": "Case Sorter — match each authority to what it stands for",
+  "pairs": [
+    {
+      "left": "Art 56 TFEU",
+      "right": "The model answer explicitly states this definition and applies it to remote medical consultations, showing that such services fall within the scope of Art 56 TFEU.",
+      "source": "5969842_wk3_model.txt",
+      "why": "The model answer uses this definition to establish that MediLink's remote medical consultations qualify as services under Art 56 TFEU, which is necessary for applying the free movement rules."
+    },
+    {
+      "left": "Article 52 TFEU",
+      "right": "The model answer explicitly cites Gebhard and Laval as examples of cases where such justifications were accepted, and applies this principle to the Slovenian law.",
+      "source": "5969842_wk3_model.txt",
+      "why": "The model answer argues that the Slovenian law's objective of protecting public health constitutes a valid justification under Article 52 TFEU, which is a key principle for assessing the legality of restrictions."
+    },
+    {
+      "left": "Art 101 TFEU",
+      "right": "The functional definition of an undertaking includes any entity engaged in economic activity, and cooperation can take the form of concerted practice without requiring a formal agreement.",
+      "source": "5984748_wk5_assignment_model.txt",
+      "why": "The law recognizes that cooperation in the form of public statements of support can constitute a concerted practice under Article 101 TFEU, even without a written agreement."
+    },
+    {
+      "left": "Art 107 TFEU",
+      "right": "State aid is defined as any advantage granted by a member state or through state resources that distorts competition, and the municipality's actions involve financial benefits to specific undertakings.",
+      "source": "5984748_wk5_assignment_model.txt",
+      "why": "The municipality's actions involve financial benefits such as reduced municipal charges, lower interest rates, and commitment to purchase services, which constitute state aid under EU law."
+    },
+    {
+      "left": "Consten and Grundig",
+      "right": "The Court of Justice has established that object and effect are alternative elements, with object being sufficient to establish prohibition without requiring detailed effects analysis.",
+      "source": "5984748_wk5_assignment_model.txt",
+      "why": "In cases where the object of an agreement is inherently restrictive, such as a pause in frontier AI development, the restrictive effect need not be proven if the object is clearly anticompetitive."
+    },
+    {
+      "left": "Article 263(4) TFEU",
+      "right": "This follows from the case law interpreting Article 263(4) TFEU, particularly in relation to the 'direct concern' and 'individual concern' tests.",
+      "source": "6002541_wk6_model.txt",
+      "why": "The Court has consistently held that for a non-privileged applicant to have standing to challenge a legislative act, it must show both direct and individual concern under the Plaumann test."
+    },
+    {
+      "left": "Foto-Frost",
+      "right": "This is supported by the principle that national courts can review the proportionality of national measures under EU law, as long as they do not invalidate EU acts directly.",
+      "source": "6002541_wk6_model.txt",
+      "why": "The national court can assess whether the fine imposed is disproportionate under EU principles, but cannot directly annul the EU act that sets the threshold, as that would require a preliminary reference."
+    }
+  ]
+}

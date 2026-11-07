@@ -255,21 +255,33 @@ def docket_six(pool: list) -> list:
         picked.append(it)
     return picked
 
+def sorter_pack(items: list, course="European Law") -> dict:
+    """Case Sorter: each SOUND item's authority (cite) paired with the principle it stands for (ground).
+    Pure — no file writes — so it is unit-testable; write_packs serialises it to games/sorter/content/."""
+    sound = [it for it in items if not it.get("flawed") and (it.get("cite") or "").strip() and (it.get("ground") or "").strip()]
+    return {"course": course, "title": "Case Sorter — match each authority to what it stands for",
+            "pairs": [{"left": it["cite"], "right": it["ground"], "source": it.get("source", ""), "why": it.get("why", "")}
+                      for it in sound]}
+
+
 def write_packs(items: list, course="European Law"):
     dk = docket_six(items)            # six planted stations, one item each
     docket = {"course": course, "title": "The Docket — spot the flaws in the submissions",
               "items": [{k: it[k] for k in ("text", "flawed", "ground", "cite", "station", "why", "source")} for it in dk]}
     objection = {"course": course, "title": "Objection! — Direct effect, primacy & references",
                  "items": [{k: it[k] for k in ("text", "flawed", "ground", "cite", "wk", "why", "source")} for it in items]}
-    for sub, pack in (("docket", docket), ("objection", objection)):
+    sorter = sorter_pack(items, course)   # Case Sorter: authority (cite) ↔ principle (ground), SOUND items only
+    for sub, pack in (("docket", docket), ("objection", objection), ("sorter", sorter)):
         # games now live under play/arcade/ (served); write their content there, not under games/.
         p = GAMES.parent / "play" / "arcade" / sub / "content" / "eu-law.json"
         if p.exists():
             bak = p.with_suffix(".json.bak")
             if not bak.exists():
                 bak.write_text(p.read_text(), encoding="utf-8")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        n = len(pack.get("items") or pack.get("pairs") or [])
         p.write_text(json.dumps(pack, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"  wrote {p}  ({len(pack['items'])} items)")
+        print(f"  wrote {p}  ({n})")
 
 def main():
     ap = argparse.ArgumentParser()
