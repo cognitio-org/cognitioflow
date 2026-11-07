@@ -59,5 +59,21 @@
     "title": "The Grand Chamber",
     "logline": "Walk the CJEU Grand Chamber in 3D.",
     "url": "/play/arcade/cjeu/index.html"
+  },
+  {
+    "course": "IIEL",
+    "id": "sorter-eu",
+    "mode": "standalone",
+    "title": "Case Sorter",
+    "logline": "Match each authority to the principle it stands for.",
+    "url": "/play/arcade/sorter/index.html?course=eu-law"
+  },
+  {
+    "course": "PROP",
+    "id": "sorter-prop",
+    "mode": "standalone",
+    "title": "Case Sorter",
+    "logline": "Match each authority to the principle it stands for.",
+    "url": "/play/arcade/sorter/index.html?course=property-law"
   }
 ]

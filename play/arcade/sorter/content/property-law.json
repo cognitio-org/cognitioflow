@@ -1,0 +1,42 @@
+{
+  "course": "Property Law",
+  "title": "Case Sorter — match each authority to what it stands for",
+  "pairs": [
+    {
+      "left": "V. Sagaert, Consensual versus Delivery Systems in European Private Law – Consensus about Tradition? In: Rules for the Transfer of Movables. A Candidate for European Harmonisation or National Reforms?, W. Faber & B. Lurger, eds., Munich 2008, pp. 9-46",
+      "right": "This principle is central to the discussion in Sagaert's article, which contrasts consensual systems with delivery systems in European private law.",
+      "source": "564706_wk3_content.txt",
+      "why": "Sagaert's analysis emphasizes that consensual systems require agreement between parties for the transfer of ownership, in contrast to systems where delivery alone suffices."
+    },
+    {
+      "left": "A.F. Salomons, The Purpose and Coherence of the Rules on Good Faith Acquisition and Acquisitive Prescription in the Draft Common Frame of Reference: A Tale of Two Gatekeepers, ERPL 2013-3, p. 843-862",
+      "right": "This principle is discussed in the context of the DCFR and is analyzed by Salomons, who evaluates how acquisitive prescription fits into the broader framework of property law.",
+      "source": "564706_wk3_content.txt",
+      "why": "Salomons explores how acquisitive prescription functions as a legal mechanism for acquiring ownership, similar to good faith acquisition, within the DCFR."
+    },
+    {
+      "left": "F.M.J. Verstijlen - Introduction to limited rights",
+      "right": "The introduction by F.M.J. Verstijlen discusses how limited rights are created through particular legal instruments.",
+      "source": "564706_wk5_content.txt",
+      "why": "The author explains that limited rights require specific legal creation mechanisms as opposed to general ownership acquisition."
+    },
+    {
+      "left": "P Ekbäck, Private, Common, and Open Access Property Rights in Land – An Investigation of Economic Principles and Legislation, Nordic Journal of Surveying and Real Estate Research 2009, 57-74",
+      "right": "This proposition is supported by the Ekbäck article which investigates different property rights models and their economic principles.",
+      "source": "564706_wk6_content.txt",
+      "why": "The article specifically examines how different property rights structures (private, common, open access) affect land use and economic outcomes."
+    },
+    {
+      "left": "Real Property Law and Procedure in the European Union; General Report, May 2005. Chapters 1-4",
+      "right": "This is evident from the comparative analysis in the General Report and Country Report on The Netherlands which examines different national approaches.",
+      "source": "564706_wk6_content.txt",
+      "why": "The report explicitly compares property law systems across European jurisdictions including the Netherlands to demonstrate diversity in approaches."
+    },
+    {
+      "left": "P Ekbäck, Private, Common, and Open Access Property Rights in Land – An Investigation of Economic Principles and Legislation, Nordic Journal of Surveying and Real Estate Research 2009, 57-74",
+      "right": "The Ekbäck article specifically investigates economic principles underlying different property rights arrangements.",
+      "source": "564706_wk6_content.txt",
+      "why": "The article's title and content explicitly focus on investigating economic principles and legislation regarding property rights."
+    }
+  ]
+}
