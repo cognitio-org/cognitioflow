@@ -4171,7 +4171,9 @@ def _split_marker(body: str):
 def _finish_inputs(course_id: str, partial: str, meta: dict):
     """(system, prompt, model, cap) for finishing `partial`, from its marker when it has a usable one."""
     if meta.get("kind") == "reconcile":
-        src = rows("SELECT * FROM notes WHERE id=?", meta.get("src", ""))
+        # Scope the reconcile source to THIS note's course: the continuation marker (meta.src) is attacker-settable,
+        # and an unscoped lookup would pull another course's note body + its reconcile context into this note's output.
+        src = rows("SELECT * FROM notes WHERE id=? AND course_id=?", meta.get("src", ""), course_id)
         if not src: raise HTTPException(400, "The note this was reconciled from is gone — reconcile again from the original.")
         system, prompt = _reconcile_inputs(src[0])
         return system, prompt, STRONG_MODEL, RECONCILE_TOKENS
