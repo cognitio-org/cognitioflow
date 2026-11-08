@@ -1788,6 +1788,7 @@ def del_card(kid: str):
 def _review(kid: str, rating: int, uid: str) -> dict:
     """One rating, for one user. FSRS schedules from THIS user's own history of the card (SCHEDULER=sm2 keeps the
     original arithmetic). The card text is shared; the schedule it produces lives in card_state(user_id,card_id)."""
+    if not uid: raise HTTPException(401, "Not authenticated")   # guard here so the in-process drill callers are covered too
     c = rows("SELECT id, gen_sample_id FROM cards WHERE id=?", kid)
     if not c: raise HTTPException(404)
     card = dict(c[0])
@@ -1801,7 +1802,8 @@ def _review(kid: str, rating: int, uid: str) -> dict:
                   (uid, kid, out["ease"], out["interval"], out["reps"], out["due"], out.get("stability"),
                    out.get("difficulty"), out.get("state"), out.get("step"), out.get("last_review"), time.time()))
         # Phase 19: tie the rating of an AI-generated card back to its generation (gen_sample_id), a light quality
-        # signal. reviews.user_id scopes the log to this user (weak-topics and readiness read it back per user).
+        # signal. reviews.user_id is STAMPED here; the per-user read-back (stats, weak-topics, readiness) lands with
+        # the aggregate PR — today those reads are still unscoped (single-user, identical result).
         d.execute("INSERT INTO reviews(id,card_id,rating,created,gen_sample_id,user_id) VALUES(?,?,?,?,?,?)",
                   (uuid.uuid4().hex, kid, rating, time.time(), card.get("gen_sample_id"), uid))
     return {"due": out["due"], "interval": out["interval"]}
@@ -1809,9 +1811,7 @@ def _review(kid: str, rating: int, uid: str) -> dict:
 @app.post("/api/cards/{kid}/review")
 def review(kid: str, r: ReviewIn):
     """One rating. FSRS schedules from this card's own history (SCHEDULER=sm2 keeps the original arithmetic)."""
-    uid = _uid()
-    if not uid: raise HTTPException(401, "Not authenticated")
-    return _review(kid, r.rating, uid)
+    return _review(kid, r.rating, _uid())   # _review guards a missing uid with a 401
 
 # Phase 18: when card generation runs on the self-hosted model, the prompt is grounded strictly in the
 # ticked material and the model is told to ABSTAIN rather than invent law — a 7B hallucinates case law
