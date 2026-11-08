@@ -97,12 +97,12 @@ def test_lawyer_pack_cites_the_slide_a_quote_came_from(client, fake, pg):
     assert q["cites"] == [{"source": "L3.pptx", "page": 7}] and "rule of reason" in q["quote"]
 
 
-def test_lawyer_pack_levels_follow_the_scheduler(client, fake, pg):
+def test_lawyer_pack_levels_follow_the_scheduler(client, fake, pg, set_sr):
     easy = _card(client, "eu", "Easy?", "Yes easy")
     hard = _card(client, "eu", "Hard?", "Yes hard")
     new = _card(client, "eu", "New?", "Yes new")
-    pg.execute("UPDATE cards SET difficulty=2 WHERE id=%s", (easy,))
-    pg.execute("UPDATE cards SET reps=3, ease=1.9 WHERE id=%s", (hard,)); pg.commit()
+    set_sr(easy, difficulty=2)
+    set_sr(hard, reps=3, ease=1.9)
     fake(_wrong_for(3))
     levels = {q["card_id"]: q["level"] for q in client.get("/api/courses/eu/lawyer-pack").json()["questions"]}
     assert levels == {easy: 1, hard: 3, new: 2}

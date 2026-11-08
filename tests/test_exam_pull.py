@@ -83,22 +83,29 @@ def test_outside_the_window_or_without_an_exam_nothing_moves():
     assert schedule.plan_exam_pull(cards, PROP, PROP) == {}
 
 
-def test_a_course_without_an_exam_date_is_untouched(client, pg, monkeypatch):
+def _cs_due(pg, kid):
+    """The current user's (matej's) card_state.due for a card — where the per-user schedule now lives."""
+    r = pg.execute("SELECT cs.due FROM card_state cs JOIN users u ON u.id=cs.user_id "
+                   "WHERE cs.card_id=%s AND u.email='matej@mgms.eu'", (kid,)).fetchone()
+    return r[0] if r else None
+
+
+def test_a_course_without_an_exam_date_is_untouched(client, pg, set_sr, monkeypatch):
     cid = client.post("/api/courses", json={"name": "No Exam Law"}).json()["id"]
     kid = client.post(f"/api/courses/{cid}/cards", json={"front": "f", "back": "b"}).json()["id"]
-    pg.execute("UPDATE cards SET due='2026-12-01', stability=2, difficulty=5, last_review=%s WHERE id=%s", (datetime.now(timezone.utc).timestamp(), kid)); pg.commit()
+    set_sr(kid, due='2026-12-01', stability=2, difficulty=5, last_review=datetime.now(timezone.utc).timestamp())
     client.get(f"/api/courses/{cid}/cards"); client.get("/api/today")
-    assert pg.execute("SELECT due FROM cards WHERE id=%s", (kid,)).fetchone()[0] == "2026-12-01"
+    assert _cs_due(pg, kid) == "2026-12-01"
 
 
-def test_the_sweep_brings_a_weak_card_forward_through_the_api(client, pg, monkeypatch):
+def test_the_sweep_brings_a_weak_card_forward_through_the_api(client, pg, set_sr, monkeypatch):
     today = run._local_today()
     cid = client.post("/api/courses", json={"name": "Run-in Law"}).json()["id"]
     pg.execute("UPDATE courses SET exam_date=%s WHERE id=%s", ((today + timedelta(days=10)).isoformat(), cid))
     kid = client.post(f"/api/courses/{cid}/cards", json={"front": "f", "back": "b"}).json()["id"]
     late = (today + timedelta(days=30)).isoformat()
-    pg.execute("UPDATE cards SET due=%s, stability=3, difficulty=6, last_review=%s WHERE id=%s", (late, datetime.now(timezone.utc).timestamp(), kid)); pg.commit()
+    set_sr(kid, due=late, stability=3, difficulty=6, last_review=datetime.now(timezone.utc).timestamp())
     run._SWEPT.clear()
     client.get("/api/today")
-    due = pg.execute("SELECT due FROM cards WHERE id=%s", (kid,)).fetchone()[0]
+    due = _cs_due(pg, kid)
     assert today.isoformat() <= due < (today + timedelta(days=10)).isoformat()

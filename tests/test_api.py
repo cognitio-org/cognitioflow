@@ -103,7 +103,7 @@ def test_create_card(client: TestClient):
     r2 = client.get(f"/api/courses/{cid}/cards")
     cards = r2.json()
     card = next(c for c in cards if c["id"] == kid)
-    assert card["due"] == date.today().isoformat()  # ISO string, not a float
+    assert card["due"] is None  # a brand-new card has no per-user schedule yet; NULL due reads as "due now"
 
 
 def test_review_updates_sm2_fields(client: TestClient, monkeypatch):
@@ -124,10 +124,11 @@ def test_review_updates_sm2_fields(client: TestClient, monkeypatch):
     assert body["interval"] == 1
     assert body["due"] > date.today().isoformat()  # due in the future
 
-    # Check DB directly
+    # Check DB directly — per-user SR now lives in card_state(user_id, card_id), not on the shared card
     with psycopg.connect(_pg_url()) as conn:
         row = conn.execute(
-            "SELECT ease, interval, reps, due FROM cards WHERE id=%s", (kid,)
+            "SELECT cs.ease, cs.interval, cs.reps, cs.due FROM card_state cs JOIN users u ON u.id=cs.user_id "
+            "WHERE cs.card_id=%s AND u.email='matej@mgms.eu'", (kid,)
         ).fetchone()
     assert row[3] == body["due"]  # due is ISO TEXT
     assert row[2] == 1            # reps incremented

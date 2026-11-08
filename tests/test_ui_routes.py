@@ -213,10 +213,10 @@ def test_migration_006_backfills_card_week_from_source_file(client, pg):
     assert pg.execute("SELECT week FROM cards WHERE id=%s", (kid,)).fetchone()[0] == "3"
 
 
-def test_cards_filter_by_week_and_weak(client, pg):
+def test_cards_filter_by_week_and_weak(client, pg, set_sr):
     cid = _cid(client)
     a = _card(client, cid, "A", "a", week="1"); b = _card(client, cid, "B", "b", week="2"); c = _card(client, cid, "C", "c")
-    pg.execute("UPDATE cards SET ease=1.96 WHERE id=%s", (b,)); pg.commit()
+    set_sr(b, ease=1.96)
     ids = lambda qs: {x["id"] for x in client.get(f"/api/courses/{cid}/cards?x=1{qs}").json()}
     assert ids("") == {a, b, c}
     assert ids("&week=1") == {a}
@@ -234,12 +234,12 @@ def test_generate_cards_takes_the_file_week(client, fake):
     assert fc.calls[0]["model"] == run.CHEAP_MODEL
 
 
-def test_recall_map_weeks_due_ready_and_weak(client, pg):
+def test_recall_map_weeks_due_ready_and_weak(client, pg, set_sr):
     cid = _cid(client)
     _upload(client, cid, "w1.txt", "Art 34", week="1"); _upload(client, cid, "w10.txt", "Art 36", week="10")
     _card(client, cid, "Q1", "A1", week="1"); later = _card(client, cid, "Q2", "A2", week="2"); weak = _card(client, cid, "Q3", "A3")
-    pg.execute("UPDATE cards SET due=%s WHERE id=%s", ((date.today() + timedelta(days=5)).isoformat(), later))
-    pg.execute("UPDATE cards SET ease=2.0 WHERE id=%s", (weak,)); pg.commit()
+    set_sr(later, due=(date.today() + timedelta(days=5)).isoformat())
+    set_sr(weak, ease=2.0)
     m = client.get(f"/api/courses/{cid}/recall-map").json()
     assert [w["week"] for w in m["weeks"]] == ["1", "2", "10", ""]
     by = {w["week"]: w for w in m["weeks"]}
@@ -1559,3 +1559,30 @@ def test_build_all_builds_a_week_deck_then_is_idempotent_and_cheap(client, monke
 
     again = client.post(f"/api/courses/{cid}/concepts/build-all").json()
     assert again["totals"]["cards"] == 0   # idempotent: nothing new on the second pass
+
+
+def test_two_users_schedule_a_shared_card_independently(client, pg):
+    """The card TEXT is shared; each user's SCHEDULE is their own. One user's rating must never move another's
+    card_state. This is the whole point of the multi-user scheduler switch (card_state(user_id, card_id))."""
+    import run, uuid, time
+    cid = _cid(client)
+    kid = _card(client, cid, "Shared?", "Shared answer")
+
+    def _mk(email):
+        pg.execute("INSERT INTO users(id,email,name,created) VALUES(%s,%s,'',%s) ON CONFLICT(email) DO NOTHING",
+                   (uuid.uuid4().hex, email, time.time())); pg.commit()
+        return pg.execute("SELECT id FROM users WHERE email=%s", (email,)).fetchone()[0]
+
+    a = _mk("matej@mgms.eu")             # the owner
+    b = _mk("classmate@example.com")     # a second allow-listed user
+    row = lambda uid: pg.execute("SELECT reps, due FROM card_state WHERE user_id=%s AND card_id=%s", (uid, kid)).fetchone()
+
+    for _ in range(3):                   # A rates the shared card Good three times; B never touches it
+        run._review(kid, 2, a)
+    assert row(a) is not None and row(a)[0] == 3 and row(a)[1] > date.today().isoformat()   # A scheduled forward
+    assert row(b) is None                # B has no schedule for it yet — it simply reads as due-now for B
+
+    before_a = row(a)
+    run._review(kid, 2, b)               # B rates it once
+    assert row(a) == before_a            # A's schedule is completely untouched by B
+    assert row(b) is not None and row(b)[0] == 1   # B now has their own independent schedule

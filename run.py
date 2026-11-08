@@ -756,10 +756,10 @@ def generate_from_concepts(cid: str, body: GenerateIn):
         dropped.extend(f"{con['name']}: {w}" for w in why)
         with db() as d:
             for card in cards:
-                d.execute("INSERT INTO cards(id,course_id,front,back,source,ease,interval,reps,due,created,week,concept_id) "
-                          "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-                          (uuid.uuid4().hex, cid, card["front"], card["back"], con["name"], 2.5, 0, 0,
-                           date.today().isoformat(), now, con["week"] or "", con["id"]))
+                d.execute("INSERT INTO cards(id,course_id,front,back,source,created,week,concept_id) "
+                          "VALUES(?,?,?,?,?,?,?,?)",
+                          (uuid.uuid4().hex, cid, card["front"], card["back"], con["name"],
+                           now, con["week"] or "", con["id"]))
                 made_cards += 1
         question, why_not = concepts_mod.clean_question(payload, concept)
         if question:
@@ -1013,9 +1013,11 @@ def course_readiness(cid: str):
     if not topics:
         return {"topics": [], "overall": readiness.overall([]), "blueprint": False}
     today = date.today().isoformat()
-    cards = rows("SELECT id, COALESCE(doctrine,'') AS doctrine, "
-                 "LOWER(COALESCE(front,'') || ' ' || COALESCE(back,'') || ' ' || COALESCE(concept,'')) AS hay, "
-                 "CASE WHEN due IS NULL OR due<=? THEN 1 ELSE 0 END AS is_due FROM cards WHERE course_id=?", today, cid)
+    uid = _uid()
+    cards = rows("SELECT c.id AS id, COALESCE(c.doctrine,'') AS doctrine, "
+                 "LOWER(COALESCE(c.front,'') || ' ' || COALESCE(c.back,'') || ' ' || COALESCE(c.concept,'')) AS hay, "
+                 "CASE WHEN cs.due IS NULL OR cs.due<=? THEN 1 ELSE 0 END AS is_due FROM cards c "
+                 "LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? WHERE c.course_id=?", today, uid, cid)
     revs = rows("SELECT card_id, COUNT(*) AS n, SUM(CASE WHEN rating>=2 THEN 1 ELSE 0 END) AS passed "
                 "FROM reviews WHERE card_id IN (SELECT id FROM cards WHERE course_id=?) GROUP BY card_id", cid)
     rev = {x["card_id"]: (int(x["n"] or 0), int(x["passed"] or 0)) for x in revs}
@@ -1680,41 +1682,81 @@ def note_to_file(nid: str):
 # ---------------------------------------------------------------- cards (SM-2)
 WEAK_EASE = 2.3  # SM-2 ease falls below this after one "Again" or two "Hard" ratings
 
-def _card_scope(cid: str, due: int = 0, week: str = "", weak: int = 0):
-    q, a = "SELECT * FROM cards WHERE course_id=?", [cid]
-    if due: q += " AND (due IS NULL OR due<=?)"; a.append(date.today().isoformat())
-    if week: q += " AND week=?"; a.append(week)
-    if weak: q += " AND ease<?"; a.append(WEAK_EASE)
+# Per-user scheduling (multi-user): a card's TEXT is shared, but each user's spaced-repetition state lives in
+# card_state(user_id, card_id). The current user's SR is read through a LEFT JOIN (absent row = never reviewed =
+# SM-2 defaults, which also reads as "due now"). _uid() names that user; _cstate() loads one card's state for them.
+_SR_DEFAULTS = {"ease": 2.5, "interval": 0, "reps": 0, "due": None, "stability": None,
+                "difficulty": None, "state": None, "step": None, "last_review": None}
+# the cards CONTENT columns (everything that is NOT per-user SR state); the SR columns are supplied from card_state
+# instead, so a scoped row looks exactly like the old `SELECT * FROM cards` to every caller (_card_level, the UI, …).
+_CARD_COLS = ("c.id,c.course_id,c.front,c.back,c.source,c.created,c.week,c.concept,c.traps,c.concept_id,"
+              "c.gen_sample_id,c.doctrine")
+_CS_COLS = ("COALESCE(cs.ease,2.5) AS ease, COALESCE(cs.interval,0) AS interval, COALESCE(cs.reps,0) AS reps, "
+            "cs.due AS due, cs.stability AS stability, cs.difficulty AS difficulty, cs.state AS state, "
+            "cs.step AS step, cs.last_review AS last_review")
+
+def _uid() -> Optional[str]:
+    """The current user's id — owner of the per-user scheduling rows. Resolved FRESH every call (no cache: the test
+    suite recycles the users table, so a cached id would dangle and break card_state's FK). Upserts the signed-in
+    user if their row isn't there yet, exactly as current_user does. Single-tenant today."""
+    c = _CALL.get() or {}
+    if c.get("user_id"): return c["user_id"]
+    email = c.get("email")
+    if not email: return None
+    r = rows("SELECT id FROM users WHERE email=?", email)
+    return r[0]["id"] if r else (auth.upsert_user(db, email) or {}).get("id")
+
+def _cstate(uid: str, kid: str) -> dict:
+    """The user's SR state for one card, or SM-2 defaults when they have never reviewed it."""
+    r = rows("SELECT ease,interval,reps,due,stability,difficulty,state,step,last_review FROM card_state "
+             "WHERE user_id=? AND card_id=?", uid, kid)
+    return dict(r[0]) if r else dict(_SR_DEFAULTS)
+
+def _card_scope(cid: str, uid: str, due: int = 0, week: str = "", weak: int = 0):
+    q = (f"SELECT {_CARD_COLS}, {_CS_COLS} FROM cards c "
+         "LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? WHERE c.course_id=?")
+    a = [uid, cid]
+    if due: q += " AND (cs.due IS NULL OR cs.due<=?)"; a.append(date.today().isoformat())
+    if week: q += " AND c.week=?"; a.append(week)
+    if weak: q += " AND COALESCE(cs.ease,2.5)<?"; a.append(WEAK_EASE)
     return q, a
 
-_SWEPT: set = set()   # (course, day, exam date) already swept by this instance
+_SWEPT: set = set()   # (user, course, day, exam date) already swept this instance — per user: the schedule is private
 
 def _exam_sweep(cid: str) -> int:
-    """The exam run-in, once a day per course: cards below 95% recall on exam day come forward (schedule.plan_exam_pull).
-    Only `due` and `interval` change, and only for courses with an exam in the next 14 days. No model is asked."""
+    """The exam run-in, once a day per course PER USER: cards below 95% recall on exam day come forward
+    (schedule.plan_exam_pull). Only the user's own card_state `due`/`interval` change, and only for courses with an
+    exam in the next 14 days. No model is asked."""
+    uid = _uid()
     c = rows("SELECT exam_date FROM courses WHERE id=?", cid)
     try: exam = date.fromisoformat(str(c[0]["exam_date"])[:10]) if c and c[0]["exam_date"] else None
     except ValueError: exam = None
     today = _local_today()
-    if not exam or (cid, today, exam) in _SWEPT: return 0
-    _SWEPT.add((cid, today, exam))
-    moves = schedule.plan_exam_pull(rows("SELECT id,due,stability,difficulty,last_review FROM cards WHERE course_id=?", cid), today, exam)
+    if not uid or not exam or (uid, cid, today, exam) in _SWEPT: return 0
+    _SWEPT.add((uid, cid, today, exam))
+    cards_sr = rows("SELECT c.id AS id, cs.due AS due, cs.stability AS stability, cs.difficulty AS difficulty, "
+                    "cs.last_review AS last_review FROM cards c "
+                    "LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? WHERE c.course_id=?", uid, cid)
+    moves = schedule.plan_exam_pull(cards_sr, today, exam)
     with db() as d:
         for kid, day in moves.items():
-            d.execute("UPDATE cards SET due=?,interval=? WHERE id=?", (day.isoformat(), (day - today).days, kid))
+            d.execute("INSERT INTO card_state(user_id,card_id,due,interval) VALUES(?,?,?,?) "
+                      "ON CONFLICT (user_id,card_id) DO UPDATE SET due=EXCLUDED.due, interval=EXCLUDED.interval",
+                      (uid, kid, day.isoformat(), (day - today).days))
     return len(moves)
 
 @app.get("/api/courses/{cid}/cards")
 def cards(cid: str, due: int = 0, week: str = "", weak: int = 0):
+    uid = _uid()
     _exam_sweep(cid)
-    q, a = _card_scope(cid, due, week, weak)
-    return rows(q + " ORDER BY due, created", *a)
+    q, a = _card_scope(cid, uid, due, week, weak)
+    return rows(q + " ORDER BY due NULLS FIRST, created", *a)
 
 @app.post("/api/courses/{cid}/cards")
 def add_card(cid: str, c: CardIn):
     kid = uuid.uuid4().hex[:10]
-    with db() as d: d.execute("INSERT INTO cards(id,course_id,front,back,source,week,due,created) VALUES(?,?,?,?,?,?,?,?)",
-                              (kid, cid, c.front, c.back, c.source, c.week.strip(), date.today().isoformat(), time.time()))
+    with db() as d: d.execute("INSERT INTO cards(id,course_id,front,back,source,week,created) VALUES(?,?,?,?,?,?,?)",
+                              (kid, cid, c.front, c.back, c.source, c.week.strip(), time.time()))
     return {"id": kid}
 
 @app.put("/api/cards/{kid}")
@@ -1743,22 +1785,33 @@ def del_card(kid: str):
     with db() as d: d.execute("DELETE FROM cards WHERE id=?", (kid,))
     return {"ok": True}
 
+def _review(kid: str, rating: int, uid: str) -> dict:
+    """One rating, for one user. FSRS schedules from THIS user's own history of the card (SCHEDULER=sm2 keeps the
+    original arithmetic). The card text is shared; the schedule it produces lives in card_state(user_id,card_id)."""
+    if not uid: raise HTTPException(401, "Not authenticated")   # guard here so the in-process drill callers are covered too
+    c = rows("SELECT id, gen_sample_id FROM cards WHERE id=?", kid)
+    if not c: raise HTTPException(404)
+    card = dict(c[0])
+    out = schedule.next_review(_cstate(uid, kid), rating)
+    with db() as d:
+        d.execute("INSERT INTO card_state(user_id,card_id,ease,interval,reps,due,stability,difficulty,state,step,last_review,created) "
+                  "VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (user_id,card_id) DO UPDATE SET "
+                  "ease=EXCLUDED.ease,interval=EXCLUDED.interval,reps=EXCLUDED.reps,due=EXCLUDED.due,"
+                  "stability=EXCLUDED.stability,difficulty=EXCLUDED.difficulty,state=EXCLUDED.state,step=EXCLUDED.step,"
+                  "last_review=EXCLUDED.last_review",
+                  (uid, kid, out["ease"], out["interval"], out["reps"], out["due"], out.get("stability"),
+                   out.get("difficulty"), out.get("state"), out.get("step"), out.get("last_review"), time.time()))
+        # Phase 19: tie the rating of an AI-generated card back to its generation (gen_sample_id), a light quality
+        # signal. reviews.user_id is STAMPED here; the per-user read-back (stats, weak-topics, readiness) lands with
+        # the aggregate PR — today those reads are still unscoped (single-user, identical result).
+        d.execute("INSERT INTO reviews(id,card_id,rating,created,gen_sample_id,user_id) VALUES(?,?,?,?,?,?)",
+                  (uuid.uuid4().hex, kid, rating, time.time(), card.get("gen_sample_id"), uid))
+    return {"due": out["due"], "interval": out["interval"]}
+
 @app.post("/api/cards/{kid}/review")
 def review(kid: str, r: ReviewIn):
     """One rating. FSRS schedules from this card's own history (SCHEDULER=sm2 keeps the original arithmetic)."""
-    c = rows("SELECT * FROM cards WHERE id=?", kid)
-    if not c: raise HTTPException(404)
-    card = dict(c[0])
-    out = schedule.next_review(card, r.rating)
-    with db() as d:
-        d.execute("UPDATE cards SET ease=?,interval=?,reps=?,due=?,stability=?,difficulty=?,state=?,step=?,last_review=? WHERE id=?",
-                  (out["ease"], out["interval"], out["reps"], out["due"], out.get("stability"), out.get("difficulty"),
-                   out.get("state"), out.get("step"), out.get("last_review"), kid))
-        # Phase 19: tie the rating of an AI-generated card back to its generation (gen_sample_id), a light
-        # quality signal. Explicit column list so the new nullable column is set; other columns default.
-        d.execute("INSERT INTO reviews(id,card_id,rating,created,gen_sample_id) VALUES(?,?,?,?,?)",
-                  (uuid.uuid4().hex, kid, r.rating, time.time(), card.get("gen_sample_id")))
-    return {"due": out["due"], "interval": out["interval"]}
+    return _review(kid, r.rating, _uid())   # _review guards a missing uid with a 401
 
 # Phase 18: when card generation runs on the self-hosted model, the prompt is grounded strictly in the
 # ticked material and the model is told to ABSTAIN rather than invent law — a 7B hallucinates case law
@@ -1868,8 +1921,8 @@ def generate_cards(cid: str, g: GenIn):
     with db() as d:
         for it in items:
             if it.get("front") and it.get("back"):
-                d.execute("INSERT INTO cards(id,course_id,front,back,source,week,due,created,gen_sample_id) VALUES(?,?,?,?,?,?,?,?,?)",
-                          (uuid.uuid4().hex[:10], cid, it["front"], it["back"], src, week, date.today().isoformat(), time.time(), sample_id)); made += 1
+                d.execute("INSERT INTO cards(id,course_id,front,back,source,week,created,gen_sample_id) VALUES(?,?,?,?,?,?,?,?)",
+                          (uuid.uuid4().hex[:10], cid, it["front"], it["back"], src, week, time.time(), sample_id)); made += 1
                 kept.append(it)
     _capture_card_sample(sample_id, cid, m, kind, week, g.count, made, txt, kept, thin, grounded)
     _autotag_untagged(cid, t0)   # keep a blueprint-focused deck tagged; no-op without a blueprint
@@ -2068,11 +2121,11 @@ def _remember_miss(cid: str, case: str, question: str, note: str, rating: int) -
     source = f"court:{case}"[:200]
     same = rows("SELECT id FROM cards WHERE course_id=? AND front=? AND source=?", cid, question, source)
     if same:
-        return review(same[0]["id"], ReviewIn(rating=rating))["due"]
+        return _review(same[0]["id"], rating, _uid())["due"]
     kid, due = uuid.uuid4().hex[:10], date.today().isoformat()
     with db() as d:
-        d.execute("INSERT INTO cards(id,course_id,front,back,source,concept,due,created) VALUES(?,?,?,?,?,?,?,?)",
-                  (kid, cid, question, note, source, case[:80], due, time.time()))
+        d.execute("INSERT INTO cards(id,course_id,front,back,source,concept,created) VALUES(?,?,?,?,?,?,?)",
+                  (kid, cid, question, note, source, case[:80], time.time()))
     return due
 
 
@@ -2175,7 +2228,7 @@ def oral_grade(cid: str, g: OralGradeIn):
     out = oral.normalise(graded)
 
     # Recurrence is decided in exactly one place: the app's existing review path, which also logs it.
-    out["due"] = review(g.card_id, ReviewIn(rating=out["rating"]))["due"]
+    out["due"] = _review(g.card_id, out["rating"], _uid())["due"]
     out["concept"] = (card.get("concept") or card["front"])[:80]
     return out
 
@@ -2260,10 +2313,10 @@ def oral_bank(cid: str, g: OralBankIn):
         for it in items if isinstance(items, list) else []:
             if not (isinstance(it, dict) and it.get("question") and it.get("model")): continue
             traps = it.get("traps") or []
-            d.execute("INSERT INTO cards(id,course_id,front,back,source,week,concept,traps,due,created) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            d.execute("INSERT INTO cards(id,course_id,front,back,source,week,concept,traps,created) VALUES(?,?,?,?,?,?,?,?,?)",
                       (uuid.uuid4().hex[:10], cid, str(it["question"]), str(it["model"]), src, week,
                        str(it.get("concept") or "")[:80], "|".join(str(x) for x in traps if str(x).strip())[:500],
-                       date.today().isoformat(), time.time())); made += 1
+                       time.time())); made += 1
     return {"made": made}
 
 
@@ -2659,14 +2712,14 @@ def _remember_case_answer(cid: str, case_id: str, question: str, right_text: str
     rating = casetrainer.rating_for(correct)
     same = rows("SELECT id FROM cards WHERE course_id=? AND front=? AND source=?", cid, question, source)
     if same:
-        return review(same[0]["id"], ReviewIn(rating=rating))["due"]
+        return _review(same[0]["id"], rating, _uid())["due"]
     if correct:
         return None   # right, with no card behind it: there is nothing to schedule
     kid = uuid.uuid4().hex[:10]
     with db() as d:
-        d.execute("INSERT INTO cards(id,course_id,front,back,source,concept,due,created) VALUES(?,?,?,?,?,?,?,?)",
-                  (kid, cid, question, right_text, source, (concept or "")[:80], date.today().isoformat(), time.time()))
-    return review(kid, ReviewIn(rating=rating))["due"]   # create, then rate — the Phase-11 "creates one, then rates it"
+        d.execute("INSERT INTO cards(id,course_id,front,back,source,concept,created) VALUES(?,?,?,?,?,?,?)",
+                  (kid, cid, question, right_text, source, (concept or "")[:80], time.time()))
+    return _review(kid, rating, _uid())["due"]   # create, then rate — the Phase-11 "creates one, then rates it"
 
 
 @app.post("/api/courses/{cid}/case/answer")
@@ -2826,10 +2879,13 @@ def recall_map(cid: str):
         k = k or ""; return weeks.setdefault(k, {"week": k, "due": 0, "cards": 0, "indexed": 0, "ready": False})
     for f in rows("SELECT COALESCE(week,'') AS week, COUNT(*) AS n FROM files WHERE course_id=? AND status='indexed' GROUP BY COALESCE(week,'')", cid):
         w(f["week"])["indexed"] = f["n"]
-    for c in rows("SELECT COALESCE(week,'') AS week, COUNT(*) AS n, SUM(CASE WHEN due IS NULL OR due<=? THEN 1 ELSE 0 END) AS due "
-                  "FROM cards WHERE course_id=? GROUP BY COALESCE(week,'')", date.today().isoformat(), cid):
+    uid = _uid()
+    for c in rows("SELECT COALESCE(c.week,'') AS week, COUNT(*) AS n, SUM(CASE WHEN cs.due IS NULL OR cs.due<=? THEN 1 ELSE 0 END) AS due "
+                  "FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+                  "WHERE c.course_id=? GROUP BY COALESCE(c.week,'')", date.today().isoformat(), uid, cid):
         x = w(c["week"]); x["cards"] = c["n"]; x["due"] = int(c["due"] or 0); x["ready"] = c["n"] > 0
-    weak = rows("SELECT COUNT(*) AS n FROM cards WHERE course_id=? AND ease<?", cid, WEAK_EASE)[0]["n"]
+    weak = rows("SELECT COUNT(*) AS n FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+                "WHERE c.course_id=? AND COALESCE(cs.ease,2.5)<?", uid, cid, WEAK_EASE)[0]["n"]
     order = lambda x: (x["week"] == "", int(x["week"]) if x["week"].isdigit() else 999, x["week"])
     return {"weeks": sorted(weeks.values(), key=order), "weak": weak}
 
@@ -2856,8 +2912,8 @@ def quiz(cid: str, qz: QuizIn):
     Phase 11g: a card's distractors are stored (keyed on a hash of its back) and reused; only cards whose stored set is missing or
     stale (the back changed) go to the model, and the call is skipped entirely when every picked card is already cached."""
     if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
-    q, a = _card_scope(cid, 0, qz.week, qz.weak)
-    picked = rows(q + " ORDER BY (CASE WHEN due IS NULL OR due<=? THEN 0 ELSE 1 END), ease, RANDOM() LIMIT ?",
+    q, a = _card_scope(cid, _uid(), 0, qz.week, qz.weak)
+    picked = rows(q + " ORDER BY (CASE WHEN cs.due IS NULL OR cs.due<=? THEN 0 ELSE 1 END), COALESCE(cs.ease,2.5), RANDOM() LIMIT ?",
                   *a, date.today().isoformat(), max(1, min(20, qz.count)))
     if not picked: return []
     ids = [c["id"] for c in picked]
@@ -2965,7 +3021,9 @@ def lawyer_pack(cid: str, user: dict = Depends(current_user)):
     import hashlib
     course = _own_course(cid, user)
     made = quiz(cid, QuizIn(count=LAWYER_POOL))[:LAWYER_RUNGS]
-    cards_by_id = {c["id"]: c for c in rows("SELECT * FROM cards WHERE course_id=? AND id = ANY(?)", cid, [m["id"] for m in made])} if made else {}
+    cards_by_id = {c["id"]: c for c in rows(
+        f"SELECT {_CARD_COLS}, {_CS_COLS} FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+        "WHERE c.course_id=? AND c.id = ANY(?)", _uid(), cid, [m["id"] for m in made])} if made else {}
     names = {c["source"] for c in cards_by_id.values() if c.get("source")}
     files = {f["name"]: f["text"] or "" for f in rows("SELECT name,text FROM files WHERE course_id=?", cid) if f["name"] in names}
     questions = []
@@ -3587,8 +3645,8 @@ def cards_from_tables(nid: str):
                 front = row[ci]; rest = [f"{head[k].capitalize()}: {row[k]}" for k in range(len(row)) if k != ci and row[k]]
                 back = "\n".join(rest)
                 if rows("SELECT 1 FROM cards WHERE course_id=? AND front=? AND source=?", n["course_id"], front, f"note:{nid}"): continue
-                with db() as d: d.execute("INSERT INTO cards(id,course_id,front,back,source,due,created) VALUES(?,?,?,?,?,?,?)",
-                    (uuid.uuid4().hex[:10], n["course_id"], front, back, f"note:{nid}", date.today().isoformat(), time.time()))
+                with db() as d: d.execute("INSERT INTO cards(id,course_id,front,back,source,created) VALUES(?,?,?,?,?,?)",
+                    (uuid.uuid4().hex[:10], n["course_id"], front, back, f"note:{nid}", time.time()))
                 made += 1
         else: i += 1
     return {"made": made}
@@ -4120,7 +4178,8 @@ def auto_plan(cid: str, p: PlanIn):
     planning = rows("SELECT name,text FROM files WHERE course_id=? AND (lower(name) LIKE '%plan%' OR lower(name) LIKE '%overview%' OR lower(name) LIKE '%exam%' OR lower(name) LIKE '%content%')", cid)
     by_week = rows("SELECT week, COUNT(*) AS n, string_agg(name, ' | ' ORDER BY name) AS names FROM files WHERE course_id=? GROUP BY week ORDER BY week", cid)
     notes_ = rows("SELECT title FROM notes WHERE course_id=?", cid)
-    due = rows("SELECT COUNT(*) AS n FROM cards WHERE course_id=? AND due<=?", cid, date.today().isoformat())[0]["n"]
+    due = rows("SELECT COUNT(*) AS n FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+               "WHERE c.course_id=? AND (cs.due IS NULL OR cs.due<=?)", _uid(), cid, date.today().isoformat())[0]["n"]
     existing = rows("SELECT day,topic,minutes,done FROM sessions WHERE course_id=? AND day>=? ORDER BY day", cid, start)
     ctx = "\n\n".join(f"=== {f['name']} ===\n{f['text'][:6000]}" for f in planning)
     state = {"today": start, "days_to_plan": p.days, "minutes_per_day": p.minutes_per_day,
@@ -4250,13 +4309,14 @@ def _local_today() -> date:
     return datetime.now(ZoneInfo("Europe/Amsterdam")).date()
 
 
-def _course_weeks(cid: str, sorted_notes: dict, today: date):
-    """The weeks a course has (from notes, files and cards) and how many cards are due in each."""
+def _course_weeks(cid: str, sorted_notes: dict, today: date, uid: str):
+    """The weeks a course has (from notes, files and cards) and how many cards are due in each FOR THIS USER."""
     weeks = set(sorted_notes["weeks"])
     for r in rows("SELECT DISTINCT week FROM files WHERE course_id=? UNION SELECT DISTINCT week FROM cards WHERE course_id=?", cid, cid):
         if str(r["week"] or "").strip().isdigit(): weeks.add(int(r["week"]))
     due = {}
-    for r in rows("SELECT week, COUNT(*) AS n FROM cards WHERE course_id=? AND (due IS NULL OR due<=?) GROUP BY week", cid, today.isoformat()):
+    for r in rows("SELECT c.week AS week, COUNT(*) AS n FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+                  "WHERE c.course_id=? AND (cs.due IS NULL OR cs.due<=?) GROUP BY c.week", uid, cid, today.isoformat()):
         if str(r["week"] or "").strip().isdigit(): due[int(r["week"])] = r["n"]
     return sorted(weeks), due
 
@@ -4265,7 +4325,10 @@ def _course_weeks(cid: str, sorted_notes: dict, today: date):
 def due_counts():
     """Cards due today per course: a count, never a card. One of the three things a read-only key may read."""
     today = _local_today().isoformat()
-    return {r["course_id"]: r["n"] for r in rows("SELECT course_id, COUNT(*) AS n FROM cards WHERE due IS NULL OR due<=? GROUP BY course_id", today)}
+    return {r["course_id"]: r["n"] for r in rows(
+        "SELECT c.course_id AS course_id, COUNT(*) AS n FROM cards c "
+        "LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+        "WHERE cs.due IS NULL OR cs.due<=? GROUP BY c.course_id", _uid(), today)}
 
 @app.get("/api/today")
 def today_plan(user: dict = Depends(current_user)):
@@ -4283,10 +4346,11 @@ def today_plan(user: dict = Depends(current_user)):
     for c in cs:
         _exam_sweep(c["id"])   # before counting, so today's due includes what the exam run-in brought forward
         ns = countdown.sort_notes([dict(n) for n in rows("SELECT id,title,length(body) AS chars FROM notes WHERE course_id=?", c["id"])])
-        weeks, due = _course_weeks(c["id"], ns, today)
+        weeks, due = _course_weeks(c["id"], ns, today, user["id"])
         minutes = round(countdown.DAILY_MINUTES * share.get(c["id"], 0))
         week = countdown.focus_week(today, weeks, due)
-        total_due = rows("SELECT COUNT(*) AS n FROM cards WHERE course_id=? AND (due IS NULL OR due<=?)", c["id"], today.isoformat())[0]["n"]
+        total_due = rows("SELECT COUNT(*) AS n FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+                         "WHERE c.course_id=? AND (cs.due IS NULL OR cs.due<=?)", user["id"], c["id"], today.isoformat())[0]["n"]
         focus_notes = [{"id": n["id"], "title": n["title"]} for n in ns["weeks"].get(week, [])] if week else []
         out.append({"id": c["id"], "name": c["name"], "exam_date": exams[c["id"]].isoformat() if exams[c["id"]] else None,
                     "days_left": (exams[c["id"]] - today).days if exams[c["id"]] else None,
@@ -4303,7 +4367,7 @@ def study(cid: str):
     if not rows("SELECT id FROM courses WHERE id=?", cid): raise HTTPException(404)
     today = _local_today()
     ns = countdown.sort_notes([dict(n) for n in rows("SELECT id,title,length(body) AS chars FROM notes WHERE course_id=?", cid)])
-    weeks, due = _course_weeks(cid, ns, today)
+    weeks, due = _course_weeks(cid, ns, today, _uid())
     slim = lambda xs: [{"id": n["id"], "title": n["title"], "chars": n["chars"]} for n in sorted(xs, key=lambda n: n["title"])]
     return {"weeks": [{"week": w, "notes": slim(ns["weeks"].get(w, [])), "due": due.get(w, 0)} for w in weeks],
             "reference": slim(ns["reference"]), "scraps": len(ns["scraps"])}
@@ -4329,11 +4393,13 @@ def weak_topics(cid: str):
 
 @app.get("/api/courses/{cid}/stats")
 def stats(cid: str):
-    day0 = date.today(); today = day0.isoformat()
+    day0 = date.today(); today = day0.isoformat(); uid = _uid()
     with db() as d:
         total    = d.execute("SELECT COUNT(*) AS n FROM cards WHERE course_id=?", (cid,)).fetchone()["n"]
-        due      = d.execute("SELECT COUNT(*) AS n FROM cards WHERE course_id=? AND due<=?", (cid, today)).fetchone()["n"]
-        retained = d.execute("SELECT COUNT(*) AS n FROM cards WHERE course_id=? AND interval>=6", (cid,)).fetchone()["n"]
+        due      = d.execute("SELECT COUNT(*) AS n FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+                             "WHERE c.course_id=? AND (cs.due IS NULL OR cs.due<=?)", (uid, cid, today)).fetchone()["n"]
+        retained = d.execute("SELECT COUNT(*) AS n FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+                             "WHERE c.course_id=? AND cs.interval>=6", (uid, cid)).fetchone()["n"]
         reviews  = d.execute("SELECT r.rating,r.created FROM reviews r JOIN cards c ON c.id=r.card_id WHERE c.course_id=?", (cid,)).fetchall()
         files_n  = d.execute("SELECT COUNT(*) AS n, COALESCE(SUM(chars),0) AS total_chars FROM files WHERE course_id=?", (cid,)).fetchone()
         minutes  = d.execute("SELECT COALESCE(SUM(minutes),0) AS n FROM sessions WHERE course_id=? AND done=1", (cid,)).fetchone()["n"]
