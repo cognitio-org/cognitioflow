@@ -72,7 +72,7 @@ def test_a_key_for_an_address_taken_off_the_list_stops_working(client, key, monk
     assert client.get("/api/today", headers=_h(key["token"])).status_code == 401
 
 
-def test_it_reads_mock_counts_and_nothing_of_the_text(client, key, pg):
+def test_it_reads_mock_counts_and_nothing_of_the_text(client, key, pg, uid):
     """Mock exams as counts only (Matej, 2026-10-07): the key sees hit/partly/missed counts, never a question,
     an answer, a model answer, a comment or a paper's name."""
     import json, time, uuid
@@ -84,8 +84,8 @@ def test_it_reads_mock_counts_and_nothing_of_the_text(client, key, pg):
     grade = {"kind": "mock", "points": [{"point": "SECRET POINT", "standing": "hit", "comment": "SECRET COMMENT"},
                                         {"point": "p2", "standing": "missed", "comment": "c"}],
              "missing": ["SECRET AUTHORITY"], "overall": "SECRET OVERALL"}
-    pg.execute("INSERT INTO essay_attempts(id,question_id,course_id,answer,submitted,grade,updated) VALUES(%s,%s,%s,%s,%s,%s,%s)",
-               (uuid.uuid4().hex[:10], qid, cid, "SECRET ANSWER", time.time(), json.dumps(grade), time.time()))
+    pg.execute("INSERT INTO essay_attempts(id,question_id,course_id,user_id,answer,submitted,grade,updated) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)",
+               (uuid.uuid4().hex[:10], qid, cid, uid, "SECRET ANSWER", time.time(), json.dumps(grade), time.time()))
     pg.commit()
     r = client.get(f"/api/courses/{cid}/mock/summary", headers=_h(key["token"]))
     assert r.status_code == 200

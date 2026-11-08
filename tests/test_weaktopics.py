@@ -40,16 +40,16 @@ def test_no_score_out_of_100_anywhere():
     assert "%" not in blob and "score" not in blob and "percent" not in blob
 
 
-def test_the_route_reads_the_review_log_and_the_essays(client, pg):
+def test_the_route_reads_the_review_log_and_the_essays(client, pg, uid):
     cid = client.post("/api/courses", json={"name": "Weak Law"}).json()["id"]
     client.post(f"/api/courses/{cid}/notes", json={"title": "Week 3 — Transfer", "body": "Rule. " * 400})
     now = time.time()
     for i in range(6):
         kid = client.post(f"/api/courses/{cid}/cards", json={"front": f"f{i}", "back": "b", "week": "3"}).json()["id"]
-        pg.execute("INSERT INTO reviews(id,card_id,rating,created) VALUES(%s,%s,%s,%s)", (f"r{i}", kid, 0 if i < 3 else 2, now + i))
+        pg.execute("INSERT INTO reviews(id,card_id,rating,created,user_id) VALUES(%s,%s,%s,%s,%s)", (f"r{i}", kid, 0 if i < 3 else 2, now + i, uid))
     pg.execute("INSERT INTO essay_questions(id,course_id,week,question,created) VALUES('q1',%s,'4','Q?',%s)", (cid, now))
-    pg.execute("INSERT INTO essay_attempts(id,question_id,course_id,criteria,submitted,created) VALUES('a1','q1',%s,%s,%s,%s)",
-               (cid, json.dumps([{"step": "Remedies", "met": False}]), now, now))
+    pg.execute("INSERT INTO essay_attempts(id,question_id,course_id,user_id,criteria,submitted,created) VALUES('a1','q1',%s,%s,%s,%s,%s)",
+               (cid, uid, json.dumps([{"step": "Remedies", "met": False}]), now, now))
     pg.commit()
     w = client.get(f"/api/courses/{cid}/weak-topics").json()
     assert [(t["week"], t["label"], t["recalled"], t["reviews"]) for t in w["weak"]][0] == ("3", "Week 3 — Transfer", 3, 6)

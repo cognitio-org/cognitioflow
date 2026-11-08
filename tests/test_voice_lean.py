@@ -76,10 +76,11 @@ def test_voice_turns_are_lean_and_typed_turns_are_unchanged(client, monkeypatch,
     assert "SPOKEN TURN" not in off and "wk1 slides.txt" in off   # CF_VOICE_LEAN=off puts it back exactly
 
 
-def test_a_spoken_turn_carries_ten_messages_of_history(client, monkeypatch, pg):
+def test_a_spoken_turn_carries_ten_messages_of_history(client, monkeypatch, pg, uid):
     cid = _course(client, pg)
     for i in range(30):
-        pg.execute("INSERT INTO messages VALUES(%s,%s,%s,%s,%s)", (f"m{i}", cid, "user" if i % 2 == 0 else "assistant", f"turn {i}", i))
+        pg.execute("INSERT INTO messages(id,course_id,role,content,created,user_id) VALUES(%s,%s,%s,%s,%s,%s)",
+                   (f"m{i}", cid, "user" if i % 2 == 0 else "assistant", f"turn {i}", i, uid))
     pg.commit()
     _, msgs = _system(client, cid, True, monkeypatch)
     assert len(msgs) == run.VOICE_HISTORY + 1   # ten before, and this question
