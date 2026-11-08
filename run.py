@@ -420,6 +420,7 @@ def add_course(c: CourseIn, user: dict = Depends(current_user)):
 @app.put("/api/courses/{cid}")
 def edit_course(cid: str, c: CourseEdit):
     """Partial update. A brief recompiles tutor_prompt; an empty brief keeps the stored prompt."""
+    _require_owner(cid)
     with db() as d:
         cur = d.execute("SELECT * FROM courses WHERE id=?", (cid,)).fetchone()
         if not cur: raise HTTPException(404)
@@ -444,6 +445,45 @@ def _course_usage(cid: str) -> dict:
                 "cards": n("SELECT COUNT(*) AS n FROM cards WHERE course_id=?"), "messages": n("SELECT COUNT(*) AS n FROM messages WHERE course_id=?"),
                 "sessions": n("SELECT COUNT(*) AS n FROM sessions WHERE course_id=?")}
 
+# ---------------------------------------------------------------- owner-gating (PR #3)
+# Course CONTENT (files, notes, cards, concepts, questions, syllabus, blueprint) is read-shared to every allowed
+# user but EDITED only by its owner, courses.user_id. Practice and PROGRESS routes stay open to all allowed users
+# and are kept private per-user by their own user_id scoping (PRs #1/#2) — they are NOT owner-gated. These helpers
+# gate the content-authoring routes. They resolve the current user with _uid() (defined below; name-resolved at call
+# time) and match the NULL-owner convention the rest of the app uses (_own_course(cid, user)): a course with a
+# concrete owner is editable only by that owner (403 otherwise), but a NULL-owner course is UNOWNED and editable by
+# any allowed user. That last case is real, not dead: init() seeds the shipped courses (eu/prop) with no owner, and
+# runs AFTER migrations, so a fresh install genuinely has NULL-owner courses (033 backfills existing prod rows to the
+# single user for determinism, but can't own a row seeded later). Failing closed on NULL would lock the primary user
+# out of his own seeded courses on a new deploy. Once a second real user exists, every course they could reach has a
+# concrete owner (created through add_course, or backfilled), so the NULL branch is never the thing standing between
+# two users.
+def _require_owner(cid: str) -> str:
+    """Owner-gate a content route by course id. 404 if the course is absent; 403 if it exists with a concrete owner
+    who is not the caller. A NULL-owner (unowned, seeded) course is editable by any allowed user. Returns the owner
+    id. Content is already read-shared, so 403 (not 404) on a non-owner leaks nothing new."""
+    r = rows("SELECT user_id FROM courses WHERE id=?", cid)
+    if not r: raise HTTPException(404)
+    owner = r[0]["user_id"]
+    if owner and owner != _uid(): raise HTTPException(403, "Only the course owner can edit its content.")
+    return owner
+
+def _own_via(sql: str, oid: str) -> str:
+    """Owner-gate a by-id content route whose path carries a sub-resource id, not a course id (the real IDOR holes:
+    PUT /api/cards/{kid}, DELETE /api/notes/{nid}, file/recording/concept edits). `sql` selects the parent course_id
+    for that row. 404 if the row is gone; then owner-gate that course. Returns the resolved course id."""
+    r = rows(sql, oid)
+    if not r: raise HTTPException(404)
+    cid = r[0]["course_id"]
+    _require_owner(cid)
+    return cid
+
+def _own_note(nid: str) -> str:       return _own_via("SELECT course_id FROM notes WHERE id=?", nid)
+def _own_card(kid: str) -> str:       return _own_via("SELECT course_id FROM cards WHERE id=?", kid)
+def _own_file(fid: str) -> str:       return _own_via("SELECT course_id FROM files WHERE id=?", fid)
+def _own_concept(con_id: str) -> str: return _own_via("SELECT course_id FROM concepts WHERE id=?", con_id)
+def _own_recording(rid: str) -> str:  return _own_via("SELECT n.course_id AS course_id FROM recordings r JOIN notes n ON n.id=r.note_id WHERE r.id=?", rid)
+
 @app.get("/api/courses/{cid}/usage")
 def course_usage(cid: str):
     if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
@@ -452,7 +492,7 @@ def course_usage(cid: str):
 @app.delete("/api/courses/{cid}")
 def delete_course(cid: str, force: int = 0):
     """Refuses while the course has files, notes or cards unless force=1 (the UI asks first). Force cascades to every dependent row."""
-    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    _require_owner(cid)
     if rows("SELECT COUNT(*) AS n FROM courses")[0]["n"] <= 1: raise HTTPException(409, "Can't delete the only course.")
     u = _course_usage(cid)
     if (u["files"] or u["notes"] or u["cards"]) and not force:
@@ -477,6 +517,7 @@ def files(cid: str):
 
 @app.post("/api/courses/{cid}/files")
 async def upload(cid: str, file: UploadFile = File(...), week: str = Form("")):
+    _require_owner(cid)
     fid = uuid.uuid4().hex; kind = kind_of(file.filename)
     data = await file.read()
     text = "" if kind == "image" else extract_bytes(data, file.filename, kind)
@@ -495,6 +536,7 @@ async def upload(cid: str, file: UploadFile = File(...), week: str = Form("")):
 
 @app.post("/api/files/{fid}/toggle")
 def toggle(fid: str):
+    _own_file(fid)
     with db() as d: d.execute("UPDATE files SET selected=1-selected WHERE id=?", (fid,))
     return {"ok": True}
 
@@ -503,6 +545,7 @@ class ToggleToIn(BaseModel): on: bool
 @app.post("/api/files/{fid}/toggle-to")
 def toggle_to(fid: str, t: ToggleToIn):
     """Set a file's tick explicitly — the week header's tick-all sends the same state to every file in the group."""
+    _own_file(fid)
     if not rows("SELECT 1 FROM files WHERE id=?", fid): raise HTTPException(404)
     with db() as d: d.execute("UPDATE files SET selected=? WHERE id=?", (1 if t.on else 0, fid))
     return {"ok": True, "selected": 1 if t.on else 0}
@@ -547,6 +590,7 @@ class FileMetaIn(BaseModel):
 def file_meta(fid: str, m: FileMetaIn):
     """Rename a file on screen, change what kind of material it is, or correct its week.
     The upload name and the stored object are untouched — cards point at the filename."""
+    _own_file(fid)
     f = rows("SELECT id,course_id,name FROM files WHERE id=?", fid)
     if not f: raise HTTPException(404)
     sets, args = [], []
@@ -571,6 +615,7 @@ def file_meta(fid: str, m: FileMetaIn):
 def relabel(cid: str):
     """Give every file a readable title and say what kind of material it is. Filenames answer most of
     it for free; one cheap-model call handles the rest. Nothing already labelled by hand is touched."""
+    _require_owner(cid)
     files_ = rows("SELECT id,name,kind,text,COALESCE(label,'') AS label,COALESCE(role,'') AS role FROM files WHERE course_id=?", cid)
     by_name, rest = {}, []
     for f in files_:
@@ -612,6 +657,7 @@ def relabel(cid: str):
 @app.post("/api/courses/{cid}/infer-weeks")
 def infer_weeks(cid: str):
     """Tag untagged files with a week: from the filename when it says so (free), otherwise one cheap-model call over the rest."""
+    _require_owner(cid)
     untagged = rows("SELECT id,name,kind,text FROM files WHERE course_id=? AND COALESCE(week,'')=''", cid)
     found, rest = {}, []
     for f in untagged:
@@ -665,6 +711,7 @@ def list_concepts(cid: str, week: str = ""):
 
 @app.delete("/api/concepts/{con_id}")
 def delete_concept(con_id: str):
+    _own_concept(con_id)
     with db() as d: d.execute("DELETE FROM concepts WHERE id=?", (con_id,))
     return {"ok": True}
 
@@ -676,7 +723,7 @@ def extract_concepts(cid: str, body: ConceptsIn):
 
     Every concept must quote the sentence it came from, and the quote is checked against the material
     before anything is saved — a model that paraphrases there loses the entry. Cheap model only."""
-    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    _require_owner(cid)
     week = (body.week or "").strip()
     if body.file_id:
         files_ = rows("SELECT id,name,text FROM files WHERE id=? AND course_id=?", body.file_id, cid)
@@ -724,7 +771,7 @@ def generate_from_concepts(cid: str, body: GenerateIn):
     The concept was already checked against the material when it was extracted, so a question written
     from it inherits that grounding. Anything the model cites beyond what the concept carries is
     thrown away rather than saved — reaching for another authority is reaching past the course."""
-    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    _require_owner(cid)
     q = ("SELECT * FROM concepts WHERE course_id=? AND id NOT IN "
          "(SELECT DISTINCT concept_id FROM cards WHERE course_id=? AND concept_id IS NOT NULL)")
     args = [cid, cid]
@@ -791,7 +838,7 @@ def build_all_decks(cid: str):
     problem per concept across the whole course. Reuses the per-week extractor and the idempotent generator
     (cheap model only, no new schema), so a fresh course with a syllabus applied goes from zero cards to a full
     deck in a single call instead of a manual per-week loop."""
-    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    _require_owner(cid)
     weeks = [r["w"] for r in rows(
         "SELECT DISTINCT COALESCE(week,'') AS w FROM files WHERE course_id=? AND selected=1 "
         "AND COALESCE(week,'')<>'' AND COALESCE(text,'')<>'' ORDER BY w", cid)][:20]
@@ -872,7 +919,7 @@ def syllabus_extract(cid: str, p: SyllabusExtractIn):
 
     Writes nothing. Extraction is explicit rather than automatic on upload because a syllabus is not always
     recognisable, and silently rewriting every file's week would be worse than nothing."""
-    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    _require_owner(cid)
     f = rows("SELECT name,kind,text FROM files WHERE id=? AND course_id=?", p.file_id, cid)
     if not f: raise HTTPException(404, "That file is not in this course.")
     text = (f[0]["text"] or "").strip()
@@ -900,6 +947,7 @@ def syllabus_apply(cid: str, p: SyllabusApplyIn):
 
     Idempotent: normalise_syllabus sorts and merges, the schedule block is stripped from the prompt before it is
     re-appended, and file weeks are only ever filled in where they are still empty."""
+    _require_owner(cid)
     syl = _checked(cb.normalise_syllabus, {"weeks": p.weeks, "source": p.source})
     tagged, names = {}, {}
     with db() as d:
@@ -937,6 +985,7 @@ def blueprint_extract(cid: str):
     """Read this course's past-exam/mock files and applied syllabus, and propose a weighted map of
     what it examines. Writes nothing — the panel shows the blueprint before anything consumes it,
     so a wrong reading costs a re-read, not a change to the course."""
+    _require_owner(cid)
     c = rows("SELECT name,brief FROM courses WHERE id=?", cid)
     if not c:
         raise HTTPException(404)
@@ -969,6 +1018,7 @@ def blueprint_apply(cid: str, p: BlueprintApplyIn):
     """Persist a reviewed blueprint under courses.brief['blueprint']. Adds a key to the jsonb brief —
     no schema change — so a later slice can point the tutor and the generators at it. An empty topics
     list removes an applied blueprint again. Idempotent via normalise_blueprint."""
+    _require_owner(cid)
     blu = _checked(bp.normalise_blueprint, p.model_dump())
     with db() as d:
         cur = d.execute("SELECT name,tutor_prompt,brief FROM courses WHERE id=?", (cid,)).fetchone()
@@ -1102,6 +1152,7 @@ def cards_tag(cid: str, p: CardTagIn):
     each card (cards.doctrine), so readiness counts by doctrine instead of guessing by substring. Writes
     only a topic the model actually chose; a card it can't place stays untagged. Does not touch drilling
     or the due queue — readiness is a score, not the study schedule."""
+    _require_owner(cid)
     r = rows("SELECT brief FROM courses WHERE id=?", cid)
     if not r:
         raise HTTPException(404)
@@ -1124,6 +1175,7 @@ def cards_tag(cid: str, p: CardTagIn):
 
 @app.delete("/api/files/{fid}")
 def delete_file(fid: str):
+    _own_file(fid)
     with db() as d:
         r = d.execute("SELECT key FROM files WHERE id=?", (fid,)).fetchone()
         if r and r["key"]: storage.delete(r["key"])
@@ -1178,6 +1230,7 @@ def reindex(cid: str, source: str, source_id: str, name: str, kind: str, week: s
 @app.post("/api/courses/{cid}/reindex")
 def reindex_course(cid: str):
     """Index everything ticked in this course. Safe to re-run: each source's passages are replaced, never duplicated."""
+    _require_owner(cid)
     if not RETRIEVAL or not embed.ready():
         raise HTTPException(400, "Retrieval is off on this server (RETRIEVAL=on plus the embedding model enable it).")
     done = 0
@@ -1622,6 +1675,7 @@ def notes(cid: str): return rows("SELECT id,title,updated,length(body) AS chars 
 
 @app.post("/api/courses/{cid}/notes")
 def add_note(cid: str, n: NoteIn):
+    _require_owner(cid)
     nid = uuid.uuid4().hex[:10]
     with db() as d: d.execute("INSERT INTO notes VALUES(?,?,?,?,?)", (nid, cid, n.title, n.body, time.time()))
     return {"id": nid}
@@ -1634,6 +1688,7 @@ def note(nid: str):
 
 @app.put("/api/notes/{nid}")
 def save_note(nid: str, n: NoteIn):
+    _own_note(nid)
     with db() as d:
         cur = d.execute("SELECT title,body FROM notes WHERE id=?", (nid,)).fetchone()
         last = d.execute("SELECT created FROM note_versions WHERE note_id=? ORDER BY created DESC LIMIT 1", (nid,)).fetchone()
@@ -1656,6 +1711,7 @@ def version(vid: str):
 
 @app.post("/api/notes/{nid}/restore/{vid}")
 def restore(nid: str, vid: str):
+    _own_note(nid)
     v = version(vid); cur = note(nid)
     with db() as d:
         d.execute("INSERT INTO note_versions VALUES(?,?,?,?,?)", (uuid.uuid4().hex, nid, cur["title"], cur["body"], time.time()))
@@ -1664,6 +1720,7 @@ def restore(nid: str, vid: str):
 
 @app.delete("/api/notes/{nid}")
 def del_note(nid: str):
+    _own_note(nid)
     _del_note_audio(nid)   # the reading the app made of this note goes with it
     with db() as d: d.execute("DELETE FROM notes WHERE id=?", (nid,))
     return {"ok": True}
@@ -1671,6 +1728,7 @@ def del_note(nid: str):
 @app.post("/api/notes/{nid}/to-file")
 def note_to_file(nid: str):
     """Snapshot a note into the course files so the tutor can read it."""
+    _own_note(nid)
     n = note(nid)
     fid = uuid.uuid4().hex; key = f"courses/{n['course_id']}/files/{fid}/{storage.safe_name(n['title'] + '.md')}"
     storage.put(key, n["body"].encode(), "text/markdown; charset=utf-8")
@@ -1754,6 +1812,7 @@ def cards(cid: str, due: int = 0, week: str = "", weak: int = 0):
 
 @app.post("/api/courses/{cid}/cards")
 def add_card(cid: str, c: CardIn):
+    _require_owner(cid)
     kid = uuid.uuid4().hex[:10]
     with db() as d: d.execute("INSERT INTO cards(id,course_id,front,back,source,week,created) VALUES(?,?,?,?,?,?,?)",
                               (kid, cid, c.front, c.back, c.source, c.week.strip(), time.time()))
@@ -1765,6 +1824,7 @@ def edit_card(kid: str, c: CardEditIn):
     its front/back actually change, record the pair (the AI's card -> Matej's edited card) — the
     correction/preference signal that teaches his taste. Only fields that are sent are changed; the
     review history and schedule are untouched."""
+    _own_card(kid)
     cur = rows("SELECT * FROM cards WHERE id=?", kid)
     if not cur: raise HTTPException(404)
     cur = dict(cur[0])
@@ -1782,6 +1842,7 @@ def edit_card(kid: str, c: CardEditIn):
 
 @app.delete("/api/cards/{kid}")
 def del_card(kid: str):
+    _own_card(kid)
     with db() as d: d.execute("DELETE FROM cards WHERE id=?", (kid,))
     return {"ok": True}
 
@@ -1885,13 +1946,14 @@ def _capture_card_edit(card_id, gen_sample_id, course_id, front_before, back_bef
 
 @app.post("/api/courses/{cid}/cards/generate")
 def generate_cards(cid: str, g: GenIn):
+    _require_owner(cid)
     if g.note_id:   # his own notes, week by week: Property Law Week 6 has notes and no files (2026-09-29)
         n = rows("SELECT title,body FROM notes WHERE id=? AND course_id=?", g.note_id, cid)
         if not n: raise HTTPException(404)
         wk = countdown.week_of(n[0]["title"])
         src, week, txt, kind = n[0]["title"], str(wk) if wk is not None else "", (n[0]["body"] or "")[:60000], "note"
     elif g.file_id:
-        f = rows("SELECT name,text,week FROM files WHERE id=?", g.file_id)
+        f = rows("SELECT name,text,week FROM files WHERE id=? AND course_id=?", g.file_id, cid)
         if not f: raise HTTPException(404)
         src, week, txt, kind = f[0]["name"], f[0]["week"] or "", (f[0]["text"] or "")[:60000], "file"
     else:
@@ -2294,8 +2356,9 @@ class OralBankIn(BaseModel):
 @app.post("/api/courses/{cid}/oral/bank")
 def oral_bank(cid: str, g: OralBankIn):
     """Turn the student's own ticked material into spoken-exam questions: concept, question, model answer, traps."""
+    _require_owner(cid)
     if g.file_id:
-        f = rows("SELECT name,text,week FROM files WHERE id=?", g.file_id)
+        f = rows("SELECT name,text,week FROM files WHERE id=? AND course_id=?", g.file_id, cid)
         if not f: raise HTTPException(404)
         src, week, txt = f[0]["name"], f[0]["week"] or "", (f[0]["text"] or "")[:60000]
     else:
@@ -2505,7 +2568,7 @@ class EssayBankIn(BaseModel):
 def essay_bank(cid: str, g: EssayBankIn):
     """Turn the student's own ticked material into essay questions, per course and week. Cheap model:
     setting a question from a topic is not the analytical call — marking the answer is."""
-    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    _require_owner(cid)
     if g.file_id:
         # scoped to the course, not looked up by id alone: this route's whole premise is the student's
         # own material for THIS course, and an unscoped lookup will happily read another course's file
@@ -2613,7 +2676,7 @@ def case_bank(cid: str, g: CaseBankIn):
     """Turn the student's own ticked material into exam-hypothetical cases, per course and week, on the
     cheap tier. Grounded in the ticked files only; abstains (writes fewer/none, flags thin) when the
     source is too thin to support a full set — never invents law."""
-    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    _require_owner(cid)
     if g.file_id:
         # scoped to the course, like essay_bank: an unscoped id would read another course's file.
         f = rows("SELECT name,text,week FROM files WHERE id=? AND course_id=?", g.file_id, cid)
@@ -2703,6 +2766,12 @@ class CaseAnswerIn(BaseModel):
     selected_index: int
 
 
+# DEFERRED (multi-user, PR #3 note): case/answer, quiz and oral practice are open to every allowed user (shared
+# content, private per-user schedule). The Phase-11 "what you missed" path here and in _remember_miss creates a
+# card in the SHARED `cards` table when a non-owner misses — so a classmate's miss can add to the owner's deck. That
+# is the miss-deck design (one shared deck), not an IDOR: the schedule the card produces is already per-user
+# (_review stamps user_id). Making miss-cards per-user is its own change (a per-user miss deck), out of scope for
+# owner-gating; left as-is until multi-user practice is actually turned on.
 def _remember_case_answer(cid: str, case_id: str, question: str, right_text: str, concept: str, correct: bool) -> Optional[str]:
     """"What you missed", through the app's one review path. A missed MCQ becomes a card rated 'Again',
     so FSRS brings it back on its own; a later correct answer on the same MCQ rates that same card
@@ -2749,7 +2818,7 @@ def _exam_files(cid: str):
 def mock_import(cid: str):
     """Bank each past paper's questions word for word, each with its official model answer, locked until he has
     handed in. A paper already banked is left alone, so this is safe to run again after uploading a new one."""
-    if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    _require_owner(cid)
     have = {mockexam.parse_source(r["source"])[0] for r in rows("SELECT source FROM essay_questions WHERE course_id=? AND source LIKE ?", cid, mockexam.SOURCE_PREFIX + "%")
             if mockexam.parse_source(r["source"])}
     made = []
@@ -3596,12 +3665,14 @@ def case_timeline(cid: str):
 # ---------------------------------------------------------------- offline: recordings, cards from case map
 @app.post("/api/notes/{nid}/recordings/start")
 def rec_start(nid: str):
+    _own_note(nid)
     rid = uuid.uuid4().hex[:10]
     with db() as d: d.execute("INSERT INTO recordings VALUES(?,?,?,?,0)", (rid, nid, "", time.time()))
     return {"id": rid, "started": time.time()}
 
 @app.post("/api/recordings/{rid}/finish")
 async def rec_finish(rid: str, audio: UploadFile = File(...), seconds: float = Form(0), auto: int = Form(1)):
+    _own_recording(rid)
     r = rows("SELECT note_id FROM recordings WHERE id=?", rid)
     if not r: raise HTTPException(404)
     key = f"notes/{r[0]['note_id']}/audio/{rid}.webm"; storage.put(key, await audio.read(), "audio/webm")
@@ -3625,6 +3696,7 @@ def rec_audio(rid: str, request: Request):
 
 @app.delete("/api/recordings/{rid}")
 def rec_del(rid: str):
+    _own_recording(rid)
     p = rows("SELECT key FROM recordings WHERE id=?", rid)
     if p and p[0]["key"]: storage.delete(p[0]["key"])
     with db() as d: d.execute("DELETE FROM recordings WHERE id=?", (rid,))
@@ -3633,6 +3705,7 @@ def rec_del(rid: str):
 @app.post("/api/notes/{nid}/cards-from-tables")
 def cards_from_tables(nid: str):
     """Deterministic: every row of a Markdown table whose header has a Case column becomes a card. No model."""
+    _own_note(nid)
     n = note(nid); lines = n["body"].splitlines(); made = 0; i = 0
     def cells(l): return [c.strip() for c in l.strip().strip("|").split("|")]
     while i < len(lines):
@@ -3706,6 +3779,7 @@ def _finish_transcription(job, segments, language):
 def transcribe_start(rid: str, lang: str = "en", retry: int = 0):
     """Send a recording to Google Speech-to-Text as a durable job and return at once; GET polls it to completion.
     A live job is returned as-is; a failed one is re-submitted (the Transcribe button or ?retry=1), at most 3 attempts."""
+    _own_recording(rid)
     r = rows("SELECT note_id, key FROM recordings WHERE id=?", rid)
     if not r or not r[0]["key"]: raise HTTPException(404)
     job = _latest_job(rid)
@@ -3887,6 +3961,7 @@ def _make_note_audio(jid: str, nid: str, fingerprint: str):
 def note_audio_start(nid: str):
     """Ask for this note as audio. Returns a job at once and writes no audio in this request.
     Audio that already matches the note is returned as-is rather than made a second time."""
+    _own_note(nid)
     n = note(nid)
     view = _audio_view(nid)
     if view["ready"] or view["status"] in ("queued", "running"):
@@ -3979,6 +4054,7 @@ def clean_text(cid: str, text: str) -> str:
 @app.post("/api/notes/{nid}/clean-capture")
 def clean_capture(nid: str):
     """Runs the cleaner over every Live capture section of a note. Original kept in History."""
+    _own_note(nid)
     n = note(nid); body = n["body"]
     parts = re.split(r"(?m)(^##\s+Live capture[^\n]*\n)", body)
     if len(parts) < 3: raise HTTPException(400, "No Live capture section to clean.")
@@ -4021,6 +4097,7 @@ End with:
 @app.post("/api/notes/{nid}/reconcile")
 def reconcile_note(nid: str):
     """Split the note into base notes + 'Live capture' sections; rewrite the base so the capture outranks it. Saves a new note, keeps the original."""
+    _own_note(nid)
     n = note(nid)
     system, prompt = _reconcile_inputs(n)
     m = ask_model(STRONG_MODEL, max_tokens=RECONCILE_TOKENS, system=system, messages=[{"role": "user", "content": prompt}])
@@ -4067,6 +4144,7 @@ Never import material that is not in the files. Where sources disagree, keep bot
 @app.post("/api/courses/{cid}/notes/draft")
 def draft_notes(cid: str, d: DraftIn):
     """Build a master-notes draft from selected files (or the ticked files of a week). Cheap model; escalates on size."""
+    _require_owner(cid)
     system, prompt, fs = _draft_inputs(cid, d)
     m = ask_model(pick_model("notes", None, ""), max_tokens=DRAFT_TOKENS, system=system,
                                  messages=[{"role": "user", "content": prompt}])
@@ -4157,6 +4235,7 @@ def _drop_repeats(written: list, rest: str):
 def continue_note(nid: str):
     """Finish a note that stops part-way. Current models reject an assistant prefill, so the partial text
     goes back in the user turn and the reply is appended. Works with or without a continuation marker."""
+    _own_note(nid)
     n = note(nid); body = n["body"] or ""
     partial, meta = _split_marker(body)
     if not partial.strip(): raise HTTPException(400, "This note is empty — nothing to continue.")
