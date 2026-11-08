@@ -38,7 +38,7 @@ def test_an_unreadable_grade_is_never_solid(client):
 
 def test_no_card_is_rescheduled(client):
     fake = _grader({"mastery": "solid", "verdict": "Solid", "spoken": "Nailed it.", "note": ""})
-    with mock.patch.object(run, "client", return_value=fake), mock.patch.object(run, "review") as review:
+    with mock.patch.object(run, "client", return_value=fake), mock.patch.object(run, "_review") as review:
         client.post("/api/speech", json={"question": "Q", "answer": "A"})
     review.assert_not_called()
 

@@ -52,7 +52,7 @@ def test_a_missed_bench_question_becomes_a_card_due_today(client, pg):
     assert front == QUESTION
     assert back == MISSED["note"], "the card carries the gap and its authority, which is the whole point"
     assert source == f"court:{CASE}" and concept == CASE
-    assert due == date.today().isoformat(), "it goes into the queue now, not eventually"
+    assert due is None, "no per-user schedule is seeded on the shared card; a NULL due reads as 'due now'"
 
 
 def test_the_reply_tells_the_page_when_the_card_is_due(client, pg):
@@ -81,10 +81,10 @@ def test_missing_it_again_is_rated_through_the_apps_own_review_path(client, pg):
     """Recurrence is decided in exactly one place; the courtroom must not invent a second."""
     cid = _course(pg)
     _reply(client, cid, MISSED)
-    with mock.patch.object(run, "review", wraps=run.review) as review:
+    with mock.patch.object(run, "_review", wraps=run._review) as review:
         _reply(client, cid, MISSED)
-    assert review.call_count == 1, "the second miss goes through review(), not a fresh insert"
-    assert review.call_args.args[1].rating == 0, "a miss is rated 'again'"
+    assert review.call_count == 1, "the second miss goes through _review(), not a fresh insert"
+    assert review.call_args.args[1] == 0, "a miss is rated 'again'"
 
 
 def test_two_different_questions_on_one_case_keep_their_own_cards(client, pg):

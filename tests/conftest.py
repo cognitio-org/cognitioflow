@@ -132,3 +132,23 @@ def pg():
     with psycopg.connect(_pg_url()) as conn:
         _bounded(conn)
         yield conn
+
+
+@pytest.fixture
+def set_sr(pg):
+    """Write the current user's (matej's) per-user spaced-repetition state into card_state — the row the app reads
+    after the multi-user switch. Tests that used to `UPDATE cards SET ease/due/interval/…` set card_state through
+    this instead, since card_state (user_id, card_id) is now the source of truth for scheduling, not the shared card."""
+    import uuid as _uuid, time as _time
+    def _set(kid, **cols):
+        u = pg.execute("SELECT id FROM users WHERE email='matej@mgms.eu'").fetchone()
+        if not u:
+            pg.execute("INSERT INTO users(id,email,name,created) VALUES(%s,'matej@mgms.eu','',%s) "
+                       "ON CONFLICT(email) DO NOTHING", (_uuid.uuid4().hex, _time.time())); pg.commit()
+            u = pg.execute("SELECT id FROM users WHERE email='matej@mgms.eu'").fetchone()
+        keys = ",".join(cols); ph = ",".join(["%s"] * len(cols))
+        sets = ",".join(f"{k}=EXCLUDED.{k}" for k in cols)
+        pg.execute(f"INSERT INTO card_state(user_id,card_id,{keys}) VALUES(%s,%s,{ph}) "
+                   f"ON CONFLICT (user_id,card_id) DO UPDATE SET {sets}", (u[0], kid, *cols.values()))
+        pg.commit()
+    return _set
