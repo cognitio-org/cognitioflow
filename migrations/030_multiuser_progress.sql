@@ -52,9 +52,10 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user        ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_essay_attempts_user  ON essay_attempts(user_id);
 CREATE INDEX IF NOT EXISTS idx_essay_revisions_user ON essay_revisions(user_id);
 
--- essay_attempts was UNIQUE(question_id) — one attempt per question GLOBALLY. Make it one attempt per question PER USER.
-ALTER TABLE essay_attempts DROP CONSTRAINT IF EXISTS essay_attempts_question_id_key;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_essay_attempts_user_question ON essay_attempts(user_id, question_id);
+-- NOTE: essay_attempts stays UNIQUE(question_id) for now. The swap to one-attempt-per-question-PER-USER
+-- (drop essay_attempts_question_id_key, add UNIQUE(user_id, question_id)) is NOT behaviour-neutral — the app's
+-- _essay_save upserts `ON CONFLICT (question_id)`, so the swap must land atomically with that rewrite in the
+-- scheduler/isolation app PR, not here. This migration only adds the nullable user_id column + plain index above.
 
 -- 3) OWNERSHIP of the seed content — the NULL-owner courses become the current user's (so they are not world-visible).
 UPDATE courses SET user_id = (SELECT id FROM users WHERE email='matej@mgms.eu' LIMIT 1) WHERE user_id IS NULL;
