@@ -4176,12 +4176,13 @@ def auto_plan(cid: str, p: PlanIn):
     course = rows("SELECT * FROM courses WHERE id=?", cid)
     if not course: raise HTTPException(404)
     start = p.start or dt.date.today().isoformat()
+    uid = _uid()   # resolve once; reused for the due count, the existing-plan read, the replace delete and each insert
     planning = rows("SELECT name,text FROM files WHERE course_id=? AND (lower(name) LIKE '%plan%' OR lower(name) LIKE '%overview%' OR lower(name) LIKE '%exam%' OR lower(name) LIKE '%content%')", cid)
     by_week = rows("SELECT week, COUNT(*) AS n, string_agg(name, ' | ' ORDER BY name) AS names FROM files WHERE course_id=? GROUP BY week ORDER BY week", cid)
     notes_ = rows("SELECT title FROM notes WHERE course_id=?", cid)
     due = rows("SELECT COUNT(*) AS n FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
-               "WHERE c.course_id=? AND (cs.due IS NULL OR cs.due<=?)", _uid(), cid, date.today().isoformat())[0]["n"]
-    existing = rows("SELECT day,topic,minutes,done FROM sessions WHERE course_id=? AND day>=? AND user_id=? ORDER BY day", cid, start, _uid())
+               "WHERE c.course_id=? AND (cs.due IS NULL OR cs.due<=?)", uid, cid, date.today().isoformat())[0]["n"]
+    existing = rows("SELECT day,topic,minutes,done FROM sessions WHERE course_id=? AND day>=? AND user_id=? ORDER BY day", cid, start, uid)
     ctx = "\n\n".join(f"=== {f['name']} ===\n{f['text'][:6000]}" for f in planning)
     state = {"today": start, "days_to_plan": p.days, "minutes_per_day": p.minutes_per_day,
              "files_by_week": [dict(r) for r in by_week], "notes": [n["title"] for n in notes_],
@@ -4199,11 +4200,11 @@ def auto_plan(cid: str, p: PlanIn):
     except Exception: raise HTTPException(502, "Planner returned something that was not JSON; try again.")
     added = 0
     with db() as c:
-        if p.replace: c.execute("DELETE FROM sessions WHERE course_id=? AND day>=? AND done=0 AND user_id=?", (cid, start, _uid()))
+        if p.replace: c.execute("DELETE FROM sessions WHERE course_id=? AND day>=? AND done=0 AND user_id=?", (cid, start, uid))
         for it in items:
             if not isinstance(it, dict) or not it.get("day") or not it.get("topic"): continue
             if str(it["day"])[:10] < start: continue          # the model sometimes copies dates out of the course calendar; a plan never lands in the past
-            c.execute("INSERT INTO sessions(id,course_id,day,topic,minutes,done,user_id) VALUES(?,?,?,?,?,0,?)", (uuid.uuid4().hex, cid, str(it["day"])[:10], str(it["topic"])[:160], int(it.get("minutes", 45)), _uid())); added += 1
+            c.execute("INSERT INTO sessions(id,course_id,day,topic,minutes,done,user_id) VALUES(?,?,?,?,?,0,?)", (uuid.uuid4().hex, cid, str(it["day"])[:10], str(it["topic"])[:160], int(it.get("minutes", 45)), uid)); added += 1
     return {"added": added, "model": m.model}
 
 # ---------------------------------------------------------------- planner + stats
