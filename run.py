@@ -1019,7 +1019,7 @@ def course_readiness(cid: str):
                  "CASE WHEN cs.due IS NULL OR cs.due<=? THEN 1 ELSE 0 END AS is_due FROM cards c "
                  "LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? WHERE c.course_id=?", today, uid, cid)
     revs = rows("SELECT card_id, COUNT(*) AS n, SUM(CASE WHEN rating>=2 THEN 1 ELSE 0 END) AS passed "
-                "FROM reviews WHERE card_id IN (SELECT id FROM cards WHERE course_id=?) GROUP BY card_id", cid)
+                "FROM reviews WHERE user_id=? AND card_id IN (SELECT id FROM cards WHERE course_id=?) GROUP BY card_id", uid, cid)
     rev = {x["card_id"]: (int(x["n"] or 0), int(x["passed"] or 0)) for x in revs}
     # A card the model tagged counts only toward its own topic (precise). A card left untagged — or tagged
     # to a topic the blueprint no longer has — falls back to the old substring match, so readiness still
@@ -1361,11 +1361,11 @@ def _said_plain(content: str) -> str:
     return f"(Said aloud: {m.group(1).strip()})\n\n{content[m.end():]}" if m else (content or "")
 
 @app.get("/api/courses/{cid}/messages")
-def messages(cid: str): return rows("SELECT id,role,content,created FROM messages WHERE course_id=? ORDER BY created", cid)
+def messages(cid: str): return rows("SELECT id,role,content,created FROM messages WHERE course_id=? AND user_id=? ORDER BY created", cid, _uid())
 
 @app.delete("/api/courses/{cid}/messages")
 def clear_messages(cid: str):
-    with db() as d: d.execute("DELETE FROM messages WHERE course_id=?", (cid,))
+    with db() as d: d.execute("DELETE FROM messages WHERE course_id=? AND user_id=?", (cid, _uid()))
     return {"ok": True}
 
 # Asked for 2026-09-29 with the EU practice exams: "base learning off of WG questions and the practice exams
@@ -1568,7 +1568,7 @@ def chat(cid: str, body: ChatIn):
     if not course: raise HTTPException(404)
     system, history, images, narrowed = _tutor_prompt(cid, course[0], body.mode, body.speech, body.message)
     user_content = images + [{"type": "text", "text": body.message}] if images else body.message
-    with db() as d: d.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uuid.uuid4().hex, cid, "user", body.message, time.time()))
+    with db() as d: d.execute("INSERT INTO messages(id,course_id,role,content,created,user_id) VALUES(?,?,?,?,?,?)", (uuid.uuid4().hex, cid, "user", body.message, time.time(), _uid()))
 
     def gen():
         out = []
@@ -1592,7 +1592,7 @@ def chat(cid: str, body: ChatIn):
         reply = "".join(out).strip()
         full = SPEECH_BLOCK.sub("", reply).strip()   # the written answer: what the citation check and the screen read
         if full:   # the record keeps the spoken line too, so the next turn knows what it already said
-            with db() as d: d.execute("INSERT INTO messages VALUES(?,?,?,?,?)", (uuid.uuid4().hex, cid, "assistant", reply, time.time()))
+            with db() as d: d.execute("INSERT INTO messages(id,course_id,role,content,created,user_id) VALUES(?,?,?,?,?,?)", (uuid.uuid4().hex, cid, "assistant", reply, time.time(), _uid()))
             # An invented ECLI reads exactly like a real one. Every case, ECLI and article the answer cites is
             # looked up in the full text of the ticked files - not only the passages sent - and the ones found
             # nowhere are named under the answer. With nothing ticked there is nothing to check against, so
@@ -2380,22 +2380,23 @@ def _essay_question(cid: str, qid: str) -> dict:
     return dict(q[0])
 
 
-def _essay_attempt(qid: str) -> Optional[dict]:
-    a = rows("SELECT * FROM essay_attempts WHERE question_id=?", qid)
+def _essay_attempt(qid: str, uid: str) -> Optional[dict]:
+    a = rows("SELECT * FROM essay_attempts WHERE question_id=? AND user_id=?", qid, uid)
     return dict(a[0]) if a else None
 
 
-def _essay_save(cid: str, qid: str, answer: str, submit: bool = False) -> float:
+def _essay_save(cid: str, qid: str, answer: str, uid: str, submit: bool = False) -> float:
     """
-    Write the answer down. One row per question, so the draft is overwritten in place and re-grading
-    the same question can never leave a second attempt — or a second bank entry — behind.
+    Write the answer down. One row per (user, question), so the draft is overwritten in place and re-grading
+    the same question can never leave a second attempt — or a second bank entry — behind, for that user.
     """
+    if not uid: raise HTTPException(401, "Not authenticated")   # a NULL user_id would bypass the unique and fork the draft
     now = time.time()
     with db() as d:
-        d.execute("INSERT INTO essay_attempts(id,question_id,course_id,answer,submitted,created,updated) "
-                  "VALUES(?,?,?,?,?,?,?) ON CONFLICT(question_id) DO UPDATE SET answer=EXCLUDED.answer, "
+        d.execute("INSERT INTO essay_attempts(id,question_id,course_id,user_id,answer,submitted,created,updated) "
+                  "VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id,question_id) DO UPDATE SET answer=EXCLUDED.answer, "
                   "submitted=COALESCE(essay_attempts.submitted, EXCLUDED.submitted), updated=EXCLUDED.updated",
-                  (uuid.uuid4().hex[:10], qid, cid, answer[:essay.ANSWER_CHARS], now if submit else None, now, now))
+                  (uuid.uuid4().hex[:10], qid, cid, uid, answer[:essay.ANSWER_CHARS], now if submit else None, now, now))
     return now
 
 
@@ -2413,7 +2414,7 @@ def essay_next(cid: str, n: EssayNextIn):
     if n.week: q += " AND week=?"; a.append(n.week)
     bank = [dict(r) for r in rows(q + " ORDER BY created", *a) if essay.valid_question(dict(r))]
     if not bank: return {"question": None, "answer": "", "left": 0, "graded": None, "unlocked": False}
-    tried = {r["question_id"]: dict(r) for r in rows("SELECT * FROM essay_attempts WHERE course_id=?", cid)}
+    tried = {r["question_id"]: dict(r) for r in rows("SELECT * FROM essay_attempts WHERE course_id=? AND user_id=?", cid, _uid())}
     seen = {qid: (r["updated"] or 0.0) for qid, r in tried.items()}
     # An unsubmitted draft is picked up where it was left, whatever else is in the bank — that is what
     # makes a reload mid-write safe rather than merely survivable.
@@ -2434,7 +2435,7 @@ class EssayAnswerIn(BaseModel):
 def essay_answer(cid: str, a: EssayAnswerIn):
     """The draft, saved as it is typed. No model is called and nothing is unlocked — this is a save."""
     _essay_question(cid, a.question_id)
-    return {"saved": _essay_save(cid, a.question_id, a.answer or "")}
+    return {"saved": _essay_save(cid, a.question_id, a.answer or "", _uid())}
 
 
 class EssayGradeIn(BaseModel):
@@ -2456,7 +2457,7 @@ def essay_grade(cid: str, g: EssayGradeIn):
     answer = (g.answer or "").strip()
     if not essay.answered(answer):
         raise HTTPException(400, "Write an answer first — an empty page has nothing to mark.")
-    _essay_save(cid, g.question_id, answer, submit=True)
+    _essay_save(cid, g.question_id, answer, _uid(), submit=True)
 
     parts, _, _ = build_context(cid, q["question"])
     usr = (f"QUESTION SET: {q['question'][:essay.QUESTION_CHARS]}\n\n"
@@ -2477,7 +2478,7 @@ def essay_grade(cid: str, g: EssayGradeIn):
         raise HTTPException(502, "Could not reach the marker — your answer is saved; try marking it again.")
     out = essay.normalise_grade(graded)
     with db() as d:
-        d.execute("UPDATE essay_attempts SET grade=?, updated=? WHERE question_id=?", (Jsonb(out), time.time(), g.question_id))
+        d.execute("UPDATE essay_attempts SET grade=?, updated=? WHERE question_id=? AND user_id=?", (Jsonb(out), time.time(), g.question_id, _uid()))
     return {**out, "unlocked": True}
 
 
@@ -2488,7 +2489,7 @@ def essay_model(cid: str, qid: str):
     teaches recognition, not production, so this is a refusal rather than a hidden element on the page.
     """
     q = _essay_question(cid, qid)
-    if not essay.unlocked(_essay_attempt(qid)):
+    if not essay.unlocked(_essay_attempt(qid, _uid())):
         raise HTTPException(409, "Submit your own answer first.")
     return {"model": q["model"] or ""}
 
@@ -2779,7 +2780,7 @@ def mock_import(cid: str):
 def mock_papers(cid: str):
     """The past papers ready to sit, with his progress on each question. Model answers are not in here."""
     qs = rows("SELECT id,question,source FROM essay_questions WHERE course_id=? AND source LIKE ?", cid, mockexam.SOURCE_PREFIX + "%")
-    att = {a["question_id"]: a for a in rows("SELECT question_id,answer,submitted,grade FROM essay_attempts WHERE course_id=?", cid)}
+    att = {a["question_id"]: a for a in rows("SELECT question_id,answer,submitted,grade FROM essay_attempts WHERE course_id=? AND user_id=?", cid, _uid())}
     out = mockexam.papers([dict(q) for q in qs])
     for p in out:
         for q in p["questions"]:
@@ -2813,7 +2814,7 @@ def mock_grade(cid: str, g: MockGradeIn):
     course = rows("SELECT * FROM courses WHERE id=?", cid)
     if not course: raise HTTPException(404)
     answer = (g.answer or "").strip()
-    _essay_save(cid, g.question_id, answer, submit=True)
+    _essay_save(cid, g.question_id, answer, _uid(), submit=True)
     if not answer:
         out = {"kind": "mock", "points": [], "missing": [], "overall": "Nothing was written for this question."}
     else:
@@ -2830,7 +2831,7 @@ def mock_grade(cid: str, g: MockGradeIn):
             print("mock grade:", type(e).__name__, e)
             raise HTTPException(502, "Could not reach the marker - your answer is handed in and saved; mark it again.")
     with db() as d:
-        d.execute("UPDATE essay_attempts SET grade=?, updated=? WHERE question_id=?", (Jsonb(out), time.time(), g.question_id))
+        d.execute("UPDATE essay_attempts SET grade=?, updated=? WHERE question_id=? AND user_id=?", (Jsonb(out), time.time(), g.question_id, _uid()))
     return out
 
 
@@ -2844,7 +2845,7 @@ def mock_reset(cid: str, r: MockResetIn):
            if (mockexam.parse_source(q["source"]) or ("",))[0] == r.paper]
     if not ids: raise HTTPException(404)
     with db() as d:
-        for qid in ids: d.execute("DELETE FROM essay_attempts WHERE question_id=?", (qid,))
+        for qid in ids: d.execute("DELETE FROM essay_attempts WHERE question_id=? AND user_id=?", (qid, _uid()))
     return {"cleared": len(ids)}
 
 
@@ -2858,7 +2859,7 @@ def mock_summary(cid: str):
     paper_of = {q["id"]: (mockexam.parse_source(q["source"]) or ("",))[0] for q in qs}
     standing = {"hit": 0, "partly": 0, "missed": 0}
     handed, sat, last = 0, set(), None
-    for a in rows("SELECT question_id,submitted,grade,updated FROM essay_attempts WHERE course_id=?", cid):
+    for a in rows("SELECT question_id,submitted,grade,updated FROM essay_attempts WHERE course_id=? AND user_id=?", cid, _uid()):
         if a["question_id"] not in paper_of or not a["submitted"]: continue
         handed += 1
         sat.add(paper_of[a["question_id"]])
@@ -3427,7 +3428,7 @@ def search(cid: str, q: str, limit: int = 20):
         out.append({"kind": "note", "id": n["id"], "title": n["title"], "snippet": snip(n["body"])})
     for f in rows("SELECT id,name,text,week FROM files WHERE course_id=? AND (name LIKE ? OR text LIKE ?) ORDER BY created DESC LIMIT ?", cid, like, like, limit):
         out.append({"kind": "file", "id": f["id"], "title": f["name"], "snippet": snip(f["text"]), "week": f["week"]})
-    for m in rows("SELECT id,role,content,created FROM messages WHERE course_id=? AND content LIKE ? ORDER BY created DESC LIMIT ?", cid, like, limit):  # noqa: E501
+    for m in rows("SELECT id,role,content,created FROM messages WHERE course_id=? AND user_id=? AND content LIKE ? ORDER BY created DESC LIMIT ?", cid, _uid(), like, limit):  # noqa: E501
         text = re.sub(r"</?speech>", "", m["content"] or "")
         out.append({"kind": "chat", "id": m["id"], "title": ("You: " if m["role"] == "user" else "Tutor: ") + text[:60].replace("\n", " "), "snippet": snip(text)})
     for c in rows("SELECT id,front,back FROM cards WHERE course_id=? AND (front LIKE ? OR back LIKE ?) LIMIT ?", cid, like, like, limit):
@@ -4175,12 +4176,13 @@ def auto_plan(cid: str, p: PlanIn):
     course = rows("SELECT * FROM courses WHERE id=?", cid)
     if not course: raise HTTPException(404)
     start = p.start or dt.date.today().isoformat()
+    uid = _uid()   # resolve once; reused for the due count, the existing-plan read, the replace delete and each insert
     planning = rows("SELECT name,text FROM files WHERE course_id=? AND (lower(name) LIKE '%plan%' OR lower(name) LIKE '%overview%' OR lower(name) LIKE '%exam%' OR lower(name) LIKE '%content%')", cid)
     by_week = rows("SELECT week, COUNT(*) AS n, string_agg(name, ' | ' ORDER BY name) AS names FROM files WHERE course_id=? GROUP BY week ORDER BY week", cid)
     notes_ = rows("SELECT title FROM notes WHERE course_id=?", cid)
     due = rows("SELECT COUNT(*) AS n FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
-               "WHERE c.course_id=? AND (cs.due IS NULL OR cs.due<=?)", _uid(), cid, date.today().isoformat())[0]["n"]
-    existing = rows("SELECT day,topic,minutes,done FROM sessions WHERE course_id=? AND day>=? ORDER BY day", cid, start)
+               "WHERE c.course_id=? AND (cs.due IS NULL OR cs.due<=?)", uid, cid, date.today().isoformat())[0]["n"]
+    existing = rows("SELECT day,topic,minutes,done FROM sessions WHERE course_id=? AND day>=? AND user_id=? ORDER BY day", cid, start, uid)
     ctx = "\n\n".join(f"=== {f['name']} ===\n{f['text'][:6000]}" for f in planning)
     state = {"today": start, "days_to_plan": p.days, "minutes_per_day": p.minutes_per_day,
              "files_by_week": [dict(r) for r in by_week], "notes": [n["title"] for n in notes_],
@@ -4198,11 +4200,11 @@ def auto_plan(cid: str, p: PlanIn):
     except Exception: raise HTTPException(502, "Planner returned something that was not JSON; try again.")
     added = 0
     with db() as c:
-        if p.replace: c.execute("DELETE FROM sessions WHERE course_id=? AND day>=? AND done=0", (cid, start))
+        if p.replace: c.execute("DELETE FROM sessions WHERE course_id=? AND day>=? AND done=0 AND user_id=?", (cid, start, uid))
         for it in items:
             if not isinstance(it, dict) or not it.get("day") or not it.get("topic"): continue
             if str(it["day"])[:10] < start: continue          # the model sometimes copies dates out of the course calendar; a plan never lands in the past
-            c.execute("INSERT INTO sessions VALUES(?,?,?,?,?,0)", (uuid.uuid4().hex, cid, str(it["day"])[:10], str(it["topic"])[:160], int(it.get("minutes", 45)))); added += 1
+            c.execute("INSERT INTO sessions(id,course_id,day,topic,minutes,done,user_id) VALUES(?,?,?,?,?,0,?)", (uuid.uuid4().hex, cid, str(it["day"])[:10], str(it["topic"])[:160], int(it.get("minutes", 45)), uid)); added += 1
     return {"added": added, "model": m.model}
 
 # ---------------------------------------------------------------- planner + stats
@@ -4210,11 +4212,10 @@ def auto_plan(cid: str, p: PlanIn):
 def sessions(start: str = "", end: str = ""):
     """Every session, or one window of them. The planner asks for the week it is showing, plus
     anything unfinished before today, so months of old days never fill the screen again."""
-    where, args = [], []
+    where, args = ["s.user_id=?"], [_uid()]   # each user sees only their own agenda
     if start: where.append("s.day>=?"); args.append(start[:10])
     if end: where.append("s.day<=?"); args.append(end[:10])
-    q = "SELECT s.*,c.name AS course FROM sessions s JOIN courses c ON c.id=s.course_id"
-    if where: q += " WHERE " + " AND ".join(where)
+    q = "SELECT s.*,c.name AS course FROM sessions s JOIN courses c ON c.id=s.course_id WHERE " + " AND ".join(where)
     return rows(q + " ORDER BY day", *args)
 
 class MoveIn(BaseModel): day: str
@@ -4224,13 +4225,13 @@ def move_session(sid: str, m: MoveIn):
     """Carry a session that was never done over to another day, keeping its topic and minutes."""
     day = m.day[:10]
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day): raise HTTPException(400, "day must be YYYY-MM-DD")
-    with db() as c: c.execute("UPDATE sessions SET day=? WHERE id=? AND done=0", (day, sid))
+    with db() as c: c.execute("UPDATE sessions SET day=? WHERE id=? AND done=0 AND user_id=?", (day, sid, _uid()))
     return {"id": sid, "day": day}
 
 @app.post("/api/courses/{cid}/sessions")
 def add_session(cid: str, s: SessionIn):
     sid = uuid.uuid4().hex[:8]
-    with db() as d: d.execute("INSERT INTO sessions VALUES(?,?,?,?,?,0)", (sid, cid, s.day, s.topic, s.minutes))
+    with db() as d: d.execute("INSERT INTO sessions(id,course_id,day,topic,minutes,done,user_id) VALUES(?,?,?,?,?,0,?)", (sid, cid, s.day, s.topic, s.minutes, _uid()))
     return {"id": sid}
 
 class LogIn(BaseModel): minutes: int; topic: str = "Study session"
@@ -4239,17 +4240,17 @@ class LogIn(BaseModel): minutes: int; topic: str = "Study session"
 def log_session(cid: str, s: LogIn):
     """The study timer: record time already spent as a done session today, so it counts in Progress."""
     sid = uuid.uuid4().hex; minutes = max(1, min(720, s.minutes))
-    with db() as c: c.execute("INSERT INTO sessions VALUES(?,?,?,?,?,1)", (sid, cid, date.today().isoformat(), (s.topic.strip() or "Study session")[:160], minutes))
+    with db() as c: c.execute("INSERT INTO sessions(id,course_id,day,topic,minutes,done,user_id) VALUES(?,?,?,?,?,1,?)", (sid, cid, date.today().isoformat(), (s.topic.strip() or "Study session")[:160], minutes, _uid()))
     return {"id": sid, "minutes": minutes}
 
 @app.post("/api/sessions/{sid}/toggle")
 def toggle_session(sid: str):
-    with db() as d: d.execute("UPDATE sessions SET done=1-done WHERE id=?", (sid,))
+    with db() as d: d.execute("UPDATE sessions SET done=1-done WHERE id=? AND user_id=?", (sid, _uid()))
     return {"ok": True}
 
 @app.delete("/api/sessions/{sid}")
 def del_session(sid: str):
-    with db() as d: d.execute("DELETE FROM sessions WHERE id=?", (sid,))
+    with db() as d: d.execute("DELETE FROM sessions WHERE id=? AND user_id=?", (sid, _uid()))
     return {"ok": True}
 
 # ---------------------------------------------------------------- the day streak (Phase 15)
@@ -4377,15 +4378,16 @@ def study(cid: str):
 def weak_topics(cid: str):
     """Phase 18b: the weeks that need work, weakest first, from the review log and the marked essay drafts. No model call."""
     if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+    uid = _uid()   # weak-topics is per-user: only this user's reviews and marked drafts count
     reviews = [(r["week"], r["rating"], r["created"]) for r in rows(
-        "SELECT COALESCE(c.week,'') AS week, r.rating, r.created FROM reviews r JOIN cards c ON c.id=r.card_id WHERE c.course_id=?", cid)]
+        "SELECT COALESCE(c.week,'') AS week, r.rating, r.created FROM reviews r JOIN cards c ON c.id=r.card_id WHERE c.course_id=? AND r.user_id=?", cid, uid)]
     drafts = [(r["week"], r["criteria"], r["created"]) for r in rows(
         "SELECT COALESCE(q.week,'') AS week, v.criteria, v.created FROM essay_revisions v JOIN essay_questions q ON q.id=v.question_id "
-        "WHERE v.course_id=? AND v.criteria IS NOT NULL", cid)]
+        "WHERE v.course_id=? AND v.user_id=? AND v.criteria IS NOT NULL", cid, uid)]
     drafts += [(r["week"], r["criteria"], r["created"]) for r in rows(   # attempts marked before drafts were kept hold their marks themselves
         "SELECT COALESCE(q.week,'') AS week, a.criteria, COALESCE(a.submitted,a.updated) AS created FROM essay_attempts a "
-        "JOIN essay_questions q ON q.id=a.question_id WHERE a.course_id=? AND a.criteria IS NOT NULL "
-        "AND NOT EXISTS (SELECT 1 FROM essay_revisions v WHERE v.attempt_id=a.id)", cid)]
+        "JOIN essay_questions q ON q.id=a.question_id WHERE a.course_id=? AND a.user_id=? AND a.criteria IS NOT NULL "
+        "AND NOT EXISTS (SELECT 1 FROM essay_revisions v WHERE v.attempt_id=a.id AND v.user_id=?)", cid, uid, uid)]
     labels = {}
     for w, ns in countdown.sort_notes([dict(n) for n in rows("SELECT id,title,length(body) AS chars FROM notes WHERE course_id=?", cid)])["weeks"].items():
         labels[str(w)] = ns[0]["title"]
@@ -4400,10 +4402,10 @@ def stats(cid: str):
                              "WHERE c.course_id=? AND (cs.due IS NULL OR cs.due<=?)", (uid, cid, today)).fetchone()["n"]
         retained = d.execute("SELECT COUNT(*) AS n FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
                              "WHERE c.course_id=? AND cs.interval>=6", (uid, cid)).fetchone()["n"]
-        reviews  = d.execute("SELECT r.rating,r.created FROM reviews r JOIN cards c ON c.id=r.card_id WHERE c.course_id=?", (cid,)).fetchall()
+        reviews  = d.execute("SELECT r.rating,r.created FROM reviews r JOIN cards c ON c.id=r.card_id WHERE c.course_id=? AND r.user_id=?", (cid, uid)).fetchall()
         files_n  = d.execute("SELECT COUNT(*) AS n, COALESCE(SUM(chars),0) AS total_chars FROM files WHERE course_id=?", (cid,)).fetchone()
-        minutes  = d.execute("SELECT COALESCE(SUM(minutes),0) AS n FROM sessions WHERE course_id=? AND done=1", (cid,)).fetchone()["n"]
-        msgs     = d.execute("SELECT COUNT(*) AS n FROM messages WHERE course_id=? AND role='user'", (cid,)).fetchone()["n"]
+        minutes  = d.execute("SELECT COALESCE(SUM(minutes),0) AS n FROM sessions WHERE course_id=? AND user_id=? AND done=1", (cid, uid)).fetchone()["n"]
+        msgs     = d.execute("SELECT COUNT(*) AS n FROM messages WHERE course_id=? AND user_id=? AND role='user'", (cid, uid)).fetchone()["n"]
         streak, frozen = streak_days({date.fromtimestamp(r["created"]).isoformat() for r in reviews}, day0)
         for iso in frozen:   # the ledger: the missed days this streak was kept alive across, recorded once each
             d.execute("INSERT INTO streak_freezes(course_id,day,created) VALUES(?,?,?) ON CONFLICT DO NOTHING", (cid, iso, time.time()))

@@ -152,3 +152,16 @@ def set_sr(pg):
                    f"ON CONFLICT (user_id,card_id) DO UPDATE SET {sets}", (u[0], kid, *cols.values()))
         pg.commit()
     return _set
+
+
+@pytest.fixture
+def uid(pg):
+    """The current test user's (matej's) id — the owner routes resolve via _uid(). Fixtures that seed progress
+    rows (reviews/messages/essay_attempts/sessions) directly must stamp this, or the user-scoped reads skip them."""
+    import uuid as _uuid, time as _time
+    u = pg.execute("SELECT id FROM users WHERE email='matej@mgms.eu'").fetchone()
+    if not u:
+        pg.execute("INSERT INTO users(id,email,name,created) VALUES(%s,'matej@mgms.eu','',%s) "
+                   "ON CONFLICT(email) DO NOTHING", (_uuid.uuid4().hex, _time.time())); pg.commit()
+        u = pg.execute("SELECT id FROM users WHERE email='matej@mgms.eu'").fetchone()
+    return u[0]

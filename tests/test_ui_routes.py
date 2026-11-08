@@ -1005,9 +1005,16 @@ from datetime import datetime, time as _time_of_day
 def _reviewed_on(pg, kid, *day_offsets):
     """Write one review per offset (days back from today), at noon so the epoch round-trips to that
     same date through date.fromtimestamp() whatever the local offset or a DST change does."""
+    import uuid, time
+    u = pg.execute("SELECT id FROM users WHERE email='matej@mgms.eu'").fetchone()
+    if not u:   # seed runs before any authenticated request has upserted him; stamp to the id _uid() will resolve
+        pg.execute("INSERT INTO users(id,email,name,created) VALUES(%s,'matej@mgms.eu','',%s) ON CONFLICT(email) DO NOTHING",
+                   (uuid.uuid4().hex, time.time())); pg.commit()
+        u = pg.execute("SELECT id FROM users WHERE email='matej@mgms.eu'").fetchone()
+    uid = u[0]
     for n, off in enumerate(day_offsets):
         ts = datetime.combine(date.today() - timedelta(days=off), _time_of_day(12, 0)).timestamp()
-        pg.execute("INSERT INTO reviews(id,card_id,rating,created) VALUES(%s,%s,2,%s)", (f"rv-{off}-{n}", kid, ts))
+        pg.execute("INSERT INTO reviews(id,card_id,rating,created,user_id) VALUES(%s,%s,2,%s,%s)", (f"rv-{off}-{n}", kid, ts, uid))
     pg.commit()
 
 
@@ -1586,3 +1593,14 @@ def test_two_users_schedule_a_shared_card_independently(client, pg):
     run._review(kid, 2, b)               # B rates it once
     assert row(a) == before_a            # A's schedule is completely untouched by B
     assert row(b) is not None and row(b)[0] == 1   # B now has their own independent schedule
+
+
+def test_essay_save_refuses_a_missing_user(client):
+    """Defense: a NULL user_id would insert a row that bypasses the per-user unique and forks the draft, so
+    _essay_save raises 401 before the INSERT. In prod every request is authenticated so this never fires; the
+    in-process drill/mock callers are covered by the same guard."""
+    import pytest, run
+    cid = _cid(client)
+    with pytest.raises(run.HTTPException) as e:
+        run._essay_save(cid, "someqid", "answer", None)
+    assert e.value.status_code == 401
