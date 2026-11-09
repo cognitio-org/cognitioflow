@@ -75,8 +75,12 @@ def _identity(session: dict):
 
 # ---------------------------------------------------------------- read-only keys
 TOKEN_PREFIX = "cfr_"
+WRITE_PREFIX = "cfw_"                 # write-scoped keys for the lecture pipeline (upload notes to one bound course)
 READ_ROUTES = (re.compile(r"^/api/today$"), re.compile(r"^/api/due$"), re.compile(r"^/api/courses/[^/]+/weak-topics$"),
               re.compile(r"^/api/courses/[^/]+/mock/summary$"))
+# a cfw_ key may POST ONLY these two routes, and ONLY for the single course it is bound to (group 1 == its course_id)
+WRITE_ROUTES = re.compile(r"^/api/courses/([^/]+)/(?:files|cards/generate)$")
+MAX_WRITE_UPLOAD = int(os.environ.get("CF_MAX_WRITE_UPLOAD", str(50 * 1024 * 1024)))
 
 
 def token_hash(token: str) -> str:
@@ -90,17 +94,22 @@ def owner_email() -> str:
 
 
 def _key_user(db, token: str):
-    """The user a live key belongs to, or None. Records when it was last used."""
-    if not token.startswith(TOKEN_PREFIX):
+    """The user a live key belongs to, or None. Records when it was last used. Returns the key's real scope
+    ('read' or 'write') and, for a write key, the single course_id it is bound to."""
+    if not (token.startswith(TOKEN_PREFIX) or token.startswith(WRITE_PREFIX)):
         return None
     with db() as d:
-        row = d.execute("SELECT t.id AS tid, u.id, u.email, u.name FROM api_tokens t JOIN users u ON u.id=t.user_id "
+        row = d.execute("SELECT t.id AS tid, t.scope, t.course_id, t.expires, u.id AS uid, u.email, u.name "
+                        "FROM api_tokens t JOIN users u ON u.id=t.user_id "
                         "WHERE t.hash=? AND t.revoked IS NULL", (token_hash(token),)).fetchone()
+        if row and row["expires"] is not None and row["expires"] < time.time():   # expired -> refused like a revoked key
+            row = None
         if row:
             d.execute("UPDATE api_tokens SET last_used=? WHERE id=?", (time.time(), row["tid"]))
     if not row or str(row["email"]).lower() not in allowed_emails():   # an address taken off the list loses its key too
         return None
-    return {"id": row["id"], "email": row["email"], "name": row["name"] or "", "scope": "read"}
+    return {"id": row["uid"], "email": row["email"], "name": row["name"] or "",
+            "scope": row["scope"] or "read", "course_id": row["course_id"]}
 
 
 class AuthMiddleware:
@@ -116,7 +125,20 @@ class AuthMiddleware:
             user = await asyncio.to_thread(_key_user, scope["app"].state.db, bearer[7:].strip())
             if user is None:
                 return await JSONResponse({"detail": "Unknown or revoked key"}, status_code=401)(scope, receive, send)
-            if scope["method"] != "GET" or not any(r.match(scope["path"]) for r in READ_ROUTES):
+            sc, path, method = (user.get("scope") or "read"), scope["path"], scope["method"]
+            read_ok = method == "GET" and any(r.match(path) for r in READ_ROUTES)
+            if sc == "write":
+                m = WRITE_ROUTES.match(path)
+                write_ok = method == "POST" and m is not None and m.group(1) == (user.get("course_id") or "\0")
+                if not (read_ok or write_ok):
+                    return await JSONResponse({"detail": "This key writes lecture files to its one bound course only"},
+                                              status_code=403)(scope, receive, send)
+                if write_ok and path.endswith("/files"):   # size-cap the upload at the edge (cards/generate carries no large body)
+                    try: clen = int(request.headers.get("content-length") or 0)
+                    except ValueError: clen = 0
+                    if clen <= 0 or clen > MAX_WRITE_UPLOAD:
+                        return await JSONResponse({"detail": "Upload missing length or too large"}, status_code=413)(scope, receive, send)
+            elif not read_ok:
                 return await JSONResponse({"detail": "This key reads Today, the due counts, weak topics and mock counts only"},
                                           status_code=403)(scope, receive, send)
             scope["session"] = {}
@@ -232,15 +254,41 @@ def logout(request: Request):
 def _owner(request: Request) -> dict:
     """The signed-in owner, by session only: a key can never make, list or revoke keys."""
     user = current_user(request)
-    if user.get("scope") == "read" or str(user.get("email", "")).lower() != owner_email():
+    if user.get("scope") or str(user.get("email", "")).lower() != owner_email():   # ANY api key (read OR write) is refused; owner session only
         raise HTTPException(403, "Only the owner's signed-in session can manage keys")
     return user
 
 
 @router.post("/api/tokens")
-def make_token(request: Request):
-    """A new read-only key for the owner. The key is in this response and nowhere else, ever."""
+async def make_token(request: Request):
+    """A new key for the owner, shown once and never again. Default: a read-only cfr_ key. With a JSON body
+    {"scope":"write","course_id":"<cid>","ttl_days":N}: a cfw_ key that may upload lecture notes + generate
+    cards for that ONE course, until it expires. Only the owner's signed-in session may call this."""
     user = _owner(request)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    data = data if isinstance(data, dict) else {}
+    if data.get("scope") == "write":
+        course_id = str(data.get("course_id") or "")
+        if not course_id:
+            raise HTTPException(400, "a write key needs a course_id")
+        with request.app.state.db() as d:
+            if not d.execute("SELECT 1 FROM courses WHERE id=?", (course_id,)).fetchone():
+                raise HTTPException(404, "unknown course")
+        try:
+            ttl = int(data.get("ttl_days", 7))
+        except (TypeError, ValueError):
+            ttl = 7
+        token = WRITE_PREFIX + secrets.token_urlsafe(32)
+        tid = uuid.uuid4().hex[:12]
+        expires = time.time() + max(1, min(ttl, 90)) * 86400   # clamp 1..90 days
+        with request.app.state.db() as d:
+            d.execute("INSERT INTO api_tokens(id,user_id,name,hash,scope,course_id,expires,created) VALUES(?,?,?,?,?,?,?,?)",
+                      (tid, user["id"], f"lecture writer ({course_id})", token_hash(token), "write", course_id, expires, time.time()))
+        return {"id": tid, "token": token, "scope": "write", "course_id": course_id, "expires": expires,
+                "writes": [f"/api/courses/{course_id}/files", f"/api/courses/{course_id}/cards/generate"]}
     token = TOKEN_PREFIX + secrets.token_urlsafe(32)
     tid = uuid.uuid4().hex[:12]
     with request.app.state.db() as d:
@@ -253,7 +301,7 @@ def make_token(request: Request):
 def list_tokens(request: Request):
     user = _owner(request)
     with request.app.state.db() as d:
-        return d.execute("SELECT id,name,scope,created,last_used,revoked FROM api_tokens WHERE user_id=? ORDER BY created DESC",
+        return d.execute("SELECT id,name,scope,course_id,expires,created,last_used,revoked FROM api_tokens WHERE user_id=? ORDER BY created DESC",
                          (user["id"],)).fetchall()
 
 
