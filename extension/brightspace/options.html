@@ -1,12 +1,20 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Brightspace grabber — options</title>
-<link rel="stylesheet" href="style.css"><style>body{max-width:640px;margin:0 auto}</style></head>
+<link rel="stylesheet" href="style.css"><style>body{max-width:720px;margin:0 auto}.sync{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 14px 4px}.sync input[type=password]{width:12em}</style></head>
 <body><div class="wrap">
   <h1>Brightspace grabber</h1>
-  <p class="small muted">Reads your courses from a Brightspace tab and adds new material to CognitioFlow. It stores no passwords and no keys — both sides use the login you already have open.</p>
+  <p class="small muted">Reads your Brightspace courses and adds new material to CognitioFlow. It never stores a password.
+    For automatic sync it keeps one CognitioFlow <em>write key per course</em> on this computer only (never synced to
+    other devices). A key can upload to its own course and nothing else.</p>
   <label class="field">CognitioFlow address
     <input type="url" id="appUrl" placeholder="https://app.cognitioflow.ai"></label>
   <div class="row"><button class="btn" id="grant">Allow access to that address</button><span class="small muted" id="grantState"></span></div>
-  <div class="head"><h1 style="font-size:1rem">Courses</h1><button class="btn ghost small" id="detect">Read from open tabs</button></div>
+  <div class="head"><h1 style="font-size:1rem">Courses</h1>
+    <span><button class="btn ghost small" id="addKnown" title="Public International Law 564701 and LaPoPo 564708">Add PIL + LaPoPo</button>
+    <button class="btn ghost small" id="detect">Read from open tabs</button></span></div>
   <div id="courses"></div>
   <div class="row"><button class="btn ghost" id="addRow">Add a course</button><button class="btn primary" id="save">Save</button><span class="small muted" id="saved"></span></div>
+  <div class="head"><h1 style="font-size:1rem">Automatic sync</h1></div>
+  <div class="row"><label class="small">Check every <input type="number" id="hours" min="1" max="48" style="width:4em"> hours</label>
+    <button class="btn ghost small" id="syncNow">Sync now</button><span class="small muted" id="syncState"></span></div>
+  <p class="small muted">Order for a new course: Save → Create sync key → Test → “Mark what CognitioFlow already has” → turn Auto on.</p>
 </div><script src="options.js" type="module"></script></body></html>

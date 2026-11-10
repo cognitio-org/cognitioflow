@@ -39,20 +39,29 @@ const fakeChrome = {
   },
   alarms: {
     create: async () => {},
+    clear: async () => true,
     onAlarm: { addListener: () => {} },
   },
   notifications: { create: async () => {} },
   runtime: {
     onMessage: { addListener: (fn) => { runtimeListeners.push(fn); } },
     onInstalled: { addListener: () => {} },
+    onStartup: { addListener: () => {} },
   },
+  permissions: { contains: async () => true },
 };
+
+// The worker now reads Brightspace directly first. No test may touch the network: every fetch here
+// answers like a signed-out Brightspace (401), which sends the reader to the open tab, as before.
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async (url) => ({ ok: false, status: 401, url: String(url), headers: new Map(), type: "basic" });
 
 const originalChrome = globalThis.chrome;
 globalThis.chrome = fakeChrome;
 const { appTab } = await import("../background.js");
 
 test.after(() => {
+  globalThis.fetch = originalFetch;
   if (originalChrome === undefined) delete globalThis.chrome;
   else globalThis.chrome = originalChrome;
 });
@@ -221,4 +230,100 @@ test("appTab rejects on timeout and removes its onUpdated listener", async () =>
 
     assert.equal(updatedListeners.size, 0);
   });
+});
+
+test("Remember (skip) records the item's signal in the ledger, so sync adopts it and never uploads it", async () => {
+  resetState();
+  memory.local.pending = { org: [{ key: "t:1", name: "Lecture 1.pdf", lastModified: "2026-11-03" }, { key: "t:2", name: "x.pdf" }] };
+  const response = await new Promise((resolve) => runtimeListeners[runtimeListeners.length - 1]({ type: "skip", org: "org", keys: ["t:1"] }, {}, resolve));
+  assert.equal(response.ok, true);
+  assert.deepEqual(memory.local.seen.org, ["t:1"]);
+  assert.equal(memory.local.ledger.org["t:1"].signal, "2026-11-03");
+  // Changed with adversarial-review finding 6: t:2 is still undecided, so the first review is not done
+  // and Auto may not pick t:2 up on its own.
+  assert.ok(!memory.local.confirmed.org, "a first review with an undecided file is not finished");
+  assert.deepEqual(memory.local.pending.org.map((i) => i.key), ["t:2"]);
+});
+
+const message = (msg) => new Promise((resolve) => runtimeListeners[runtimeListeners.length - 1](msg, {}, resolve));
+
+test("finding 6: the first review finishes only once every file has an explicit choice", async () => {
+  resetState();
+  memory.local.pending = { org: [{ key: "t:1", name: "a.pdf" }, { key: "t:2", name: "b.pdf" }] };
+  await message({ type: "skip", org: "org", keys: ["t:1"] });
+  assert.ok(!memory.local.confirmed.org);
+  await message({ type: "skip", org: "org", keys: ["t:2"] });
+  assert.equal(memory.local.confirmed.org, true);
+});
+
+test("finding 6: a course already reviewed stays reviewed when only some new files are remembered", async () => {
+  resetState();
+  memory.local.confirmed = { org: true };
+  memory.local.pending = { org: [{ key: "t:1", name: "a.pdf" }, { key: "t:2", name: "b.pdf" }] };
+  await message({ type: "skip", org: "org", keys: ["t:1"] });
+  assert.equal(memory.local.confirmed.org, true);
+});
+
+test("finding 1: Remember merges with what is on disk instead of overwriting another writer's entries", async () => {
+  resetState();
+  memory.local.pending = { org: [{ key: "t:1", name: "a.pdf" }] };
+  memory.local.ledger = { other: { "t:9": { signal: "x", via: "sync" } } };
+  memory.local.seen = { other: ["t:9"] };
+  await message({ type: "skip", org: "org", keys: ["t:1"] });
+  assert.deepEqual(memory.local.seen.other, ["t:9"]);
+  assert.ok(memory.local.ledger.other["t:9"]);
+});
+
+test("red-team B2: Remember of every visible file does not finish a first review whose scan had read errors", async () => {
+  resetState();
+  memory.local.pending = { org: [{ key: "t:1", name: "a.pdf" }] };
+  memory.local.status = { org: { state: "ok", readErrors: ["Lecture 2 (500 on /content/enforced/x/Lecture 2.html)"] } };
+  await message({ type: "skip", org: "org", keys: ["t:1"] });
+  assert.ok(!memory.local.confirmed.org, "an incomplete list cannot finish the review");
+  delete memory.local.status;
+  memory.local.pending = { org: [{ key: "t:2", name: "b.pdf" }] };
+  await message({ type: "skip", org: "org", keys: ["t:2"] });
+  assert.equal(memory.local.confirmed.org, true, "a clean list can");
+});
+
+test("red-team B1: the keyless tab Add never re-sends a file a killed upload left a marker for", async () => {
+  resetState();
+  memory.sync = { appUrl: "https://app.example", courses: [{ org: "org", cid: "c1", name: "C" }] };
+  memory.local.pending = { org: [{ key: "t:1", name: "a.pdf", url: "/x/a.pdf" }, { key: "t:2", name: "b.pdf", url: "/x/b.pdf" }] };
+  memory.local.ledger = { org: { "t:1": { pending: { sha: "abc", at: Date.now() - 60000 }, prev: null, name: "a.pdf" } } };
+  const sent = [];
+  queryImpl = async () => [{ id: 7, url: "https://brightspace.rug.nl/d2l/home" }];
+  sendMessageImpl = async (...a) => ({ ok: true, data: { base64: "JVBERg==", type: "application/pdf" } });
+  const origSend = fakeChrome.tabs.sendMessage;
+  fakeChrome.tabs.sendMessage = async (id, msg) => { sent.push(msg); return sendMessageImpl(id, msg); };
+  try {
+    const r = await message({ type: "take", org: "org", keys: ["t:1", "t:2"] });
+    assert.equal(r.ok, true, r.error);
+    assert.deepEqual(sent.filter((m) => m.type === "upload").map((m) => m.name), ["b.pdf"], "a.pdf is held, not sent again");
+    assert.deepEqual(sent.filter((m) => m.type === "file").map((m) => m.url), ["/x/b.pdf"], "and not even downloaded");
+    assert.ok(memory.local.ledger.org["t:1"].pending, "its marker stands");
+  } finally {
+    fakeChrome.tabs.sendMessage = origSend;
+  }
+});
+
+test("keyless tab Add: the upload message keeps type 'upload' and carries the MIME type as `mime`", async () => {
+  resetState();
+  memory.sync = { appUrl: "https://app.example", courses: [{ org: "org", cid: "c1", name: "C" }] };
+  memory.local.pending = { org: [{ key: "t:2", name: "b.pdf", url: "/x/b.pdf", week: "2" }] };
+  const sent = [];
+  queryImpl = async () => [{ id: 7, url: "https://brightspace.rug.nl/d2l/home" }];
+  const origSend = fakeChrome.tabs.sendMessage;
+  fakeChrome.tabs.sendMessage = async (id, msg) => { sent.push(msg); return { ok: true, data: msg.type === "file" ? { base64: "JVBERg==", type: "application/pdf" } : { id: "f1" } }; };
+  try {
+    const r = await message({ type: "take", org: "org", keys: ["t:2"] });
+    assert.equal(r.ok, true, r.error);
+    const up = sent.filter((m) => "base64" in m);
+    assert.equal(up.length, 1);
+    assert.equal(up[0].type, "upload", "the content script routes on `type`; the MIME type must not overwrite it");
+    assert.equal(up[0].mime, "application/pdf");
+    assert.deepEqual({ cid: up[0].cid, name: up[0].name, week: up[0].week }, { cid: "c1", name: "b.pdf", week: "2" });
+  } finally {
+    fakeChrome.tabs.sendMessage = origSend;
+  }
 });
