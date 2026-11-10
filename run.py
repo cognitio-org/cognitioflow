@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import citecheck
+import courtgrade
 import weaktopics
 import pack
 import casetrainer
@@ -2090,23 +2091,33 @@ def _hint_key(cid: str, question: str, options: list) -> str:
     norm_opts = sorted(re.sub(r"\s+", " ", str(o).strip().lower()) for o in options)
     return hashlib.sha256("\n".join([cid, norm_q, *norm_opts]).encode("utf-8")).hexdigest()
 
+def _hint_prompt(question: str, options: list) -> str:
+    """The hint prompt, named so the offline pre-fill (scripts/prefill_game_caches.py) writes exactly
+    what the endpoint would, keyed by the same _hint_key — so at play-time every hint is a cache hit."""
+    opts = "\n".join(f"- {str(o)[:200]}" for o in (options or [])[:4])
+    return ("A law student is stuck on this multiple-choice question and has asked for a hint. Give ONE sentence, under 30 "
+            "words, that points at the rule, case or article that decides it, or rules out one wrong option by name. "
+            "Do NOT say which option is correct and do NOT restate the correct answer.\n\n"
+            f"QUESTION: {question[:600]}\nOPTIONS:\n{opts}")
+
 @app.post("/api/courses/{cid}/hint")
 def hint(cid: str, h: HintIn):
     """A lifeline: narrow the field without handing over the answer. Cheap model — this is a nudge, not teaching.
     Phase 11g: a hint for the same question+options is stored and reused for 30 days instead of calling the model
-    every time (the prompt is too short for Anthropic prompt caching to help here)."""
+    every time (the prompt is too short for Anthropic prompt caching to help here).
+
+    Play-time rule (no external AI): the hint cache is pre-filled offline (scripts/prefill_game_caches.py)
+    so a student on the fixed-question games always hits cache. The on-MISS generation is routed with
+    task="hint" so it takes the LOCAL M4 lane when CF_LOCAL_TASKS names it, instead of the frontier cheap
+    tier; the static fallback still covers the lane being unreachable."""
     if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
     key = _hint_key(cid, h.question, h.options)
     hit = rows("SELECT hint, created FROM hint_cache WHERE key=?", key)
     if hit and (time.time() - (hit[0]["created"] or 0)) < HINT_TTL_S:
         return {"hint": hit[0]["hint"]}
-    opts = "\n".join(f"- {str(o)[:200]}" for o in h.options[:4])
-    prompt = ("A law student is stuck on this multiple-choice question and has asked for a hint. Give ONE sentence, under 30 "
-              "words, that points at the rule, case or article that decides it, or rules out one wrong option by name. "
-              "Do NOT say which option is correct and do NOT restate the correct answer.\n\n"
-              f"QUESTION: {h.question[:600]}\nOPTIONS:\n{opts}")
+    prompt = _hint_prompt(h.question, h.options)
     try:
-        m = ask_model(CHEAP_MODEL, max_tokens=120, messages=[{"role": "user", "content": prompt}])
+        m = ask_model(CHEAP_MODEL, task="hint", max_tokens=120, messages=[{"role": "user", "content": prompt}])
         text = "".join(b.text for b in m.content if b.type == "text").strip()[:300]
         with db() as d:
             d.execute("INSERT INTO hint_cache(key,course_id,hint,model,created) VALUES(?,?,?,?,?) "
@@ -2134,34 +2145,69 @@ def _case_context(cid: str, name: str, limit: int = 6000) -> str:
     return "\n\n".join(out)[:limit]
 
 
+def _court_key(cid: str, case: str, context: str) -> str:
+    """sha256 of course + case + a hash of the deterministic case-context: the hearing is a pure
+    function of those notes, so the same notes always hit the same cached hearing (migration 035)."""
+    ctx_hash = hashlib.sha256(context.encode("utf-8")).hexdigest()
+    return hashlib.sha256("\n".join([cid, case.casefold(), ctx_hash]).encode("utf-8")).hexdigest()
+
+def _court_prompt(case: str, context: str) -> str:
+    """The hearing-build prompt, named so the offline pre-fill writes exactly what the endpoint reads."""
+    return ("From the student's own notes below, set up a moot hearing on this case. Use ONLY what the notes contain; "
+            "if the notes do not say something, leave that field empty rather than inventing it.\n"
+            'Return ONLY JSON: {"case":"","court":"","year":"","parties":"","issue":"one sentence, the question the '
+            'court had to answer","for":"the argument for the applicant, one sentence","against":"the argument for the '
+            'other side, one sentence","bench":["three questions the bench would put to counsel, each answerable from '
+            'the notes"],"holding":"what the court actually held, in the notes\' own terms"}\n\n'
+            f"CASE: {case}\n\nNOTES:\n{context}")
+
+def _court_shape(got: dict, case: str) -> dict:
+    bench = [str(q) for q in (got.get("bench") or []) if str(q).strip()][:3]
+    return {"case": str(got.get("case") or case), "court": str(got.get("court") or ""), "year": str(got.get("year") or ""),
+            "parties": str(got.get("parties") or ""), "issue": str(got.get("issue") or ""),
+            "for": str(got.get("for") or ""), "against": str(got.get("against") or ""),
+            "bench": bench, "holding": str(got.get("holding") or "")}
+
 @app.post("/api/courses/{cid}/court")
 def court(cid: str, c: CourtIn):
     """
     Build a hearing from a case the student's own notes already discuss. Everything the bench says has to
     come from those notes — an invented holding would teach the wrong law, which is worse than no hearing.
+
+    Play-time rule (no external AI): the built hearing is cached in court_cache keyed on the notes
+    (migration 035); the offline pre-fill builds it when a case first appears. A cache miss NEVER makes a
+    live frontier call — it routes the build to the LOCAL M4 lane directly (llm.local_call), and when that
+    lane is not configured it serves a 503 "being prepared" state (the same posture as docket drafts),
+    rather than reaching for a cloud model on the student's request path.
     """
     context = _case_context(cid, c.case)
     if not context.strip():
         raise HTTPException(400, f"Your notes do not discuss {c.case} yet.")
-    prompt = ("From the student's own notes below, set up a moot hearing on this case. Use ONLY what the notes contain; "
-              "if the notes do not say something, leave that field empty rather than inventing it.\n"
-              'Return ONLY JSON: {"case":"","court":"","year":"","parties":"","issue":"one sentence, the question the '
-              'court had to answer","for":"the argument for the applicant, one sentence","against":"the argument for the '
-              'other side, one sentence","bench":["three questions the bench would put to counsel, each answerable from '
-              'the notes"],"holding":"what the court actually held, in the notes\' own terms"}\n\n'
-              f"CASE: {c.case}\n\nNOTES:\n{context}")
+    key = _court_key(cid, c.case, context)
+    hit = rows("SELECT hearing FROM court_cache WHERE key=?", key)
+    if hit:
+        return hit[0]["hearing"]   # JSONB → already a dict
+    # Miss: the local lane only, never the frontier tier. local_call returns None when the lane is off.
+    m = llm.local_call("court", max_tokens=1400, system=None,
+                       messages=[{"role": "user", "content": _court_prompt(c.case, context)}])
+    if m is None:
+        raise HTTPException(503, "The hearing is being prepared — try again shortly.",
+                            headers={"Retry-After": "5"})
     try:
-        m = ask_model(CHEAP_MODEL, max_tokens=1400, messages=[{"role": "user", "content": prompt}])
         got = _model_json(m)
+        llm.usage(m, "court")
     except Exception as e:
         print("court:", type(e).__name__, e)
-        raise HTTPException(502, "Could not build the hearing — try again.")
-    if not isinstance(got, dict): raise HTTPException(502, "Could not build the hearing — try again.")
-    bench = [str(q) for q in (got.get("bench") or []) if str(q).strip()][:3]
-    return {"case": str(got.get("case") or c.case), "court": str(got.get("court") or ""), "year": str(got.get("year") or ""),
-            "parties": str(got.get("parties") or ""), "issue": str(got.get("issue") or ""),
-            "for": str(got.get("for") or ""), "against": str(got.get("against") or ""),
-            "bench": bench, "holding": str(got.get("holding") or "")}
+        raise HTTPException(503, "The hearing is being prepared — try again shortly.",
+                            headers={"Retry-After": "5"})
+    if not isinstance(got, dict):
+        raise HTTPException(503, "The hearing is being prepared — try again shortly.", headers={"Retry-After": "5"})
+    hearing = _court_shape(got, c.case)
+    with db() as d:
+        d.execute("INSERT INTO court_cache(key,course_id,hearing,model,created) VALUES(?,?,CAST(? AS jsonb),?,?) "
+                  "ON CONFLICT(key) DO UPDATE SET hearing=EXCLUDED.hearing, model=EXCLUDED.model, created=EXCLUDED.created",
+                  (key, cid, json.dumps(hearing), llm.LOCAL_MODEL, time.time()))
+    return hearing
 
 
 class CourtReplyIn(BaseModel):
@@ -2193,27 +2239,21 @@ def _remember_miss(cid: str, case: str, question: str, note: str, rating: int) -
 
 @app.post("/api/courses/{cid}/court/reply")
 def court_reply(cid: str, r: CourtReplyIn):
-    """The bench presses counsel. Graded on the same contract as the oral tutor, against the notes only.
+    """The bench presses counsel. Graded against the notes only — and graded LOCALLY.
+
+    This was the one play-time call that could not be cached (a free-text answer is different every
+    time) and used to go to the MAIN cloud tier every turn. courtgrade.grade() scores it where the
+    student sits — TF-IDF over the student's own case notes, with the local CPU embedder folded in when
+    it is loaded — and returns the same solid/shaky/missed contract oral.normalise produces. No external
+    model is ever called on this path, so the courtroom still grades with no network and no AI budget.
 
     A miss does not stay in the transcript: it becomes a card in the ordinary queue.
     """
     context = _case_context(cid, r.case, 4000)
-    sys = ("You are a judge pressing counsel in a moot, and also marking them. Judge the legal substance against the "
-           "supplied notes only. Return ONLY valid JSON: "
-           '{"mastery":"solid|shaky|missed","verdict":"<=6 words","spoken":"<=45 words, what the bench says back: '
-           'acknowledge what was sound, name what was missing, press once more if it was not solid",'
-           '"note":"<=25 words: the gap plus the authority; empty string if solid"}')
-    usr = f"CASE: {r.case}\nTHE BENCH ASKED: {r.question}\nCOUNSEL ANSWERED: \"{r.answer.strip()[:1500]}\"\n\nNOTES:\n{context}"
-    try:
-        m = ask_model(pick_model("drill", None), max_tokens=600, system=sys,
-                                     messages=[{"role": "user", "content": usr}])
-        graded = oral.normalise(_model_json(m))
-    except Exception as e:
-        print("court reply:", type(e).__name__, e)
-        raise HTTPException(502, "The bench did not respond — say that again.")
-    # Outside the try on purpose: a database fault here is not the bench failing to answer, and
-    # must not be reported as one. normalise() clears the note when the answer was solid, so an
-    # empty note is exactly "nothing to carry forward".
+    graded = courtgrade.grade(r.question, r.answer, context)
+    # normalise() (inside grade) clears the note when the answer was solid, so an empty note is
+    # exactly "nothing to carry forward". The persistence is deliberately not wrapped in a try: a
+    # database fault here is a real error, not the bench "failing to respond", and must surface as one.
     if graded["note"]:
         graded["due"] = _remember_miss(cid, r.case, r.question, graded["note"], graded["rating"])
     return graded
@@ -2976,6 +3016,14 @@ def _valid_wrong(wrong, right: str) -> list:
     seen = list(dict.fromkeys(str(v).strip() for v in (wrong or []) if str(v).strip() and str(v).strip() != right))
     return seen[:3] if len(seen) >= 3 else []
 
+def _distractor_prompt(need: list, others: list) -> str:
+    """The distractor prompt, named so the offline pre-fill writes the same thing the endpoint would."""
+    items = "\n".join(f"{i}. Q: {c['front']}\n   A: {c['back']}" for i, c in enumerate(need))
+    return ("Write multiple-choice distractors for a law exam quiz. For each numbered question, give exactly three wrong answers: "
+            + DISTRACTOR_GUIDANCE + ". Borrow names, articles and rules from the course's other cards where they fit.\n"
+            'Return ONLY a JSON array of objects {"i": <question number>, "wrong": [three strings]}.\n\nQUESTIONS:\n' + items +
+            "\n\nOTHER CARDS IN THIS COURSE (answers only):\n" + ("\n".join("- " + o for o in others) or "(none)"))
+
 @app.post("/api/courses/{cid}/quiz")
 def quiz(cid: str, qz: QuizIn):
     """Multiple choice built from the course's own cards: the card's back is the right answer, the cheap model writes three wrong ones.
@@ -3006,12 +3054,11 @@ def quiz(cid: str, qz: QuizIn):
 
     if need:  # only the cards without a valid stored set are sent to the model — zero calls when everything hit
         others = [c["back"][:200] for c in rows("SELECT id,back FROM cards WHERE course_id=? ORDER BY RANDOM() LIMIT 60", cid) if c["id"] not in ids]
-        items = "\n".join(f"{i}. Q: {c['front']}\n   A: {c['back']}" for i, c in enumerate(need))
-        prompt = ("Write multiple-choice distractors for a law exam quiz. For each numbered question, give exactly three wrong answers: "
-                  + DISTRACTOR_GUIDANCE + ". Borrow names, articles and rules from the course's other cards where they fit.\n"
-                  'Return ONLY a JSON array of objects {"i": <question number>, "wrong": [three strings]}.\n\nQUESTIONS:\n' + items +
-                  "\n\nOTHER CARDS IN THIS COURSE (answers only):\n" + ("\n".join("- " + o for o in others) or "(none)"))
-        got = _model_json(ask_model(CHEAP_MODEL, max_tokens=3000, messages=[{"role": "user", "content": prompt}]))
+        prompt = _distractor_prompt(need, others)
+        # task="quiz" routes the on-MISS generation to the LOCAL M4 lane when CF_LOCAL_TASKS names it,
+        # instead of the frontier cheap tier. The cache (pre-filled offline) means play-time is a hit;
+        # cards whose set is still missing are simply dropped below (`if not wrong: continue`).
+        got = _model_json(ask_model(CHEAP_MODEL, task="quiz", max_tokens=3000, messages=[{"role": "user", "content": prompt}]))
         wrong_by_i = {}
         for x in got if isinstance(got, list) else []:
             if not (isinstance(x, dict) and isinstance(x.get("wrong"), list)): continue  # a string here would be iterated letter by letter
