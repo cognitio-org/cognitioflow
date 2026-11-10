@@ -1,0 +1,51 @@
+{
+  "version": "property-draft-1",
+  "status": "APPROVED by Matej 2026-11-10",
+  "terms": {
+    "absolute": [
+      "unrestricted right",
+      "unlimited right"
+    ],
+    "delivery": [
+      "shipment",
+      "dispatch"
+    ],
+    "acquisitive prescription": [
+      "statute of limitations"
+    ],
+    "specificity": [
+      "specification"
+    ],
+    "limited right": [
+      "partial ownership"
+    ],
+    "limited rights": [
+      "partial ownership"
+    ],
+    "limited proprietary right": [
+      "partial ownership"
+    ],
+    "limited proprietary rights": [
+      "partial ownership"
+    ],
+    "A1P1": [
+      "Article 1 ECHR",
+      "Article 1 of the ECHR"
+    ],
+    "Protocol No. 1": [
+      "Article 1 ECHR",
+      "Article 1 of the ECHR"
+    ],
+    "good faith": [
+      "honest belief"
+    ],
+    "causa": [
+      "consideration",
+      "motive"
+    ],
+    "assignment": [
+      "transfer of debt",
+      "transfer of the debt"
+    ]
+  }
+}
