@@ -201,3 +201,16 @@ test("appOrigin: https anywhere, http only for localhost", () => {
   assert.equal(lib.appOrigin("ftp://x"), "");
   assert.equal(lib.appOrigin("not a url"), "");
 });
+
+test("red-team B3: a page Url outside this course's enforced folder is not listed", async () => {
+  const { pages: pagesOf, readErrorsNote } = await import("../lib.js");
+  const toc = { Modules: [{ ModuleId: 1, Title: "Week 1", Modules: [], Topics: [
+    { TopicId: 1, Title: "evil", TypeIdentifier: "File", Url: ".evil.example/x.html" },
+    { TopicId: 2, Title: "other", TypeIdentifier: "File", Url: "/content/enforced/999999-OTHER/secret.html" },
+    { TopicId: 3, Title: "up", TypeIdentifier: "File", Url: "/content/enforced/564706-A/../999999-OTHER/x.html" },
+    { TopicId: 4, Title: "abs", TypeIdentifier: "File", Url: "https://evil.example/content/enforced/564706-A/x.html" },
+    { TopicId: 5, Title: "ok", TypeIdentifier: "File", Url: "/content/enforced/564706-A/Week 1/ok.html" }] }] };
+  assert.deepEqual(pagesOf(toc, 564706).map((p) => p.title), ["ok"]);
+  assert.equal(readErrorsNote({ readErrors: ["Lecture 2 (500)"] }), "1 page could not be read (Lecture 2 (500)); its files are not listed yet, and the first review finishes only after a clean re-check");
+  assert.equal(readErrorsNote({ state: "ok" }), "");
+});

@@ -1,4 +1,4 @@
-import { appOrigin } from "./lib.js";
+import { appOrigin, readErrorsNote } from "./lib.js";
 
 const $ = (s) => document.querySelector(s);
 let courses = [];
@@ -48,7 +48,8 @@ function statusText(org) {
   const s = local.status[org];
   if (!s) return local.confirmed[org] ? "" : "first run: baseline needed";
   const empty = s.emptyPages && s.emptyPages.length ? ` · ${s.emptyPages.length} page(s) had no file link: ${s.emptyPages.slice(0, 3).join(", ")}` : "";
-  return `${s.state}${s.detail ? ` — ${s.detail}` : ""}${s.uploaded ? ` · ${s.uploaded} uploaded last run` : ""}${empty}`;
+  const unread = readErrorsNote(s);
+  return `${s.state}${s.detail ? ` — ${s.detail}` : ""}${s.uploaded ? ` · ${s.uploaded} uploaded last run` : ""}${empty}${unread ? ` · ${unread}` : ""}`;
 }
 
 const say = (i, text) => { const el = document.querySelector(`[data-msg="${i}"]`); if (el) el.textContent = text; };

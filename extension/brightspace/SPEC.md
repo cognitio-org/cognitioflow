@@ -57,12 +57,12 @@ with a 404 and no fallback.
 | `storage.sync` | `syncHours` | number (1–48, default 6) | alarm period |
 | `storage.local` | `cfKeys` | `{cid: {token, id, courseId, expires(ms), origin}}` | write keys. **Local only, never sync**; only the worker sends them, and only when `appUrl`'s origin equals the `origin` recorded when the key was made or pasted (https, or http on localhost) — otherwise status `key is for another address`; the UI shows the last 4 characters |
 | `storage.local` | `seen` | `{org: [key]}` | keys added **or** deliberately skipped |
-| `storage.local` | `ledger` | `{org: {key: {signal, sha, cfFileId, status, at, name, baseline?, skipped?, via?}}}` | what was synced and with which change signal (TOC `LastModifiedDate`; HEAD `Last-Modified`/`ETag`/size for links). An in-flight marker `{pending: {sha, at, signal, surfaced?}, prev, name}` is written **before** each POST, replaced after the 2xx, taken back after a definite failure. The marker is placed by compare-and-set (skipped if the item was remembered/added meanwhile). A marker left by a killed worker is checked on every scan, Auto on or off: logged once as "check in CF", the same bytes are not re-sent, and the file stays out of the list; after 24h the marker is taken back, so the file is retried / offered again |
+| `storage.local` | `ledger` | `{org: {key: {signal, sha, cfFileId, status, at, name, baseline?, skipped?, via?}}}` | what was synced and with which change signal (TOC `LastModifiedDate`; HEAD `Last-Modified`/`ETag`/size for links). An in-flight marker `{pending: {sha, at, signal, surfaced?}, prev, name}` is written **before** each POST, replaced after the 2xx, taken back after a definite failure. The marker is placed by compare-and-set (skipped if the item was remembered/added meanwhile). A marker left by a killed worker is checked on every scan, Auto on or off, and on every popup Add (which may be working from a list older than the marker): logged once as "check in CF", the same bytes are not re-sent (by the run or by Add), and the file stays out of the list; after 24h the marker is taken back, so the file is retried / offered again |
 | `storage.local` | `shaByCid` | `{cid: [sha256]}` (arrays — storage drops `Set`s) | same bytes via two keys upload once |
 | `storage.local` | `pending` | `{org: [item]}` | unhandled items, what the popup lists |
-| `storage.local` | `confirmed` | `{org: bool}` | first batch reviewed: set by an Options baseline, or by popup Add/Remember only once **every** file of the first list has been chosen (unticked files stay pending and never auto-upload) |
+| `storage.local` | `confirmed` | `{org: bool}` | first batch reviewed: set by an Options baseline, or by popup Add/Remember only once **every** file of the first list has been chosen (unticked files stay pending and never auto-upload) **and** the scan behind that list read every page and module description (`status[org].readErrors` empty). A later clean scan that leaves nothing undecided finishes the review too |
 | `storage.local` | `auto` | `{org: bool}` | automatic upload on for this course (Options) |
-| `storage.local` | `status` | `{org: {state, detail, at, uploaded?, emptyPages?}}` | `ok`, `login needed`, `key needed`, `key expired`, `key is for another course`, `key is for another address`, `no access to CognitioFlow`, `waiting for first review`, `auto off`, `error` |
+| `storage.local` | `status` | `{org: {state, detail, at, uploaded?, emptyPages?, readErrors?}}` | `emptyPages`: pages that read fine but had no file link, or were refused (not in the course's folder); never blocks anything. `readErrors`: pages / module descriptions that could not be read; kept until a scan reads the course again (a sign-in stop does not clear them), shown in the popup and Options, and they block the first review. States: `ok`, `login needed`, `key needed`, `key expired`, `key is for another course`, `key is for another address`, `no access to CognitioFlow`, `waiting for first review`, `auto off`, `error` |
 | `storage.local` | `log` | `[{at, org, name, action, error?}]`, last 200 | shown under "Recent activity" in the popup |
 | `storage.local` | `lastScan`, `lastRun`, `syncLock` | epoch ms / `{at, uploaded}` / `{owner, expires}` | popup text, badge, the run lease: taken by compare-and-set under `navigator.locks`, renewed after every file, released only by its owner, expires 10 min after the last renewal |
 
@@ -73,7 +73,10 @@ downloading it.
 
 Links found in pages are accepted only under `/content/enforced/<org>-…/` of the course being read (the
 org prefix, so another offering's folder of the same org counts), after decoding; `.`/`..` segments,
-backslashes and double-encoded segments are refused.
+backslashes and double-encoded segments are refused. The same check applies to the TOC's own HTML-topic
+`Url`s before they are read: a page outside the course's folder (another course, `../`, a value like
+`.evil.example/x.html` that would change the host) is never fetched. The reader itself refuses any path
+that is not `/…` on `brightspace.rug.nl`.
 
 An **item**: `{key, kind: "topic"|"link", title, name, week, module, url, path, lastModified}`. `key` is
 `t:<TopicId>` for a File topic and `f:<decoded path>` for a document found inside a page (the PIL
@@ -88,7 +91,10 @@ version still in CognitioFlow)". A failed HEAD on a linked file counts as "no si
 
 **Automatic upload happens only when all hold:** course in `courses` with a `cid`; `confirmed[org]`;
 `auto[org]`; `cfKeys[cid]` present, `courseId === cid`, not expired; the CF origin permission granted.
-At most 20 uploads per run, 3 s apart; the rest go next run.
+At most 20 uploads per run, 3 s apart; the rest go next run. `auto` and `cfKeys` are re-read from disk
+before every upload (and checked again under the state lock as the in-flight marker is placed): switching
+Auto off, or removing / replacing the key, stops the course before its next POST. Popup Add re-checks the
+key the same way (it ignores Auto by design).
 
 ## 3. Permissions, and why each one is there
 
@@ -232,7 +238,10 @@ asserting through `storage.local` when debugging a scan.
   needs the owner's approval (schema + auth): migration adding `files.sha256` unique per course, `upload()`
   answering `duplicate: true`; optionally let a `cfw_` key `GET` its own course's file list.
 - Fixtures in `test/fixtures/` are **synthetic**; the real PIL wrapper markup and whether RUG's TOC fills
-  `LastModifiedDate` are unverified. A wrapper that yields no document is listed in `status[org].emptyPages`.
+  `LastModifiedDate` are unverified. A wrapper that yields no document is listed in `status[org].emptyPages`; one that cannot be read is in
+  `status[org].readErrors`.
+- An Options baseline still completes over a scan with `readErrors` (it is the way out for a page that
+  404s for good), so files on an unreadable page are neither marked nor reviewed and go up on a later run.
 - Files over 49 MB are skipped and logged (the whole multipart body is capped at 50 MB server-side).
 - A key's expiry shows in Options; there is no badge warning before it lapses — a lapsed key shows `KEY`.
 - Options revokes a key it removes or replaces (through the CF tab); a pasted key has no id, so revoke it

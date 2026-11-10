@@ -1,3 +1,5 @@
+import { readErrorsNote } from "./lib.js";
+
 const $ = (s) => document.querySelector(s);
 const send = (msg) => chrome.runtime.sendMessage(msg).then((r) => { if (!r || !r.ok) throw new Error((r && r.error) || "no answer"); return r.data; });
 
@@ -21,6 +23,13 @@ function render() {
       const warn = document.createElement("div");
       warn.className = "small";
       warn.textContent = `${c.name || c.org}: ${PROBLEM[st.state]}${st.detail && st.state === "error" ? ` (${st.detail})` : ""}`;
+      list.appendChild(warn);
+    }
+    const unread = readErrorsNote(st);   // shown whatever the state: these files are missing from the list below
+    if (unread) {
+      const warn = document.createElement("div");
+      warn.className = "small";
+      warn.textContent = `${c.name || c.org}: ${unread}. Try "Check now" later.`;
       list.appendChild(warn);
     }
     if (!items.length) continue;
@@ -71,13 +80,14 @@ async function run(type, verb) {
   if (!keys.length) return;
   $("#add").disabled = $("#skip").disabled = true;
   $("#status").textContent = `${verb} ${keys.length} file${keys.length === 1 ? "" : "s"}…`;
-  let added = 0; const failed = [];
+  let added = 0; const failed = []; const held = [];
   for (const [org, ks] of Object.entries(picked)) {
-    try { const r = await send({ type, org, keys: ks }); added += r.added ?? r.skipped ?? 0; (r.failed || []).forEach((f) => failed.push(f)); }
+    try { const r = await send({ type, org, keys: ks }); added += r.added ?? r.skipped ?? 0; (r.failed || []).forEach((f) => failed.push(f)); (r.held || []).forEach((n) => held.push(n)); }
     catch (e) { failed.push({ name: org, error: String(e.message || e) }); }
   }
   const undecided = Object.keys(picked).filter((org) => !state.confirmed[org]);
   let msg = failed.length ? `${added} added · ${failed.length} failed: ${failed.map((f) => f.name).join(", ")}` : `${added} added.`;
+  if (held.length) msg += ` Already sent earlier, answer lost — check it is in CognitioFlow (not sent again): ${held.join(", ")}.`;
   $("#add").disabled = $("#skip").disabled = false;
   await load(false);
   if (undecided.some((org) => !state.confirmed[org] && (state.pending[org] || []).length))
