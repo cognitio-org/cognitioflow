@@ -195,7 +195,7 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
   /* The run lease: { owner, expires } in storage.local, taken by compare-and-set inside the lease lock,
      renewed after every file, released only by its owner. A worker killed mid-run leaves a lease that
      simply expires. */
-  let held = null;   // { owner, lost } while this context runs
+  const leaseOf = new WeakMap();   // run snapshot -> its lease { owner, lost }
   const newOwner = () => (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : `${now()}-${Math.random()}`);
   async function readLease() {
     const { syncLock } = await chrome.storage.local.get({ syncLock: null });
@@ -214,9 +214,8 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
       return !!back && back.owner === owner;
     });
   }
-  function renewLease() {
-    if (!held) return Promise.resolve();
-    const h = held;
+  function renewLease(h) {
+    if (!h) return Promise.resolve();
     return exclusive(LEASE_LOCK, async () => {
       const cur = await readLease();
       if (cur && cur.owner !== h.owner && cur.expires > now()) { h.lost = true; return; }
@@ -229,13 +228,13 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
       if (cur && cur.owner === owner) await chrome.storage.local.set({ syncLock: null });
     });
   }
+  /** fn(lease): the run binds its snapshot to the lease (`leaseOf.set(st, lease)`) so persist() renews it. */
   async function withLock(fn) {
     const owner = newOwner();
     if (!(await acquire(owner))) return { skipped: "already running" };
-    held = { owner, lost: false };
-    try { return await fn(); } finally { held = null; await release(owner); }
+    try { return await fn({ owner, lost: false }); } finally { await release(owner); }
   }
-  const leaseLost = () => !!(held && held.lost);
+  const leaseLost = (st) => { const h = leaseOf.get(st); return !!(h && h.lost); };
 
   /* A run works on a snapshot `st` and records what it changed; persist() merges those changes into what
      is on disk NOW (under the state lock) and refreshes the snapshot, so a Remember / Add / another
@@ -276,7 +275,7 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
       await chrome.storage.local.set(cur);
       Object.assign(st, cur);
     });
-    await renewLease();
+    await renewLease(leaseOf.get(st));
   }
 
   /** A ledger entry may be an in-flight marker { pending: { sha, at, signal }, prev } written just before a
@@ -319,12 +318,40 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
   /** The POST with the in-flight marker around it: the marker (with the sha) is on disk before the request
       leaves, replaced by the done entry after a 2xx, and taken back after a definite failure. A worker
       killed in between leaves the marker, so the restart does not send the same bytes again blindly. */
-  async function guardedUpload(st, org, { appUrl, cid, key, item, got, sha, entry }) {
-    setLedger(st, org, item.key, { pending: { sha, at: now(), signal: signalOf(item) }, prev: entry || null, name: item.name });
+  async function guardedUpload(st, org, { appUrl, cid, key, item, got, sha, entry, expect }) {
     await persist(st);
+    // Compare-and-set: the marker goes down only if nobody handled the item since `expect` was read
+    // (a Remember can land while the file downloads); otherwise the item is left to the other writer.
+    const marker = { pending: { sha, at: now(), signal: signalOf(item) }, prev: entry || null, name: item.name };
+    const placed = await mutate(async () => {
+      const cur = await local({ ledger: {}, seen: {} });
+      const book = (cur.ledger[org] = cur.ledger[org] || {});
+      if (JSON.stringify([book[item.key] || null, (cur.seen[org] || []).includes(item.key)]) !== expect) return false;
+      book[item.key] = marker;
+      await chrome.storage.local.set({ ledger: cur.ledger });
+      return true;
+    });
+    if (!placed) return { ok: false, conflict: true };
+    (st.ledger[org] = st.ledger[org] || {})[item.key] = marker;   // already on disk: not dirty
     const r = await upload({ appUrl, cid, key, item, got });
     if (!r.ok) setLedger(st, org, item.key, entry || null);
     return r;
+  }
+  const stateOf = (st, org, key) => JSON.stringify([(st.ledger[org] || {})[key] || null, (st.seen[org] || []).includes(key)]);
+
+  /** Markers left by a killed upload, on every scan whatever the gates say: a fresh one is surfaced once
+      as "check in CF"; one older than 24h is taken back (the file returns to the list / is retried). */
+  function reviewMarkers(st, org) {
+    for (const [key, raw] of Object.entries(st.ledger[org] || {})) {
+      if (!raw || !raw.pending) continue;
+      if (now() - raw.pending.at >= PENDING_HOLD_MS) {
+        setLedger(st, org, key, raw.prev || null);
+        logLine(st, org, raw.name || key, "retrying", "CognitioFlow never answered the upload 24h ago");
+      } else if (!raw.pending.surfaced) {
+        setLedger(st, org, key, { ...raw, pending: { ...raw.pending, surfaced: true } });
+        logLine(st, org, raw.name || key, "check in CF", "sent, but the answer was lost — check it is in CognitioFlow; it is retried after 24h");
+      }
+    }
   }
 
   /** Proves key + route without uploading anything: an empty POST is refused with 413 by the key gate,
@@ -382,6 +409,7 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
       return { uploaded: 0, fresh: 0 };
     }
     const { items, emptyPages } = found;
+    reviewMarkers(st, org);
     const notHandled = (list) => unseen(list, st.seen[org] || []).filter((i) => !book()[i.key]);
     setPending(st, org, notHandled(items));
     const extra = emptyPages.length ? { emptyPages } : {};
@@ -428,13 +456,14 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
         continue;
       }
       if (verdict !== "hold" && budget.left <= 0) break;
-      if (leaseLost()) { setStatus(STATE.error, "another sync took over; the rest waits for the next run"); await persist(st); return { uploaded, fresh: 0 }; }
+      if (leaseLost(st)) { setStatus(STATE.error, "another sync took over; the rest waits for the next run"); await persist(st); return { uploaded, fresh: 0 }; }
 
       // Re-validate the moment before acting: a Remember / Add / other context may have handled it meanwhile.
       const before = JSON.stringify([at.raw, at.seen.includes(item.key)]);
       await persist(st);
       at = look(item);
       if (JSON.stringify([at.raw, at.seen.includes(item.key)]) !== before) continue;   // changed under us: next run decides
+      const expect = stateOf(st, org, item.key);
 
       let got;
       try {
@@ -454,15 +483,7 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
         await persist(st); continue;
       }
       const sha = await sha256(got.bytes);
-      if (verdict === "hold" && sha === inflight.sha) {
-        // Sent before, but the answer never came back (worker killed). Do not send the same bytes again blindly.
-        if (!inflight.surfaced) {
-          setLedger(st, org, item.key, { ...at.raw, pending: { ...inflight, surfaced: true } });
-          logLine(st, org, item.name, "check in CF", "sent, but the answer was lost — check it is in CognitioFlow; it is retried after 24h");
-          await persist(st);
-        }
-        continue;
-      }
+      if (verdict === "hold" && sha === inflight.sha) continue;   // sent before, answer lost: never re-sent blindly (surfaced by reviewMarkers)
       if (verdict === "hold" && budget.left <= 0) continue;   // new bytes since the lost send: an upload, so it needs budget
       if (entry && entry.sha === sha) {             // the date moved, the bytes did not
         setLedger(st, org, item.key, { ...entry, signal: signalOf(item), at: now() });
@@ -484,7 +505,8 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
       }
 
       budget.left--;
-      const r = await guardedUpload(st, org, { appUrl, cid, key, item, got, sha, entry });
+      const r = await guardedUpload(st, org, { appUrl, cid, key, item, got, sha, entry, expect });
+      if (r.conflict) { budget.left++; continue; }   // handled by someone else while it downloaded
       if (!r.ok) {
         if (r.http === 401) { setStatus(STATE.keyExpired, "CognitioFlow refused the key; renew it in Options."); logLine(st, org, item.name, "stopped", STATE.keyExpired); await persist(st); return { uploaded, fresh: 0 }; }
         if (r.http === 403) { setStatus(STATE.keyWrongCourse, ""); logLine(st, org, item.name, "stopped", STATE.keyWrongCourse); await persist(st); return { uploaded, fresh: 0 }; }
@@ -511,9 +533,10 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
 
   /** Every mapped course (or just `orgs`). upload=false only refreshes the popup list. */
   function run({ upload: doUpload = true, orgs = null } = {}) {
-    return withLock(async () => {
+    return withLock(async (lease) => {
       const { appUrl, courses } = await conf();
       const st = await local();
+      leaseOf.set(st, lease);
       const wanted = courses.filter((c) => c.org && (!orgs || orgs.map(String).includes(String(c.org))));
       if (orgs && !wanted.length) return { skipped: "not a mapped course" };
       const budget = { left: maxPerRun };
@@ -539,11 +562,12 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
 
   /** Popup "Add": the chosen keys go up now, through the same checks, whatever auto says. */
   async function uploadKeys({ org, keys }) {
-    return withLock(async () => {
+    return withLock(async (lease) => {
       const { appUrl, courses } = await conf();
       const course = courses.find((c) => String(c.org) === String(org));
       if (!course || !course.cid) throw new Error("This course is not linked to a CognitioFlow course yet (Options)");
       const st = await local();
+      leaseOf.set(st, lease);
       const list = (st.pending[org] || []).filter((i) => keys.includes(i.key));
       const r = await syncItems(st, course, list, { appUrl, budget: { left: list.length }, rd: reader() });
       await mutate(async () => {
@@ -570,14 +594,16 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
     for (const item of list) {
       if (budget.left-- <= 0) break;
       try {
-        if (leaseLost()) throw new Error("another sync took over");
+        if (leaseLost(st)) throw new Error("another sync took over");
+        const expect = stateOf(st, org, item.key);
         const got = await rd.file(item.url);
         if (!looksLikeDocument(item.name, got.type, got.bytes)) throw new LoginNeeded("got a web page instead of the file");
         if (got.size > MAX_UPLOAD_BYTES) throw new Error("too big — add it by hand");
         const sha = await sha256(got.bytes);
         if (!shas().includes(sha)) {
           const entry = settled((st.ledger[org] || {})[item.key]);
-          const r = await guardedUpload(st, org, { appUrl, cid, key, item, got, sha, entry });
+          const r = await guardedUpload(st, org, { appUrl, cid, key, item, got, sha, entry, expect });
+          if (r.conflict) continue;   // remembered / added elsewhere meanwhile
           if (!r.ok) throw new Error(r.http === 401 ? "CognitioFlow key expired (Options)" : r.error);
           setLedger(st, org, item.key, { signal: signalOf(item), sha, cfFileId: r.id, status: r.status, at: now(), name: item.name });
           shas().push(sha);
@@ -604,11 +630,12 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
       mode "all": everything. mode "match": only files whose name is already in CognitioFlow (`names`,
       read by Options from a signed-in CognitioFlow tab); the rest stays pending and goes up automatically. */
   async function baseline({ org, mode = "all", names = [] }) {
-    return withLock(async () => {
+    return withLock(async (lease) => {
       const { courses } = await conf();
       const course = courses.find((c) => String(c.org) === String(org));
       if (!course) throw new Error("not a course in your list");
       const st = await local();
+      leaseOf.set(st, lease);
       const { items } = await collect(reader(), String(org));
       const marked = [];
       for (const it of items) {
