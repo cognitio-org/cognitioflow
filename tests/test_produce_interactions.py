@@ -97,7 +97,7 @@ def produce_game():
             {"id": "s5", "title": "Verdict", "phase": "verdict", "set": "courtroom", "action": ["v"], "dialogue": []},
             {"id": "s6", "title": "Epilogue", "phase": "epilogue", "set": "generic", "action": ["e"], "dialogue": []},
         ],
-        "verdict": {"outcome": "WON", "irac": [{"issue": "i", "rule": "the rule [S1]", "application": "a", "conclusion": "c"}], "takeaway": "t"},
+        "verdict": {"outcome": "WON", "irac": [{"issue": "the issue", "rule": "the rule [S1]", "application": "the application", "conclusion": "the conclusion"}], "takeaway": "the takeaway"},
         "checks": [{"n": 1, "claim": "c", "cites": ["S1"]}],
     }
 

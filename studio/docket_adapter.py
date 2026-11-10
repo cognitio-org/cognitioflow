@@ -21,9 +21,10 @@ ALL sources in its `source_text` (the doctrine reviewer then sees everything). T
 NOT use that: an uncited item fails terminology as "uncited", and a cited item is checked against each cited
 source's full text (up to FILE_CHARS) on its own, never against a join that one source's synonym can silence.
 
-Structural check (S4 fix round 4): `content_problems(final)` walks every player-visible field of the raw game
-(each option's text on its own, never through its story) and lists the ones with no real word (see
-`has_real_word`). Terminology and doctrine both fail on it before any lexicon or reviewer work; their own per-pass
+Structural check (S4 fix rounds 4-5): `content_problems(final)` walks the gated player-visible fields of the raw game
+(title, questions, every option's text on its own and never through its story, teaching, story, outcome titles,
+produce answer items, round and verdict IRAC, takeaway; its docstring lists them and the ungated narrative chrome)
+and lists the ones with no real word (see `has_real_word`). Terminology and doctrine both fail on it before any lexicon or reviewer work; their own per-pass
 "no text to check" checks stay behind it as defence in depth.
 """
 import copy
@@ -377,9 +378,10 @@ def _no_words(text) -> bool:
     return not has_real_word(text if isinstance(text, str) else str(text or ""))
 
 
-def _blank(v) -> bool:
-    """An optional field the player sees as empty: None, or a str of only whitespace / invisible characters."""
-    return v is None or (isinstance(v, str) and not _visible(v).strip())
+def _absent(v) -> bool:
+    """What the player treats as no value at all: None or '' (play/player/data.js str(): v == null ? '' : String(v),
+    then plain JS truthiness in quiz.js). Anything else renders, including whitespace or filler only."""
+    return v is None or (isinstance(v, str) and v == "")
 
 
 def _shown_label(x) -> object:
@@ -392,19 +394,35 @@ def _shown_label(x) -> object:
 
 _PRODUCE_ITEMS = {"spot": "issues", "order": "sequence", "slot": "key"}
 _PRODUCE_LISTS = ("issues", "taxonomy", "bank", "facts", "elements")
+_IRAC_PARTS = ("issue", "rule", "application", "conclusion")
+
+
+def _labels_by_id(items) -> dict:
+    """id -> shown label for the answer items the player keeps (data.js drops an item with no id)."""
+    out = {}
+    for x in items if isinstance(items, list) else []:
+        if isinstance(x, dict) and not _absent(x.get("id")):
+            out.setdefault(str(x.get("id")), _shown_label(x))
+    return out
 
 
 def content_problems(final) -> list:
-    """Every player-visible field of the game, from the raw dict, that has no real word (see has_real_word), as
-    "qN:field: no words"; plus structural holes ("game: no rounds", "qN:options: no wrong option",
+    """The gated player-visible fields of the game, from the raw dict, that have no real word (see has_real_word), as
+    "<where>:<field>: no words"; plus structural holes ("game: no rounds", "qN:options: no wrong option",
     "qN:options: no correct option", "qN:answer: no items", "qN:kind: unknown kind"). Empty when clean.
 
-    Required (must have a word): each round's question (and prompt, if present); every option's text, correct and
-    wrong, checked on its own and never through its story; every wrong option's teaching; a produce round's
-    teaching, a spot round's fact text and every answer item the player sees (issues, taxonomy, bank, facts,
-    elements); every IRAC rule. Optional (blank is fine, but non-blank needs a word): a correct option's teaching,
-    any option's story and outcome_title (hand-authored games leave the correct option's teaching and story '').
-    Pure, stdlib + docketgen only; never raises on a malformed game."""
+    Required (must have a word): the game title; each round's question (and prompt, if present); every option's
+    text, correct and wrong, checked on its own and never through its story; every wrong option's teaching; a
+    produce round's teaching, a spot round's fact text and every answer item the player sees (issues, taxonomy,
+    bank, facts, elements, plus each order sequence id and slot key fact/element the player shows as a raw id because
+    no bank/fact/element label resolves it); every verdict IRAC rule.
+    Optional (skipped only when the player treats it as absent, None or ''; any other value, whitespace- or
+    filler-only included, needs a word, because quiz.js renders it on plain truthiness): a correct option's teaching,
+    any option's story and outcome_title, each round's IRAC issue/rule/application/conclusion, the verdict IRAC
+    issue/application/conclusion, the verdict takeaway and the game-level takeaway. Hand-authored games leave the
+    correct option's teaching and story ''.
+    Not gated (narrative chrome, not law): logline, learning_goal, case_file, scene titles, action and dialogue lines,
+    the verdict outcome, checks. Pure, stdlib + docketgen only; never raises on a malformed game."""
     out = []
 
     def need(where, v):
@@ -412,9 +430,16 @@ def content_problems(final) -> list:
             out.append(f"{where}: no words")
 
     def optional(where, v):
-        if not _blank(v):
+        if not _absent(v):
             need(where, v)
 
+    def irac_parts(where, irac, required=()):
+        for part in _IRAC_PARTS:
+            (need if part in required else optional)(f"{where}.{part}", irac.get(part) if isinstance(irac, dict) else None)
+
+    g = final if isinstance(final, dict) else {}
+    need("game:title", g.get("title"))
+    optional("game:takeaway", g.get("takeaway"))
     rounds = list(_rounds(final))
     if not rounds:
         out.append("game: no rounds")
@@ -447,12 +472,30 @@ def content_problems(final) -> list:
                 items = ans.get(coll)
                 for i, x in enumerate(items if isinstance(items, list) else []):
                     need(f"{qid}:{coll}[{i}].label", _shown_label(x))
+            if kind == "order":                       # quiz.js: an empty bank, or an id not in it, shows the raw id
+                bank = _labels_by_id(ans.get("bank"))
+                seq = ans.get("sequence")
+                for i, x in enumerate(seq if isinstance(seq, list) else []):
+                    if _absent(x) or str(x) not in bank:
+                        need(f"{qid}:sequence[{i}]", x)
+            elif kind == "slot":                      # quiz.js model key: fact/element label, else the raw id
+                facts, elems = _labels_by_id(ans.get("facts")), _labels_by_id(ans.get("elements"))
+                key = ans.get("key")
+                for f, e in (key.items() if isinstance(key, dict) else ()):
+                    if str(f) not in facts:
+                        need(f"{qid}:key[{_short(f, 20)}].fact", f)
+                    if _absent(e) or str(e) not in elems:
+                        need(f"{qid}:key[{_short(f, 20)}].element", e)
         else:
             out.append(f"{qid}:kind: unknown kind")
-    verdict = final.get("verdict") if isinstance(final, dict) else None
-    irac = verdict.get("irac") if isinstance(verdict, dict) else None
-    for i, r in enumerate(irac if isinstance(irac, list) else []):
-        need(f"verdict:irac[{i}].rule", r.get("rule") if isinstance(r, dict) else None)
+        irac_parts(f"{qid}:irac", q.get("irac"))
+    verdict = g.get("verdict")
+    if isinstance(verdict, dict):
+        irac = verdict.get("irac")
+        irac = [irac] if isinstance(irac, dict) else irac          # data.js accepts one IRAC object as well as a list
+        for i, r in enumerate(irac if isinstance(irac, list) else []):
+            irac_parts(f"verdict:irac[{i}]", r, required=("rule",))
+        optional("verdict:takeaway", verdict.get("takeaway"))
     return out
 
 

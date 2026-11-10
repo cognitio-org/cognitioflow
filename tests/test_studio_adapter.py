@@ -1448,3 +1448,137 @@ def test_r4_sweep_uncited_round_still_fails_terminology():
     assert da.content_problems(finished(g)) == []
     t = gate(card, "terminology")
     assert t["passed"] is False and "q4: uncited" in t["detail"]
+
+
+# ==================================================================== S4 fix round 5 (review of the merged #200)
+# content_problems skipped an optional field whenever _blank() called it empty, and _blank() stripped the fillers,
+# so a filler-only story / outcome_title / teaching rendered (quiz.js tests plain JS truthiness) while the gate
+# skipped it. Now an optional field is skipped only when the player treats it as absent (None or ''; data.js str()),
+# and the IRAC panels, takeaway and title are gated too. Repros: scratchpad s4rev5/r5probe.py (H1-H12).
+ZW = "​"                                        # ZERO WIDTH SPACE: category Cf, renders blank
+_R4 = frozenset(_PROBES)
+
+
+def _r5(name, edit, expected):
+    _PROBES[name] = ((lambda e: lambda: _mixed(e))(edit), expected)
+
+
+_r5("H1a correct teaching U+3164", lambda g: _right(g).update(teaching=HF), ["q4:B.teaching: no words"])
+_r5("H1b correct teaching U+200B", lambda g: _right(g).update(teaching=ZW), ["q4:B.teaching: no words"])
+_r5("H1c correct teaching U+3164 x3", lambda g: _right(g).update(teaching=HF * 3), ["q4:B.teaching: no words"])
+_r5("correct teaching whitespace only", lambda g: _right(g).update(teaching="   "), ["q4:B.teaching: no words"])
+_r5("H2 wrong story U+3164", lambda g: _wrongs(g)[0].update(story=HF), ["q4:A.story: no words"])
+_r5("H3 wrong outcome_title U+3164", lambda g: _wrongs(g)[0].update(outcome_title=HF), ["q4:A.outcome_title: no words"])
+_r5("H4 correct story + outcome_title U+200B", lambda g: _right(g).update(story=ZW, outcome_title=ZW),
+    ["q4:B.story: no words", "q4:B.outcome_title: no words"])
+_r5("optional field not a string", lambda g: _right(g).update(story=0), ["q4:B.story: no words"])
+_r5("H5 order bank []", lambda g: _q(g, 2)["answer"].update(bank=[]),
+    ["q2:sequence[0]: no words", "q2:sequence[1]: no words", "q2:sequence[2]: no words"])
+_r5("H6 order sequence id not in the bank", lambda g: _q(g, 2)["answer"].update(sequence=["e1", "e2", "e9"]),
+    ["q2:sequence[2]: no words"])
+_r5("H7 slot key fact not in facts", lambda g: _q(g, 3)["answer"].update(key={"f1": "e1", "f2": "e2", "f9": "e3"}),
+    ["q3:key[f9].fact: no words"])
+_r5("slot key element not in elements", lambda g: _q(g, 3)["answer"].update(key={"f1": "e1", "f2": "e2", "f3": "e9"}),
+    ["q3:key[f3].element: no words"])
+_r5("H9 mcq quiz.irac cite-only / filler",
+    lambda g: _q4(g).update(irac={"issue": "[S1]", "rule": "[S1]", "application": HF, "conclusion": "[S1]"}),
+    ["q4:irac.issue: no words", "q4:irac.rule: no words", "q4:irac.application: no words", "q4:irac.conclusion: no words"])
+_r5("produce quiz.irac filler", lambda g: _q(g, 1).update(irac={"conclusion": ZW * 2}), ["q1:irac.conclusion: no words"])
+_r5("H10 verdict IRAC issue/application/conclusion + takeaway",
+    lambda g: (g["verdict"]["irac"][0].update(issue="[S1]", application="[S1]", conclusion=HF),
+               g["verdict"].update(takeaway="[S1]")),
+    ["verdict:irac[0].issue: no words", "verdict:irac[0].application: no words",
+     "verdict:irac[0].conclusion: no words", "verdict:takeaway: no words"])
+_r5("verdict IRAC as one dict (data.js accepts it)", lambda g: g["verdict"].update(irac={"rule": "[S1]", "issue": HF}),
+    ["verdict:irac[0].rule: no words", "verdict:irac[0].issue: no words"])
+_r5("game-level takeaway filler", lambda g: g.update(takeaway=HF), ["game:takeaway: no words"])
+_r5("H12 title filler", lambda g: g.update(title=HF), ["game:title: no words"])
+_r5("title missing", lambda g: g.pop("title"), ["game:title: no words"])
+_r5("r3refine P4 control: q4 all one letter",
+    lambda g: [o.update(teaching="a [S1]", text="a", story="") for o in _q4(g)["options"]],
+    ["q4:A.text: no words", "q4:B.text: no words", "q4:B.teaching: no words"])
+
+
+_R5 = [n for n in _PROBES if n not in _R4]
+
+
+@pytest.mark.parametrize("name", _R5)
+def test_r5_content_problems_names_every_wordless_field(name):
+    test_r4_content_problems_names_every_wordless_field(name)
+
+
+@pytest.mark.parametrize("name", _R5)
+def test_r5_a_wordless_field_fails_terminology_and_doctrine_in_every_enforcement_subset(monkeypatch, name):
+    """H1-H12 each passed docketgen.validate (bar H6/H7), gave content_problems == [] and passed all 48 subsets plus
+    default enforcement on the merged #200. Each now fails both content gates with no reviewer call."""
+    test_r4_a_wordless_field_fails_terminology_and_doctrine_in_every_enforcement_subset(monkeypatch, name)
+
+
+# No false blocks: what the player treats as absent (None, '', a missing key) is still fine for every optional field.
+_ABSENT = {
+    "correct teaching ''": lambda g: _right(g).update(teaching=""),
+    "correct teaching None": lambda g: _right(g).update(teaching=None),
+    "correct story/outcome_title ''": lambda g: _right(g).update(story="", outcome_title=""),
+    "wrong story/outcome_title None": lambda g: [o.update(story=None, outcome_title=None) for o in _wrongs(g)],
+    "wrong story/outcome_title missing": lambda g: [(o.pop("story", None), o.pop("outcome_title", None)) for o in _wrongs(g)],
+    "quiz.irac fields ''": lambda g: _q4(g).update(irac={"issue": "", "rule": "", "application": "", "conclusion": ""}),
+    "verdict IRAC issue/application/conclusion ''": lambda g: g["verdict"]["irac"][0].update(issue="", application="",
+                                                                                            conclusion=""),
+    "verdict takeaway missing": lambda g: g["verdict"].pop("takeaway", None),
+    "verdict takeaway None": lambda g: g["verdict"].update(takeaway=None),
+    "real IRAC and takeaway words": lambda g: (_q4(g).update(irac={"issue": "Is the contract void?",
+                                                                    "conclusion": "Yes, duress voids it."}),
+                                               g.update(takeaway="Duress voids consent.")),
+}
+
+
+@pytest.mark.parametrize("name", list(_ABSENT))
+def test_r5_absent_optional_fields_are_not_blocked(name):
+    final = _mixed(_ABSENT[name])
+    assert da.content_problems(final) == []
+    card = assert_schema(run(final=final))
+    assert card["overall_pass"] is True, [(g["name"], g["detail"]) for g in card["gates"] if not g["passed"]]
+
+
+def test_r5_good_fixtures_carry_real_words_in_the_verdict():
+    """The good fixtures' verdict IRAC and takeaway used to be 'i', 'a', 'c', 't': one letter, no word."""
+    for g in (game(), produce_game()):
+        v = g["verdict"]
+        assert all(da.has_real_word(v["irac"][0][k]) for k in ("issue", "rule", "application", "conclusion"))
+        assert da.has_real_word(v["takeaway"]) and da.has_real_word(g["title"])
+
+
+@pytest.mark.parametrize("text,words", [("[S1] pp. 4", True), ("zz", True), ("C-6/90", False), ("34 (2)", False)])
+def test_r5_known_edges_of_the_two_letter_rule(text, words):
+    """Review MINOR, pinned on purpose. A page reference outside the brackets ('pp') or any two letters count as a
+    word; a lone case number or digits do not (a false block, in the fail-closed direction). The rule is literal (a
+    run of >= 2 letters); changing it is a separate decision."""
+    assert da.has_real_word(text) is words
+
+
+def test_r5_sweep_header_plus_real_quote_reviewer_fails_doctrine():
+    """s4adv2/sweep.py 'header+real': a reply quoting the source header next to a real quote still fails doctrine
+    on the good game, in every subset that enforces doctrine."""
+    hdr = "[S1] Week 3 lecture.pdf"
+    rev = FakeReviewer(lambda n, p: ok_reply(hdr, QUOTE))
+    card = assert_schema(run(runtime=full_runtime(reviewer=rev)))
+    d = gate(card, "doctrine")
+    assert d["passed"] is False and card["overall_pass"] is False and "unverifiable" in d["detail"]
+
+
+def test_r5_adv3_a_refused_review_base_is_infra_and_never_passes(monkeypatch):
+    """s4adv/adv3.py 'refused base': the real reviewer factory pointed at a closed local port gives a
+    GateInfraError on doctrine, infra_error True and overall_pass False (a block, never a pass)."""
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()                                                               # nothing listens: connection refused
+    monkeypatch.setenv("CF_STUDIO_REVIEW_BASE", f"http://127.0.0.1:{port}/v1")
+    runtime = full_runtime()
+    del runtime["reviewer"]                                                 # the real factory runs
+    card = assert_schema(run(runtime=runtime))
+    d = gate(card, "doctrine")
+    assert card["overall_pass"] is False and card["infra_error"] is True
+    assert d["passed"] is False and "GateInfraError" in (d.get("infra") or "")
+    assert da.block_message(card).startswith(docketgen.GATE_UNAVAILABLE)
