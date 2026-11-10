@@ -286,6 +286,19 @@ def test_normalisation_does_not_admit_fabrication():
     print("  (w) normalisation does not admit fabrication: PASS")
 
 
+def test_reviewer_probe_strings_from_s5():
+    """(x) the exact probe strings from the S5 runtime review (studio/test_runtime.py on #191):
+    parse_verdict alone (no transport stripping) must never let the scratch ok:true win."""
+    closed = '<think>scratch: {"ok": true, "issues": []}</think>\n{"ok": false, "issues": ["x"]}'
+    orphan = 'scratch: {"ok": true, "issues": []}\n</think>\n\n{"ok": false, "issues": ["y"]}'
+    unterminated = '<think>{"ok": true, "issues": []} still thinking'
+    assert parse_verdict(closed).issues == ["x"] and parse_verdict(closed).ok is False
+    assert parse_verdict(orphan).issues == ["y"] and parse_verdict(orphan).ok is False
+    v = parse_verdict(unterminated)
+    assert v.ok is False and v.issues == ["unparseable reviewer output"], v
+    print("  (x) S5 reviewer probe strings: PASS")
+
+
 if __name__ == "__main__":
     test_ok_true()
     test_fenced_json()
@@ -311,4 +324,5 @@ if __name__ == "__main__":
     test_think_stripped_then_good_verdict_passes()
     test_typographic_quotes_and_dashes_normalised()
     test_normalisation_does_not_admit_fabrication()
+    test_reviewer_probe_strings_from_s5()
     print("OK")
