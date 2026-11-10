@@ -103,6 +103,10 @@ export function readErrorsNote(status, confirmed = false) {
     : `${what}. The first review finishes after a check that reads every page — or run a baseline in Options if a page stays broken`;
 }
 
+/** Popup note for a pending file. `missing`: listed during the first review, not found by the last scan; it
+    stays in the list until it is added or remembered, so the review cannot finish over it. */
+export const pendingNote = (item) => (item && item.missing ? "not on Brightspace at the last check — still needs a choice" : "");
+
 export const moduleIds = (toc) => walk(toc).map((m) => ({ id: m.ModuleId, title: m.Title || "", week: weekOf(m.Title) }));
 
 export const BRIGHTSPACE_HOST = "brightspace.rug.nl";

@@ -299,10 +299,30 @@ test("red-team B1: the keyless tab Add never re-sends a file a killed upload lef
   try {
     const r = await message({ type: "take", org: "org", keys: ["t:1", "t:2"] });
     assert.equal(r.ok, true, r.error);
-    // the upload message is the one carrying bytes (its `type` field is overwritten by the MIME type in take())
-    assert.deepEqual(sent.filter((m) => "base64" in m).map((m) => m.name), ["b.pdf"], "a.pdf is held, not sent again");
+    assert.deepEqual(sent.filter((m) => m.type === "upload").map((m) => m.name), ["b.pdf"], "a.pdf is held, not sent again");
     assert.deepEqual(sent.filter((m) => m.type === "file").map((m) => m.url), ["/x/b.pdf"], "and not even downloaded");
     assert.ok(memory.local.ledger.org["t:1"].pending, "its marker stands");
+  } finally {
+    fakeChrome.tabs.sendMessage = origSend;
+  }
+});
+
+test("keyless tab Add: the upload message keeps type 'upload' and carries the MIME type as `mime`", async () => {
+  resetState();
+  memory.sync = { appUrl: "https://app.example", courses: [{ org: "org", cid: "c1", name: "C" }] };
+  memory.local.pending = { org: [{ key: "t:2", name: "b.pdf", url: "/x/b.pdf", week: "2" }] };
+  const sent = [];
+  queryImpl = async () => [{ id: 7, url: "https://brightspace.rug.nl/d2l/home" }];
+  const origSend = fakeChrome.tabs.sendMessage;
+  fakeChrome.tabs.sendMessage = async (id, msg) => { sent.push(msg); return { ok: true, data: msg.type === "file" ? { base64: "JVBERg==", type: "application/pdf" } : { id: "f1" } }; };
+  try {
+    const r = await message({ type: "take", org: "org", keys: ["t:2"] });
+    assert.equal(r.ok, true, r.error);
+    const up = sent.filter((m) => "base64" in m);
+    assert.equal(up.length, 1);
+    assert.equal(up[0].type, "upload", "the content script routes on `type`; the MIME type must not overwrite it");
+    assert.equal(up[0].mime, "application/pdf");
+    assert.deepEqual({ cid: up[0].cid, name: up[0].name, week: up[0].week }, { cid: "c1", name: "b.pdf", week: "2" });
   } finally {
     fakeChrome.tabs.sendMessage = origSend;
   }

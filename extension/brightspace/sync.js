@@ -22,7 +22,8 @@
    - The key only goes to the CognitioFlow origin it was made for, over https (http only on localhost).
    - A first review is finished only when every file in it was added or remembered, AND the scan that made
      the list read every page and module description (`status[org].readErrors` empty). A clean re-check
-     that leaves nothing undecided finishes it too.
+     that leaves nothing undecided finishes it too. Until then a file once listed stays in `pending` (flagged
+     `missing` if a scan no longer finds it), so a list that shrinks can never finish the review.
    - A marker held for a lost upload is honoured by popup Add exactly as by the run: same bytes, no POST.
    - Auto and the key are re-read before every upload: switching Auto off or removing the key stops the run.
    - No LLM, no third host: only brightspace.rug.nl and the CognitioFlow origin are ever fetched. Every
@@ -462,10 +463,21 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
     readErrors = found.readErrors;
     reviewMarkers(st, org);
     const notHandled = (list) => unseen(list, st.seen[org] || []).filter((i) => !book()[i.key]);
-    setPending(st, org, notHandled(items));
+    if (st.confirmed[org]) setPending(st, org, notHandled(items));
+    else {
+      // First review: a file the popup already showed stays in the list until it is decided, even if this
+      // scan no longer finds it (a wrapper page being edited, a topic briefly hidden). Otherwise a shrinking
+      // list would finish the review and the file would auto-upload, undecided, when it comes back.
+      const listed = notHandled(items);
+      const here = new Set(listed.map((i) => i.key));
+      const gone = notHandled((st.pending[org] || []).filter((i) => i && i.key && !here.has(i.key)))
+        .map((i) => ({ ...i, missing: true }));
+      setPending(st, org, [...listed, ...gone]);
+    }
     const extra = emptyPages.length ? { emptyPages } : {};
     // A first review whose list is now complete and fully decided is finished, even if the last Add /
-    // Remember happened while a page could not be read (otherwise nothing would ever finish it).
+    // Remember happened while a page could not be read (otherwise nothing would ever finish it). `pending`
+    // still holds every file shown during the review and not yet decided, so empty means all were decided.
     if (!st.confirmed[org] && !readErrors.length && items.length && !st.pending[org].length) {
       setConfirmed(st, org);
       logLine(st, org, "", "first review finished", "every file on Brightspace has a choice");
