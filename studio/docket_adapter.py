@@ -20,6 +20,11 @@ Every item is {"id", "kind", "cites", "source_text", "generated_text"}. An item 
 ALL sources in its `source_text` (the doctrine reviewer then sees everything). The S4 terminology gate does
 NOT use that: an uncited item fails terminology as "uncited", and a cited item is checked against each cited
 source's full text (up to FILE_CHARS) on its own, never against a join that one source's synonym can silence.
+
+Structural check (S4 fix round 4): `content_problems(final)` walks every player-visible field of the raw game
+(each option's text on its own, never through its story) and lists the ones with no real word (see
+`has_real_word`). Terminology and doctrine both fail on it before any lexicon or reviewer work; their own per-pass
+"no text to check" checks stay behind it as defence in depth.
 """
 import copy
 import hashlib
@@ -29,6 +34,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -203,6 +209,7 @@ def distractors_for_review(game: dict, keyed: dict, cap: int = SOURCE_CAP) -> li
             item["option_text"] = _join([f"OPTION: {o.get('text', '')}" if str(o.get("text") or "").strip() else "",
                                          f"STORY: {o.get('story', '')}" if str(o.get("story") or "").strip() else ""])
             item["teaching"] = str(o.get("teaching") or "")
+            item["option"] = o.get("text") if isinstance(o.get("text"), str) else ""   # raw, without the story
             out.append(item)
     return out
 
@@ -335,16 +342,118 @@ def _words(text) -> set:
 # goes whole: a key like "opt1" must not count as a word of content.
 _LABEL = re.compile(r"^[ \t]*(?:QUESTION|CORRECT ANSWER|TEACHING(?:[ \t]*\([^)\n]*\))?|FACTS|IRAC RULE|OPTION|STORY)"
                     r"[ \t]*:", re.M)
-_ALNUM = re.compile(r"[^\W_]")                          # any Unicode letter or digit
+# Characters that render as nothing. The Hangul fillers are category Lo (letters!), so they are named; every other
+# format character (Cf: zero-width space/joiners, word joiner, BOM, soft hyphen, tag characters) goes by category.
+_FILLERS = frozenset("\u3164\u115f\u1160\uffa0\u200b\u200c\u200d\u2060\ufeff")
+
+
+def _visible(text: str) -> str:
+    return "".join(c for c in text if c not in _FILLERS and unicodedata.category(c) != "Cf")
+
+
+def has_real_word(text) -> bool:
+    """True when `text` (a str; anything else is wordless) holds a real word: a run of >= 2 Unicode letters
+    (category L*; combining marks inside a run neither break nor count) once invisible/filler characters, cite
+    markers ([S1], [S1 p.4]) and the adapter's projection labels are removed. '[S1]', 'a', 'a b', '34', '?' and a
+    row of U+3164 have none."""
+    if not isinstance(text, str):
+        return False
+    s = _LABEL.sub(" ", docketgen._CITE.sub(" ", _visible(text)))
+    run = 0
+    for c in s:
+        cat = unicodedata.category(c)
+        if cat[0] == "L":
+            run += 1
+            if run >= 2:
+                return True
+        elif not (cat[0] == "M" and run):
+            run = 0
+    return False
 
 
 def _no_words(text) -> bool:
-    """The shared structural pre-check (terminology; doctrine pass 1; each distractor's option and teaching in
-    doctrine pass 2): True when `text` has no letter or digit left once cite markers ([S1], [S1 p.4]) and
-    projection labels are stripped. '[S1]\n[S1]' is cited and non-blank, yet says nothing. Any letter counts
-    (stopwords and 1-char words too: a fixture rule reads 'r [S1]'); whether a short answer says enough is the
-    reviewer's call, not a structural one."""
-    return _ALNUM.search(_LABEL.sub(" ", docketgen._CITE.sub(" ", str(text or "")))) is None
+    """The per-pass pre-check (terminology; doctrine pass 1; each distractor's option and teaching in doctrine
+    pass 2), kept as defence in depth behind content_problems: True when the projected `text` has no real word."""
+    return not has_real_word(text if isinstance(text, str) else str(text or ""))
+
+
+def _blank(v) -> bool:
+    """An optional field the player sees as empty: None, or a str of only whitespace / invisible characters."""
+    return v is None or (isinstance(v, str) and not _visible(v).strip())
+
+
+def _shown_label(x) -> object:
+    """What the player renders for an answer item: its label, else its id (play/player/data.js: label || id)."""
+    if not isinstance(x, dict):
+        return None
+    label = x.get("label")
+    return label if isinstance(label, str) and label else x.get("id")
+
+
+_PRODUCE_ITEMS = {"spot": "issues", "order": "sequence", "slot": "key"}
+_PRODUCE_LISTS = ("issues", "taxonomy", "bank", "facts", "elements")
+
+
+def content_problems(final) -> list:
+    """Every player-visible field of the game, from the raw dict, that has no real word (see has_real_word), as
+    "qN:field: no words"; plus structural holes ("game: no rounds", "qN:options: no wrong option",
+    "qN:options: no correct option", "qN:answer: no items", "qN:kind: unknown kind"). Empty when clean.
+
+    Required (must have a word): each round's question (and prompt, if present); every option's text, correct and
+    wrong, checked on its own and never through its story; every wrong option's teaching; a produce round's
+    teaching, a spot round's fact text and every answer item the player sees (issues, taxonomy, bank, facts,
+    elements); every IRAC rule. Optional (blank is fine, but non-blank needs a word): a correct option's teaching,
+    any option's story and outcome_title (hand-authored games leave the correct option's teaching and story '').
+    Pure, stdlib + docketgen only; never raises on a malformed game."""
+    out = []
+
+    def need(where, v):
+        if not has_real_word(v):
+            out.append(f"{where}: no words")
+
+    def optional(where, v):
+        if not _blank(v):
+            need(where, v)
+
+    rounds = list(_rounds(final))
+    if not rounds:
+        out.append("game: no rounds")
+    for s, q in rounds:
+        qid = _short(_qid(s, q), 40)
+        kind = _kind(q)
+        need(f"{qid}:question", q.get("question"))
+        if "prompt" in q:
+            need(f"{qid}:prompt", q.get("prompt"))
+        if kind == "mcq":
+            opts = _options(q)
+            if not any(o.get("correct") is True for o in opts):
+                out.append(f"{qid}:options: no correct option")
+            if not any(o.get("correct") is not True for o in opts):
+                out.append(f"{qid}:options: no wrong option")
+            for i, o in enumerate(opts, 1):
+                k = f"{qid}:{_short(o.get('key') or f'option{i}', 20)}"
+                need(f"{k}.text", o.get("text"))
+                (optional if o.get("correct") is True else need)(f"{k}.teaching", o.get("teaching"))
+                optional(f"{k}.story", o.get("story"))
+                optional(f"{k}.outcome_title", o.get("outcome_title"))
+        elif kind in _PRODUCE_ITEMS:
+            ans = q.get("answer") if isinstance(q.get("answer"), dict) else {}
+            need(f"{qid}:teaching", q.get("teaching"))
+            if kind == "spot":
+                need(f"{qid}:text", q.get("text"))
+            if not ans.get(_PRODUCE_ITEMS[kind]):
+                out.append(f"{qid}:answer: no items")
+            for coll in _PRODUCE_LISTS:
+                items = ans.get(coll)
+                for i, x in enumerate(items if isinstance(items, list) else []):
+                    need(f"{qid}:{coll}[{i}].label", _shown_label(x))
+        else:
+            out.append(f"{qid}:kind: unknown kind")
+    verdict = final.get("verdict") if isinstance(final, dict) else None
+    irac = verdict.get("irac") if isinstance(verdict, dict) else None
+    for i, r in enumerate(irac if isinstance(irac, list) else []):
+        need(f"verdict:irac[{i}].rule", r.get("rule") if isinstance(r, dict) else None)
+    return out
 
 
 def _chunk_bounds(text: str, size: int = DOCTRINE_CHUNK) -> list:
@@ -543,6 +652,9 @@ def player_bundle_text(ehash: str = "") -> str:
 # raise; gate_docket looks them up by name at call time.
 
 def _g_terminology(ctx):
+    problems = content_problems(ctx.final)              # structural: no lexicon, no reviewer
+    if problems:
+        return False, "; ".join(problems)
     if ctx.lexicon_error is not None:
         raise ctx.lexicon_error
     items = items_for_terminology(ctx.final, ctx.keyed)
@@ -572,6 +684,9 @@ def _g_terminology(ctx):
 
 
 def _g_doctrine(ctx):
+    problems = content_problems(ctx.final)              # before the reviewer is even built: content, never infra
+    if problems:
+        return False, "; ".join(problems)
     rt, dr = ctx.g.runtime, ctx.g.doctrinal_review
     start = ctx.clock()                                  # the budget counts doctrine time only
     p1 = rounds_for_doctrine(ctx.final, ctx.keyed)
@@ -612,7 +727,8 @@ def _g_doctrine(ctx):
                "source_chars": len(src), "keys_windowed": windowed, "uncited": not it["cites"], "infra": False}
         ctx.doctrine_items.append(rec)
         if (wordless[idx] if pas == 1                    # p1 comes first in `work`, so idx is the p1 index
-                else _no_words(it["option_text"]) or _no_words(it["teaching"])):  # a distractor needs both
+                else _no_words(it["option"]) or _no_words(it["teaching"])):  # a distractor needs both; a
+                # story never stands in for a wordless option text
             rec["issues"] = ["no text to check"]
             content_failed = True
             shown.append(f"{rec['id']}: no text to check")
