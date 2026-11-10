@@ -495,9 +495,12 @@ def test_14b_a_card_with_no_mandatory_gate_never_passes_and_is_not_infra():
 def test_15_vacuous_inputs_never_pass():
     g = mixed_game()
     g["scenes"] = [s for s in g["scenes"] if not s.get("quiz")]
-    g["verdict"]["irac"] = []
+    assert da._irac_rules(g)                                                 # the IRAC verdict is KEPT
     card = assert_schema(run(final=finished(g)))
-    assert gate(card, "terminology")["passed"] is False and gate(card, "doctrine")["passed"] is False
+    t, d = gate(card, "terminology"), gate(card, "doctrine")
+    assert t["passed"] is False and "no rounds" in t["detail"]
+    assert d["passed"] is False and "no rounds" in d["detail"]
+    assert card["reviewer_calls"] == 0                                      # a verdict alone is never reviewed
 
     empty_src = src_keyed("")                                                # header only, no text
     card = assert_schema(run(final=finished(keyed_=empty_src), keyed_=empty_src))
@@ -879,3 +882,111 @@ def test_19_every_card_path_is_json_round_trippable(monkeypatch, name):
     card = assert_schema(_scenarios()[name](monkeypatch))
     assert json.loads(json.dumps(card)) == card
     assert isinstance(da.block_message(card), str)
+
+
+# ==================================================================== S4 fix round 1 (strict review + batch review)
+
+def test_r1_a_blank_round_fails_terminology():
+    """An mcq round whose correct option and every teaching are blank projects to '' and must not pass."""
+    g = mixed_game()
+    for o in g["scenes"][4]["quiz"]["options"]:
+        o["teaching"] = ""
+        if o["correct"]:
+            o["text"] = ""
+    item = by_id(da.items_for_terminology(g, src_keyed()))["q4"]
+    assert item["generated_text"] == "" and item["cites"] == ["S1"]         # cited, so only blankness fails
+    t = gate(assert_schema(run(final=finished(g))), "terminology")
+    assert t["passed"] is False and "q4: no text to check" in t["detail"]
+
+
+def _synonym_round(cites):
+    """mcq round 4 whose correct answer swaps 'state liability' for 'state responsibility', citing `cites`."""
+    g = mixed_game()
+    for o in g["scenes"][4]["quiz"]["options"]:
+        o["cites"], o["teaching"] = list(cites), f"plain {o['key']}"
+        if o["correct"]:
+            o["text"] = "state responsibility applies"
+    return g
+
+
+def test_r1_an_uncited_item_fails_terminology_instead_of_being_checked_against_everything():
+    """Batch hole (1): checked against ALL sources, a source that happens to use the synonym silenced the swap."""
+    k = src_keyed(SRC, "Older texts speak of state responsibility in this context.")
+    g = _synonym_round(())
+    assert by_id(da.items_for_terminology(g, k))["q4"]["cites"] == []
+    t = gate(assert_schema(run(final=finished(g, k), keyed_=k)), "terminology")
+    assert t["passed"] is False and "q4: uncited" in t["detail"]
+
+
+def test_r1_terminology_runs_per_cited_source_so_one_source_cannot_silence_another():
+    """Batch hole (1): S1 says 'state liability', S2 uses the synonym. Joined, S2 silenced the check on S1."""
+    k = src_keyed(SRC, "Older texts speak of state responsibility in this context.")
+    t = gate(assert_schema(run(final=finished(_synonym_round(("S1", "S2")), k), keyed_=k)), "terminology")
+    assert t["passed"] is False and "q4: state liability->state responsibility" in t["detail"]
+    ok = gate(run(final=finished(_synonym_round(("S2",)), k), keyed_=k), "terminology")   # S2 alone: no term
+    assert ok["passed"] is True, ok["detail"]
+
+
+def test_r1_terminology_sees_past_the_per_key_s3_cap_with_several_cited_sources():
+    """Batch hole (2): with 3 cited keys the S3 cap gives each 12000//3 chars; the term sits at ~8000 in S2."""
+    k = docketgen.source_keys([{"name": "a.pdf", "text": _paragraphs(10_000)},
+                               {"name": "b.pdf", "text": _paragraphs(10_000, "Here state liability arises.", 8_000)},
+                               {"name": "c.pdf", "text": _paragraphs(10_000)}])
+    g = _synonym_round(("S1", "S2", "S3"))
+    assert "state liability" not in by_id(da.items_for_terminology(g, k))["q4"]["source_text"]   # S3 cap hides it
+    rev = FakeReviewer(lambda n, p: bad_reply())
+    t = gate(run(final=finished(g, k), keyed_=k, runtime=full_runtime(reviewer=rev)), "terminology")
+    assert t["passed"] is False and "q4: state liability->state responsibility" in t["detail"]
+
+
+def test_r1_a_quote_of_a_source_header_never_verifies():
+    """'[S1] Week 3 lecture.pdf' is the adapter's own header, not source text."""
+    rev = FakeReviewer(lambda n, p: ok_reply("[S1] Week 3 lecture.pdf"))
+    card = assert_schema(run(runtime=full_runtime(reviewer=rev)))
+    assert gate(card, "doctrine")["passed"] is False
+    assert not any(it["ok"] or it["quotes_ok"] for it in card["doctrine_items"])
+
+
+ELIDED = "State liability requires a breach […] that is sufficiently serious under Union law. "
+ELIDED_QUOTE = "State liability requires a breach […] that is sufficiently serious"
+
+
+def test_r1_a_real_elision_inside_one_window_segment_verifies(monkeypatch):
+    """CJEU text carries real '[…]' elisions. Quoted faithfully from inside one kept segment of a windowed
+    source, the quote verifies; only a quote that spans the adapter's own gap fails (test 31b)."""
+    monkeypatch.setenv("CF_STUDIO_DOCTRINE_SOURCE_CAP", "6100")
+    k = docketgen.source_keys([{"name": "judgment.pdf", "text": (ELIDED * 600)[:40_000]}])
+    rev = FakeReviewer(lambda n, p: ok_reply(ELIDED_QUOTE))
+    card = assert_schema(run(final=finished(game(), k), keyed_=k, runtime=full_runtime(reviewer=rev)))
+    assert all(it["keys_windowed"] == ["S1"] for it in card["doctrine_items"])
+    assert all(it["ok"] and it["quotes_ok"] for it in card["doctrine_items"]), card["doctrine_items"]
+    assert gate(card, "doctrine")["passed"] is True
+
+
+def test_r1_bundle_cache_survives_a_concurrent_clear(monkeypatch):
+    """Another writer thread may clear the cache between a membership test and the lookup."""
+    class RacyCache(dict):
+        def __contains__(self, key):
+            hit = super().__contains__(key)
+            self.clear()                                                    # the other thread wins the race
+            return hit
+
+    monkeypatch.setattr(da, "_bundle_cache", RacyCache({"h1": "cached bundle"}))
+    assert da.player_bundle_text("h1") == "cached bundle"
+
+
+@pytest.mark.parametrize("name", ["retrieval", "self_contained", "citations", "reviewer_high", "playability"])
+def test_r1_gate_infra_error_in_any_gate_is_classified_before_run_gate_swallows_it(monkeypatch, name):
+    """Batch hole (6): an outage must reach the card as infra (GATE_UNAVAILABLE, counted toward
+    max_infra_failures by S8), not as a content failure (GATE_BLOCKED, max_failures)."""
+    rt = rtmod()
+
+    def outage(ctx):
+        raise rt.GateInfraError(f"{name} backend down")
+
+    monkeypatch.setattr(da, f"_g_{name}", outage)
+    card = assert_schema(run())
+    g = gate(card, name)
+    assert g["passed"] is False and "GateInfraError" in g["infra"] and "backend down" in g["infra"]
+    assert card["blocking_failures"] == [name] and card["infra_error"] is True
+    assert da.block_message(card).startswith(docketgen.GATE_UNAVAILABLE)

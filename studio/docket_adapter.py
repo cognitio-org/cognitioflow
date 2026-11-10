@@ -16,8 +16,10 @@ produce kinds: only the answer key is projected, never the taxonomy, decoys or u
 The verdict's IRAC rules are one extra unit ("verdict"), not mapped to rounds: the writer's schema does
 not tie IRAC entries to rounds, and a game may carry one IRAC entry for three rounds.
 
-Every item is {"id", "kind", "cites", "source_text", "generated_text"}. An item that cites nothing is
-checked against ALL sources (the fail-closed direction: more protected terms, more for the reviewer).
+Every item is {"id", "kind", "cites", "source_text", "generated_text"}. An item that cites nothing carries
+ALL sources in its `source_text` (the doctrine reviewer then sees everything). The S4 terminology gate does
+NOT use that: an uncited item fails terminology as "uncited", and a cited item is checked against each cited
+source's full text (up to FILE_CHARS) on its own, never against a join that one source's synonym can silence.
 """
 import copy
 import hashlib
@@ -404,10 +406,18 @@ def doctrine_source_text(keys, keyed: dict, generated_text: str, cap: int = DOCT
     return _doctrine_source(keys, keyed, generated_text, cap)[0]
 
 
-def _full_source(keys, keyed: dict) -> str:
-    """Terminology's source: every known cited key up to FILE_CHARS, i.e. what the writer read. No cut."""
-    return "\n\n".join(f"[{k}] {keyed[k].get('name', '')}\n{str(keyed[k].get('text') or '')[:docketgen.FILE_CHARS]}"
-                       for k in _known_keys(keys, keyed))
+def _source_bodies(keys, keyed: dict) -> list:
+    """Terminology's sources: (key, text) for every known cited key, up to FILE_CHARS (what the writer read),
+    with no header line (a file name is not source text) and no S3 per-key cap."""
+    return [(k, str(keyed[k].get("text") or "")[:docketgen.FILE_CHARS]) for k in _known_keys(keys, keyed)]
+
+
+def _split_doctrine_source(src: str):
+    """doctrinal_review's split_sources hook for the adapter's doctrine source: the default "[Sn] name" header
+    split (each key's body on its own), then each body cut at the GAP joiner, so a quote verifies only inside
+    one gap-free segment. A real "[…]" elision inside a segment (no surrounding newlines) stays verifiable."""
+    bodies, headers = _gates().doctrinal_review.split_source_headers(src)
+    return [seg for b in bodies for seg in b.split(GAP)], headers
 
 
 # ---------------------------------------------------------------------------------------- config: lexicon, flags
@@ -500,8 +510,10 @@ def engine_hash() -> str:
 
 def player_bundle_text(ehash: str = "") -> str:
     """play/player/*.js + index.html as text (what ships to the browser), cached per engine hash."""
-    if ehash and ehash in _bundle_cache:
-        return _bundle_cache[ehash]
+    if ehash:
+        cached = _bundle_cache.get(ehash)            # one lookup: another thread may clear() in between
+        if cached is not None:
+            return cached
     files = _player_files((".js",)) + [PLAYER_DIR / "index.html"]
     text = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in files)
     if ehash:
@@ -518,17 +530,26 @@ def _g_terminology(ctx):
     if ctx.lexicon_error is not None:
         raise ctx.lexicon_error
     items = items_for_terminology(ctx.final, ctx.keyed)
-    if not items:
+    if not any(it["kind"] != "verdict" for it in items):  # an IRAC verdict alone is not a game
         return False, "no items to check (the game has no rounds)"
     problems = []
     for it in items:
-        use = it["cites"] or list(ctx.keyed)
-        if not _has_source(use, ctx.keyed):
+        if not str(it["generated_text"] or "").strip():
+            problems.append(f"{it['id']}: no text to check")
+            continue
+        if not it["cites"]:                               # never checked against everything: that silences swaps
+            problems.append(f"{it['id']}: uncited")
+            continue
+        if not _has_source(it["cites"], ctx.keyed):
             problems.append(f"{it['id']}: no source text")
             continue
-        for v in ctx.g.terminology_lock.check_terminology(_full_source(use, ctx.keyed), it["generated_text"],
-                                                          ctx.lexicon):
-            problems.append(f"{it['id']}: {v.protected_term}->{v.found_synonym}")
+        seen = set()
+        for _k, body in _source_bodies(it["cites"], ctx.keyed):   # per source: one cannot silence another
+            for v in ctx.g.terminology_lock.check_terminology(body, it["generated_text"], ctx.lexicon):
+                swap = f"{v.protected_term}->{v.found_synonym}"
+                if swap not in seen:
+                    seen.add(swap)
+                    problems.append(f"{it['id']}: {swap}")
     if problems:
         return False, "; ".join(problems)
     return True, f"{len(items)} items, no dangerous term swaps (lexicon {ctx.lexicon_version})"
@@ -539,7 +560,7 @@ def _g_doctrine(ctx):
     start = ctx.clock()                                  # the budget counts doctrine time only
     p1 = rounds_for_doctrine(ctx.final, ctx.keyed)
     p2 = distractors_for_review(ctx.final, ctx.keyed)
-    if not p1:
+    if not any(it["kind"] != "verdict" for it in p1):    # an IRAC verdict alone is not a game
         return False, "no rounds to review (the game has no rounds)"
     has_mcq = any(it["kind"] == "mcq" for it in p1)
     reviewer = _rt(ctx.runtime, "reviewer")
@@ -577,9 +598,11 @@ def _g_doctrine(ctx):
             ctx.beat()
             ctx.state["reviewer_calls"] += 1
             if pas == 1:
-                v = dr.review_doctrine(src, it["generated_text"], reviewer, require_quotes=True)
+                v = dr.review_doctrine(src, it["generated_text"], reviewer, require_quotes=True,
+                                       split_sources=_split_doctrine_source)
             else:
-                v = dr.review_distractor(src, it["question"], it["option_text"], it["teaching"], reviewer)
+                v = dr.review_distractor(src, it["question"], it["option_text"], it["teaching"], reviewer,
+                                         split_sources=_split_doctrine_source)
         except rt.GateInfraError as e:
             rec["infra"] = True
             rec["issues"] = [_short(f"reviewer unavailable: {e}", 200)]
@@ -598,10 +621,12 @@ def _g_doctrine(ctx):
             continue
         rec["ok"] = v.ok is True
         rec["issues"] = [_short(x, 200) for x in list(v.issues or [])[:3]]
-        rec["quotes_ok"] = bool(v.quotes) and not dr.unverified_quotes(src, v.quotes)
-        if rec["ok"] and windowed and any(_GAP_MARK in _safe(q) for q in v.quotes or []):
-            # a "quote" that copies the [...] joiner spans text the reviewer never saw: fail it (strict)
-            rec["ok"], rec["quotes_ok"] = False, False
+        bad_quotes = dr.unverified_quotes(src, v.quotes or [], split_sources=_split_doctrine_source)
+        rec["quotes_ok"] = bool(v.quotes) and not bad_quotes
+        quote_rule_failed = v.ok is not True and any(_safe(x).startswith("unverifiable source quote")
+                                                     for x in v.issues or [])
+        if quote_rule_failed and windowed and any(_GAP_MARK in _safe(q) for q in bad_quotes):
+            # it failed because a quote crosses the GAP joiner: it spans text the reviewer never saw
             rec["issues"] = ["quote spans an omitted gap in the windowed source"]
         if rec["ok"]:
             ok[pas] += 1
