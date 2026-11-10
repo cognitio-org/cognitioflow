@@ -3,8 +3,8 @@
      on an alarm, once the course's first batch was reviewed and auto is on;
    - manual (popup Add): the same pipeline with the key, or, for a course with no key yet, the old path —
      the bytes go through an open CognitioFlow tab, which uploads them as you. */
-import { signalOf } from "./lib.js";
-import { createSync, badgeFor } from "./sync.js";
+import { signalOf, looksLikeDocument } from "./lib.js";
+import { createSync, badgeFor, STATE } from "./sync.js";
 
 const DEFAULT_SYNC_HOURS = 6;
 const OPEN_DEBOUNCE_MS = 10 * 60 * 1000;
@@ -87,6 +87,9 @@ async function badge() {
   return b;
 }
 
+/** The first bytes of a base64 file, enough for looksLikeDocument's sniff (it reads at most 64). */
+const headOf = (b64) => Uint8Array.from(atob(String(b64 || "").slice(0, 88)), (c) => c.charCodeAt(0));
+
 /** Take the chosen items across: Brightspace tab gives the bytes, CognitioFlow tab does the upload. */
 async function take({ org, keys }) {
   const { appUrl, courses } = await conf();
@@ -111,18 +114,37 @@ async function take({ org, keys }) {
   const list = (before[org] || []).filter((i) => keys.includes(i.key) && !handled(i.key));
   const done = [];
   const failed = [];
+  let added = 0;   // files sent, not keys marked: a twin is marked but not sent again
+  // One Brightspace file can be listed twice (a File topic and a link to the same path, e.g. a first-review
+  // row carried as `missing` beside the topic that replaced it). There is no sha dedupe on this path, so
+  // the twin rides along with the first upload of that path instead of being POSTed again.
+  const twins = new Map();   // path -> the item that goes up
+  const riders = new Map();  // that item -> its twins, recorded with it on success
   for (const item of list) {
+    const first = item.path ? twins.get(item.path) : null;
+    if (first) { riders.get(first).push(item); continue; }
+    if (item.path) twins.set(item.path, item);
+    riders.set(item, []);
+  }
+  for (const [item, rest] of riders) {
     try {
       const b = await ask(bs.id, { type: "file", url: item.url });
+      // Same check as the keyed Add: a 200 text/html login page (expired session) is not the file. Nothing
+      // goes up, nothing is marked, and the rest of the Add stops, as a sign-in stop does there.
+      if (!looksLikeDocument(item.name, b.type, headOf(b.base64))) throw Object.assign(new Error(STATE.login), { login: true });
       await ask(app.id, { type: "upload", cid: course.cid, name: item.name, week: item.week, base64: b.base64, mime: b.type });   // `type` routes the message: the MIME type travels as `mime`
-      done.push(item);
+      done.push(item, ...rest);
+      added++;
     } catch (e) {
-      failed.push({ name: item.name, error: String(e.message || e) });
+      const m = String(e.message || e);
+      const login = e.login || /sign-in needed/i.test(m);
+      failed.push({ name: item.name, error: login ? STATE.login : m });
+      if (login) break;
     }
   }
   await record(org, done, "tab");
   await badge();
-  return { added: done.length, failed };
+  return { added, failed };
 }
 
 /** Mark items handled, as one read-modify-write under sync's state lock (merged with whatever a running

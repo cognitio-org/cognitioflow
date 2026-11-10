@@ -20,8 +20,20 @@ async function text(url) {
 // clearly instead. 40MB covers slide decks and PDFs with room to spare.
 const MAX_GRAB_BYTES = 40 * 1024 * 1024;
 
+/** An expired session is not an error status: fetch follows Brightspace's redirect to its login page (or to
+    the SSO host) and answers 200 with that HTML. Same test as lib.js isLoginResponse, which this classic
+    content script cannot import. A response with no `url` (not a real fetch) is not judged. */
+function bouncedToLogin(r) {
+  if (!r.url) return false;
+  try {
+    const u = new URL(r.url, location.href);
+    return u.hostname !== "brightspace.rug.nl" || /^\/d2l\/(login|lp\/auth)/i.test(u.pathname);
+  } catch { return false; }
+}
+
 async function bytes(url) {
   const r = await fetch(url, { credentials: "same-origin" });
+  if (bouncedToLogin(r)) throw new Error("Brightspace sign-in needed (the file request ended on the login page)");
   if (!r.ok) throw new Error(`${r.status} on ${url}`);
   const buf = new Uint8Array(await r.arrayBuffer());
   if (buf.length > MAX_GRAB_BYTES) {

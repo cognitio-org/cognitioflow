@@ -133,7 +133,7 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
         return data;
       } catch (e) {
         const m = String(e.message || e);
-        if (/^(401|403)\b/.test(m) || /JSON|Unexpected token/i.test(m)) throw new LoginNeeded(`tab: ${m}`);
+        if (/^(401|403)\b/.test(m) || /JSON|Unexpected token|sign-in needed/i.test(m)) throw new LoginNeeded(`tab: ${m}`);
         throw e;
       }
     }
@@ -733,7 +733,8 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
 
   /** First run for a course: mark what is on Brightspace now as handled, without uploading.
       mode "all": everything. mode "match": only files whose name is already in CognitioFlow (`names`,
-      read by Options from a signed-in CognitioFlow tab); the rest stays pending and goes up automatically. */
+      read by Options from a signed-in CognitioFlow tab); the rest stays pending and goes up automatically.
+      Files the list showed that this scan no longer finds are decided the same way and reported in `left`. */
   async function baseline({ org, mode = "all", names = [] }) {
     return withLock(async (lease) => {
       const { courses } = await conf();
@@ -742,14 +743,21 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
       const st = await local();
       leaseOf.set(st, lease);
       const { items } = await collect(reader(), String(org));
+      // Files the list already showed that this scan does not find (a wrapper read link-less, a topic briefly
+      // hidden) are part of what the baseline decides too: otherwise they would come back after `confirmed`
+      // and go up, never decided. Not keyed on `missing`: a baseline can run before a scan has set it.
+      const here = new Set(items.map((i) => i.key));
+      const handledKey = (k) => (st.seen[org] || []).includes(k) || !!(st.ledger[org] || {})[k];
+      const shown = unseen((st.pending[org] || []).filter((i) => i && i.key && !here.has(i.key) && !handledKey(i.key)), []);
       const marked = [];
-      for (const it of items) {
+      for (const it of [...items, ...shown]) {
         if (mode === "match" && !names.some((n) => sameName(n, it.name))) continue;
         setLedger(st, org, it.key, { ...(settled((st.ledger[org] || {})[it.key]) || {}), signal: signalOf(it), at: now(), name: it.name, baseline: true });
         markSeen(st, org, it.key);
         marked.push(it.name);
       }
-      setPending(st, org, unseen(items, st.seen[org] || []).filter((i) => !(st.ledger[org] || {})[i.key]));
+      const undecided = (list) => unseen(list, st.seen[org] || []).filter((i) => !(st.ledger[org] || {})[i.key]);
+      setPending(st, org, [...undecided(items), ...undecided(shown).map((i) => ({ ...i, missing: true }))]);
       setConfirmed(st, org);   // the baseline is the explicit choice for everything it leaves: "upload these"
       logLine(st, org, `${marked.length} file(s)`, `baseline (${mode})`);
       await persist(st);

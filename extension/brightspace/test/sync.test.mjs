@@ -886,3 +886,30 @@ test("red-team round 3: once reviewed, a file that leaves Brightspace simply dro
   await w2.s.run({ upload: false });
   assert.deepEqual(w2.store.local.pending["564701"].map((i) => i.key), ["t:9001"]);
 });
+
+/* ------------------------------------------------------------------ round 3.2: baseline over a shrunken first list */
+
+test("red-team K3: baseline 'all' also marks the files the review showed that a scan no longer finds", async () => {
+  const w1 = world({ bs: pilRoutes(), local: FIRST, sync: PIL_ONLY });
+  await w1.s.run({ upload: false });                        // the popup showed all four
+  const w2 = world({ bs: pilRoutes(LINKLESS), local: w1.store.local, sync: PIL_ONLY });
+  const r = await w2.s.baseline({ org: "564701", mode: "all" });   // run while the wrapper reads link-less
+  assert.deepEqual(r.left, [], "nothing is left for auto");
+  assert.deepEqual([...r.marked].sort(), ["Handout 2.docx", "Lecture 1.pdf", "Lecture 2 slides.pdf", "Reading week 2.pdf"]);
+  assert.equal(w2.store.local.confirmed["564701"], true);
+  const w3 = world({ bs: pilRoutes(), local: w2.store.local, sync: PIL_ONLY });
+  assert.equal((await w3.s.run()).uploaded, 0, "the files the user was shown and baselined never go up");
+  assert.equal(w3.calls.cf.length, 0);
+});
+
+test("red-team K3: baseline 'match' marks shown-but-gone files by name and reports the rest in `left`", async () => {
+  const w1 = world({ bs: pilRoutes(), local: FIRST, sync: PIL_ONLY });
+  await w1.s.run({ upload: false });
+  const w2 = world({ bs: pilRoutes(LINKLESS), local: w1.store.local, sync: PIL_ONLY });
+  const r = await w2.s.baseline({ org: "564701", mode: "match", names: ["Lecture 2 slides.pdf"] });
+  assert.deepEqual(r.marked, ["Lecture 2 slides.pdf"], "a gone file whose name CognitioFlow has is marked");
+  assert.deepEqual([...r.left].sort(), ["Handout 2.docx", "Lecture 1.pdf", "Reading week 2.pdf"], "every file the baseline will let go up is named");
+  const w3 = world({ bs: pilRoutes(), local: w2.store.local, sync: PIL_ONLY });
+  await w3.s.run();
+  assert.ok(!w3.calls.cf.some((c) => c.name === "Lecture 2 slides.pdf"), "the matched file is not re-sent when it comes back");
+});
