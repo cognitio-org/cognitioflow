@@ -553,3 +553,34 @@ test("finding 6: files left unticked on the first review stay pending and never 
   await w.s.uploadKeys({ org: "564701", keys: w.store.local.pending["564701"].map((i) => i.key) });
   assert.equal(w.store.local.confirmed["564701"], true);
 });
+
+test("finding 1: a Remember that lands while the file is downloading stops its upload (marker is compare-and-set)", async () => {
+  let w;
+  const routes = pilRoutes();
+  const p = enc(`${FOLDER}/Week 2/Handout 2.docx`);
+  const orig = routes[p];
+  routes[p] = (init) => { if ((init.method || "GET") === "GET") rememberBehindTheRunsBack(w.store, HANDOUT); return orig(init); };
+  w = world({ bs: routes, local: READY, sync: PIL_ONLY });
+  await w.s.run();
+  assert.ok(!w.calls.cf.some((c) => c.name === "Handout 2.docx"), "the remembered file is not posted");
+  assert.equal(w.store.local.ledger["564701"][HANDOUT].via, "remembered", "and the Remember stands");
+});
+
+test("finding 4: a popup Add killed mid-request is surfaced even with Auto off, and comes back after 24h", async () => {
+  const start = { cfKeys: KEYS, confirmed: { 564701: true } };
+  const w = world({ bs: pilRoutes(), local: start, sync: PIL_ONLY, cf: () => HANG });
+  await w.s.run({ upload: false });
+  w.s.uploadKeys({ org: "564701", keys: ["t:9001"] });          // never settles
+  await settle();
+  assert.equal(w.calls.cf.length, 1);
+  const crashed = JSON.parse(JSON.stringify(w.store.local));
+  const again = world({ bs: pilRoutes(), local: crashed, sync: PIL_ONLY, start: "2026-11-10T12:11:00Z" });
+  await again.s.run();
+  assert.equal(again.calls.cf.length, 0, "auto is off: nothing is sent");
+  assert.ok(again.store.local.log.some((l) => l.name === "Lecture 1.pdf" && l.action === "check in CF"));
+  assert.ok(!again.store.local.pending["564701"].some((i) => i.key === "t:9001"), "while held it is not offered twice");
+  const later = world({ bs: pilRoutes(), local: again.store.local, sync: PIL_ONLY, start: "2026-11-11T13:00:00Z" });
+  await later.s.run({ upload: false });
+  assert.ok(later.store.local.pending["564701"].some((i) => i.key === "t:9001"), "after 24h it is back in the list");
+  assert.ok(!later.store.local.ledger["564701"]["t:9001"], "and the stale marker is gone");
+});
