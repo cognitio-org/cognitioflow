@@ -100,10 +100,30 @@ const ATTR = /\b(href|src|data|data-src|data-href|data-file|data-url|data-pdf|da
 const TAG = /<[a-z][a-z0-9-]*\b[^>]*>/gi;   // any tag: viewers hang data-* off plain <div>s; isDocument() does the filtering
 const unescapeHtml = (s) => s.replace(/&amp;/g, "&").replace(/&#x2F;|&#47;/gi, "/").replace(/&quot;/g, '"');
 
+/** The org a /content/enforced/{org}-{code} folder belongs to ("564701-RGBIR…" -> "564701"), or "". */
+export const orgOfFolder = (folder) => { const m = /^(\d+)-/.exec(String(folder || "")); return m ? m[1] : ""; };
+
+/** `path` (already decoded) if it sits inside /content/enforced/{org}-…/ and has no tricks in it, else "".
+    Segments must be plain: no "." / "..", no backslash, no control characters, and nothing that still
+    decodes to something else (a double-encoded "%2F" or "%2e%2e" would be undone by the server). */
+function insideCourse(path, org) {
+  if (!org) return "";
+  const segs = String(path).split("/");
+  if (segs.length < 5 || segs[0] !== "" || segs[1] !== "content" || segs[2] !== "enforced") return "";
+  if (!segs[3].startsWith(`${org}-`) || segs[3].length <= org.length + 1) return "";
+  for (const seg of segs.slice(3)) {
+    if (!seg || seg === "." || seg === ".." || /[\\\u0000-\u001f]/.test(seg) || decodeSafe(seg) !== seg) return "";
+  }
+  // what fetch() will actually ask for must be the same path, not a normalised neighbour
+  const fetched = decodeSafe(new URL(`https://${BRIGHTSPACE_HOST}${encodePath(path)}`).pathname);
+  return fetched === path ? path : "";
+}
+
 /** Turn one attribute value into a /content/enforced/… path, or "" if it is not a course document.
     Handles relative paths, root paths, absolute https://brightspace.rug.nl/… URLs, a viewer's ?file=…
-    parameter (pdf.js style) and D2L "coursefile" quickLinks (…?type=coursefile&fileId=…). */
-export function documentPath(raw, folder, pageDir = "") {
+    parameter (pdf.js style) and D2L "coursefile" quickLinks (…?type=coursefile&fileId=…).
+    Only paths under /content/enforced/{org}-…/ are accepted; `org` defaults to the one in `folder`. */
+export function documentPath(raw, folder, pageDir = "", org = orgOfFolder(folder)) {
   let href = unescapeHtml(String(raw || "").trim());
   if (!href || /^(mailto:|#|javascript:|data:|tel:)/i.test(href)) return "";
   if (/^https?:/i.test(href) || href.startsWith("//")) {
@@ -118,7 +138,7 @@ export function documentPath(raw, folder, pageDir = "") {
     for (const name of ["file", "fileId", "url", "src", "path"]) {
       const v = params.get(name);
       if (v && (isDocument(v) || v.startsWith("/content/enforced/"))) {
-        const inner = documentPath(v, folder, name === "fileId" ? "" : pageDir);   // coursefile ids are folder-relative
+        const inner = documentPath(v, folder, name === "fileId" ? "" : pageDir, org);   // coursefile ids are folder-relative
         if (inner) return inner;
       }
     }
@@ -127,11 +147,19 @@ export function documentPath(raw, folder, pageDir = "") {
   if (!isDocument(href)) return "";                        // documents only: never the .html wrapper itself
   let path;
   if (href.startsWith("/")) path = href.split(/[?#]/)[0];
-  else if (pageDir) path = new URL(href, `https://${BRIGHTSPACE_HOST}${encodePath(pageDir)}`).pathname;
-  else path = `/content/enforced/${folder}/${href.split(/[?#]/)[0]}`;
-  path = decodeSafe(path);
-  if (!path.startsWith("/content/enforced/")) return "";   // never leave the course content tree
-  return path;
+  else if (pageDir) path = new URL(href.split(/[?#]/)[0], `https://${BRIGHTSPACE_HOST}${encodePath(pageDir)}`).pathname;
+  else if (folder) path = `/content/enforced/${folder}/${href.split(/[?#]/)[0]}`;
+  else return "";
+  return insideCourse(decodeSafe(path), org);              // never leave this course's content tree
+}
+
+/** The CognitioFlow origin a key may be sent to: https anywhere, plain http only on this computer. "" otherwise. */
+export function appOrigin(appUrl) {
+  let u;
+  try { u = new URL(String(appUrl || "")); } catch { return ""; }
+  if (u.protocol === "https:") return u.origin;
+  if (u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)) return u.origin;
+  return "";
 }
 
 /** Pull document links out of a page's HTML. Reads href / src / data and the data-* attributes viewers
@@ -145,7 +173,7 @@ export function linksIn(html, folder, context = {}) {
     let a;
     ATTR.lastIndex = 0;
     while ((a = ATTR.exec(t[0]))) {
-      const path = documentPath(a[3] ?? a[4] ?? "", folder, context.dir || "");
+      const path = documentPath(a[3] ?? a[4] ?? "", folder, context.dir || "", context.org ? String(context.org) : orgOfFolder(folder));
       if (!path) continue;
       const url = encodePath(path);
       if (seen.has(url)) continue;

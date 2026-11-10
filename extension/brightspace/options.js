@@ -1,3 +1,5 @@
+import { appOrigin } from "./lib.js";
+
 const $ = (s) => document.querySelector(s);
 let courses = [];
 let cfCourses = [];
@@ -70,7 +72,15 @@ const askApp = async (msg) => {
   return r.data;
 };
 
+/** The CognitioFlow origin typed in the box, or an error: https only (http only for localhost). */
+function typedOrigin() {
+  const origin = appOrigin($("#appUrl").value.trim());
+  if (!origin) throw new Error("the CognitioFlow address must start with https:// (http only for localhost)");
+  return origin;
+}
+
 async function saveConfig() {
+  if ($("#appUrl").value.trim()) typedOrigin();
   const hours = Math.min(48, Math.max(1, Number($("#hours").value) || 6));
   await chrome.storage.sync.set({ appUrl: $("#appUrl").value.trim(), courses: courses.filter((c) => c.org).map(({ org, name, cid }) => ({ org, name, cid })), syncHours: hours });
   await send({ type: "schedule" }).catch(() => {});
@@ -97,7 +107,8 @@ async function act(what, i) {
     if (what === "mint") {
       say(i, "Making a key…");
       const old = local.cfKeys[c.cid];
-      await setKey(c.cid, await askApp({ type: "mintKey", cid: c.cid, ttlDays: 90 }));
+      const origin = typedOrigin();   // the key is bound to the address it was made on, and never sent elsewhere
+      await setKey(c.cid, { ...(await askApp({ type: "mintKey", cid: c.cid, ttlDays: 90 })), origin });
       const revoked = await revoke(old);
       await refreshLocal(); render();
       say(i, `Key saved on this computer.${revoked === false ? " The old key could not be revoked — revoke it in CognitioFlow." : ""}`);
@@ -106,7 +117,7 @@ async function act(what, i) {
       const box = document.querySelector(`[data-paste="${i}"]`);
       const token = box.value.trim();
       if (!/^cfw_[A-Za-z0-9_-]{20,}$/.test(token)) throw new Error("that is not a cfw_ write key");
-      await setKey(c.cid, { token, courseId: c.cid, expires: null, id: "" });
+      await setKey(c.cid, { token, courseId: c.cid, expires: null, id: "", origin: typedOrigin() });
       box.value = "";
       const t = await send({ type: "test-key", cid: c.cid });
       say(i, t.ok ? "Key saved and accepted." : `Key saved, but: ${t.state}`);
@@ -140,11 +151,9 @@ async function grant() {
   const url = $("#appUrl").value.trim();
   if (!url) return;
   let origin;
-  try {
-    const u = new URL(url);
-    if (u.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(u.hostname)) throw new Error();
-    origin = u.origin + "/*";
-  } catch { $("#grantState").textContent = "That is not a valid https address."; return; }
+  origin = appOrigin(url);
+  if (!origin) { $("#grantState").textContent = "That is not a valid https address."; return; }
+  origin += "/*";
   const ok = await chrome.permissions.request({ origins: [origin] });
   $("#grantState").textContent = ok ? "Allowed." : "Not allowed — uploads will fail without it.";
 }
@@ -178,7 +187,7 @@ $("#addKnown").onclick = () => { for (const k of KNOWN) if (!courses.some((c) =>
 $("#grant").onclick = grant;
 $("#detect").onclick = detect;
 $("#save").onclick = async () => {
-  await saveConfig();
+  try { await saveConfig(); } catch (e) { $("#saved").textContent = String(e.message || e); return; }
   $("#saved").textContent = "Saved.";
   setTimeout(() => ($("#saved").textContent = ""), 2000);
 };
