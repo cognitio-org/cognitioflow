@@ -145,49 +145,57 @@ def build_card(meta: dict, results: list, extra: dict | None = None) -> dict:
     return card
 
 
-def run_gates(submission: GameSubmission, runtime: Runtime) -> dict:
-    """Run all six gates over the submission and return the assembled review card."""
+def run_gates(submission: GameSubmission, runtime: Runtime, lexicon: dict | None = None) -> dict:
+    """Run every gate over the submission and return the assembled review card.
+
+    Same fail-closed path as the docket adapter: each gate runs through `run_gate`, the
+    card comes from `build_card`, and doctrine requires verifiable source quotes
+    (`require_quotes=True`), so an unquoted `ok: true` blocks. `lexicon` is the
+    terminology lexicon (e.g. from `terminology_lock.load_lexicon`); None keeps the
+    default PROTECTED_SYNONYMS.
+    """
     s = submission
     results = []
 
     def _terminology():
-        viol = terminology_lock.check_terminology(s.source_text, s.generated_text)
+        viol = terminology_lock.check_terminology(s.source_text, s.generated_text, lexicon)
         return (not viol,
                 "no dangerous term swaps" if not viol
                 else "; ".join(f"{v.protected_term}->{v.found_synonym}" for v in viol))
-    results.append(_result("terminology", True, _terminology))
+    results.append(run_gate("terminology", True, _terminology))
 
     def _doctrine():
-        v = doctrinal_review.review_doctrine(s.source_text, s.generated_text, runtime.reviewer)
+        v = doctrinal_review.review_doctrine(s.source_text, s.generated_text, runtime.reviewer,
+                                             require_quotes=True)
         return v.ok, ("doctrine sound" if v.ok else "; ".join(v.issues))
-    results.append(_result("doctrine", True, _doctrine))
+    results.append(run_gate("doctrine", True, _doctrine))
 
     def _retrieval():
         sc = retrieval_density.score_retrieval(s.game_spec)
         return sc["passes"], f"density={sc['density']:.2f} gen_ratio={sc['generation_ratio']:.2f}"
-    results.append(_result("retrieval", True, _retrieval))
+    results.append(run_gate("retrieval", True, _retrieval))
 
     def _playability():
         v = playability.check_playability(runtime.page_probe, s.required_selectors)
         return v.ok, ("plays clean" if v.ok else f"errors={v.errors} missing={v.missing_selectors}")
-    results.append(_result("playability", True, _playability))
+    results.append(run_gate("playability", True, _playability))
 
     def _accessibility():
         v = a11y.check_accessibility(runtime.a11y_probe)
         return v.ok, ("accessible" if v.ok else "; ".join(v.issues))
-    results.append(_result("accessibility", True, _accessibility))
+    results.append(run_gate("accessibility", True, _accessibility))
 
     def _self_contained():
         v = self_contained.check_self_contained(s.bundle_text)
         return v.ok, ("no external-AI calls at play-time" if v.ok else "; ".join(v.hits))
-    results.append(_result("self_contained", True, _self_contained))
+    results.append(run_gate("self_contained", True, _self_contained))
 
     def _polish():
         v = aesthetic_judge.judge_aesthetics(s.screenshot_path, runtime.vlm)
         return v.ok, f"polish score={v.score:.2f} ({v.notes})"
-    results.append(_result("polish", False, _polish))  # advisory — never blocks
+    results.append(run_gate("polish", False, _polish))  # advisory — never blocks
 
-    return review_card.build_review_card(s.game_meta, results)
+    return build_card(s.game_meta, results)
 
 
 def render(card: dict) -> str:

@@ -53,7 +53,10 @@ def runtime(reviewer, vlm):
     return Runtime(reviewer=reviewer, vlm=vlm, page_probe=GoodPage(), a11y_probe=GoodA11y())
 
 
-OK_REVIEWER = lambda prompt: '{"ok": true, "issues": []}'
+# run_gates requires verifiable source quotes (hardening-1), so the passing reviewer quotes the source.
+OK_REVIEWER = lambda prompt: ('{"ok": true, "issues": [], '
+                              '"quotes": ["A contract requires offer, acceptance, and consideration."]}')
+NO_QUOTE_REVIEWER = lambda prompt: '{"ok": true, "issues": []}'
 OK_VLM = lambda path: '{"score": 0.82, "notes": "clean, readable"}'
 
 
@@ -263,6 +266,37 @@ def test_build_card_shares_no_mutable_state():
     assert card["timings_ms"]["doctrine"] == 0, card
 
 
+def test_run_gates_hardened():
+    """hardening-1 (finding 5): run_gates = run_gate + build_card + require_quotes=True + optional lexicon."""
+    # an ok:true doctrine verdict with no source quote is a blocking failure, not a pass
+    card = run_gates(good_submission(), runtime(NO_QUOTE_REVIEWER, OK_VLM))
+    assert card["overall_pass"] is False and card["blocking_failures"] == ["doctrine"], card
+    doc = next(g for g in card["gates"] if g["name"] == "doctrine")
+    assert doc["passed"] is False and "no supporting source quotes" in doc["detail"], doc
+    # ...and so is a quote that is not in the source
+    fake = lambda p: '{"ok": true, "issues": [], "quotes": ["A contract requires a deed and a seal."]}'
+    card = run_gates(good_submission(), runtime(fake, OK_VLM))
+    assert card["overall_pass"] is False and card["blocking_failures"] == ["doctrine"], card
+
+    # the card comes from build_card: it shares no state with the submission's meta
+    sub = good_submission()
+    card = run_gates(sub, runtime(OK_REVIEWER, OK_VLM))
+    assert card["overall_pass"] is True, card
+    card["game"]["title"] = "changed"
+    assert sub.game_meta["title"] == "The Docket: Contract Formation", sub.game_meta
+
+    # backwards compatible: positional (submission, runtime) still works; lexicon is optional
+    sub = good_submission()
+    sub.generated_text = "Spot the issues: was there a valid offer, acceptance, and payment?"
+    assert run_gates(sub, runtime(OK_REVIEWER, OK_VLM))["overall_pass"] is True   # default lexicon: no rule
+    lex = {"consideration": ["payment"]}
+    card = run_gates(sub, runtime(OK_REVIEWER, OK_VLM), lexicon=lex)
+    assert card["overall_pass"] is False and card["blocking_failures"] == ["terminology"], card
+    term = next(g for g in card["gates"] if g["name"] == "terminology")
+    assert "consideration->payment" in term["detail"], term
+    assert run_gates(sub, runtime(OK_REVIEWER, OK_VLM), lex)["overall_pass"] is False    # positional too
+
+
 def main():
     # (a) everything passes -> overall pass, no blockers
     card = run_gates(good_submission(), runtime(OK_REVIEWER, OK_VLM))
@@ -305,6 +339,7 @@ def main():
     test_build_card_malformed_entries_fail_closed()
     test_build_card_detail_is_str()
     test_build_card_shares_no_mutable_state()
+    test_run_gates_hardened()
 
     print("OK")
 

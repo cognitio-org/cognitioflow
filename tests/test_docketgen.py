@@ -177,3 +177,28 @@ def test_slots_truncate_the_due_list_oldest_week_first():
     assert docketgen.weeks_needing_games(files, [], now, slots=slots) == ["1"]         # 2 drafts + 4 due, cap 3 -> 1 week
     assert docketgen.weeks_needing_games(files, [], now, slots=0) == []
     assert docketgen.weeks_needing_games(files, [], now, slots=10) == ["1", "2", "3", "4"]
+
+
+def test_weekly_slots_unknown_created_counts_inside_the_window():
+    """hardening-1 (finding 7): a slot row with no `created` uses a slot (fail closed), never frees one."""
+    now = 1_000_000.0
+    for row in ({"status": "draft", "created": None}, {"status": "approved"}, {"status": "writing", "created": ""}):
+        assert docketgen.weekly_slots([row], 1, now) == 0, row
+        assert docketgen.weekly_slots([row] * 3, 3, now) == 0, row
+    # an explicit old timestamp is still outside the window, and failed rows still never count
+    assert docketgen.weekly_slots([{"status": "draft", "created": now - 8 * 86400}], 1, now) == 1
+    assert docketgen.weekly_slots([{"status": "failed", "created": None}], 1, now) == 1
+
+
+def test_game_week_keys_are_stripped_like_file_weeks():
+    """hardening-1 (finding 8): " 1 " on a game row is week "1", as it already is on a file row."""
+    now = 10_000.0
+    files = [{"week": "1", "created": 100}, {"week": " 2", "created": 100}]
+    games = [{"week": " 1 ", "status": "approved", "created": 200, "updated": 200},
+             {"week": "2 ", "status": "draft", "created": 200, "updated": 200}]
+    assert docketgen.weeks_needing_games(files, games, now) == []
+    busy = [{"week": "1\t", "status": "writing", "created": 50, "updated": now}]
+    assert docketgen.weeks_needing_games(files, busy, now) == ["2"]                 # week 1 is being written
+    blocked = [{"week": " 1", "status": "failed", "created": 150 + i, "updated": 150 + i,
+                "error": docketgen.GATE_BLOCKED + ": x"} for i in range(3)]
+    assert docketgen.weeks_needing_games(files, blocked, now, max_failures=3) == ["2"]
