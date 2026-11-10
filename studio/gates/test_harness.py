@@ -202,6 +202,15 @@ def test_build_card_malformed_entries_fail_closed():
         assert g["name"] == "malformed" and g["passed"] is False and g["mandatory"] is True, (bad, g)
         assert g["detail"].startswith("gate error (fail-closed): malformed gate result at index 1"), g
         render(card)  # still renders
+    # a well-formed dict that cannot be deep-copied also fails closed as malformed
+    class NoCopy:
+        def __deepcopy__(self, memo):
+            raise TypeError("cannot copy")
+    card = build_card(meta, [ok, {"name": "doctrine", "passed": True, "mandatory": True,
+                                  "detail": "", "blob": NoCopy()}])
+    assert card["overall_pass"] is False and card["blocking_failures"] == ["malformed"], card
+    assert card["gates"][1]["name"] == "malformed", card
+    render(card)
     # a lone malformed entry is itself mandatory, so it blocks by name
     card = build_card(meta, [None])
     assert card["overall_pass"] is False and card["blocking_failures"] == ["malformed"], card

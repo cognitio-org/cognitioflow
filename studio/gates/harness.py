@@ -132,7 +132,8 @@ def build_card(meta: dict, results: list, extra: dict | None = None) -> dict:
     A card with no mandatory gate at all (including empty `results`) never passes:
     `overall_pass` is False, while `blocking_failures` may be empty.
     The card shares no mutable state with the inputs: meta, gates and extra values
-    are deep-copied, and the inputs are not mutated.
+    are deep-copied, and the inputs are not mutated. `meta` and `extra` must therefore be
+    plain copyable data (an un-deep-copyable gate entry fails closed as "malformed").
     """
     gates = [_normalise_gate(i, g) for i, g in enumerate(results)]
     card = review_card.build_review_card(copy.deepcopy(meta), gates)
