@@ -25,11 +25,11 @@ function render() {
       warn.textContent = `${c.name || c.org}: ${PROBLEM[st.state]}${st.detail && st.state === "error" ? ` (${st.detail})` : ""}`;
       list.appendChild(warn);
     }
-    const unread = readErrorsNote(st);   // shown whatever the state: these files are missing from the list below
+    const unread = readErrorsNote(st, !!state.confirmed[c.org]);   // shown whatever the state: these files are missing from the list below
     if (unread) {
       const warn = document.createElement("div");
       warn.className = "small";
-      warn.textContent = `${c.name || c.org}: ${unread}. Try "Check now" later.`;
+      warn.textContent = `${c.name || c.org}: ${unread}.`;
       list.appendChild(warn);
     }
     if (!items.length) continue;

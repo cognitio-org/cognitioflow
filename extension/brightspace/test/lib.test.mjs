@@ -211,6 +211,8 @@ test("red-team B3: a page Url outside this course's enforced folder is not liste
     { TopicId: 4, Title: "abs", TypeIdentifier: "File", Url: "https://evil.example/content/enforced/564706-A/x.html" },
     { TopicId: 5, Title: "ok", TypeIdentifier: "File", Url: "/content/enforced/564706-A/Week 1/ok.html" }] }] };
   assert.deepEqual(pagesOf(toc, 564706).map((p) => p.title), ["ok"]);
-  assert.equal(readErrorsNote({ readErrors: ["Lecture 2 (500)"] }), "1 page could not be read (Lecture 2 (500)); its files are not listed yet, and the first review finishes only after a clean re-check");
+  assert.equal(readErrorsNote({ readErrors: ["Lecture 2 (500)"] }),
+    "1 page could not be read (Lecture 2 (500)); its files are not listed yet. The first review finishes after a check that reads every page — or run a baseline in Options if a page stays broken");
+  assert.equal(readErrorsNote({ readErrors: ["Lecture 2 (500)"] }, true), "1 page could not be read (Lecture 2 (500)); its files are not listed yet");
   assert.equal(readErrorsNote({ state: "ok" }), "");
 });

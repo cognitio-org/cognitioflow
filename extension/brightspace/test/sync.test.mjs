@@ -747,3 +747,43 @@ test("red-team B5: a key removed during a popup Add stops the Add", async () => 
   assert.equal(r.added, 1);
   assert.ok(r.failed.length >= 1, "the rest is reported, not sent");
 });
+
+/* The change lands while the NEXT file downloads, after the pre-download check: only the check made under
+   the state lock, as the in-flight marker is placed, can stop the POST. */
+const duringDownloadOf = (routes, path, fn) => {
+  const orig = routes[path];
+  routes[path] = (init) => { if ((init.method || "GET") === "GET") fn(); return orig(init); };
+  return routes;
+};
+const HANDOUT_PATH = enc(`${FOLDER}/Week 2/Handout 2.docx`);
+const LECTURE1_PATH = "/d2l/le/content/564701/topics/files/download/9001/DirectFileTopicDownload";
+
+test("red-team B5: Auto switched off while a file downloads stops its POST (checked under the lock)", async () => {
+  let w;
+  const routes = duringDownloadOf(pilRoutes(), LECTURE1_PATH, () => { w.store.local.auto = { 564701: false }; });
+  w = world({ bs: routes, local: READY, sync: PIL_ONLY });
+  await w.s.run();
+  assert.equal(w.calls.cf.length, 0, "nothing is posted once Auto is off");
+  assert.equal(w.store.local.status["564701"].state, STATE.autoOff);
+  assert.ok(!(w.store.local.ledger["564701"] || {})["t:9001"], "no in-flight marker is left behind");
+});
+
+test("red-team B5: a key removed while a file downloads is never sent (checked under the lock)", async () => {
+  let w;
+  const routes = duringDownloadOf(pilRoutes(), LECTURE1_PATH, () => { w.store.local.cfKeys = {}; });
+  w = world({ bs: routes, local: READY, sync: PIL_ONLY });
+  await w.s.run();
+  assert.equal(w.calls.cf.length, 0);
+  assert.equal(w.store.local.status["564701"].state, STATE.keyMissing);
+});
+
+test("red-team B5: a key removed while a popup Add downloads is never sent (checked under the lock)", async () => {
+  let w;
+  const routes = duringDownloadOf(pilRoutes(), HANDOUT_PATH, () => { w.store.local.cfKeys = {}; });
+  w = world({ bs: routes, local: { cfKeys: KEYS, confirmed: { 564701: true } }, sync: PIL_ONLY });
+  await w.s.run({ upload: false });
+  const r = await w.s.uploadKeys({ org: "564701", keys: [HANDOUT] });
+  assert.equal(w.calls.cf.length, 0);
+  assert.equal(r.added, 0);
+  assert.equal(r.failed.length, 1);
+});

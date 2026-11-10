@@ -91,13 +91,16 @@ export function pages(toc, org, refused = []) {
   return out;
 }
 
-/** Popup / Options line for pages or module descriptions the last scan could not read ("" if none). */
-export function readErrorsNote(status) {
+/** Popup / Options line for pages or module descriptions the last scan could not read ("" if none).
+    `confirmed`: the course's first review is already done, so the review hint is left out. */
+export function readErrorsNote(status, confirmed = false) {
   const errs = (status && status.readErrors) || [];
   const n = errs.length;
   if (!n) return "";
-  return `${n} page${n === 1 ? "" : "s"} could not be read (${errs.slice(0, 3).join(", ")}${n > 3 ? ", …" : ""}); ` +
-    `${n === 1 ? "its" : "their"} files are not listed yet, and the first review finishes only after a clean re-check`;
+  const what = `${n} page${n === 1 ? "" : "s"} could not be read (${errs.slice(0, 3).join(", ")}${n > 3 ? ", …" : ""}); ` +
+    `${n === 1 ? "its" : "their"} files are not listed yet`;
+  return confirmed ? what
+    : `${what}. The first review finishes after a check that reads every page — or run a baseline in Options if a page stays broken`;
 }
 
 export const moduleIds = (toc) => walk(toc).map((m) => ({ id: m.ModuleId, title: m.Title || "", week: weekOf(m.Title) }));

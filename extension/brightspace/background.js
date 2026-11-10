@@ -104,8 +104,11 @@ async function take({ org, keys }) {
   const app = await appTab(appUrl);
   await inject(app.id, "content-app.js");
 
-  const { pending: before } = await local({ pending: {} });
-  const list = (before[org] || []).filter((i) => keys.includes(i.key));
+  // Same rule as sync's Add: never a file that is handled, or held by a marker a killed upload left (its
+  // bytes may already be in CognitioFlow; sync surfaces it as "check in CF" and takes it back after 24h).
+  const { pending: before, ledger, seen } = await local({ pending: {}, ledger: {}, seen: {} });
+  const handled = (k) => ((seen[org] || []).includes(k)) || !!((ledger[org] || {})[k]);
+  const list = (before[org] || []).filter((i) => keys.includes(i.key) && !handled(i.key));
   const done = [];
   const failed = [];
   for (const item of list) {
