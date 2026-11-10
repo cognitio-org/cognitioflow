@@ -123,10 +123,11 @@ async function take({ org, keys }) {
 }
 
 /** Mark items handled, as one read-modify-write under sync's state lock (merged with whatever a running
-    sync wrote meanwhile). The first review ends only when nothing in the course is left undecided. */
+    sync wrote meanwhile). The first review ends only when nothing in the course is left undecided and the
+    scan behind the list read every page (`status` is loaded for finishReview, which fails closed without it). */
 function record(org, items, via, keys = items.map((i) => i.key)) {
   return sync.mutate(async () => {
-    const cur = await local({ seen: {}, pending: {}, confirmed: {}, ledger: {} });
+    const cur = await local({ seen: {}, pending: {}, confirmed: {}, ledger: {}, status: {} });
     const book = (cur.ledger[org] = cur.ledger[org] || {});
     for (const i of items) book[i.key] = { signal: signalOf(i), at: Date.now(), name: i.name, via };
     cur.seen[org] = [...new Set([...(cur.seen[org] || []), ...keys])];

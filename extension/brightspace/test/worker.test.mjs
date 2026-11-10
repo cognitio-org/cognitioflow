@@ -273,3 +273,15 @@ test("finding 1: Remember merges with what is on disk instead of overwriting ano
   assert.deepEqual(memory.local.seen.other, ["t:9"]);
   assert.ok(memory.local.ledger.other["t:9"]);
 });
+
+test("red-team B2: Remember of every visible file does not finish a first review whose scan had read errors", async () => {
+  resetState();
+  memory.local.pending = { org: [{ key: "t:1", name: "a.pdf" }] };
+  memory.local.status = { org: { state: "ok", readErrors: ["Lecture 2 (500 on /content/enforced/x/Lecture 2.html)"] } };
+  await message({ type: "skip", org: "org", keys: ["t:1"] });
+  assert.ok(!memory.local.confirmed.org, "an incomplete list cannot finish the review");
+  delete memory.local.status;
+  memory.local.pending = { org: [{ key: "t:2", name: "b.pdf" }] };
+  await message({ type: "skip", org: "org", keys: ["t:2"] });
+  assert.equal(memory.local.confirmed.org, true, "a clean list can");
+});

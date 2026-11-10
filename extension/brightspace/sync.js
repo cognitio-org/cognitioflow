@@ -20,8 +20,13 @@
      a storage lease { owner, expires }, taken by compare-and-set under navigator.locks, renewed per file,
      released only by its owner.
    - The key only goes to the CognitioFlow origin it was made for, over https (http only on localhost).
-   - A first review is finished only when every file in it was added or remembered.
-   - No LLM, no third host: only brightspace.rug.nl and the CognitioFlow origin are ever fetched. */
+   - A first review is finished only when every file in it was added or remembered, AND the scan that made
+     the list read every page and module description (`status[org].readErrors` empty). A clean re-check
+     that leaves nothing undecided finishes it too.
+   - A marker held for a lost upload is honoured by popup Add exactly as by the run: same bytes, no POST.
+   - Auto and the key are re-read before every upload: switching Auto off or removing the key stops the run.
+   - No LLM, no third host: only brightspace.rug.nl and the CognitioFlow origin are ever fetched. Every
+     Brightspace read is a "/…" path on that origin; TOC page Urls must sit in the course's own folder. */
 import {
   documents, pages, moduleIds, linksIn, enforcedFolder, dedupe, unseen, decide, signalOf,
   looksLikeDocument, isLoginResponse, sha256, sameName, appOrigin, BRIGHTSPACE_HOST,
@@ -85,7 +90,16 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
     let mode = "direct";
     let tabId = null;
 
+    /** Only ever a "/…" path on brightspace.rug.nl: a TOC value like ".evil.example/x.html" would otherwise
+        turn BS_ORIGIN + path into another host, asked with the session cookie. */
+    function onBrightspace(path) {
+      const ok = typeof path === "string" && path.startsWith("/") && !path.startsWith("//") &&
+        (() => { try { return new URL(BS_ORIGIN + path).origin === BS_ORIGIN; } catch { return false; } })();
+      if (!ok) throw new Error(`refused: ${String(path).slice(0, 80)} is not a Brightspace path`);
+    }
+
     async function direct(path, as, method = "GET") {
+      onBrightspace(path);
       let res;
       try {
         res = await fetch(BS_ORIGIN + path, {
@@ -124,6 +138,7 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
     }
 
     async function read(path, as, msg) {
+      onBrightspace(path);
       if (mode === "direct") {
         try {
           return await direct(path, as);
@@ -153,26 +168,30 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
     const toc = await rd.toc(org);
     const folder = enforcedFolder(toc);
     const items = documents(toc, org);
-    const emptyPages = [];
-    for (const p of pages(toc, org)) {
+    const emptyPages = [];   // read fine, no file link (or refused): nothing hidden, never blocks a review
+    const readErrors = [];   // could not be read: its files may be missing from the list
+    const refused = [];
+    for (const p of pages(toc, org, refused)) {
       try {
         const found = linksIn(await rd.page(p.url), folder, { ...p, org });
         if (!found.length) emptyPages.push(p.title || p.url);
         items.push(...found);
       } catch (e) {
         if (e.login) throw e;
-        emptyPages.push(`${p.title || p.url} (${e.message || e})`);
+        readErrors.push(`${p.title || p.url} (${e.message || e})`);
       }
     }
+    for (const t of refused) emptyPages.push(`${t} (not in this course's folder; not read)`);
     for (const m of moduleIds(toc)) {
       try {
         const mod = await rd.module(org, m.id);
         items.push(...linksIn((mod && mod.Description && mod.Description.Html) || "", folder, { ...m, org }));
       } catch (e) {
         if (e.login) throw e;
+        readErrors.push(`module ${m.title || m.id} (${e.message || e})`);
       }
     }
-    return { items: dedupe(items), emptyPages };
+    return { items: dedupe(items), emptyPages, readErrors };
   }
 
   /* ------------------------------------------------------------------ locks and shared state */
@@ -274,6 +293,10 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
       cur.log = [...cur.log, ...d.log].slice(-LOG_MAX);
       await chrome.storage.local.set(cur);
       Object.assign(st, cur);
+      // Auto and the keys are only read here, never written back (Options owns them): a run sees Auto
+      // switched off or a key removed before its next upload, and cannot resurrect a removed key.
+      const live = await local({ auto: {}, cfKeys: {} });
+      st.auto = live.auto; st.cfKeys = live.cfKeys;
     });
     await renewLease(leaseOf.get(st));
   }
@@ -292,6 +315,20 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
       return { error: "origin", detail: "This key was made for another CognitioFlow address; create it again in Options." };
     return { origin };
   }
+
+  /** Why this key may not be used for `cid` right now, as a status, or null. */
+  function keyProblem(key, cid, appUrl) {
+    if (!key || !key.token) return { state: STATE.keyMissing, detail: "Create a sync key in Options." };
+    if (key.courseId && key.courseId !== cid) return { state: STATE.keyWrongCourse, detail: "" };
+    if (key.expires && key.expires < now()) return { state: STATE.keyExpired, detail: "Renew the sync key in Options." };
+    const target = keyTarget(key, appUrl);
+    if (target.error) return { state: target.error === "origin" ? STATE.keyOrigin : STATE.error, detail: target.detail };
+    return null;
+  }
+  /** The key on disk now is still the one this run started with (not removed, not replaced). */
+  const sameKey = (cfKeys, cid, key) => !!(cfKeys && cfKeys[cid] && cfKeys[cid].token && cfKeys[cid].token === key.token);
+  /** An in-flight marker younger than 24h: the bytes it names are not sent again. */
+  const held = (raw) => !!(raw && raw.pending && now() - raw.pending.at < PENDING_HOLD_MS);
 
   async function upload({ appUrl, cid, key, item, got }) {
     const target = keyTarget(key, appUrl);
@@ -318,20 +355,24 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
   /** The POST with the in-flight marker around it: the marker (with the sha) is on disk before the request
       leaves, replaced by the done entry after a 2xx, and taken back after a definite failure. A worker
       killed in between leaves the marker, so the restart does not send the same bytes again blindly. */
-  async function guardedUpload(st, org, { appUrl, cid, key, item, got, sha, entry, expect }) {
+  async function guardedUpload(st, org, { appUrl, cid, key, item, got, sha, entry, expect, gate = null }) {
     await persist(st);
     // Compare-and-set: the marker goes down only if nobody handled the item since `expect` was read
     // (a Remember can land while the file downloads); otherwise the item is left to the other writer.
+    // `gate(cur)` re-checks Auto / the key as they are on disk right now; a reason stops the upload.
     const marker = { pending: { sha, at: now(), signal: signalOf(item) }, prev: entry || null, name: item.name };
     const placed = await mutate(async () => {
-      const cur = await local({ ledger: {}, seen: {} });
+      const cur = await local({ ledger: {}, seen: {}, auto: {}, cfKeys: {} });
+      const why = gate && gate(cur);
+      if (why) return { stopped: why };
       const book = (cur.ledger[org] = cur.ledger[org] || {});
-      if (JSON.stringify([book[item.key] || null, (cur.seen[org] || []).includes(item.key)]) !== expect) return false;
+      if (JSON.stringify([book[item.key] || null, (cur.seen[org] || []).includes(item.key)]) !== expect) return { conflict: true };
       book[item.key] = marker;
       await chrome.storage.local.set({ ledger: cur.ledger });
-      return true;
+      return { placed: true };
     });
-    if (!placed) return { ok: false, conflict: true };
+    if (placed.stopped) return { ok: false, stopped: placed.stopped };
+    if (placed.conflict) return { ok: false, conflict: true };
     (st.ledger[org] = st.ledger[org] || {})[item.key] = marker;   // already on disk: not dirty
     const r = await upload({ appUrl, cid, key, item, got });
     if (!r.ok) setLedger(st, org, item.key, entry || null);
@@ -396,7 +437,16 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
   async function syncCourse(st, course, { appUrl, upload: doUpload, budget, rd }) {
     const org = String(course.org);
     const cid = course.cid || "";
-    const setStatus = (state, detail = "", extra = {}) => { st.status[org] = { state, detail, at: now(), ...extra }; dirty(st).status.add(org); };
+    // Read errors belong to the list in `pending`: until this run has read the course again, the last
+    // scan's errors are kept, whatever state is written (a sign-in stop must not make a stale list look
+    // complete to finishReview).
+    let readErrors = null;
+    const setStatus = (state, detail = "", extra = {}) => {
+      const prev = st.status[org];
+      const errs = readErrors || (prev && prev.readErrors) || [];
+      st.status[org] = { state, detail, at: now(), ...extra, ...(errs.length ? { readErrors: errs } : {}) };
+      dirty(st).status.add(org);
+    };
     const book = () => (st.ledger[org] = st.ledger[org] || {});
     const shas = () => (st.shaByCid[cid] = st.shaByCid[cid] || []);
 
@@ -409,21 +459,29 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
       return { uploaded: 0, fresh: 0 };
     }
     const { items, emptyPages } = found;
+    readErrors = found.readErrors;
     reviewMarkers(st, org);
     const notHandled = (list) => unseen(list, st.seen[org] || []).filter((i) => !book()[i.key]);
     setPending(st, org, notHandled(items));
     const extra = emptyPages.length ? { emptyPages } : {};
+    // A first review whose list is now complete and fully decided is finished, even if the last Add /
+    // Remember happened while a page could not be read (otherwise nothing would ever finish it).
+    if (!st.confirmed[org] && !readErrors.length && items.length && !st.pending[org].length) {
+      setConfirmed(st, org);
+      logLine(st, org, "", "first review finished", "every file on Brightspace has a choice");
+    }
 
     if (!doUpload) {   // a list refresh says nothing about the key: keep a key problem visible until a real run clears it
       const prev = st.status[org];
       const keyState = prev && [STATE.keyExpired, STATE.keyMissing, STATE.keyWrongCourse, STATE.keyOrigin, STATE.noAccess].includes(prev.state);
       if (!keyState) setStatus(STATE.ok, "", extra);
+      else setStatus(prev.state, prev.detail || "", extra);   // same state, this scan's page notes
       return { uploaded: 0, fresh: st.confirmed[org] ? st.pending[org].length : 0 }; }
     if (!cid) { setStatus(STATE.ok, "not linked to a CognitioFlow course", extra); return { uploaded: 0, fresh: 0 }; }
     if (!st.confirmed[org]) { setStatus(STATE.review, "Choose Add or 'I already have these' for every file in the popup, or run the baseline in Options.", extra); return { uploaded: 0, fresh: 0 }; }
     if (!st.auto[org]) { setStatus(STATE.autoOff, "", extra); return { uploaded: 0, fresh: st.pending[org].length }; }
 
-    const key = st.cfKeys[cid];
+    const key = st.cfKeys[cid];   // the key this run started with; changedUnderUs() stops the run if it goes
     if (!key || !key.token) { setStatus(STATE.keyMissing, "Create a sync key in Options.", extra); return { uploaded: 0, fresh: st.pending[org].length }; }
     if (key.courseId && key.courseId !== cid) { setStatus(STATE.keyWrongCourse, "", extra); return { uploaded: 0, fresh: 0 }; }
     if (key.expires && key.expires < now()) { setStatus(STATE.keyExpired, "Renew the sync key in Options.", extra); return { uploaded: 0, fresh: st.pending[org].length }; }
@@ -439,6 +497,20 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
       const seen = st.seen[org] || [];
       const holding = !!inflight && now() - inflight.at < PENDING_HOLD_MS;
       return { raw, inflight, entry, seen, holding, handled: seen.includes(item.key) || !!entry };
+    };
+
+    /** Auto switched off, or the key removed / replaced, since the run started: stop this course here. */
+    const stopNow = async (why, name = "") => {
+      setStatus(why.state, why.detail, extra);
+      logLine(st, org, name, "stopped", why.state);
+      setPending(st, org, notHandled(items));
+      await persist(st);
+    };
+    const changedUnderUs = (cur) => {
+      if (!cur.auto[org]) return { state: STATE.autoOff, detail: "Auto was switched off during the run; nothing more was sent." };
+      if (!sameKey(cur.cfKeys, cid, key))
+        return keyProblem(cur.cfKeys[cid], cid, appUrl) || { state: STATE.error, detail: "The sync key changed during the run; the next run uses the new one." };
+      return null;
     };
 
     let uploaded = 0;
@@ -463,6 +535,8 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
       await persist(st);
       at = look(item);
       if (JSON.stringify([at.raw, at.seen.includes(item.key)]) !== before) continue;   // changed under us: next run decides
+      const why = changedUnderUs(st);                 // `st.auto` / `st.cfKeys` were just re-read by persist()
+      if (why) { await stopNow(why, item.name); return { uploaded, fresh: 0 }; }
       const expect = stateOf(st, org, item.key);
 
       let got;
@@ -505,8 +579,9 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
       }
 
       budget.left--;
-      const r = await guardedUpload(st, org, { appUrl, cid, key, item, got, sha, entry, expect });
+      const r = await guardedUpload(st, org, { appUrl, cid, key, item, got, sha, entry, expect, gate: changedUnderUs });
       if (r.conflict) { budget.left++; continue; }   // handled by someone else while it downloaded
+      if (r.stopped) { budget.left++; await stopNow(r.stopped, item.name); return { uploaded, fresh: 0 }; }
       if (!r.ok) {
         if (r.http === 401) { setStatus(STATE.keyExpired, "CognitioFlow refused the key; renew it in Options."); logLine(st, org, item.name, "stopped", STATE.keyExpired); await persist(st); return { uploaded, fresh: 0 }; }
         if (r.http === 403) { setStatus(STATE.keyWrongCourse, ""); logLine(st, org, item.name, "stopped", STATE.keyWrongCourse); await persist(st); return { uploaded, fresh: 0 }; }
@@ -557,7 +632,9 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
       unticked stays pending (never auto-uploaded) until it is added or remembered. A course already
       reviewed stays reviewed. Runs inside the state lock; `cur` is fresh from disk. */
   const finishReview = (cur, org) => {
-    if (!(cur.pending[org] || []).length) cur.confirmed[org] = true;
+    if (!cur.status) return;   // a caller that did not load status cannot know the list was complete: fail closed
+    const errs = (cur.status[org] && cur.status[org].readErrors) || [];
+    if (!(cur.pending[org] || []).length && !errs.length) cur.confirmed[org] = true;
   };
 
   /** Popup "Add": the chosen keys go up now, through the same checks, whatever auto says. */
@@ -566,16 +643,25 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
       const { appUrl, courses } = await conf();
       const course = courses.find((c) => String(c.org) === String(org));
       if (!course || !course.cid) throw new Error("This course is not linked to a CognitioFlow course yet (Options)");
+      const o = String(org);
       const st = await local();
       leaseOf.set(st, lease);
-      const list = (st.pending[org] || []).filter((i) => keys.includes(i.key));
+      // A popup list can be older than a killed upload's marker (the popup showed the disk list while the
+      // dead run's lease was live). Same rule as the run: surface the marker, take back a 24h-old one, and
+      // never offer a file that is handled or held.
+      reviewMarkers(st, o);
+      await persist(st);
+      const book = st.ledger[o] || {};
+      const heldNames = keys.filter((k) => held(book[k])).map((k) => book[k].name || k);
+      const handled = (k) => (st.seen[o] || []).includes(k) || !!book[k];
+      const list = (st.pending[o] || []).filter((i) => keys.includes(i.key) && !handled(i.key));
       const r = await syncItems(st, course, list, { appUrl, budget: { left: list.length }, rd: reader() });
       await mutate(async () => {
-        const cur = await local({ pending: {}, confirmed: {} });
-        finishReview(cur, String(org));
+        const cur = await local({ pending: {}, confirmed: {}, status: {} });
+        finishReview(cur, o);
         await chrome.storage.local.set({ confirmed: cur.confirmed });
       });
-      return { added: r.added, failed: r.failed };
+      return { added: r.added, failed: r.failed, held: [...heldNames, ...r.held] };
     });
   }
 
@@ -589,21 +675,28 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
     const target = keyTarget(key, appUrl);
     if (target.error) throw new Error(target.detail);
     const shas = () => (st.shaByCid[cid] = st.shaByCid[cid] || []);
+    const keyGone = () => Object.assign(new Error("The sync key was removed or replaced during the Add; nothing more was sent."), { stop: true });
+    const gate = (cur) => (sameKey(cur.cfKeys, cid, key) ? null : { state: STATE.keyMissing });
     const failed = [];
+    const heldNames = [];
     let added = 0;
     for (const item of list) {
       if (budget.left-- <= 0) break;
       try {
         if (leaseLost(st)) throw new Error("another sync took over");
+        if (gate(st)) throw keyGone();                // `st.cfKeys` was re-read by the last persist()
         const expect = stateOf(st, org, item.key);
         const got = await rd.file(item.url);
         if (!looksLikeDocument(item.name, got.type, got.bytes)) throw new LoginNeeded("got a web page instead of the file");
         if (got.size > MAX_UPLOAD_BYTES) throw new Error("too big — add it by hand");
         const sha = await sha256(got.bytes);
+        const raw = (st.ledger[org] || {})[item.key];
+        if (held(raw) && raw.pending.sha === sha) { heldNames.push(item.name); continue; }   // sent before, answer lost: same rule as the run
         if (!shas().includes(sha)) {
-          const entry = settled((st.ledger[org] || {})[item.key]);
-          const r = await guardedUpload(st, org, { appUrl, cid, key, item, got, sha, entry, expect });
+          const entry = settled(raw);
+          const r = await guardedUpload(st, org, { appUrl, cid, key, item, got, sha, entry, expect, gate });
           if (r.conflict) continue;   // remembered / added elsewhere meanwhile
+          if (r.stopped) throw keyGone();
           if (!r.ok) throw new Error(r.http === 401 ? "CognitioFlow key expired (Options)" : r.error);
           setLedger(st, org, item.key, { signal: signalOf(item), sha, cfFileId: r.id, status: r.status, at: now(), name: item.name });
           shas().push(sha);
@@ -618,12 +711,12 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
         await persist(st);
       } catch (e) {
         failed.push({ name: item.name, error: e.login ? STATE.login : String(e.message || e) });
-        logLine(st, org, item.name, "upload failed", String(e.message || e));
+        logLine(st, org, item.name, e.stop ? "stopped" : "upload failed", String(e.message || e));
         await persist(st);
-        if (e.login) break;
+        if (e.login || e.stop) break;
       }
     }
-    return { added, failed };
+    return { added, failed, held: heldNames };
   }
 
   /** First run for a course: mark what is on Brightspace now as handled, without uploading.

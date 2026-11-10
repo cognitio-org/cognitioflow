@@ -74,16 +74,30 @@ export function documents(toc, org) {
   return out;
 }
 
-/** HTML topics hold most of Property Law's PDFs as plain links, so they have to be read too. */
-export function pages(toc, org) {
+/** HTML topics hold most of Property Law's PDFs as plain links, so they have to be read too.
+    Only pages inside this course's own /content/enforced/{org}-…/ folder are listed (same check as a
+    document link): a TOC Url that is not a plain path there ("…evil.example/x.html", another course's
+    folder, "../") is never read with the session. Its title goes into `refused`, if given. */
+export function pages(toc, org, refused = []) {
   const out = [];
   for (const mod of walk(toc))
     for (const t of mod.Topics || []) {
-      if (t.TypeIdentifier === "File" && isPage(t.Url))
-        out.push({ topicId: t.TopicId, title: t.Title || "", week: weekOf(mod.Title), module: mod.Title || "", url: encodePath(t.Url),
-                   dir: dirOf(t.Url) });
+      if (t.TypeIdentifier !== "File" || !isPage(t.Url)) continue;
+      const path = insideCourse(decodeSafe(String(t.Url || "")), String(org));
+      if (!path) { refused.push(t.Title || String(t.Url || "")); continue; }
+      out.push({ topicId: t.TopicId, title: t.Title || "", week: weekOf(mod.Title), module: mod.Title || "", url: encodePath(path),
+                 dir: dirOf(path) });
     }
   return out;
+}
+
+/** Popup / Options line for pages or module descriptions the last scan could not read ("" if none). */
+export function readErrorsNote(status) {
+  const errs = (status && status.readErrors) || [];
+  const n = errs.length;
+  if (!n) return "";
+  return `${n} page${n === 1 ? "" : "s"} could not be read (${errs.slice(0, 3).join(", ")}${n > 3 ? ", …" : ""}); ` +
+    `${n === 1 ? "its" : "their"} files are not listed yet, and the first review finishes only after a clean re-check`;
 }
 
 export const moduleIds = (toc) => walk(toc).map((m) => ({ id: m.ModuleId, title: m.Title || "", week: weekOf(m.Title) }));

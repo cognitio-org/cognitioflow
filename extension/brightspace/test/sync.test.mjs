@@ -584,3 +584,166 @@ test("finding 4: a popup Add killed mid-request is surfaced even with Auto off, 
   assert.ok(later.store.local.pending["564701"].some((i) => i.key === "t:9001"), "after 24h it is back in the list");
   assert.ok(!later.store.local.ledger["564701"]["t:9001"], "and the stale marker is gone");
 });
+
+/* ------------------------------------------------------------------ red-team round 2 regressions */
+
+test("red-team B1: a popup Add of a file a killed run already sent does not POST the same bytes again", async () => {
+  const w = world({ bs: pilRoutes(), local: READY, sync: PIL_ONLY, cf: () => HANG });
+  await w.s.run({ upload: false });                 // popup list of 4 on disk
+  w.s.run();                                        // the worker dies while the first POST is in flight
+  await settle();
+  assert.equal(w.calls.cf.length, 1);
+  const lost = w.calls.cf[0].name;
+  const crashed = JSON.parse(JSON.stringify(w.store.local));
+  const lostKey = Object.entries(crashed.ledger["564701"]).find(([, v]) => v.pending)[0];
+  assert.ok(crashed.pending["564701"].some((i) => i.key === lostKey), "precondition: disk still lists the in-flight file");
+  const again = world({ bs: pilRoutes(), local: crashed, sync: PIL_ONLY, start: "2026-11-10T12:11:00Z" });
+  const r = await again.s.uploadKeys({ org: "564701", keys: [lostKey] });
+  assert.equal(again.calls.cf.filter((c) => c.name === lost).length, 0, `${lost} is not sent a second time`);
+  assert.equal(r.added, 0);
+  assert.ok(again.store.local.log.some((l) => l.name === lost && l.action === "check in CF"), "surfaced as 'check in CF'");
+  assert.ok(!again.store.local.pending["564701"].some((i) => i.key === lostKey), "and taken out of the popup list");
+  assert.ok(again.store.local.ledger["564701"][lostKey].pending, "the marker stays until it is 24h old");
+});
+
+test("red-team B1b: popup opened under the dead lease, Add retried after it lapses: still no second POST", async () => {
+  const w = world({ bs: pilRoutes(), local: READY, sync: PIL_ONLY, cf: () => HANG });
+  w.s.run(); await settle();
+  const crashed = JSON.parse(JSON.stringify(w.store.local));
+  const lostKey = Object.entries(crashed.ledger["564701"]).find(([, v]) => v.pending)[0];
+  const early = world({ bs: pilRoutes(), local: crashed, sync: PIL_ONLY, start: "2026-11-10T12:02:00Z" });
+  assert.deepEqual(await early.s.run({ upload: false }), { skipped: "already running" });
+  const late = world({ bs: pilRoutes(), local: early.store.local, sync: PIL_ONLY, start: "2026-11-10T12:12:00Z" });
+  await late.s.uploadKeys({ org: "564701", keys: [lostKey] });
+  assert.equal(late.calls.cf.length, 0, "not re-POSTed");
+});
+
+test("red-team B1: a popup Add of a file whose lost upload is over 24h old does go up (the marker is taken back)", async () => {
+  const w = world({ bs: pilRoutes(), local: READY, sync: PIL_ONLY, cf: () => HANG });
+  await w.s.run({ upload: false });
+  w.s.run(); await settle();
+  const crashed = JSON.parse(JSON.stringify(w.store.local));
+  const lostKey = Object.entries(crashed.ledger["564701"]).find(([, v]) => v.pending)[0];
+  const later = world({ bs: pilRoutes(), local: crashed, sync: PIL_ONLY, start: "2026-11-11T13:00:00Z" });
+  const r = await later.s.uploadKeys({ org: "564701", keys: [lostKey] });
+  assert.equal(r.added, 1);
+  assert.equal(later.calls.cf.length, 1);
+  assert.ok(!later.store.local.ledger["564701"][lostKey].pending, "marked done after the 2xx");
+});
+
+const FIRST = { cfKeys: KEYS, auto: { 564701: true } };
+const WRAPPER_PATH = enc(`${FOLDER}/Week 2/Lecture 2.html`);
+
+test("red-team B2: a page that failed to read blocks the first review; its files never auto-upload unreviewed", async () => {
+  const flaky = pilRoutes({ [WRAPPER_PATH]: () => ({ status: 500, type: "text/plain", body: "busy" }) });
+  const w = world({ bs: flaky, local: FIRST, sync: PIL_ONLY });
+  await w.s.run({ upload: false });
+  assert.deepEqual(w.store.local.pending["564701"].map((i) => i.key), ["t:9001"], "precondition: only Lecture 1 is visible");
+  assert.equal(w.store.local.status["564701"].readErrors.length, 1, "the failed page is recorded as a read error");
+  await w.s.uploadKeys({ org: "564701", keys: ["t:9001"] });   // every visible file decided
+  assert.ok(!w.store.local.confirmed["564701"], "the review is not finished on an incomplete list");
+  const next = world({ bs: pilRoutes(), local: w.store.local, sync: PIL_ONLY });
+  const r = await next.s.run();
+  assert.equal(r.uploaded, 0, "nothing goes up unreviewed");
+  assert.equal(next.calls.cf.length, 0);
+  assert.equal(next.store.local.pending["564701"].length, 3, "the three files are offered for review instead");
+  assert.ok(!next.store.local.status["564701"].readErrors, "a clean read clears the error");
+});
+
+test("red-team B2: a module description that failed to read is recorded and blocks the review until a clean re-check", async () => {
+  const flaky = pilRoutes({ "/d2l/api/le/1.97/564701/content/modules/102": () => ({ status: 500, type: "text/plain", body: "busy" }) });
+  const w = world({ bs: flaky, local: FIRST, sync: PIL_ONLY });
+  await w.s.run({ upload: false });
+  assert.equal(w.store.local.status["564701"].readErrors.length, 1, "module read errors are no longer swallowed");
+  await w.s.uploadKeys({ org: "564701", keys: w.store.local.pending["564701"].map((i) => i.key) });
+  assert.ok(!w.store.local.confirmed["564701"], "not finished while a module could not be read");
+  // a clean re-check that finds nothing new finishes the review (no dead end)
+  const clean = world({ bs: pilRoutes(), local: w.store.local, sync: PIL_ONLY });
+  await clean.s.run({ upload: false });
+  assert.equal(clean.store.local.pending["564701"].length, 0);
+  assert.equal(clean.store.local.confirmed["564701"], true);
+});
+
+test("red-team B2: read errors survive a later scan that fails (sign-in), so the stale list cannot finish the review", async () => {
+  const flaky = pilRoutes({ [WRAPPER_PATH]: () => ({ status: 500, type: "text/plain", body: "busy" }) });
+  const w = world({ bs: flaky, local: FIRST, sync: PIL_ONLY });
+  await w.s.run({ upload: false });
+  const out = world({ bs: { "/d2l/api/le/1.97/564701/content/toc": () => ({ status: 401, body: "" }) }, local: w.store.local, sync: PIL_ONLY });
+  await out.s.run({ upload: false });
+  assert.equal(out.store.local.status["564701"].state, STATE.login);
+  assert.equal(out.store.local.status["564701"].readErrors.length, 1, "kept with the list it belongs to");
+  await out.s.uploadKeys({ org: "564701", keys: ["t:9001"] });
+  assert.ok(!out.store.local.confirmed["564701"]);
+});
+
+test("red-team B2: a page that reads fine but has no file link does not block the review", async () => {
+  const bare = pilRoutes({ [WRAPPER_PATH]: () => ({ type: "text/html", body: "<p>Read chapter 3.</p>" }) });
+  const w = world({ bs: bare, local: FIRST, sync: PIL_ONLY });
+  await w.s.run({ upload: false });
+  assert.equal(w.store.local.status["564701"].emptyPages.length, 1);
+  await w.s.uploadKeys({ org: "564701", keys: ["t:9001"] });
+  assert.equal(w.store.local.confirmed["564701"], true);
+});
+
+test("red-team B3: a TOC page Url that is not a path in this course is never fetched", async () => {
+  const toc = { Modules: [{ ModuleId: 101, Title: "Week 1", Modules: [], Topics: [
+    { TopicId: 1, Title: "x", TypeIdentifier: "File", Url: ".evil.example/x.html" },
+    { TopicId: 2, Title: "y", TypeIdentifier: "File", Url: "/content/enforced/999999-OTHER/secret.html" },
+    { TopicId: 3, Title: "z", TypeIdentifier: "File", Url: "/content/enforced/564701-Z/ok.html" }] }] };
+  const w = world({ bs: { "/d2l/api/le/1.97/564701/content/toc": () => ({ body: toc }),
+    "/d2l/api/le/1.97/564701/content/modules/101": () => ({ body: {} }),
+    [enc("/content/enforced/999999-OTHER/secret.html")]: () => ({ type: "text/html", body: '<a href="/content/enforced/564701-Z/b.pdf">b</a>' }),
+    [enc("/content/enforced/564701-Z/ok.html")]: () => ({ type: "text/html", body: "<p>nothing</p>" }) }, local: READY, sync: PIL_ONLY });
+  await w.s.run();
+  assert.ok(w.calls.bs.every((c) => c.path.startsWith("/")), `every Brightspace read is a path: ${w.calls.bs.map((c) => c.path)}`);
+  assert.ok(!w.calls.bs.some((c) => c.path.includes("999999-OTHER")), "another course's page is not read with the session");
+  assert.ok(w.calls.bs.some((c) => c.path === enc("/content/enforced/564701-Z/ok.html")), "this course's page still is");
+});
+
+test("red-team B3: the reader refuses anything that would leave brightspace.rug.nl", async () => {
+  const hosts = [];
+  const s = createSync({ chrome: world().chrome, sleep: async () => {}, fetch: async (url) => { hosts.push(String(url)); throw new Error("no"); } });
+  const rd = s.reader();
+  for (const bad of [".evil.example/x.html", "@evil.example/x.html", ":8080/x.html", "x.html", ""]) {
+    await assert.rejects(rd.page(bad));
+  }
+  assert.deepEqual(hosts, [], "no request left the extension");
+});
+
+test("red-team B5: Auto switched off mid-run stops the course before its next upload", async () => {
+  let w; let n = 0;
+  w = world({ bs: pilRoutes(), local: READY, sync: PIL_ONLY, cf: () => {
+    if (++n === 1) w.store.local.auto = { 564701: false };   // what setAuto writes
+    return { status: 200, body: { id: "f" + n } };
+  } });
+  const r = await w.s.run();
+  assert.equal(w.calls.cf.length, 1, "nothing more goes up once Auto is off");
+  assert.equal(r.uploaded, 1);
+  assert.equal(w.store.local.status["564701"].state, STATE.autoOff);
+  assert.equal(w.store.local.auto["564701"], false, "the run does not write Auto back");
+});
+
+test("red-team B5: a key removed mid-run is not used for the rest of the run, nor written back", async () => {
+  let w; let n = 0;
+  w = world({ bs: pilRoutes(), local: READY, sync: PIL_ONLY, cf: () => {
+    if (++n === 1) w.store.local.cfKeys = {};                // Options removed / revoked the key
+    return { status: 200, body: { id: "f" + n } };
+  } });
+  await w.s.run();
+  assert.equal(w.calls.cf.length, 1);
+  assert.equal(w.store.local.status["564701"].state, STATE.keyMissing);
+  assert.deepEqual(w.store.local.cfKeys, {}, "the removed key is not resurrected");
+});
+
+test("red-team B5: a key removed during a popup Add stops the Add", async () => {
+  let w; let n = 0;
+  w = world({ bs: pilRoutes(), local: { cfKeys: KEYS, confirmed: { 564701: true } }, sync: PIL_ONLY, cf: () => {
+    if (++n === 1) w.store.local.cfKeys = {};
+    return { status: 200, body: { id: "f" + n } };
+  } });
+  await w.s.run({ upload: false });
+  const r = await w.s.uploadKeys({ org: "564701", keys: w.store.local.pending["564701"].map((i) => i.key) });
+  assert.equal(w.calls.cf.length, 1);
+  assert.equal(r.added, 1);
+  assert.ok(r.failed.length >= 1, "the rest is reported, not sent");
+});
