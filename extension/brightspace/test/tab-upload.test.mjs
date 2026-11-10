@@ -6,8 +6,17 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
 const APP = "https://app.example";
+const LOGIN_PAGE = Buffer.from('<!DOCTYPE html><html><head><title>Login - Brightspace</title></head><body><form>Username</form></body></html>').toString("base64");
+const PDF = Buffer.from("%PDF-1.7\nslides\n%%EOF").toString("base64");
+const SLIDES = "/content/enforced/1-X/Week 2/slides.pdf";
 const memory = {
-  local: { pending: { org: [{ key: "t:2", name: "b.pdf", url: "/x/b.pdf", week: "2" }] } },
+  local: { pending: { org: [
+    { key: "t:2", name: "b.pdf", url: "/x/b.pdf", week: "2" },
+    { key: "t:3", name: "expired.pdf", url: "/x/expired.pdf", week: "3" },   // the session expired: Brightspace answers its login page
+    { key: "t:4", name: "after.pdf", url: "/x/after.pdf", week: "3" },
+    { key: `f:${SLIDES}`, name: "slides.pdf", url: "/x/slides-link.pdf", path: SLIDES, week: "2", missing: true },   // one file, listed as a link
+    { key: "t:5", name: "slides.pdf", url: "/x/slides-topic.pdf", path: SLIDES, week: "2" },                       // ...and as a topic
+  ] } },
   sync: { appUrl: APP, courses: [{ org: "org", cid: "c1", name: "C" }] },
 };
 const workerListeners = [];
@@ -41,7 +50,10 @@ globalThis.chrome = {
   tabs: {
     query: async ({ url }) => (url.startsWith("https://brightspace.rug.nl") ? [BS_TAB] : url.startsWith(APP) ? [APP_TAB] : []),
     sendMessage: async (id, msg) => {
-      if (id === BS_TAB.id && msg.type === "file") return { ok: true, data: { base64: "JVBERi0xLjcK", type: "application/pdf" } };
+      if (id === BS_TAB.id && msg.type === "file") {
+        if (msg.url === "/x/expired.pdf") return { ok: true, data: { base64: LOGIN_PAGE, type: "text/html; charset=utf-8" } };
+        return { ok: true, data: { base64: PDF, type: "application/pdf" } };
+      }
       if (id === APP_TAB.id) return toApp(msg);
       return { ok: false, error: "unexpected message" };
     },
@@ -70,4 +82,33 @@ test("keyless tab Add: take() -> content-app.js upload handler -> one POST with 
   assert.equal(posts[0].type, "application/pdf", "the Blob keeps the MIME type");
   assert.equal(posts[0].week, "2");
   assert.ok((memory.local.seen.org || []).includes("t:2"), "recorded as handled");
+});
+
+const pendingKeys = () => (memory.local.pending.org || []).map((i) => i.key);
+const handled = (k) => (memory.local.seen.org || []).includes(k) || !!((memory.local.ledger.org || {})[k]);
+
+test("red-team K1: keyless Add given a 200 text/html login page uploads nothing, marks nothing, and stops", async () => {
+  const before = posts.length;
+  const r = await toWorker({ type: "take", org: "org", keys: ["t:3", "t:4"] });
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.data.added, 0);
+  assert.deepEqual(r.data.failed, [{ name: "expired.pdf", error: "login needed" }], "same answer as the keyed Add");
+  assert.equal(posts.length, before, "nothing was POSTed to CognitioFlow");
+  for (const k of ["t:3", "t:4"]) {
+    assert.ok(!handled(k), `${k} is not recorded as handled`);
+    assert.ok(pendingKeys().includes(k), `${k} is still waiting in the list`);
+  }
+});
+
+test("red-team K2: one file listed under a topic key and a link key goes up once in a keyless Add-all", async () => {
+  const before = posts.length;
+  const r = await toWorker({ type: "take", org: "org", keys: [`f:${SLIDES}`, "t:5"] });
+  assert.equal(r.ok, true, r.error);
+  assert.deepEqual(r.data.failed, []);
+  assert.equal(posts.length - before, 1, "one POST for one file");
+  assert.equal(r.data.added, 1);
+  for (const k of [`f:${SLIDES}`, "t:5"]) {
+    assert.ok(handled(k), `${k} is recorded as handled`);
+    assert.ok(!pendingKeys().includes(k), `${k} left the list`);
+  }
 });
