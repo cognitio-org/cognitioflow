@@ -1,7 +1,10 @@
 const $ = (s) => document.querySelector(s);
 const send = (msg) => chrome.runtime.sendMessage(msg).then((r) => { if (!r || !r.ok) throw new Error((r && r.error) || "no answer"); return r.data; });
 
-let state = { courses: [], pending: {}, confirmed: {} };
+let state = { courses: [], pending: {}, confirmed: {}, status: {}, log: [] };
+const PROBLEM = { "login needed": "Brightspace sign-in needed — open Brightspace and sign in", "key needed": "no sync key (Options)",
+  "key expired": "CognitioFlow key expired — renew it in Options", "key is for another course": "wrong key for this course (Options)",
+  "no access to CognitioFlow": "allow the CognitioFlow address in Options", error: "some files failed; they will be retried" };
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
@@ -12,6 +15,13 @@ function render() {
   for (const c of state.courses) {
     const items = state.pending[c.org] || [];
     total += items.length;
+    const st = state.status[c.org];
+    if (st && PROBLEM[st.state]) {
+      const warn = document.createElement("div");
+      warn.className = "small";
+      warn.textContent = `${c.name || c.org}: ${PROBLEM[st.state]}${st.detail && st.state === "error" ? ` (${st.detail})` : ""}`;
+      list.appendChild(warn);
+    }
     if (!items.length) continue;
     const first = !state.confirmed[c.org];
     const box = document.createElement("div");
@@ -25,7 +35,9 @@ function render() {
   }
   $("#actions").hidden = !total;
   $("#count").textContent = total ? `${total} file${total === 1 ? "" : "s"} found` : "";
-  if (!total) list.innerHTML = `<div class="empty">Nothing new.<div class="small">Your courses are up to date.</div></div>`;
+  if (!total && !list.children.length) list.innerHTML = `<div class="empty">Nothing new.<div class="small">Your courses are up to date.</div></div>`;
+  const name = (org) => (state.courses.find((c) => String(c.org) === String(org)) || {}).name || org;
+  $("#log").innerHTML = state.log.slice(-30).reverse().map((l) => `<div>${esc(new Date(l.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }))} · ${esc(name(l.org))} · ${esc(l.name || "")} · ${esc(l.action)}${l.error ? ` — <span class="muted">${esc(l.error)}</span>` : ""}</div>`).join("") || `<div class="muted">Nothing yet.</div>`;
 }
 
 const chosen = () => {
@@ -38,10 +50,16 @@ async function load(rescan) {
   const cfg = await chrome.storage.sync.get({ courses: [] });
   state.courses = cfg.courses;
   if (!state.courses.length) { $("#status").textContent = "No courses linked yet — open Options."; return; }
-  if (rescan) { $("#status").textContent = "Reading Brightspace…"; const r = await send({ type: "scan", notify: false }); if (r.skipped) $("#status").textContent = "Open Brightspace in a tab, then press Check now."; }
-  const l = await chrome.storage.local.get({ pending: {}, confirmed: {}, lastScan: 0 });
-  state.pending = l.pending; state.confirmed = l.confirmed;
-  if (!$("#status").textContent.startsWith("Open ")) $("#status").textContent = l.lastScan ? `Last checked ${new Date(l.lastScan).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : "Not checked yet";
+  let note = "";
+  if (rescan) {
+    $("#status").textContent = "Reading Brightspace…";
+    try { const r = await send({ type: "scan", notify: false }); if (r.skipped) note = r.skipped === "already running" ? "A sync is running — showing the last result." : r.skipped; }
+    catch (e) { note = String(e.message || e); }
+  }
+  const l = await chrome.storage.local.get({ pending: {}, confirmed: {}, lastScan: 0, status: {}, log: [] });
+  state.pending = l.pending; state.confirmed = l.confirmed; state.status = l.status; state.log = l.log;
+  if (note) $("#status").textContent = note;
+  else $("#status").textContent = l.lastScan ? `Last checked ${new Date(l.lastScan).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : "Not checked yet";
   render();
 }
 
@@ -62,6 +80,13 @@ async function run(type, verb) {
 }
 
 $("#rescan").onclick = () => load(true);
+$("#syncNow").onclick = async () => {
+  $("#syncNow").disabled = true; $("#status").textContent = "Syncing…";
+  try { const r = await send({ type: "sync-now" }); $("#status").textContent = r.skipped ? r.skipped : `${r.uploaded} uploaded.`; }
+  catch (e) { $("#status").textContent = String(e.message || e); }
+  $("#syncNow").disabled = false;
+  await load(false);
+};
 $("#add").onclick = () => run("take", "Adding");
 $("#skip").onclick = () => run("skip", "Remembering");
 $("#opts").onclick = (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); };

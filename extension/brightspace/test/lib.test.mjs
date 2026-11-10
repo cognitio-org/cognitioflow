@@ -95,3 +95,62 @@ test("dedupe leaves unrelated items and items without a path untouched", () => {
   assert.equal(dedupe(items).length, items.length);
   assert.equal(dedupe([{ key: "x", kind: "link" }, { key: "y", kind: "link" }]).length, 2);
 });
+
+/* ---- wider wrapper parsing (PIL smart-curriculum pages), decide(), and the login sniffing ---- */
+import { readFileSync } from "node:fs";
+import { documentPath, decide, looksLikeDocument, isLoginResponse, dirOf } from "../lib.js";
+
+const PIL = "564701-RGBIR50010.2026-2027.1";
+const WRAP = readFileSync(new URL("./fixtures/pil-wrapper.synthetic.html", import.meta.url), "utf8");
+
+test("a wrapper page yields its iframe viewer ?file=, absolute same-host link and <object data>, never itself", () => {
+  const got = linksIn(WRAP, PIL, { week: "2", dir: `/content/enforced/${PIL}/Week 2/` }).map((x) => x.path).sort();
+  assert.deepEqual(got, [
+    `/content/enforced/${PIL}/Readings/Reading week 2.pdf`,
+    `/content/enforced/${PIL}/Week 2/Handout 2.docx`,
+    `/content/enforced/${PIL}/Week 2/Lecture 2 slides.pdf`,
+  ]);
+});
+
+test("documentPath: embed/data-* attributes, coursefile quickLinks, and everything that must be refused", () => {
+  const html = `<embed src="Slides%203.pdf"><div data-src="/content/enforced/${PIL}/x/Notes.pptx"></div>
+    <a href="/d2l/common/dialogs/quickLink/quickLink.d2l?ou=564701&type=coursefile&fileId=Week%203%2FSlides%203b.pdf">ql</a>`;
+  const got = linksIn(html, PIL, {}).map((x) => x.path).sort();
+  assert.deepEqual(got, [
+    `/content/enforced/${PIL}/Slides 3.pdf`,
+    `/content/enforced/${PIL}/Week 3/Slides 3b.pdf`,
+    `/content/enforced/${PIL}/x/Notes.pptx`,
+  ]);
+  assert.equal(documentPath("https://example.org/a.pdf", PIL), "", "another host");
+  assert.equal(documentPath("//evil.example/a.pdf", PIL), "", "protocol-relative other host");
+  assert.equal(documentPath("Lecture 2.html", PIL), "", "the wrapper itself");
+  assert.equal(documentPath("/d2l/le/content/564701/viewContent/1/View", PIL), "", "a D2L view link");
+  assert.equal(documentPath("../../../etc/a.pdf", PIL, `/content/enforced/${PIL}/`), "", "never leaves the content tree");
+  assert.equal(dirOf(`/content/enforced/${PIL}/Week 2/Lecture 2.html`), `/content/enforced/${PIL}/Week 2/`);
+});
+
+test("decide: new -> upload, handled with no signal -> adopt, same -> skip, changed -> check", () => {
+  const it = { key: "t:1", lastModified: "2026-11-03" };
+  assert.equal(decide(it, {}), "upload");
+  assert.equal(decide(it, { seen: ["t:1"] }), "adopt");
+  assert.equal(decide({ key: "t:1" }, { seen: ["t:1"] }), "skip", "no date anywhere: never re-download");
+  assert.equal(decide(it, { entry: { signal: "2026-11-03" } }), "skip");
+  assert.equal(decide(it, { entry: { signal: "2026-10-01" } }), "check");
+  assert.equal(decide({ key: "t:1" }, { entry: { signal: "2026-10-01" } }), "skip", "a missing date is not a change");
+});
+
+test("login pages are not documents, and login answers are recognised", () => {
+  const enc = (s) => new TextEncoder().encode(s);
+  assert.ok(looksLikeDocument("a.pdf", "application/pdf", enc("%PDF-1.7")));
+  assert.ok(!looksLikeDocument("a.pdf", "text/html", enc("<!doctype html>")));
+  assert.ok(!looksLikeDocument("a.pdf", "application/octet-stream", enc("<html>login")));
+  assert.ok(looksLikeDocument("a.docx", "", new Uint8Array([0x50, 0x4b, 3, 4])));
+  const r = (status, url, type = "basic") => ({ status, url, type });
+  assert.ok(isLoginResponse(r(401, "https://brightspace.rug.nl/x")));
+  assert.ok(isLoginResponse(r(302, "https://brightspace.rug.nl/x")));
+  assert.ok(isLoginResponse(r(0, "", "opaqueredirect")));
+  assert.ok(isLoginResponse(r(200, "https://signon.rug.nl/sso")));
+  assert.ok(isLoginResponse(r(200, "https://brightspace.rug.nl/d2l/login?x")));
+  assert.ok(!isLoginResponse(r(200, "https://brightspace.rug.nl/d2l/api/le/1.97/1/content/toc")));
+  assert.ok(!isLoginResponse(r(404, "https://brightspace.rug.nl/x")), "a missing file is not a login");
+});
