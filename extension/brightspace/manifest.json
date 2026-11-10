@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "CognitioFlow Brightspace grabber",
-  "version": "0.1.0",
-  "description": "Finds new course material on Brightspace and adds it to CognitioFlow. Asks before the first batch; after that only new files.",
+  "version": "0.2.0",
+  "description": "Finds new course material on Brightspace and adds it to CognitioFlow. You review the first batch per course; after that new files sync automatically.",
   "action": {
     "default_popup": "popup.html",
     "default_title": "Brightspace material",

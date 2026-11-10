@@ -39,20 +39,29 @@ const fakeChrome = {
   },
   alarms: {
     create: async () => {},
+    clear: async () => true,
     onAlarm: { addListener: () => {} },
   },
   notifications: { create: async () => {} },
   runtime: {
     onMessage: { addListener: (fn) => { runtimeListeners.push(fn); } },
     onInstalled: { addListener: () => {} },
+    onStartup: { addListener: () => {} },
   },
+  permissions: { contains: async () => true },
 };
+
+// The worker now reads Brightspace directly first. No test may touch the network: every fetch here
+// answers like a signed-out Brightspace (401), which sends the reader to the open tab, as before.
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async (url) => ({ ok: false, status: 401, url: String(url), headers: new Map(), type: "basic" });
 
 const originalChrome = globalThis.chrome;
 globalThis.chrome = fakeChrome;
 const { appTab } = await import("../background.js");
 
 test.after(() => {
+  globalThis.fetch = originalFetch;
   if (originalChrome === undefined) delete globalThis.chrome;
   else globalThis.chrome = originalChrome;
 });
@@ -221,4 +230,15 @@ test("appTab rejects on timeout and removes its onUpdated listener", async () =>
 
     assert.equal(updatedListeners.size, 0);
   });
+});
+
+test("Remember (skip) records the item's signal in the ledger, so sync adopts it and never uploads it", async () => {
+  resetState();
+  memory.local.pending = { org: [{ key: "t:1", name: "Lecture 1.pdf", lastModified: "2026-11-03" }, { key: "t:2", name: "x.pdf" }] };
+  const response = await new Promise((resolve) => runtimeListeners[runtimeListeners.length - 1]({ type: "skip", org: "org", keys: ["t:1"] }, {}, resolve));
+  assert.equal(response.ok, true);
+  assert.deepEqual(memory.local.seen.org, ["t:1"]);
+  assert.equal(memory.local.ledger.org["t:1"].signal, "2026-11-03");
+  assert.equal(memory.local.confirmed.org, true);
+  assert.deepEqual(memory.local.pending.org.map((i) => i.key), ["t:2"]);
 });

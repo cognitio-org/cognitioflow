@@ -1,0 +1,13 @@
+{
+  "Modules": [
+    { "ModuleId": 101, "Title": "Week 1: Introduction to international law", "Modules": [], "Topics": [
+      { "TopicId": 9001, "Title": "Lecture 1 slides", "TypeIdentifier": "File",
+        "Url": "/content/enforced/564701-RGBIR50010.2026-2027.1/Lecture 1.pdf", "LastModifiedDate": "2026-11-03T10:00:00.000Z" }
+    ] },
+    { "ModuleId": 102, "Title": "Week 2: Sources", "Modules": [], "Topics": [
+      { "TopicId": 9002, "Title": "Lecture 2", "TypeIdentifier": "File",
+        "Url": "/content/enforced/564701-RGBIR50010.2026-2027.1/Week 2/Lecture 2.html", "LastModifiedDate": "2026-11-09T09:00:00.000Z" },
+      { "TopicId": 9003, "Title": "Course page on Ocasys", "TypeIdentifier": "Link", "Url": "https://ocasys.rug.nl/" }
+    ] }
+  ]
+}

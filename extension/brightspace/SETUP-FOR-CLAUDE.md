@@ -4,9 +4,10 @@ Paste this whole file to Claude. It is self-contained: it assumes no knowledge o
 
 ## What you are setting up
 
-A Chrome MV3 extension that watches my RUG Brightspace courses, finds material I do not have yet, and —
-after I tick it — hands the bytes to an open CognitioFlow tab, which uploads them as me. It never sees a
-password: both sides fetch `credentials: "same-origin"` inside tabs I am already signed into.
+A Chrome MV3 extension that watches my RUG Brightspace courses and finds material I do not have yet.
+After a course's first list has been reviewed, new files go to CognitioFlow **automatically** (v0.2):
+the extension reads Brightspace with my browser session and uploads with a write key bound to that one
+course. It never sees a password and never signs in for me.
 
 - Extension folder: `/Users/matejmonteleone/dev/cognitioflow/extension/brightspace`
 - CognitioFlow app: `https://app.cognitioflow.ai` (Google sign-in, allow-listed account)
@@ -51,6 +52,26 @@ All tests should pass. Report any failure verbatim.
    `prop` = Property Law). A course with no pairing is skipped with an error at upload time.
 7. **Save**, and confirm it says "Saved."
 
+## Step 3b — automatic sync (v0.2), per course
+
+Do this for each course that should sync by itself (PIL `564701`, LaPoPo `564708`):
+
+1. In Options, use **Add PIL + LaPoPo** (or **Read from open tabs**) and pick each row's CognitioFlow
+   course, then **Save**.
+2. With CognitioFlow open and signed in (I sign in), press **Create sync key** on the row. It makes a
+   90-day write key for that one course and keeps it on this computer only. You never see or copy it.
+   Fallback: I mint one myself and paste it into the row's key field, then **Use**.
+3. Press **Test**. Expect "Key works for this course".
+4. **Baseline before anything else.** Press **Mark what CognitioFlow already has**. Files whose name is
+   already in that CognitioFlow course (for PIL: Lecture 1, which I added by hand) are marked as synced.
+   The message lists what will upload. If that list holds something I already have under another name,
+   stop and show me. **Mark everything as synced** uploads nothing at all.
+5. Tick **Auto**. From now on the extension checks every N hours (default 6), a minute after Chrome
+   starts, and when I open that course on Brightspace. Popup → **Sync now** runs it immediately.
+6. Badge meanings: a green number means files were synced. **BS** means sign in to Brightspace. **KEY**
+   means the key is missing or expired, so make a new one in Options. **!** means another error; see
+   popup → Recent activity.
+
 ## Step 4 — first scan
 
 1. With a Brightspace tab open, click the toolbar icon → **Check now**.
@@ -72,15 +93,17 @@ as `no text` — that file will be invisible to the tutor.
 ## Known gaps — do not be surprised by these
 
 - **Duplicate protection is client-side only.** The server inserts a new row per upload with no name or
-  content check; the extension's local `seen` list is the only guard. If extension storage was cleared or
+  content check; the extension's local `seen` list, ledger and sha256 hashes are the only guard. Sync from
+  one Chrome profile only. If extension storage was cleared or
   this is a different Chrome profile, a second Add re-uploads everything. Check Files before adding in
   bulk.
 - **Files over 40 MB are refused by design** (the base64 message hop cannot carry them). The message
   tells me to download it from Brightspace and add it in CognitioFlow directly.
-- **Every Brightspace page load currently triggers a full rescan** — expect it to be slower than it
-  should be while browsing. A debounce is queued but may not be in the build you are looking at.
-- **A failed scan looks identical to "nothing new"**, including when my Brightspace session has expired.
-  If a course shows nothing and you expected material, open Brightspace and check I am still signed in.
+- **Background reading without a Brightspace tab is unverified.** If Chrome does not send the Brightspace
+  cookie with the extension's own requests, every course shows `login needed` (badge **BS**) unless a
+  Brightspace tab is open. Report which one you see.
+- The PIL HTML-wrapper parsing is tested against a synthetic page only. If the popup or Options says
+  a page had "no file link", tell me the page title.
 - The D2L API versions are pinned (`le/1.97`, `lp/1.47`). If reads start 404ing, that is the cause.
 
 ## If something breaks
