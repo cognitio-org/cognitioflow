@@ -787,3 +787,102 @@ test("red-team B5: a key removed while a popup Add downloads is never sent (chec
   assert.equal(r.added, 0);
   assert.equal(r.failed.length, 1);
 });
+
+/* ------------------------------------------------------------------ round 3: a shrinking first list */
+
+/** What background.js record() does for "I already have these": one write under the state lock, with
+    `status` loaded so finishReview can see the scan's read errors. */
+async function rememberLikeThePopup(w, org, keys) {
+  await w.s.mutate(async () => {
+    const cur = await w.chrome.storage.local.get({ seen: {}, pending: {}, confirmed: {}, ledger: {}, status: {} });
+    const book = (cur.ledger[org] = cur.ledger[org] || {});
+    for (const k of keys) book[k] = { signal: "", at: 1, name: k, via: "remembered" };
+    cur.seen[org] = [...new Set([...(cur.seen[org] || []), ...keys])];
+    cur.pending[org] = (cur.pending[org] || []).filter((i) => !keys.includes(i.key));
+    w.s.finishReview(cur, org);
+    await w.chrome.storage.local.set({ seen: cur.seen, pending: cur.pending, confirmed: cur.confirmed, ledger: cur.ledger });
+  });
+}
+const LINKLESS = { [WRAPPER_PATH]: () => ({ type: "text/html", body: "<p>Slides move to next week</p>" }) };
+const tocWithoutPages = () => {
+  const toc = JSON.parse(JSON.stringify(TOC));
+  for (const m of toc.Modules) m.Topics = (m.Topics || []).filter((t) => !/\.html$/i.test(t.Url || ""));
+  return toc;
+};
+const WRAPPED = [`f:${FOLDER}/Week 2/Lecture 2 slides.pdf`, `f:${FOLDER}/Readings/Reading week 2.pdf`, HANDOUT];
+
+test("red-team round 3 A1: a wrapper page that briefly has no links does not finish a first review with undecided files", async () => {
+  const w1 = world({ bs: pilRoutes(), local: FIRST, sync: PIL_ONLY });
+  await w1.s.run({ upload: false });
+  assert.equal(w1.store.local.pending["564701"].length, 4);
+  await rememberLikeThePopup(w1, "564701", ["t:9001"]);   // one decided, three left undecided
+  const w2 = world({ bs: pilRoutes(LINKLESS), local: w1.store.local, sync: PIL_ONLY });
+  await w2.s.run({ upload: false });                        // list refresh while the page is being edited
+  assert.ok(!w2.store.local.confirmed["564701"], "the review is not finished");
+  assert.deepEqual(w2.store.local.pending["564701"].map((i) => i.key).sort(), [...WRAPPED].sort(), "the undecided files stay in the list");
+  assert.ok(w2.store.local.pending["564701"].every((i) => i.missing), "flagged as not on Brightspace right now");
+  const w3 = world({ bs: pilRoutes(), local: w2.store.local, sync: PIL_ONLY });
+  const r = await w3.s.run();                               // the page is back
+  assert.equal(r.uploaded, 0, "nothing the user never decided goes up");
+  assert.equal(w3.calls.cf.length, 0);
+  assert.deepEqual(w3.store.local.pending["564701"].map((i) => i.key).sort(), [...WRAPPED].sort());
+  assert.ok(w3.store.local.pending["564701"].every((i) => !i.missing), "a file that is back is listed as itself again");
+});
+
+test("red-team round 3 A2: an HTML topic briefly missing from the TOC does not finish a first review", async () => {
+  const w1 = world({ bs: pilRoutes(), local: FIRST, sync: PIL_ONLY });
+  await w1.s.run({ upload: false });
+  await rememberLikeThePopup(w1, "564701", ["t:9001"]);
+  const w2 = world({ bs: pilRoutes({ "/d2l/api/le/1.97/564701/content/toc": () => ({ body: tocWithoutPages() }) }), local: w1.store.local, sync: PIL_ONLY });
+  await w2.s.run({ upload: false });
+  assert.ok(!w2.store.local.confirmed["564701"]);
+  const w3 = world({ bs: pilRoutes(), local: w2.store.local, sync: PIL_ONLY });
+  const r = await w3.s.run();
+  assert.equal(r.uploaded, 0);
+  assert.equal(w3.calls.cf.length, 0);
+});
+
+test("red-team round 3: deciding only what a shrunken list shows does not finish the review either", async () => {
+  const w1 = world({ bs: pilRoutes(), local: FIRST, sync: PIL_ONLY });
+  await w1.s.run({ upload: false });                        // the popup showed all four
+  const w2 = world({ bs: pilRoutes(LINKLESS), local: w1.store.local, sync: PIL_ONLY });
+  await w2.s.run({ upload: false });
+  await rememberLikeThePopup(w2, "564701", ["t:9001"]);     // the user decides the one file still on Brightspace
+  assert.ok(!w2.store.local.confirmed["564701"], "three shown files are still undecided");
+  const w3 = world({ bs: pilRoutes(), local: w2.store.local, sync: PIL_ONLY });
+  assert.equal((await w3.s.run()).uploaded, 0);
+});
+
+test("red-team round 3: a page that failed, then came back with no links, does not finish the review", async () => {
+  const w1 = world({ bs: pilRoutes(), local: FIRST, sync: PIL_ONLY });
+  await w1.s.run({ upload: false });
+  await rememberLikeThePopup(w1, "564701", ["t:9001"]);
+  const w2 = world({ bs: pilRoutes({ [WRAPPER_PATH]: () => ({ status: 500, type: "text/plain", body: "busy" }) }), local: w1.store.local, sync: PIL_ONLY });
+  await w2.s.run({ upload: false });
+  const w3 = world({ bs: pilRoutes(LINKLESS), local: w2.store.local, sync: PIL_ONLY });
+  await w3.s.run({ upload: false });
+  assert.ok(!w3.store.local.confirmed["564701"]);
+  const w4 = world({ bs: pilRoutes(), local: w3.store.local, sync: PIL_ONLY });
+  assert.equal((await w4.s.run()).uploaded, 0);
+});
+
+test("red-team round 3: a file gone from Brightspace can still be decided, and then the review finishes", async () => {
+  const w1 = world({ bs: pilRoutes(), local: FIRST, sync: PIL_ONLY });
+  await w1.s.run({ upload: false });
+  await rememberLikeThePopup(w1, "564701", ["t:9001"]);
+  const w2 = world({ bs: pilRoutes(LINKLESS), local: w1.store.local, sync: PIL_ONLY });
+  await w2.s.run({ upload: false });
+  await rememberLikeThePopup(w2, "564701", WRAPPED);       // "I already have these" on the files that went away
+  assert.equal(w2.store.local.confirmed["564701"], true, "every shown file has a choice: finished");
+  const w3 = world({ bs: pilRoutes(), local: w2.store.local, sync: PIL_ONLY });
+  assert.equal((await w3.s.run()).uploaded, 0, "remembered files are not uploaded when they come back");
+});
+
+test("red-team round 3: once reviewed, a file that leaves Brightspace simply drops out of the list", async () => {
+  const w1 = world({ bs: pilRoutes(), local: READY, sync: PIL_ONLY });
+  await w1.s.run({ upload: false });
+  assert.equal(w1.store.local.pending["564701"].length, 4);
+  const w2 = world({ bs: pilRoutes(LINKLESS), local: w1.store.local, sync: PIL_ONLY });
+  await w2.s.run({ upload: false });
+  assert.deepEqual(w2.store.local.pending["564701"].map((i) => i.key), ["t:9001"]);
+});

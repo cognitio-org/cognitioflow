@@ -45,9 +45,9 @@ if (!window.__cfGrabber) {
       if (!r.ok) throw new Error(`${r.status} from /api/courses`);
       return r.json();
     },
-    upload: async ({ cid, name, week, base64, type }) => {
+    upload: async ({ cid, name, week, base64, mime }) => {   // `type` is the route ("upload"); the file's MIME type is `mime`
       const form = new FormData();
-      form.append("file", toBlob(base64, type), name);
+      form.append("file", toBlob(base64, mime || "application/octet-stream"), name);
       form.append("week", week || "");
       const r = await fetch(`/api/courses/${encodeURIComponent(cid)}/files`, { method: "POST", credentials: "same-origin", body: form });
       if (r.status === 401) throw new Error("sign in to CognitioFlow first");

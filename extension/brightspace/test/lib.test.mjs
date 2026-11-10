@@ -216,3 +216,10 @@ test("red-team B3: a page Url outside this course's enforced folder is not liste
   assert.equal(readErrorsNote({ readErrors: ["Lecture 2 (500)"] }, true), "1 page could not be read (Lecture 2 (500)); its files are not listed yet");
   assert.equal(readErrorsNote({ state: "ok" }), "");
 });
+
+test("red-team round 3: a first-review file the last scan did not find says so in the popup", async () => {
+  const { pendingNote } = await import("../lib.js");
+  assert.equal(typeof pendingNote, "function");
+  assert.equal(pendingNote({ key: "t:1", name: "a.pdf" }), "");
+  assert.equal(pendingNote({ key: "t:1", name: "a.pdf", missing: true }), "not on Brightspace at the last check — still needs a choice");
+});

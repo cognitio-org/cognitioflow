@@ -114,7 +114,7 @@ async function take({ org, keys }) {
   for (const item of list) {
     try {
       const b = await ask(bs.id, { type: "file", url: item.url });
-      await ask(app.id, { type: "upload", cid: course.cid, name: item.name, week: item.week, base64: b.base64, type: b.type });
+      await ask(app.id, { type: "upload", cid: course.cid, name: item.name, week: item.week, base64: b.base64, mime: b.type });   // `type` routes the message: the MIME type travels as `mime`
       done.push(item);
     } catch (e) {
       failed.push({ name: item.name, error: String(e.message || e) });

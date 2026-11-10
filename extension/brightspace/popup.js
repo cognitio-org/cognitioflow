@@ -1,4 +1,4 @@
-import { readErrorsNote } from "./lib.js";
+import { readErrorsNote, pendingNote } from "./lib.js";
 
 const $ = (s) => document.querySelector(s);
 const send = (msg) => chrome.runtime.sendMessage(msg).then((r) => { if (!r || !r.ok) throw new Error((r && r.error) || "no answer"); return r.data; });
@@ -40,7 +40,7 @@ function render() {
       (first ? `<div class="small muted">Choose for every file: tick and Add, or tick and “I already have these”. Unticked files wait here; nothing uploads automatically until the whole list is decided.</div>` : "") +
       items.map((i) => `<div class="item"><input type="checkbox" checked data-org="${esc(c.org)}" data-key="${esc(i.key)}" id="k${esc(i.key)}">
         <label for="k${esc(i.key)}"><span class="name">${esc(i.title)}</span>
-        <div class="small muted">${esc(i.module || "")}${i.name !== i.title ? " · " + esc(i.name) : ""}</div></label>
+        <div class="small muted">${esc(i.module || "")}${i.name !== i.title ? " · " + esc(i.name) : ""}${pendingNote(i) ? " · " + esc(pendingNote(i)) : ""}</div></label>
         ${i.week ? `<span class="week">Week ${esc(i.week)}</span>` : ""}</div>`).join("");
     list.appendChild(box);
   }
