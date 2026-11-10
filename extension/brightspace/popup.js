@@ -4,6 +4,7 @@ const send = (msg) => chrome.runtime.sendMessage(msg).then((r) => { if (!r || !r
 let state = { courses: [], pending: {}, confirmed: {}, status: {}, log: [] };
 const PROBLEM = { "login needed": "Brightspace sign-in needed — open Brightspace and sign in", "key needed": "no sync key (Options)",
   "key expired": "CognitioFlow key expired — renew it in Options", "key is for another course": "wrong key for this course (Options)",
+  "key is for another address": "this key was made for another CognitioFlow address — create it again in Options",
   "no access to CognitioFlow": "allow the CognitioFlow address in Options", error: "some files failed; they will be retried" };
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -27,6 +28,7 @@ function render() {
     const box = document.createElement("div");
     box.className = "group";
     box.innerHTML = `<h2>${esc(c.name || c.org)}${first ? " · first time, check the list" : ""}</h2>` +
+      (first ? `<div class="small muted">Choose for every file: tick and Add, or tick and “I already have these”. Unticked files wait here; nothing uploads automatically until the whole list is decided.</div>` : "") +
       items.map((i) => `<div class="item"><input type="checkbox" checked data-org="${esc(c.org)}" data-key="${esc(i.key)}" id="k${esc(i.key)}">
         <label for="k${esc(i.key)}"><span class="name">${esc(i.title)}</span>
         <div class="small muted">${esc(i.module || "")}${i.name !== i.title ? " · " + esc(i.name) : ""}</div></label>
@@ -74,9 +76,13 @@ async function run(type, verb) {
     try { const r = await send({ type, org, keys: ks }); added += r.added ?? r.skipped ?? 0; (r.failed || []).forEach((f) => failed.push(f)); }
     catch (e) { failed.push({ name: org, error: String(e.message || e) }); }
   }
-  $("#status").textContent = failed.length ? `${added} added · ${failed.length} failed: ${failed.map((f) => f.name).join(", ")}` : `${added} added.`;
+  const undecided = Object.keys(picked).filter((org) => !state.confirmed[org]);
+  let msg = failed.length ? `${added} added · ${failed.length} failed: ${failed.map((f) => f.name).join(", ")}` : `${added} added.`;
   $("#add").disabled = $("#skip").disabled = false;
   await load(false);
+  if (undecided.some((org) => !state.confirmed[org] && (state.pending[org] || []).length))
+    msg += " The rest of the first list still needs a choice (Add or “I already have these”); nothing uploads automatically until then.";
+  $("#status").textContent = msg;
 }
 
 $("#rescan").onclick = () => load(true);

@@ -239,6 +239,37 @@ test("Remember (skip) records the item's signal in the ledger, so sync adopts it
   assert.equal(response.ok, true);
   assert.deepEqual(memory.local.seen.org, ["t:1"]);
   assert.equal(memory.local.ledger.org["t:1"].signal, "2026-11-03");
-  assert.equal(memory.local.confirmed.org, true);
+  // Changed with adversarial-review finding 6: t:2 is still undecided, so the first review is not done
+  // and Auto may not pick t:2 up on its own.
+  assert.ok(!memory.local.confirmed.org, "a first review with an undecided file is not finished");
   assert.deepEqual(memory.local.pending.org.map((i) => i.key), ["t:2"]);
+});
+
+const message = (msg) => new Promise((resolve) => runtimeListeners[runtimeListeners.length - 1](msg, {}, resolve));
+
+test("finding 6: the first review finishes only once every file has an explicit choice", async () => {
+  resetState();
+  memory.local.pending = { org: [{ key: "t:1", name: "a.pdf" }, { key: "t:2", name: "b.pdf" }] };
+  await message({ type: "skip", org: "org", keys: ["t:1"] });
+  assert.ok(!memory.local.confirmed.org);
+  await message({ type: "skip", org: "org", keys: ["t:2"] });
+  assert.equal(memory.local.confirmed.org, true);
+});
+
+test("finding 6: a course already reviewed stays reviewed when only some new files are remembered", async () => {
+  resetState();
+  memory.local.confirmed = { org: true };
+  memory.local.pending = { org: [{ key: "t:1", name: "a.pdf" }, { key: "t:2", name: "b.pdf" }] };
+  await message({ type: "skip", org: "org", keys: ["t:1"] });
+  assert.equal(memory.local.confirmed.org, true);
+});
+
+test("finding 1: Remember merges with what is on disk instead of overwriting another writer's entries", async () => {
+  resetState();
+  memory.local.pending = { org: [{ key: "t:1", name: "a.pdf" }] };
+  memory.local.ledger = { other: { "t:9": { signal: "x", via: "sync" } } };
+  memory.local.seen = { other: ["t:9"] };
+  await message({ type: "skip", org: "org", keys: ["t:1"] });
+  assert.deepEqual(memory.local.seen.other, ["t:9"]);
+  assert.ok(memory.local.ledger.other["t:9"]);
 });

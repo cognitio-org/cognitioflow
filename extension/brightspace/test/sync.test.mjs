@@ -29,8 +29,14 @@ function response({ status = 200, url, type = "application/json", body = "", hea
 }
 
 /** One world: Brightspace routes (path -> response factory), CognitioFlow recorder, chrome fake. */
-function world({ bs = {}, cf = () => ({ status: 200, body: { id: "f1", status: "indexed" } }), local = {}, sync = {}, tabs = [], maxPerRun = 20 } = {}) {
-  const store = { local: JSON.parse(JSON.stringify(local)), sync: JSON.parse(JSON.stringify(sync)) };
+const HANG = Symbol("the worker is killed while this request is in flight");
+
+/** `store` lets two sync instances (two worker contexts) share one chrome.storage; `locks` is the Web Locks
+    manager they share (null = none, the fallback path); `start` sets the fake clock; a CF handler that
+    returns HANG never answers, like a worker killed mid-request. */
+function world({ bs = {}, cf = () => ({ status: 200, body: { id: "f1", status: "indexed" } }), local = {}, sync = {}, tabs = [], maxPerRun = 20,
+                 store: shared = null, locks, start = "2026-11-10T12:00:00Z" } = {}) {
+  const store = shared || { local: JSON.parse(JSON.stringify(local)), sync: JSON.parse(JSON.stringify(sync)) };
   const area = (name) => ({
     get: async (d = {}) => JSON.parse(JSON.stringify({ ...d, ...pick(store[name], d) })),
     set: async (v) => { Object.assign(store[name], JSON.parse(JSON.stringify(v))); },
@@ -54,7 +60,9 @@ function world({ bs = {}, cf = () => ({ status: 200, body: { id: "f1", status: "
         week: init.body && init.body.get ? init.body.get("week") : null,
       };
       calls.cf.push(call);
-      return response({ url, ...cf(call) });
+      const out = cf(call);
+      if (out === HANG) return new Promise(() => {});
+      return response({ url, ...out });
     }
     throw new Error(`test touched an unexpected host: ${url}`);
   };
@@ -66,16 +74,16 @@ function world({ bs = {}, cf = () => ({ status: 200, body: { id: "f1", status: "
     },
     permissions: { contains: async () => true },
   };
-  let clock = Date.parse("2026-11-10T12:00:00Z");
-  const s = createSync({ chrome, fetch, sleep: async () => {}, now: () => (clock += 1000), maxPerRun });
+  let clock = Date.parse(start);
+  const s = createSync({ chrome, fetch, sleep: async () => {}, now: () => (clock += 1000), maxPerRun, ...(locks !== undefined ? { locks } : {}) });
   return { s, store, calls, chrome };
 }
 
 const COURSES = [{ org: "564701", name: "PIL", cid: "pil" }, { org: "564708", name: "LaPoPo", cid: "lapopo" }];
 const FAR = Date.parse("2027-01-31T00:00:00Z");
 const KEYS = {
-  pil: { token: "cfw_PIL_secret", courseId: "pil", expires: FAR, id: "k1" },
-  lapopo: { token: "cfw_LAPOPO_secret", courseId: "lapopo", expires: FAR, id: "k2" },
+  pil: { token: "cfw_PIL_secret", courseId: "pil", expires: FAR, id: "k1", origin: APP },
+  lapopo: { token: "cfw_LAPOPO_secret", courseId: "lapopo", expires: FAR, id: "k2", origin: APP },
 };
 const READY = { confirmed: { 564701: true, 564708: true }, auto: { 564701: true, 564708: true }, cfKeys: KEYS };
 const CONF = { appUrl: APP, courses: COURSES };
@@ -287,10 +295,15 @@ test("per-run cap: at most N uploads, the rest wait for the next run", async () 
 test("the ledger is on disk after each file, not only at the end of the run", async () => {
   const snapshots = [];
   const w = world({ bs: pilRoutes(), local: READY, sync: { ...CONF, courses: [COURSES[0]] },
-    cf: (call) => { snapshots.push(Object.keys((w.store.local.ledger || {})["564701"] || {}).length); return { status: 200, body: { id: call.name } }; } });
+    cf: (call) => {
+      const book = (w.store.local.ledger || {})["564701"] || {};
+      snapshots.push([Object.values(book).filter((e) => !e.pending).length, Object.values(book).filter((e) => e.pending).length]);
+      return { status: 200, body: { id: call.name } };
+    } });
   await w.s.run();
-  // before the k-th upload, k-1 uploads (plus any adoptions) are already persisted
-  assert.deepEqual(snapshots, [0, 1, 2, 3]);
+  // before the k-th upload, k-1 finished uploads are persisted, plus the in-flight marker of the k-th itself
+  assert.deepEqual(snapshots, [[0, 1], [1, 1], [2, 1], [3, 1]]);
+  assert.ok(Object.values(w.store.local.ledger["564701"]).every((e) => !e.pending), "every marker is settled after its 2xx");
 });
 
 test("an expired key never leaves the extension", async () => {
@@ -337,4 +350,206 @@ test("a HEAD that fails on a linked file is 'no signal', not a sign-in problem",
   await w.s.run();
   assert.equal(w.store.local.status["564701"].state, STATE.ok);
   assert.equal(w.calls.cf.length, 0);
+});
+
+/* ------------------------------------------------------------------ adversarial-review regressions */
+
+const PIL_ONLY = { ...CONF, courses: [COURSES[0]] };
+const HANDOUT = `f:${FOLDER}/Week 2/Handout 2.docx`;
+/** What background.js skip() ("I already have these") writes, done straight on the store mid-run. */
+const rememberBehindTheRunsBack = (store, key) => {
+  const L = store.local;
+  L.seen = { ...(L.seen || {}), 564701: [...((L.seen || {})["564701"] || []), key] };
+  L.ledger = { ...(L.ledger || {}), 564701: { ...((L.ledger || {})["564701"] || {}), [key]: { signal: "", at: 1, name: "Handout 2.docx", via: "remembered" } } };
+};
+/** A minimal shared Web Locks manager: exclusive per name, like navigator.locks across worker contexts. */
+function fakeLocks() {
+  const tails = new Map();
+  return {
+    request(name, cb) {
+      const prev = tails.get(name) || Promise.resolve();
+      const run = prev.then(() => cb({ name }));
+      tails.set(name, run.catch(() => {}));
+      return run;
+    },
+  };
+}
+const settle = async (n = 200) => { for (let i = 0; i < n; i++) await new Promise((r) => setImmediate(r)); };
+
+test("finding 1: a Remember written while a run is uploading survives the run's save (probe2)", async () => {
+  let w;
+  let fired = false;
+  w = world({ bs: pilRoutes(), maxPerRun: 1, local: READY, sync: PIL_ONLY, cf: () => {
+    if (!fired) { fired = true; rememberBehindTheRunsBack(w.store, HANDOUT); }
+    return { status: 200, body: { id: "f1", status: "indexed" } };
+  } });
+  await w.s.run();
+  assert.ok(w.store.local.seen["564701"].includes(HANDOUT), "the Remember is still in seen");
+  assert.ok(w.store.local.ledger["564701"][HANDOUT], "the Remember is still in the ledger");
+  assert.ok(!w.store.local.pending["564701"].some((i) => i.key === HANDOUT), "and it is not offered again");
+  const next = world({ bs: pilRoutes(), local: w.store.local, sync: PIL_ONLY });
+  await next.s.run();
+  assert.ok(!next.calls.cf.some((c) => c.name === "Handout 2.docx"), "the remembered file never goes up");
+});
+
+test("finding 1: a file remembered mid-run is not uploaded later in the same run", async () => {
+  let w;
+  let fired = false;
+  w = world({ bs: pilRoutes(), local: READY, sync: PIL_ONLY, cf: () => {
+    if (!fired) { fired = true; rememberBehindTheRunsBack(w.store, HANDOUT); }
+    return { status: 200, body: { id: "f1", status: "indexed" } };
+  } });
+  await w.s.run();
+  assert.equal(w.calls.cf.length, 3);
+  assert.ok(!w.calls.cf.some((c) => c.name === "Handout 2.docx"));
+});
+
+test("finding 1: mutate() serializes read-modify-write so no writer's entry is lost", async () => {
+  const w = world({ local: {}, sync: PIL_ONLY });
+  assert.equal(typeof w.s.mutate, "function");
+  await Promise.all(Array.from({ length: 10 }, (_, i) => w.s.mutate(async () => {
+    const { seen } = await w.chrome.storage.local.get({ seen: {} });
+    await new Promise((r) => setImmediate(r));
+    seen.o = [...(seen.o || []), `k${i}`];
+    await w.chrome.storage.local.set({ seen });
+  })));
+  assert.equal(w.store.local.seen.o.length, 10);
+});
+
+for (const [label, locks] of [["Web Locks", () => fakeLocks()], ["no Web Locks (lease re-check)", () => null]]) {
+  test(`finding 2 (${label}): two runs at once upload each file once (probe P1)`, async () => {
+    const w = world({ bs: pilRoutes(), local: READY, sync: PIL_ONLY, locks: locks() });
+    const [a, b] = await Promise.all([w.s.run(), w.s.run()]);
+    assert.equal(w.calls.cf.length, 4, "4 files, 4 uploads");
+    assert.ok([a, b].some((r) => r.skipped === "already running"));
+  });
+
+  test(`finding 2 (${label}): two worker contexts over one storage never overlap`, async () => {
+    const shared = fakeLocks();
+    const a = world({ bs: pilRoutes(), local: READY, sync: PIL_ONLY, locks: locks() === null ? null : shared });
+    const b = world({ bs: pilRoutes(), store: a.store, locks: locks() === null ? null : shared });
+    const [ra, rb] = await Promise.all([a.s.run(), b.s.run()]);
+    assert.equal(a.calls.cf.length + b.calls.cf.length, 4, "each file once across both contexts");
+    assert.ok([ra, rb].some((r) => r.skipped === "already running"));
+  });
+}
+
+test("finding 2: a live lease held by another run blocks; an expired one is taken over", async () => {
+  const live = world({ bs: pilRoutes(), local: { ...READY, syncLock: { owner: "popup", expires: Date.parse("2026-11-10T12:05:00Z") } }, sync: PIL_ONLY });
+  assert.deepEqual(await live.s.run(), { skipped: "already running" });
+  assert.equal(live.calls.cf.length, 0);
+  const dead = world({ bs: pilRoutes(), local: { ...READY, syncLock: { owner: "killed", expires: Date.parse("2026-11-10T11:00:00Z") } }, sync: PIL_ONLY });
+  assert.equal((await dead.s.run()).uploaded, 4);
+});
+
+test("finding 2: a run never releases a lease it does not own", async () => {
+  let w;
+  w = world({ bs: pilRoutes(), local: READY, sync: PIL_ONLY, cf: (call) => {
+    if (call.name === "Handout 2.docx") w.store.local.syncLock = { owner: "someone-else", expires: Date.parse("2027-01-01") };
+    return { status: 200, body: { id: "f1" } };
+  } });
+  await w.s.run();
+  assert.equal(w.store.local.syncLock && w.store.local.syncLock.owner, "someone-else", "the other run's lease is left alone");
+});
+
+test("finding 2: the lease is renewed while a run works, so a long run does not go stale", async () => {
+  const seen = [];
+  let w;
+  w = world({ bs: pilRoutes(), local: READY, sync: PIL_ONLY, cf: () => { seen.push(w.store.local.syncLock && w.store.local.syncLock.expires); return { status: 200, body: { id: "f1" } }; } });
+  await w.s.run();
+  assert.equal(seen.length, 4);
+  assert.ok(seen.every((e) => typeof e === "number"), "a lease with an expiry exists during the run");
+  assert.ok(seen[3] > seen[0], "and its expiry moves forward per file");
+  assert.ok(!w.store.local.syncLock || !w.store.local.syncLock.owner, "released at the end");
+});
+
+test("finding 3: a wrapper's links to another course or outside the content tree are never fetched or uploaded (probe3)", async () => {
+  const evil = `<a href="/content/enforced/999999-OTHERCOURSE/exam-answers.pdf">x</a><a href="/content/enforced/x/..%2F..%2Fshared%2Fother.pdf">y</a>`;
+  const w = world({ bs: pilRoutes({
+    [enc(`${FOLDER}/Week 2/Lecture 2.html`)]: () => ({ type: "text/html", body: evil }),
+    "/content/enforced/999999-OTHERCOURSE/exam-answers.pdf": () => ({ type: "application/pdf", body: pdf("other course") }),
+    "/content/enforced/x/../../shared/other.pdf": () => ({ type: "application/pdf", body: pdf("outside tree") }),
+  }), local: READY, sync: PIL_ONLY });
+  await w.s.run();
+  assert.deepEqual(w.calls.cf.map((c) => c.name), ["Lecture 1.pdf"]);
+  assert.ok(!w.calls.bs.some((c) => /OTHERCOURSE|shared|%2F\.\.|\.\./i.test(c.path)), "never even fetched");
+});
+
+test("finding 3: the real PIL wrapper shape (embedded PDF in the same enforced folder) is uploaded", async () => {
+  const name = "PIL Lecture 1 - 2026-2027-FINAL.pdf";
+  const html = `<iframe src="${encodeURIComponent(name)}"></iframe><a href="${name}">download</a>`;
+  const w = world({ bs: pilRoutes({
+    [enc(`${FOLDER}/Week 2/Lecture 2.html`)]: () => ({ type: "text/html", body: html }),
+    [enc(`${FOLDER}/Week 2/${name}`)]: () => ({ type: "application/pdf", body: pdf("pil 1") }),
+  }), local: { ...READY, seen: { 564701: ["t:9001"] } }, sync: PIL_ONLY });
+  await w.s.run();
+  assert.deepEqual(w.calls.cf.map((c) => c.name), [name]);
+});
+
+test("finding 4: a worker killed after the POST does not re-send the same bytes on restart; it says 'check in CF'", async () => {
+  const w = world({ bs: pilRoutes(), local: READY, sync: PIL_ONLY, cf: () => HANG });
+  w.s.run();                                                     // never settles: the worker dies mid-request
+  await settle();
+  assert.equal(w.calls.cf.length, 1);
+  const lost = w.calls.cf[0].name;
+  const crashed = JSON.parse(JSON.stringify(w.store.local));
+  // the browser restarts 11 minutes later (the dead run's lease has expired)
+  const again = world({ bs: pilRoutes(), local: crashed, sync: PIL_ONLY, start: "2026-11-10T12:11:00Z" });
+  await again.s.run();
+  assert.ok(!again.calls.cf.some((c) => c.name === lost), `${lost} is not sent a second time`);
+  assert.equal(again.calls.cf.length, 3, "the others still go up");
+  assert.ok(again.store.local.log.some((l) => l.name === lost && l.action === "check in CF"), "surfaced in Recent activity");
+  // a later run does not repeat the line
+  const third = world({ bs: pilRoutes(), local: again.store.local, sync: PIL_ONLY, start: "2026-11-10T18:00:00Z" });
+  await third.s.run();
+  assert.equal(third.calls.cf.length, 0);
+  assert.equal(third.store.local.log.filter((l) => l.action === "check in CF").length, 1);
+});
+
+test("finding 4: a pending upload older than 24h is retried", async () => {
+  const w = world({ bs: pilRoutes(), local: READY, sync: PIL_ONLY, cf: () => HANG });
+  w.s.run();
+  await settle();
+  const lost = w.calls.cf[0].name;
+  const later = world({ bs: pilRoutes(), local: JSON.parse(JSON.stringify(w.store.local)), sync: PIL_ONLY, start: "2026-11-11T13:00:00Z" });
+  await later.s.run();
+  assert.ok(later.calls.cf.some((c) => c.name === lost));
+  assert.ok(!later.store.local.ledger["564701"]["t:9001"].pending, "marked done after the 2xx");
+});
+
+test("finding 5: the key only goes to the origin it was made for, and only over https (or localhost)", async () => {
+  const other = world({ bs: pilRoutes(), local: { ...READY, cfKeys: { pil: { ...KEYS.pil, origin: "https://other.example" } } }, sync: PIL_ONLY });
+  await other.s.run();
+  assert.equal(other.calls.cf.length, 0, "key bound to another origin is never sent");
+  assert.equal(other.store.local.status["564701"].state, STATE.keyOrigin);
+  assert.equal(badgeFor(other.store.local).text, "KEY");
+
+  const legacy = world({ bs: pilRoutes(), local: { ...READY, cfKeys: { pil: { ...KEYS.pil, origin: undefined } } }, sync: PIL_ONLY });
+  await legacy.s.run();
+  assert.equal(legacy.calls.cf.length, 0, "a key with no recorded origin is never sent");
+
+  const plain = world({ bs: pilRoutes(), local: { ...READY, cfKeys: { pil: { ...KEYS.pil, origin: "http://app.cognitioflow.ai" } } },
+                        sync: { ...PIL_ONLY, appUrl: "http://app.cognitioflow.ai" } });
+  plain.s.run && await plain.s.run().catch(() => {});
+  assert.equal(plain.calls.cf.length, 0, "never over plain http to a real host");
+
+  const t = world({ local: { cfKeys: { pil: { ...KEYS.pil, origin: "https://other.example" } } }, sync: CONF, cf: () => ({ status: 413, body: {} }) });
+  const r = await t.s.testKey({ cid: "pil" });
+  assert.equal(r.ok, false);
+  assert.equal(t.calls.cf.length, 0, "Test sends nothing to a foreign origin");
+});
+
+test("finding 6: files left unticked on the first review stay pending and never auto-upload", async () => {
+  const w = world({ bs: pilRoutes(), local: { cfKeys: KEYS, auto: { 564701: true } }, sync: PIL_ONLY });
+  await w.s.run({ upload: false });
+  assert.equal(w.store.local.pending["564701"].length, 4);
+  await w.s.uploadKeys({ org: "564701", keys: ["t:9001"] });
+  assert.equal(w.calls.cf.length, 1);
+  assert.ok(!w.store.local.confirmed["564701"], "the review is not finished while files are undecided");
+  assert.equal(w.store.local.pending["564701"].length, 3, "the unticked files are still waiting for a choice");
+  await w.s.run();
+  assert.equal(w.calls.cf.length, 1, "no automatic upload of files the user did not choose");
+  // deciding the rest (Add) finishes the review
+  await w.s.uploadKeys({ org: "564701", keys: w.store.local.pending["564701"].map((i) => i.key) });
+  assert.equal(w.store.local.confirmed["564701"], true);
 });

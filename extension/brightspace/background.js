@@ -104,39 +104,42 @@ async function take({ org, keys }) {
   const app = await appTab(appUrl);
   await inject(app.id, "content-app.js");
 
-  const { seen, pending, confirmed, ledger } = await local({ seen: {}, pending: {}, confirmed: {}, ledger: {} });
-  const list = (pending[org] || []).filter((i) => keys.includes(i.key));
-  const book = (ledger[org] = ledger[org] || {});
+  const { pending: before } = await local({ pending: {} });
+  const list = (before[org] || []).filter((i) => keys.includes(i.key));
   const done = [];
   const failed = [];
   for (const item of list) {
     try {
       const b = await ask(bs.id, { type: "file", url: item.url });
       await ask(app.id, { type: "upload", cid: course.cid, name: item.name, week: item.week, base64: b.base64, type: b.type });
-      done.push(item.key);
-      book[item.key] = { signal: signalOf(item), at: Date.now(), name: item.name, via: "tab" };
+      done.push(item);
     } catch (e) {
       failed.push({ name: item.name, error: String(e.message || e) });
     }
   }
-  seen[org] = [...new Set([...(seen[org] || []), ...done])];
-  pending[org] = (pending[org] || []).filter((i) => !done.includes(i.key));
-  confirmed[org] = true;
-  await chrome.storage.local.set({ seen, pending, confirmed, ledger });
+  await record(org, done, "tab");
   await badge();
   return { added: done.length, failed };
 }
 
+/** Mark items handled, as one read-modify-write under sync's state lock (merged with whatever a running
+    sync wrote meanwhile). The first review ends only when nothing in the course is left undecided. */
+function record(org, items, via, keys = items.map((i) => i.key)) {
+  return sync.mutate(async () => {
+    const cur = await local({ seen: {}, pending: {}, confirmed: {}, ledger: {} });
+    const book = (cur.ledger[org] = cur.ledger[org] || {});
+    for (const i of items) book[i.key] = { signal: signalOf(i), at: Date.now(), name: i.name, via };
+    cur.seen[org] = [...new Set([...(cur.seen[org] || []), ...keys])];
+    cur.pending[org] = (cur.pending[org] || []).filter((i) => !keys.includes(i.key));
+    sync.finishReview(cur, org);
+    await chrome.storage.local.set({ seen: cur.seen, pending: cur.pending, confirmed: cur.confirmed, ledger: cur.ledger });
+  });
+}
+
 /** Remember these without downloading them — "I already have this" / "not interested". */
 async function skip({ org, keys }) {
-  const { seen, pending, confirmed, ledger } = await local({ seen: {}, pending: {}, confirmed: {}, ledger: {} });
-  const book = (ledger[org] = ledger[org] || {});
-  for (const i of (pending[org] || []).filter((x) => keys.includes(x.key)))
-    book[i.key] = { signal: signalOf(i), at: Date.now(), name: i.name, via: "remembered" };
-  seen[org] = [...new Set([...(seen[org] || []), ...keys])];
-  pending[org] = (pending[org] || []).filter((i) => !keys.includes(i.key));
-  confirmed[org] = true;
-  await chrome.storage.local.set({ seen, pending, confirmed, ledger });
+  const { pending } = await local({ pending: {} });
+  await record(org, (pending[org] || []).filter((x) => keys.includes(x.key)), "remembered", keys);
   await badge();
   return { skipped: keys.length };
 }
@@ -152,10 +155,12 @@ async function schedule() {
 async function setAuto({ org, on }) {
   const { courses } = await conf();
   if (!courses.some((c) => String(c.org) === String(org))) throw new Error("not a course in your list");
-  const { auto } = await local({ auto: {} });
-  auto[org] = !!on;
-  await chrome.storage.local.set({ auto });
-  return { auto };
+  return sync.mutate(async () => {
+    const { auto } = await local({ auto: {} });
+    auto[org] = !!on;
+    await chrome.storage.local.set({ auto });
+    return { auto };
+  });
 }
 
 const routes = {

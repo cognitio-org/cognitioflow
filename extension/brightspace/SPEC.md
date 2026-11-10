@@ -55,16 +55,25 @@ with a 404 and no fallback.
 | `storage.sync` | `appUrl` | string | CognitioFlow origin, e.g. `https://app.cognitioflow.ai` |
 | `storage.sync` | `courses` | `[{org, name, cid}]` | Brightspace org unit ↔ CognitioFlow course id. **The allow-list:** nothing outside it is read or uploaded |
 | `storage.sync` | `syncHours` | number (1–48, default 6) | alarm period |
-| `storage.local` | `cfKeys` | `{cid: {token, id, courseId, expires(ms)}}` | write keys. **Local only, never sync**; only the worker sends them, only to `appUrl`'s origin; the UI shows the last 4 characters |
+| `storage.local` | `cfKeys` | `{cid: {token, id, courseId, expires(ms), origin}}` | write keys. **Local only, never sync**; only the worker sends them, and only when `appUrl`'s origin equals the `origin` recorded when the key was made or pasted (https, or http on localhost) — otherwise status `key is for another address`; the UI shows the last 4 characters |
 | `storage.local` | `seen` | `{org: [key]}` | keys added **or** deliberately skipped |
-| `storage.local` | `ledger` | `{org: {key: {signal, sha, cfFileId, status, at, name, baseline?, skipped?, via?}}}` | what was synced and with which change signal (TOC `LastModifiedDate`; HEAD `Last-Modified`/`ETag`/size for links). Written after **each** 2xx upload |
+| `storage.local` | `ledger` | `{org: {key: {signal, sha, cfFileId, status, at, name, baseline?, skipped?, via?}}}` | what was synced and with which change signal (TOC `LastModifiedDate`; HEAD `Last-Modified`/`ETag`/size for links). An in-flight marker `{pending: {sha, at, signal, surfaced?}, prev, name}` is written **before** each POST, replaced after the 2xx, taken back after a definite failure. A marker left by a killed worker holds that file for 24h: same bytes → not re-sent, logged once as "check in CF"; after 24h it is retried |
 | `storage.local` | `shaByCid` | `{cid: [sha256]}` (arrays — storage drops `Set`s) | same bytes via two keys upload once |
 | `storage.local` | `pending` | `{org: [item]}` | unhandled items, what the popup lists |
-| `storage.local` | `confirmed` | `{org: bool}` | first batch reviewed (popup Add/Remember, or an Options baseline) |
+| `storage.local` | `confirmed` | `{org: bool}` | first batch reviewed: set by an Options baseline, or by popup Add/Remember only once **every** file of the first list has been chosen (unticked files stay pending and never auto-upload) |
 | `storage.local` | `auto` | `{org: bool}` | automatic upload on for this course (Options) |
-| `storage.local` | `status` | `{org: {state, detail, at, uploaded?, emptyPages?}}` | `ok`, `login needed`, `key needed`, `key expired`, `key is for another course`, `no access to CognitioFlow`, `waiting for first review`, `auto off`, `error` |
+| `storage.local` | `status` | `{org: {state, detail, at, uploaded?, emptyPages?}}` | `ok`, `login needed`, `key needed`, `key expired`, `key is for another course`, `key is for another address`, `no access to CognitioFlow`, `waiting for first review`, `auto off`, `error` |
 | `storage.local` | `log` | `[{at, org, name, action, error?}]`, last 200 | shown under "Recent activity" in the popup |
-| `storage.local` | `lastScan`, `lastRun`, `syncLock` | epoch ms / `{at, uploaded}` / epoch ms | popup text, badge, overlap guard (stale after 10 min) |
+| `storage.local` | `lastScan`, `lastRun`, `syncLock` | epoch ms / `{at, uploaded}` / `{owner, expires}` | popup text, badge, the run lease: taken by compare-and-set under `navigator.locks`, renewed after every file, released only by its owner, expires 10 min after the last renewal |
+
+Every write to `seen` / `pending` / `ledger` / `confirmed` / `status` / `log` is a read-modify-write under
+one Web Lock (`sync.mutate`, also used by the worker's Remember/Add), merged per key, so a Remember made
+while a run is uploading is never overwritten by the run's save, and the run re-reads an item just before
+downloading it.
+
+Links found in pages are accepted only under `/content/enforced/<org>-…/` of the course being read (the
+org prefix, so another offering's folder of the same org counts), after decoding; `.`/`..` segments,
+backslashes and double-encoded segments are refused.
 
 An **item**: `{key, kind: "topic"|"link", title, name, week, module, url, path, lastModified}`. `key` is
 `t:<TopicId>` for a File topic and `f:<decoded path>` for a document found inside a page (the PIL

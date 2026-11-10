@@ -154,3 +154,50 @@ test("login pages are not documents, and login answers are recognised", () => {
   assert.ok(!isLoginResponse(r(200, "https://brightspace.rug.nl/d2l/api/le/1.97/1/content/toc")));
   assert.ok(!isLoginResponse(r(404, "https://brightspace.rug.nl/x")), "a missing file is not a login");
 });
+
+/* ---- adversarial-review finding 3: course-folder enforcement and normalisation ---- */
+import * as lib from "../lib.js";
+
+test("documentPath accepts the course's own enforced folder in every embed form (the live PIL wrapper shape)", () => {
+  const name = "PIL Lecture 1 - 2026-2027-FINAL.pdf";
+  const dir = `/content/enforced/${PIL}/`;
+  const want = `/content/enforced/${PIL}/${name}`;
+  for (const raw of [
+    name, encodeURIComponent(name), `/content/enforced/${PIL}/${name}`,
+    `https://brightspace.rug.nl/content/enforced/${PIL}/${encodeURIComponent(name)}`,
+  ]) assert.equal(documentPath(raw, PIL, dir), want, raw);
+  const html = `<iframe src="${encodeURIComponent(name)}"></iframe><embed src="${name}"><object data="${name}"></object><a href="${name}">x</a>`;
+  assert.deepEqual(linksIn(html, PIL, { dir }).map((x) => x.path), [want]);
+  // the TOC-derived folder can differ from where the wrapper lives (another offering of the same org)
+  assert.equal(documentPath(`/content/enforced/564701-RGBIR50010.2025-2026.1/${name}`, PIL, dir), `/content/enforced/564701-RGBIR50010.2025-2026.1/${name}`);
+});
+
+test("documentPath never leaves /content/enforced/<org>-*/ (probe3)", () => {
+  const dir = `/content/enforced/${PIL}/Week 2/`;
+  for (const raw of [
+    "/content/enforced/999999-OTHERCOURSE/exam-answers.pdf",
+    "https://brightspace.rug.nl/content/enforced/999999-OTHERCOURSE/exam-answers.pdf",
+    "/content/enforced/x/..%2F..%2Fshared%2Fother.pdf",
+    "/content/enforced/x/..%2F..%2Fd2l%2Fle%2Fsecret.pdf",
+    `/content/enforced/${PIL}/..%2F..%2Fshared%2Fother.pdf`,
+    `/content/enforced/${PIL}/%252e%252e%252fshared.pdf`,
+    `/content/enforced/${PIL}/a\\..\\..\\b.pdf`,
+    "/content/enforced/../../shared/other.pdf",
+    "https://brightspace.rug.nl/content/enforced/..%2f..%2fd2l/x.pdf",
+    "viewer.html?file=/content/enforced/x/../../../d2l/y.pdf",
+    "/content/enforced/564701/flat.pdf",
+    "/content/enforced/5647010-OTHER/x.pdf",
+    "../../999999-OTHER/x.pdf",
+  ]) assert.equal(documentPath(raw, PIL, dir), "", raw);
+  assert.equal(documentPath("loose.pdf", "", ""), "", "no folder and no org: nothing can be verified, so nothing is accepted");
+});
+
+test("appOrigin: https anywhere, http only for localhost", () => {
+  assert.equal(typeof lib.appOrigin, "function");
+  assert.equal(lib.appOrigin("https://app.cognitioflow.ai/x"), "https://app.cognitioflow.ai");
+  assert.equal(lib.appOrigin("http://localhost:8000"), "http://localhost:8000");
+  assert.equal(lib.appOrigin("http://127.0.0.1:8000/"), "http://127.0.0.1:8000");
+  assert.equal(lib.appOrigin("http://app.cognitioflow.ai"), "");
+  assert.equal(lib.appOrigin("ftp://x"), "");
+  assert.equal(lib.appOrigin("not a url"), "");
+});
