@@ -42,16 +42,48 @@ class Runtime:
     a11y_probe: object           # A11yProbe (accessibility)
 
 
-def _result(name: str, mandatory: bool, fn) -> dict:
-    """Run one gate fail-closed and return a review_card gate dict."""
+def run_gate(name: str, mandatory: bool, fn) -> dict:
+    """Run one gate fail-closed and return a review_card gate dict.
+
+    `fn()` must return `(passed, detail)`. Anything else fails closed: an exception,
+    a non-2-tuple return (bare True, None), or a `detail` whose str() raises.
+    Public so callers outside this module (the Phase-2 docket adapter) run each
+    gate through exactly the same fail-closed path as `run_gates`.
+    """
     try:
         passed, detail = fn()
+        detail = str(detail)
     except Exception as e:  # noqa: BLE001 — any gate failure must fail closed
         return {"name": name, "passed": False, "mandatory": mandatory,
                 "detail": f"gate error (fail-closed): {e}"}
     # strict: ONLY an explicit boolean True passes. A truthy non-bool (str/dict/None)
     # fails closed, so a gate helper bug can never let a bad game through.
-    return {"name": name, "passed": passed is True, "mandatory": mandatory, "detail": str(detail)}
+    return {"name": name, "passed": passed is True, "mandatory": mandatory, "detail": detail}
+
+
+_result = run_gate  # Phase-1 private name; one body so the two can never drift
+
+
+# Keys only the gate results decide. `extra` in build_card can never set them.
+CORE_CARD_KEYS = ("game", "overall_pass", "gates", "blocking_failures")
+
+
+def build_card(meta: dict, results: list, extra: dict | None = None) -> dict:
+    """Assemble a review card from gate results, plus caller metadata in `extra`.
+
+    The verdict keys (CORE_CARD_KEYS) come only from `results`; any of them in `extra`
+    is dropped, so e.g. `extra={"overall_pass": True}` can never flip a failing card.
+    Each result is normalised fail-closed before the verdict: `passed` counts only if it
+    is the literal True, and a gate is mandatory unless `mandatory` is literally False.
+    Inputs are not mutated.
+    """
+    gates = [dict(g, passed=g.get("passed") is True, mandatory=g.get("mandatory", True) is not False)
+             for g in results]
+    card = review_card.build_review_card(dict(meta), gates)
+    for key, value in (extra or {}).items():
+        if key not in CORE_CARD_KEYS:
+            card[key] = value
+    return card
 
 
 def run_gates(submission: GameSubmission, runtime: Runtime) -> dict:
