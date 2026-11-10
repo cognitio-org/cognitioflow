@@ -119,6 +119,37 @@ def test_court_reply_play_path_grades_without_external_ai(client, pg):
     assert r.status_code == 200 and r.json()["mastery"] in ("solid", "shaky", "missed")
 
 
+# ---------------------------------------------------------------- hint/quiz miss → local lane, never frontier
+# fixes #1 and #2 are the task= threading: patching llm.local_call wholesale bypasses local_allows (the
+# env flag), so these prove the plumbing routes a MISS to the local lane rather than the frontier tier.
+
+def _local_text(text: str):
+    import llm
+    return llm._LocalMessage(text, "qwen-local", "end_turn", llm._LocalUsage(5, 5))
+
+
+def test_hint_miss_takes_local_lane_not_frontier(client, pg):
+    cid = _eu(client)
+    with _no_external_ai(), mock.patch.object(run.llm, "local_call",
+                                              return_value=_local_text("Think about Dassonville.")) as lc:
+        r = client.post(f"/api/courses/{cid}/hint", json={"question": "What is an MEQR?", "options": ["A", "B", "C", "D"]})
+    assert r.status_code == 200 and r.json()["hint"] == "Think about Dassonville."
+    assert lc.call_count == 1 and lc.call_args.args[0] == "hint", "an uncached hint must go to the local lane"
+
+
+def test_quiz_miss_takes_local_lane_not_frontier(client, pg):
+    cid = _eu(client)
+    kid = _make_card(client, cid, "What does Art 34 TFEU catch?", "Measures of equivalent effect to quotas")
+    dj = json.dumps([{"i": 0, "wrong": ["Only fiscal duties", "Only export bans", "Only state aid"]}])
+    with _no_external_ai(), mock.patch.object(run.llm, "local_call", return_value=_local_text(dj)) as lc:
+        r = client.post(f"/api/courses/{cid}/quiz", json={"count": 1})
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 1 and len(body[0]["options"]) == 4
+    assert lc.call_count == 1 and lc.call_args.args[0] == "quiz", "an uncached card's distractors must go to the local lane"
+    assert pg.execute("SELECT COUNT(*) FROM card_distractors WHERE card_id=%s", (kid,)).fetchone()[0] == 1
+
+
 # ---------------------------------------------------------------- court build: miss → local lane only, never frontier
 
 def _local_msg(payload: dict):

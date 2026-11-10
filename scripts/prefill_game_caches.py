@@ -48,7 +48,8 @@ def fill_distractors(cid, dry=False):
     if dry:
         print(f"  distractors: {len(need)} card(s) missing")
         return len(need)
-    others = [c["back"][:200] for c in cards]
+    need_ids = {c["id"] for c in need}
+    others = [c["back"][:200] for c in cards if c["id"] not in need_ids]  # as /quiz does: exclude the cards being written
     filled = 0
     for batch in (need[i:i + 20] for i in range(0, len(need), 20)):
         got = run._model_json(run.ask_model(run.CHEAP_MODEL, task="quiz", max_tokens=3000,
