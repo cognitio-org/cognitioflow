@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parent.parent
 STUDIO = ROOT / "studio"
 TIMEOUT_S = 120
 
-SCRIPTS = sorted({*STUDIO.glob("test_*.py"), *(STUDIO / "gates").glob("test_*.py")})
+SCRIPTS = sorted(p for p in STUDIO.rglob("test_*.py") if "__pycache__" not in p.parts)
 
 # repo-relative path -> reason. Empty: every script is hermetic today.
 SKIP: dict[str, str] = {}
@@ -40,7 +40,8 @@ def _child_env() -> dict:
     """The parent env minus the studio's M4 endpoint/model overrides, so a developer shell that points
     CF_STUDIO_* at the real M4 can never make these tests reach it. PYTHONDONTWRITEBYTECODE keeps
     __pycache__ out of studio/; PYTHONUNBUFFERED makes a timed-out script show how far it got."""
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CF_STUDIO_")}
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith("CF_STUDIO_") and k not in ("PYTHONOPTIMIZE", "PYTHONINSPECT")}
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
     return env
