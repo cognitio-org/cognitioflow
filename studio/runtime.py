@@ -182,6 +182,11 @@ def _content_of(data: dict) -> str:
     if not isinstance(content, str):
         raise GateInfraError("gate endpoint reply has no message content")
     content = _THINK_BLOCK.sub("", content)
+    # Qwen3 Thinking-2507's chat template pre-injects the opening <think>, so a reply can carry only the
+    # closing tag: everything before the last orphan </think> is reasoning and must never reach the parser.
+    close = content.lower().rfind("</think>")
+    if close != -1:
+        content = content[close + len("</think>"):]
     if "<think>" in content.lower():
         raise GateInfraError("gate model output has an unterminated <think> block")
     return content.strip()

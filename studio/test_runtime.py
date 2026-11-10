@@ -60,6 +60,7 @@ class _Handler(BaseHTTPRequestHandler):
         replies = {
             "ok": _reply('{"ok": true, "issues": []}'),
             "think": _reply('<think>scratch: {"ok": true, "issues": []}</think>\n{"ok": false, "issues": ["x"]}'),
+            "orphan_close": _reply('scratch: {"ok": true, "issues": []}\n</think>\n\n{"ok": false, "issues": ["y"]}'),
             "length": _reply('{"ok": tr', finish="length"),
             "unterminated": _reply('<think>{"ok": true, "issues": []} still thinking'),
             "reasoning_only": {"model": "m", "choices": [{"finish_reason": "stop", "message": {
@@ -142,9 +143,11 @@ def test_think_block_stripped_and_truncation_fails_closed():
     with fake_server() as (_, base):
         out = m4_reviewer(base=f"{base}/think/v1", timeout=5)("p")
         assert out == '{"ok": false, "issues": ["x"]}', out     # scratch {"ok": true} never reaches parse_verdict
+        out = m4_reviewer(base=f"{base}/orphan_close/v1", timeout=5)("p")
+        assert out == '{"ok": false, "issues": ["y"]}', out     # template-injected <think>: only </think> in reply
         for mode in ("length", "unterminated", "reasoning_only", "nochoices"):
             _raises(GateInfraError, m4_reviewer(base=f"{base}/{mode}/v1", timeout=5), "p")
-    print("  think stripped; length/unterminated/reasoning-only/no-choices -> GateInfraError: PASS")
+    print("  think stripped (closed + orphan </think>); length/unterminated/reasoning-only/no-choices -> GateInfraError: PASS")
 
 
 FORBIDDEN_IDS = ["claude-sonnet-4", "CLAUDE", "fable-1", "us.anthropic.claude-x", "gpt-6-luna", "opus",
