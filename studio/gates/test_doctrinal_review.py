@@ -299,6 +299,115 @@ def test_reviewer_probe_strings_from_s5():
     print("  (x) S5 reviewer probe strings: PASS")
 
 
+# --- hardening-1: header quotes (finding 3) and multiple / nested verdicts (finding 4) ---
+
+# The docket adapter builds SOURCE as "[KEY] file" header lines, each followed by that file's text.
+HDR_SOURCE = ("[S1] week3-lecture-notes.pdf\n"
+              "A contract requires offer, acceptance and consideration.\n\n"
+              "[S2] week3-reader-chapter-2.pdf\n"
+              "An offer may be revoked at any time before acceptance.")
+
+
+def test_header_quote_cannot_verify():
+    """(y) quoting the adapter's own "[Sn] file" header line never counts as support."""
+    for q in ("[S1] week3-lecture-notes.pdf", "week3-lecture-notes.pdf", "[S2] week3-reader-chapter-2.pdf",
+              "week3-lecture-notes.pdf\nA contract requires"):
+        assert unverified_quotes(HDR_SOURCE, [q]) == [q], q
+        v = review_doctrine(HDR_SOURCE, "x", _says(True, quotes=[q]), require_quotes=True)
+        assert v.ok is False and v.issues[0].startswith("unverifiable source quote"), (q, v)
+        assert review_distractor(HDR_SOURCE, "Q", "opt", "teach", _says(True, quotes=[q])).ok is False, q
+    # a header-shaped line at the very start of the source (offset 0) is stripped too
+    assert unverified_quotes("[S7] notes.pdf\nbody text here", ["[S7] notes.pdf"]) == ["[S7] notes.pdf"]
+    print("  (y) header-line quotes cannot verify: PASS")
+
+
+def test_quote_cannot_stitch_across_sources():
+    """(z) a quote joining the end of one source body to the start of the next does not verify."""
+    stitched = "acceptance and consideration. An offer may be revoked"
+    assert unverified_quotes(HDR_SOURCE, [stitched]) == [stitched]
+    # each body on its own still verifies
+    good = ["A contract requires offer, acceptance and consideration.",
+            "An offer may be revoked at any time before acceptance."]
+    assert unverified_quotes(HDR_SOURCE, good) == []
+    v = review_doctrine(HDR_SOURCE, "x", _says(True, quotes=good), require_quotes=True)
+    assert v.ok is True, v
+    print("  (z) no quote stitched across sources: PASS")
+
+
+def test_quote_needs_a_real_word():
+    """(aa) a quote must carry a word of 4+ characters that is not a header word."""
+    src = "[S1] offer-revocation.pdf\nSee s. 12(3)(a)-(b), 1999, p. 4: offer revocation is allowed before acceptance."
+    no_word = "s. 12(3)(a)-(b), 1999, p. 4"
+    header_words = "offer revocation"   # in the body, long enough, but every 4+ word is a header word
+    assert unverified_quotes(src, [no_word]) == [no_word]
+    assert unverified_quotes(src, [header_words]) == [header_words]
+    # a body quote that shares words with the filename still verifies
+    real = "offer revocation is allowed before acceptance"
+    assert unverified_quotes(src, [real]) == []
+    print("  (aa) quote needs a non-header word of 4+ chars: PASS")
+
+
+def test_header_hook():
+    """(ab) a caller can pass its own header-stripping hook; the default strips ^[Sn] lines."""
+    src = "## FILE contracts.pdf\nA contract requires offer, acceptance and consideration."
+    def hook(text):   # -> (source bodies, header lines)
+        lines = text.split("\n")
+        return ([ln for ln in lines if not ln.startswith("## FILE")], [ln for ln in lines if ln.startswith("## FILE")])
+    assert unverified_quotes(src, ["## FILE contracts.pdf"]) == []                 # default hook leaves it alone
+    assert unverified_quotes(src, ["## FILE contracts.pdf"], split_sources=hook) == ["## FILE contracts.pdf"]
+    v = review_doctrine(src, "x", _says(True, quotes=["## FILE contracts.pdf"]), require_quotes=True,
+                        split_sources=hook)
+    assert v.ok is False, v
+    print("  (ab) header-stripping hook: PASS")
+
+
+OK_V = '{"ok": true, "issues": [], "quotes": ["An offer may be revoked at any time before acceptance."]}'
+NO_V = '{"ok": false, "issues": ["reversed the rule"]}'
+
+
+def test_conflicting_verdicts_fail_closed():
+    """(ac) two top-level verdicts that disagree fail closed, in either order."""
+    for raw in ("Draft: " + OK_V + " Final: " + NO_V, "Draft: " + NO_V + " Final: " + OK_V):
+        v = parse_verdict(raw)
+        assert v.ok is False, (raw, v)
+        assert review_doctrine(SOURCE, "x", lambda p, raw=raw: raw, require_quotes=True).ok is False, raw
+        assert review_distractor(SOURCE, "Q", "o", "t", lambda p, raw=raw: raw).ok is False, raw
+    print("  (ac) conflicting verdicts fail closed: PASS")
+
+
+def test_agreeing_verdicts_take_the_last():
+    """(ad) repeated verdicts that agree are fine; the LAST one is used."""
+    first = '{"ok": false, "issues": ["first"]}'
+    last = '{"ok": false, "issues": ["last"]}'
+    v = parse_verdict(first + "\n" + last)
+    assert v.ok is False and v.issues == ["last"], v
+    v = parse_verdict(OK_V + " then again " + OK_V)
+    assert v.ok is True, v
+    print("  (ad) agreeing verdicts: last wins: PASS")
+
+
+def test_nested_verdict_rejected():
+    """(ae) a verdict object nested inside another object is not a verdict."""
+    for raw in ('{"verdict": ' + OK_V + '}',
+                '{"verdict": {"ok": true, "issues": []}, "note": "x"}',
+                '{"review": {"ok": true, "issues": []}} ' + '{"meta": 1}'):
+        v = parse_verdict(raw)
+        assert v.ok is False and v.issues == ["unparseable reviewer output"], (raw, v)
+    print("  (ae) nested verdict rejected: PASS")
+
+
+def test_braces_inside_strings_do_not_count():
+    """(af) a verdict-looking string inside issues/quotes is not a second verdict."""
+    raw = '{"ok": false, "issues": ["the draft said {\\"ok\\": true} but the rule is reversed"]}'
+    v = parse_verdict(raw)
+    assert v.ok is False and len(v.issues) == 1 and "reversed" in v.issues[0], v
+    raw = '{"ok": true, "issues": [], "quotes": ["An offer may be revoked {at} any time"]}'
+    assert parse_verdict(raw).ok is True
+    # prose braces around a single real verdict are ignored
+    assert parse_verdict("Using {braces} in prose. " + OK_V).ok is True
+    print("  (af) braces inside strings / prose ignored: PASS")
+
+
 if __name__ == "__main__":
     test_ok_true()
     test_fenced_json()
@@ -325,4 +434,12 @@ if __name__ == "__main__":
     test_typographic_quotes_and_dashes_normalised()
     test_normalisation_does_not_admit_fabrication()
     test_reviewer_probe_strings_from_s5()
+    test_header_quote_cannot_verify()
+    test_quote_cannot_stitch_across_sources()
+    test_quote_needs_a_real_word()
+    test_header_hook()
+    test_conflicting_verdicts_fail_closed()
+    test_agreeing_verdicts_take_the_last()
+    test_nested_verdict_rejected()
+    test_braces_inside_strings_do_not_count()
     print("OK")

@@ -396,20 +396,30 @@ def for_review(game: dict) -> str:
 
 # ---------------------------------------------------------------- when to write
 
+def _inside_window(created, now: float, window_s: float) -> bool:
+    """True when `created` is within `window_s` of `now`. A missing or unreadable `created` counts as
+    inside (fail closed): a row we cannot date still uses a slot rather than freeing one."""
+    try:
+        return not now - float(created) >= window_s   # NaN compares False: inside too
+    except (TypeError, ValueError):
+        return True
+
+
 def weekly_slots(rows: list, cap, now: float = None, window_s: float = SLOT_WINDOW_S):
     """Autonomous draft slots left this week, or None when there is no cap.
 
     `rows` are the owner's docket rows across ALL his courses ({status, created}); the cap is per owner, not per
     course (D-11). A row uses a slot when it is `writing`, `draft`, `approved` or `discarded`; a `failed` row
     (gate-blocked, gates unavailable or a broken writer) never does. With `now` given, only rows created within
-    `window_s` of it count; without it the caller has already filtered to the window in SQL."""
+    `window_s` of it count (a row with no readable `created` counts, fail closed); without it the caller has
+    already filtered to the window in SQL."""
     if cap is None:
         return None
     used = 0
     for r in rows:
         if r.get("status") not in SLOT_STATUSES:
             continue
-        if now is not None and now - (r.get("created") or 0) >= window_s:
+        if now is not None and not _inside_window(r.get("created"), now, window_s):
             continue
         used += 1
     return max(0, int(cap) - used)
@@ -437,7 +447,7 @@ def weeks_needing_games(files: list, games: list, now: float, failed_backoff_s: 
     newest_game, busy = {}, set()
     blocked, infra = {}, {}
     for g in games:
-        w = str(g.get("week") or "")
+        w = str(g.get("week") or "").strip()   # same key as the file weeks above
         if g.get("status") == "writing" and now - (g.get("updated") or 0) < AUTO_STALE_S:
             busy.add(w)
         if g.get("status") == "failed" and (max_failures is not None or max_infra_failures is not None):

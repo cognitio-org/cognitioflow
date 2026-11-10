@@ -19,12 +19,28 @@ never win; an unclosed ``<think>`` drops the rest of the output (fail closed).
 An ``ok: true`` verdict that still lists issues is contradictory and fails.
 Quote checks ignore case and typographic quote/dash variants (curly quotes to
 straight, en/em dash to hyphen); nothing else is equated.
+
+Source headers: the docket adapter puts each cited file under a ``[Sn] file`` header
+line. Those lines are the adapter's own words, not the source, so quotes are checked
+against the source BODIES only (header lines removed, each body checked on its own so
+a quote cannot stitch two files together), and a quote must carry at least one
+alphabetic word of 4+ characters that is not a header word. ``split_sources`` lets a
+caller supply its own header split.
+
+Several verdicts: only top-level JSON objects count (a verdict nested inside another
+object is rejected). If more than one top-level verdict remains after the reasoning
+is stripped, they must agree on ``ok``, else the review fails closed; the LAST one wins.
 """
 import json
 import re
 from dataclasses import dataclass, field
 
 MIN_QUOTE_CHARS = 12  # after normalisation (see _norm); stops "the"/"a" from "verifying"
+MIN_WORD_CHARS = 4    # a quote needs one alphabetic word this long that is not a header word
+
+# A "[S1] week3-lecture-notes.pdf" header line, as docket_adapter.cited_source_text writes it.
+HEADER_LINE = re.compile(r"^[ \t]*\[S\d+\][^\n]*$", re.MULTILINE)
+_WORD = re.compile(r"[^\W\d_]+")
 
 
 @dataclass
@@ -104,41 +120,88 @@ def _unparseable(raw: str) -> DoctrineVerdict:
     return DoctrineVerdict(ok=False, issues=["unparseable reviewer output"], raw=raw)
 
 
-def parse_verdict(raw: str) -> DoctrineVerdict:
-    """Extract and validate the first JSON object after the model's reasoning,
-    failing closed if it is unreadable.
+def _top_level_objects(text: str) -> tuple[list[str], str]:
+    """Every top-level ``{...}`` span in ``text``, string-aware, plus any unclosed tail.
 
-    ``quotes`` is optional here (legacy reviewers omit it); if present it must be a
-    list of strings. Quote verification happens in ``apply_quote_rule``.
+    Braces inside JSON strings do not count; quote characters outside any object (prose)
+    are ignored. A ``{`` that is never closed returns its tail as the second value.
+    """
+    spans, depth, start, in_str, esc = [], 0, 0, False, False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"' and depth:
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}" and depth:
+            depth -= 1
+            if depth == 0:
+                spans.append(text[start:i + 1])
+    return spans, (text[start:] if depth else "")
+
+
+_OK_KEY = re.compile(r'"ok"\s*:')
+
+
+def _verdict(data: dict, raw: str) -> DoctrineVerdict:
+    """Validate one parsed verdict dict; raise ValueError if its shape is wrong."""
+    if (
+        not isinstance(data.get("ok"), bool)
+        or not isinstance(data.get("issues"), list)
+        or not all(isinstance(issue, str) for issue in data["issues"])
+    ):
+        raise ValueError("invalid reviewer verdict")
+    quotes = data.get("quotes", [])
+    if not isinstance(quotes, list) or not all(isinstance(q, str) for q in quotes):
+        raise ValueError("invalid reviewer quotes")
+    ok = data["ok"] and not data["issues"]  # ok:true + issues is contradictory: fail closed
+    return DoctrineVerdict(ok=ok, issues=data["issues"], raw=raw, quotes=quotes)
+
+
+def parse_verdict(raw: str) -> DoctrineVerdict:
+    """Extract and validate the reviewer's verdict after its reasoning, failing closed.
+
+    Only TOP-LEVEL JSON objects with an ``"ok"`` key are verdicts; one nested inside
+    another object (``{"verdict": {"ok": true}}``) is not, and alone is unparseable.
+    A top-level object that mentions ``"ok"`` but does not parse fails closed, as does an
+    unclosed one. With several verdicts (``Draft: {...} Final: {...}``) every one must be
+    well-formed and they must agree on ``ok``, else the result fails closed; the LAST is
+    returned. ``quotes`` is optional here (legacy reviewers omit it); if present it must
+    be a list of strings. Quote verification happens in ``apply_quote_rule``.
     ``ok: true`` with a non-empty ``issues`` list is treated as a failure.
     ``raw`` on the returned verdict is always the untouched reviewer output.
     """
     if not isinstance(raw, str):
         return _unparseable(str(raw))
-    json_match = re.search(
-        r'\{(?:[^{}"]|"(?:\\.|[^"\\])*")*\}',
-        strip_reasoning(raw),
-        re.DOTALL,
-    )
-    if not json_match:
-        return _unparseable(raw)
-
+    spans, tail = _top_level_objects(strip_reasoning(raw))
+    if _OK_KEY.search(tail):
+        return _unparseable(raw)  # a verdict that never closes: cannot know what it said
+    verdicts = []
     try:
-        data = json.loads(json_match.group(0), strict=False)  # tolerate raw newlines in verbatim quotes
-        if (
-            not isinstance(data, dict)
-            or not isinstance(data.get("ok"), bool)
-            or not isinstance(data.get("issues"), list)
-            or not all(isinstance(issue, str) for issue in data["issues"])
-        ):
-            raise ValueError("invalid reviewer verdict")
-        quotes = data.get("quotes", [])
-        if not isinstance(quotes, list) or not all(isinstance(q, str) for q in quotes):
-            raise ValueError("invalid reviewer quotes")
-        ok = data["ok"] and not data["issues"]  # ok:true + issues is contradictory: fail closed
-        return DoctrineVerdict(ok=ok, issues=data["issues"], raw=raw, quotes=quotes)
-    except (json.JSONDecodeError, ValueError):
+        for span in spans:
+            try:
+                data = json.loads(span, strict=False)  # tolerate raw newlines in verbatim quotes
+            except json.JSONDecodeError:
+                if _OK_KEY.search(span):
+                    raise ValueError("unreadable reviewer verdict")
+                continue  # prose in braces, not a verdict
+            if isinstance(data, dict) and "ok" in data:
+                verdicts.append(_verdict(data, raw))
+    except ValueError:
         return _unparseable(raw)
+    if not verdicts:
+        return _unparseable(raw)
+    if len({v.ok for v in verdicts}) > 1:
+        return DoctrineVerdict(ok=False, issues=["conflicting reviewer verdicts"], raw=raw)
+    return verdicts[-1]
 
 
 _TYPOGRAPHY = str.maketrans({
@@ -153,29 +216,47 @@ def _norm(text: str) -> str:
     return " ".join(text.translate(_TYPOGRAPHY).split()).casefold()
 
 
-def unverified_quotes(source_text: str, quotes: list[str]) -> list[str]:
-    """Return every quote that is not a normalised substring of the source
-    (or is shorter than MIN_QUOTE_CHARS after normalisation). See ``_norm``."""
-    src = _norm(source_text)
+def split_source_headers(source_text: str) -> tuple[list[str], list[str]]:
+    """Default header split: (source bodies, header lines) around ``[Sn] file`` lines.
+
+    Each body is the text between two header lines (or the ends of the source)."""
+    headers = [m.group(0) for m in HEADER_LINE.finditer(source_text)]
+    return HEADER_LINE.split(source_text), headers
+
+
+def unverified_quotes(source_text: str, quotes: list[str], *, split_sources=None) -> list[str]:
+    """Return every quote that does not verify against the source.
+
+    A quote verifies only if, after normalisation (see ``_norm``), it is at least
+    MIN_QUOTE_CHARS long, is a substring of ONE source body (header lines removed, see
+    ``split_source_headers``; ``split_sources`` overrides it with the same return shape),
+    and contains an alphabetic word of MIN_WORD_CHARS+ characters that is not a word of
+    any header line.
+    """
+    bodies, headers = (split_sources or split_source_headers)(source_text)
+    bodies = [_norm(b) for b in bodies]
+    header_words = {w for h in headers for w in _WORD.findall(_norm(h))}
     bad = []
     for q in quotes:
         nq = _norm(q)
-        if len(nq) < MIN_QUOTE_CHARS or nq not in src:
+        real_word = any(len(w) >= MIN_WORD_CHARS and w not in header_words for w in _WORD.findall(nq))
+        if len(nq) < MIN_QUOTE_CHARS or not real_word or not any(nq in b for b in bodies):
             bad.append(q)
     return bad
 
 
-def apply_quote_rule(verdict: DoctrineVerdict, source_text: str) -> DoctrineVerdict:
+def apply_quote_rule(verdict: DoctrineVerdict, source_text: str, *, split_sources=None) -> DoctrineVerdict:
     """Fail an ``ok: true`` verdict that lacks verifiable source quotes.
 
     ``ok: false`` verdicts are returned unchanged (already failing).
+    ``split_sources`` is passed to ``unverified_quotes``.
     """
     if not verdict.ok:
         return verdict
     if not verdict.quotes:
         return DoctrineVerdict(ok=False, issues=["no supporting source quotes"],
                                raw=verdict.raw, quotes=verdict.quotes)
-    bad = unverified_quotes(source_text, verdict.quotes)
+    bad = unverified_quotes(source_text, verdict.quotes, split_sources=split_sources)
     if bad:
         shown = "; ".join(repr(q[:80]) for q in bad[:3])
         return DoctrineVerdict(ok=False, issues=[f"unverifiable source quote(s): {shown}"],
@@ -183,18 +264,23 @@ def apply_quote_rule(verdict: DoctrineVerdict, source_text: str) -> DoctrineVerd
     return verdict
 
 
-def review_doctrine(source_text: str, generated_text: str, reviewer, *, require_quotes: bool = False) -> DoctrineVerdict:
+def review_doctrine(source_text: str, generated_text: str, reviewer, *, require_quotes: bool = False,
+                    split_sources=None) -> DoctrineVerdict:
     """Pass 1: review generated text against the source using the injected reviewer callable.
 
-    ``require_quotes=False`` keeps the Phase-1 harness behaviour; the docket adapter
-    passes ``True`` so an unquoted or misquoted ``ok: true`` fails closed.
+    ``require_quotes=False`` is the legacy no-quote behaviour (kept for old callers);
+    the harness and the docket adapter pass ``True`` so an unquoted or misquoted
+    ``ok: true`` fails closed.
     """
     raw = reviewer(build_prompt(source_text, generated_text))
     verdict = parse_verdict(raw)
-    return apply_quote_rule(verdict, source_text) if require_quotes else verdict
+    if not require_quotes:
+        return verdict
+    return apply_quote_rule(verdict, source_text, split_sources=split_sources)
 
 
-def review_distractor(source_text: str, question: str, option_text: str, teaching: str, reviewer) -> DoctrineVerdict:
+def review_distractor(source_text: str, question: str, option_text: str, teaching: str, reviewer, *,
+                      split_sources=None) -> DoctrineVerdict:
     """Pass 2: review one wrong option. Quotes are always required."""
     raw = reviewer(build_distractor_prompt(source_text, question, option_text, teaching))
-    return apply_quote_rule(parse_verdict(raw), source_text)
+    return apply_quote_rule(parse_verdict(raw), source_text, split_sources=split_sources)
