@@ -12,12 +12,19 @@ the docket adapter uses for pass 1), an ``ok: true`` verdict must carry
 verifies here. A missing, too-short or unverifiable quote turns the verdict into
 a failure, so a same-family reviewer cannot ratify a hallucination without
 pointing at the source. Every path fails closed.
+
+Thinking models: ``<think>...</think>`` reasoning (and anything before an orphan
+``</think>``) is dropped before parsing, so a draft verdict inside the reasoning can
+never win; an unclosed ``<think>`` drops the rest of the output (fail closed).
+An ``ok: true`` verdict that still lists issues is contradictory and fails.
+Quote checks ignore case and typographic quote/dash variants (curly quotes to
+straight, en/em dash to hyphen); nothing else is equated.
 """
 import json
 import re
 from dataclasses import dataclass, field
 
-MIN_QUOTE_CHARS = 12  # after whitespace normalisation; stops "the"/"a" from "verifying"
+MIN_QUOTE_CHARS = 12  # after normalisation (see _norm); stops "the"/"a" from "verifying"
 
 
 @dataclass
@@ -71,21 +78,46 @@ When "ok" is true, "quotes" MUST list the exact SOURCE passages (copied verbatim
 """
 
 
+_THINK_BLOCK = re.compile(r"<think\b[^>]*>.*?</think\s*>", re.IGNORECASE | re.DOTALL)
+_THINK_CLOSE = re.compile(r"</think\s*>", re.IGNORECASE)
+_THINK_OPEN = re.compile(r"<think\b[^>]*>", re.IGNORECASE)
+
+
+def strip_reasoning(text: str) -> str:
+    """Remove model reasoning so only the final answer is parsed.
+
+    1. drop every complete ``<think>...</think>`` block;
+    2. drop everything up to and including the last remaining (orphan) ``</think>``;
+    3. drop everything from an unclosed ``<think>`` to the end.
+    """
+    text = _THINK_BLOCK.sub("", text)
+    closes = list(_THINK_CLOSE.finditer(text))
+    if closes:
+        text = text[closes[-1].end():]
+    opened = _THINK_OPEN.search(text)
+    if opened:
+        text = text[:opened.start()]
+    return text
+
+
 def _unparseable(raw: str) -> DoctrineVerdict:
     return DoctrineVerdict(ok=False, issues=["unparseable reviewer output"], raw=raw)
 
 
 def parse_verdict(raw: str) -> DoctrineVerdict:
-    """Extract and validate the first JSON object, failing closed if it is unreadable.
+    """Extract and validate the first JSON object after the model's reasoning,
+    failing closed if it is unreadable.
 
     ``quotes`` is optional here (legacy reviewers omit it); if present it must be a
     list of strings. Quote verification happens in ``apply_quote_rule``.
+    ``ok: true`` with a non-empty ``issues`` list is treated as a failure.
+    ``raw`` on the returned verdict is always the untouched reviewer output.
     """
     if not isinstance(raw, str):
         return _unparseable(str(raw))
     json_match = re.search(
         r'\{(?:[^{}"]|"(?:\\.|[^"\\])*")*\}',
-        raw,
+        strip_reasoning(raw),
         re.DOTALL,
     )
     if not json_match:
@@ -103,18 +135,27 @@ def parse_verdict(raw: str) -> DoctrineVerdict:
         quotes = data.get("quotes", [])
         if not isinstance(quotes, list) or not all(isinstance(q, str) for q in quotes):
             raise ValueError("invalid reviewer quotes")
-        return DoctrineVerdict(ok=data["ok"], issues=data["issues"], raw=raw, quotes=quotes)
+        ok = data["ok"] and not data["issues"]  # ok:true + issues is contradictory: fail closed
+        return DoctrineVerdict(ok=ok, issues=data["issues"], raw=raw, quotes=quotes)
     except (json.JSONDecodeError, ValueError):
         return _unparseable(raw)
 
 
+_TYPOGRAPHY = str.maketrans({
+    "\u2018": "'", "\u2019": "'",   # curly single quotes
+    "\u201c": '"', "\u201d": '"',   # curly double quotes
+    "\u2013": "-", "\u2014": "-",   # en dash, em dash
+})
+
+
 def _norm(text: str) -> str:
-    return " ".join(text.split())
+    """Whitespace-collapse, straighten curly quotes, en/em dash to hyphen, casefold."""
+    return " ".join(text.translate(_TYPOGRAPHY).split()).casefold()
 
 
 def unverified_quotes(source_text: str, quotes: list[str]) -> list[str]:
-    """Return every quote that is not a whitespace-normalised substring of the source
-    (or is shorter than MIN_QUOTE_CHARS after normalisation)."""
+    """Return every quote that is not a normalised substring of the source
+    (or is shorter than MIN_QUOTE_CHARS after normalisation). See ``_norm``."""
     src = _norm(source_text)
     bad = []
     for q in quotes:
