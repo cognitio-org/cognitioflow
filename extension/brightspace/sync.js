@@ -265,7 +265,7 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
       const entry = ledger[item.key] || null;
       const handled = (st.seen[org] || []).includes(item.key) || !!entry;
       if (handled && item.kind === "link") {
-        try { Object.assign(item, await rd.head(item.url)); } catch (e) { if (e.login) { setStatus(STATE.login, "Session ended mid-run; nothing more was uploaded."); await persist(st); return { uploaded, fresh: 0 }; } }
+        try { Object.assign(item, await rd.head(item.url)); } catch { /* no HEAD answer = no signal; the TOC read already proved the session */ }
       }
       const verdict = decide(item, { seen: st.seen[org] || [], entry });
       if (verdict === "skip") continue;
@@ -295,6 +295,14 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
       const sha = await sha256(got.bytes);
       if (entry && entry.sha === sha) {             // the date moved, the bytes did not
         ledger[item.key] = { ...entry, signal: signalOf(item), at: now() };
+        await persist(st); continue;
+      }
+      if (entry && !entry.sha) {
+        // Handled before sync knew its bytes (baseline, Remember, hand-added like PIL Lecture 1). A moved
+        // date may be a renamed topic or an unstable header, so learn the hash instead of uploading a twin.
+        ledger[item.key] = { ...entry, signal: signalOf(item), sha, at: now() };
+        if (!shas.includes(sha)) shas.push(sha);
+        logLine(st, org, item.name, "changed on Brightspace; not re-uploaded (it was added by hand) — add it again yourself if the content is new");
         await persist(st); continue;
       }
       if (shas.includes(sha)) {                    // same bytes reached through another key: already in CF

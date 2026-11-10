@@ -33,6 +33,12 @@ if (!window.__cfGrabber) {
       if (!k || !String(k.token || "").startsWith("cfw_") || k.course_id !== cid) throw new Error("unexpected answer making the key");
       return { token: k.token, id: k.id, courseId: k.course_id, expires: Math.round(Number(k.expires) * 1000) };
     },
+    /** Kill a key server-side (owner session). Used when Options removes or replaces a key. */
+    revokeKey: async ({ id }) => {
+      const r = await fetch(`/api/tokens/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "same-origin" });
+      if (!r.ok) throw new Error(`${r.status} revoking the old key`);
+      return true;
+    },
     courses: async () => {
       const r = await fetch("/api/courses", { credentials: "same-origin", headers: { accept: "application/json" } });
       if (r.status === 401) throw new Error("sign in to CognitioFlow first");

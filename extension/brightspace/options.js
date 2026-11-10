@@ -82,6 +82,12 @@ async function setKey(cid, key) {
   await chrome.storage.local.set({ cfKeys });
 }
 
+/** Revoke a key we are dropping, through the signed-in CognitioFlow tab. null = nothing to revoke. */
+async function revoke(key) {
+  if (!key || !key.id) return null;
+  try { await askApp({ type: "revokeKey", id: key.id }); return true; } catch { return false; }
+}
+
 async function act(what, i) {
   const c = courses[i];
   if (!c || !c.org) return;
@@ -90,8 +96,12 @@ async function act(what, i) {
     if (["mint", "paste", "test", "forget", "match"].includes(what) && !c.cid) throw new Error("pick the CognitioFlow course first");
     if (what === "mint") {
       say(i, "Making a key…");
+      const old = local.cfKeys[c.cid];
       await setKey(c.cid, await askApp({ type: "mintKey", cid: c.cid, ttlDays: 90 }));
-      say(i, "Key saved on this computer.");
+      const revoked = await revoke(old);
+      await refreshLocal(); render();
+      say(i, `Key saved on this computer.${revoked === false ? " The old key could not be revoked — revoke it in CognitioFlow." : ""}`);
+      return;
     } else if (what === "paste") {
       const box = document.querySelector(`[data-paste="${i}"]`);
       const token = box.value.trim();
@@ -105,7 +115,12 @@ async function act(what, i) {
       say(i, t.ok ? "Key works for this course." : `${t.state}${t.detail ? ` (${t.detail})` : ""}`);
       return;
     } else if (what === "forget") {
+      const old = local.cfKeys[c.cid];
       await setKey(c.cid, null);
+      const revoked = await revoke(old);
+      await refreshLocal(); render();
+      say(i, revoked === true ? "Key removed and revoked." : revoked === null ? "Key removed here. It was pasted, so revoke it in CognitioFlow yourself." : "Removed here, but not revoked — revoke it in CognitioFlow (DELETE /api/tokens/{id}).");
+      return;
     } else if (what === "match" || what === "all") {
       say(i, "Reading Brightspace…");
       const names = what === "match" ? await askApp({ type: "files", cid: c.cid }) : [];
