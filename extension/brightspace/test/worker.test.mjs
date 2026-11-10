@@ -285,3 +285,25 @@ test("red-team B2: Remember of every visible file does not finish a first review
   await message({ type: "skip", org: "org", keys: ["t:2"] });
   assert.equal(memory.local.confirmed.org, true, "a clean list can");
 });
+
+test("red-team B1: the keyless tab Add never re-sends a file a killed upload left a marker for", async () => {
+  resetState();
+  memory.sync = { appUrl: "https://app.example", courses: [{ org: "org", cid: "c1", name: "C" }] };
+  memory.local.pending = { org: [{ key: "t:1", name: "a.pdf", url: "/x/a.pdf" }, { key: "t:2", name: "b.pdf", url: "/x/b.pdf" }] };
+  memory.local.ledger = { org: { "t:1": { pending: { sha: "abc", at: Date.now() - 60000 }, prev: null, name: "a.pdf" } } };
+  const sent = [];
+  queryImpl = async () => [{ id: 7, url: "https://brightspace.rug.nl/d2l/home" }];
+  sendMessageImpl = async (...a) => ({ ok: true, data: { base64: "JVBERg==", type: "application/pdf" } });
+  const origSend = fakeChrome.tabs.sendMessage;
+  fakeChrome.tabs.sendMessage = async (id, msg) => { sent.push(msg); return sendMessageImpl(id, msg); };
+  try {
+    const r = await message({ type: "take", org: "org", keys: ["t:1", "t:2"] });
+    assert.equal(r.ok, true, r.error);
+    // the upload message is the one carrying bytes (its `type` field is overwritten by the MIME type in take())
+    assert.deepEqual(sent.filter((m) => "base64" in m).map((m) => m.name), ["b.pdf"], "a.pdf is held, not sent again");
+    assert.deepEqual(sent.filter((m) => m.type === "file").map((m) => m.url), ["/x/b.pdf"], "and not even downloaded");
+    assert.ok(memory.local.ledger.org["t:1"].pending, "its marker stands");
+  } finally {
+    fakeChrome.tabs.sendMessage = origSend;
+  }
+});

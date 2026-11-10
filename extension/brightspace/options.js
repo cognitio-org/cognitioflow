@@ -48,7 +48,7 @@ function statusText(org) {
   const s = local.status[org];
   if (!s) return local.confirmed[org] ? "" : "first run: baseline needed";
   const empty = s.emptyPages && s.emptyPages.length ? ` · ${s.emptyPages.length} page(s) had no file link: ${s.emptyPages.slice(0, 3).join(", ")}` : "";
-  const unread = readErrorsNote(s);
+  const unread = readErrorsNote(s, !!local.confirmed[org]);
   return `${s.state}${s.detail ? ` — ${s.detail}` : ""}${s.uploaded ? ` · ${s.uploaded} uploaded last run` : ""}${empty}${unread ? ` · ${unread}` : ""}`;
 }
 
