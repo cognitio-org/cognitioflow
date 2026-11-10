@@ -331,6 +331,21 @@ def _words(text) -> set:
     return {w for w in _WORD.findall(str(text).lower()) if len(w) > 1 and w not in _STOP}
 
 
+# The adapter's own projection labels, at line start. TEACHING's parenthetical is game-controlled (an option key), so it
+# goes whole: a key like "opt1" must not count as a word of content.
+_LABEL = re.compile(r"^[ \t]*(?:QUESTION|CORRECT ANSWER|TEACHING(?:[ \t]*\([^)\n]*\))?|FACTS|IRAC RULE|OPTION|STORY)"
+                    r"[ \t]*:", re.M)
+_ALNUM = re.compile(r"[^\W_]")                          # any Unicode letter or digit
+
+
+def _no_words(text) -> bool:
+    """The shared structural pre-check (terminology, and doctrine pass 1): True when `text` has no letter or digit
+    left once cite markers ([S1], [S1 p.4]) and projection labels are stripped. '[S1]\n[S1]' is cited and
+    non-blank, yet says nothing. Any letter counts (stopwords and 1-char words too: a fixture rule reads 'r [S1]');
+    whether a short answer says enough is the reviewer's call, not a structural one."""
+    return _ALNUM.search(_LABEL.sub(" ", docketgen._CITE.sub(" ", str(text or "")))) is None
+
+
 def _chunk_bounds(text: str, size: int = DOCTRINE_CHUNK) -> list:
     """Contiguous (start, end) offsets covering `text`, ~`size` long, each end nudged to the nearest
     paragraph break within +-20% of the target."""
@@ -534,7 +549,7 @@ def _g_terminology(ctx):
         return False, "no items to check (the game has no rounds)"
     problems = []
     for it in items:
-        if not str(it["generated_text"] or "").strip():
+        if _no_words(it["generated_text"]):              # blank, or only cite markers: nothing to check
             problems.append(f"{it['id']}: no text to check")
             continue
         if not it["cites"]:                               # never checked against everything: that silences swaps
@@ -563,6 +578,12 @@ def _g_doctrine(ctx):
     if not any(it["kind"] != "verdict" for it in p1):    # an IRAC verdict alone is not a game
         return False, "no rounds to review (the game has no rounds)"
     has_mcq = any(it["kind"] == "mcq" for it in p1)
+    # The pre-check terminology runs, on each round's ANSWER content (correct answer, teaching, IRAC rule): the
+    # doctrine text also carries the question, which alone would let a wordless answer through to an ok reviewer.
+    # Both projections walk _rounds in order and append the verdict last, so they pair by position.
+    answers = items_for_terminology(ctx.final, ctx.keyed)
+    wordless = [len(answers) != len(p1) or _no_words(a["generated_text"]) or _no_words(it["generated_text"])
+                for a, it in zip(answers, p1)] + [True] * (len(p1) - len(answers))
     reviewer = _rt(ctx.runtime, "reviewer")
     if reviewer is None:
         try:
@@ -589,6 +610,11 @@ def _g_doctrine(ctx):
         rec = {"id": _short(it["id"], 80), "pass": pas, "ok": False, "issues": [], "quotes_ok": False,
                "source_chars": len(src), "keys_windowed": windowed, "uncited": not it["cites"], "infra": False}
         ctx.doctrine_items.append(rec)
+        if pas == 1 and wordless[idx]:                   # p1 comes first in `work`, so idx is the p1 index
+            rec["issues"] = ["no text to check"]
+            content_failed = True
+            shown.append(f"{rec['id']}: no text to check")
+            continue
         if not _has_source(use, ctx.keyed):
             rec["issues"] = ["no source text"]
             content_failed = True

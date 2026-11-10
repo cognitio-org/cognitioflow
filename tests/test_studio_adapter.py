@@ -990,3 +990,74 @@ def test_r1_gate_infra_error_in_any_gate_is_classified_before_run_gate_swallows_
     assert g["passed"] is False and "GateInfraError" in g["infra"] and "backend down" in g["infra"]
     assert card["blocking_failures"] == [name] and card["infra_error"] is True
     assert da.block_message(card).startswith(docketgen.GATE_UNAVAILABLE)
+
+
+# ==================================================================== S4 fix round 2 (adversarial review)
+
+def _cite_only_q4():
+    """mcq round 4 whose correct answer and every teaching are just a cite marker: cited, non-blank, no words."""
+    g = mixed_game()
+    for o in g["scenes"][4]["quiz"]["options"]:
+        o["teaching"] = "[S1]"
+        if o["correct"]:
+            o["text"] = "[S1]"
+    return g
+
+
+def test_r2_a_cite_marker_only_round_fails_terminology_and_doctrine_under_full_enforcement():
+    """Round-2 BLOCKING: '[S1]' got past the 'no text to check' guard and the whole card passed."""
+    g = _cite_only_q4()
+    item = by_id(da.items_for_terminology(g, src_keyed()))["q4"]
+    assert item["generated_text"].strip() and item["cites"] == ["S1"]      # not blank, cited: only words fail
+    rev = FakeReviewer()
+    card = assert_schema(run(final=finished(g), runtime=full_runtime(reviewer=rev)))
+    assert card["enforced"] == list(da.DESIGN_MANDATORY)
+    t, d = gate(card, "terminology"), gate(card, "doctrine")
+    assert t["passed"] is False and "q4: no text to check" in t["detail"]
+    assert d["passed"] is False and "q4: no text to check" in d["detail"]  # each gate fails on its own
+    assert card["overall_pass"] is False
+    assert not any("Advise her." in p and "CORRECT ANSWER: [S1]" in p for p in rev.prompts)  # never reviewed
+
+
+@pytest.mark.parametrize("label", ["blank q4", "cite-only q4", "cite-only verdict", "empty spot", "empty mcq",
+                                   "cite-only order"])
+def test_r2_doctrine_alone_fails_a_round_with_no_answer_words_without_calling_the_reviewer(monkeypatch, label):
+    """Round-2 NON-BLOCKING: with doctrine enforced but not terminology, a wordless round passed because the
+    reviewer saw only 'QUESTION: ...'. The shared pre-check runs on the round's answer content in pass 1."""
+    monkeypatch.setenv("CF_STUDIO_ENFORCE_GATES", "doctrine")
+    irac = {"irac": [{"rule": "State liability needs a sufficiently serious breach [S1]"}]}
+    bad = "q4"
+    if label == "blank q4":
+        g = mixed_game()
+        for o in g["scenes"][4]["quiz"]["options"]:
+            o["teaching"] = ""
+            if o["correct"]:
+                o["text"] = ""
+        g = finished(g)
+    elif label == "cite-only q4":
+        g = finished(_cite_only_q4())
+    elif label == "cite-only verdict":
+        g, bad = finished(), "verdict"
+        g["verdict"]["irac"] = [{"rule": "[S1]"}]
+    else:
+        bad = "q1"
+        q = {"empty spot": {"id": "q1", "kind": "spot", "cites": ["S1"]},
+             "empty mcq": {"id": "q1", "options": [{"key": "opt1", "correct": True, "teaching": "[S1] [S1 p.4]"},
+                                                   {"key": "B"}]},
+             "cite-only order": {"id": "q1", "kind": "order", "teaching": "[S1]"}}[label]
+        g = {"id": "g", "scenes": [{"id": "s1", "quiz": q}], "verdict": irac}
+    rev = FakeReviewer()
+    card = assert_schema(run(final=g, runtime=full_runtime(reviewer=rev)))
+    assert card["enforced"] == ["doctrine"]
+    d = gate(card, "doctrine")
+    assert d["passed"] is False and f"{bad}: no text to check" in d["detail"], d["detail"]
+    assert card["overall_pass"] is False
+    rec = next(r for r in card["doctrine_items"] if r["id"] == bad and r["pass"] == 1)
+    assert rec["ok"] is False and rec["issues"] == ["no text to check"]
+    assert card["reviewer_calls"] == len(rev.prompts)                       # the blank item was never sent
+
+
+def test_r2_real_fixtures_have_no_wordless_rounds():
+    """The pre-check must not false-block the good games the rest of the suite relies on."""
+    for g in (finished(), finished(game()), finished(produce_game())):
+        assert not [it["id"] for it in da.items_for_terminology(g, src_keyed()) if da._no_words(it["generated_text"])]
