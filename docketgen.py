@@ -29,6 +29,12 @@ MIN_ROUNDS, MAX_ROUNDS = 2, 4
 SOURCE_CHARS = 110_000            # what the writer reads from a week; past exams and WG material first
 FILE_CHARS = 40_000               # no single reader may crowd the rest out
 AUTO_STALE_S = 20 * 60            # a writing job not heard from in this long has died with its instance
+# Error prefixes the studio gates write on a failed row (S5/S9). `weeks_needing_games` counts them per
+# material version when the caller passes `max_failures` / `max_infra_failures`; otherwise they are ignored.
+GATE_BLOCKED = "Blocked by the quality gates"
+GATE_UNAVAILABLE = "Gates unavailable"
+SLOT_STATUSES = ("writing", "draft", "approved", "discarded")   # rows that used one of the week's draft slots
+SLOT_WINDOW_S = 7 * 86400
 
 WRITER = """You write one short 3D courtroom game for a law student, from his own course files only.
 
@@ -390,25 +396,65 @@ def for_review(game: dict) -> str:
 
 # ---------------------------------------------------------------- when to write
 
-def weeks_needing_games(files: list, games: list, now: float, failed_backoff_s: float = 6 * 3600) -> list:
+def weekly_slots(rows: list, cap, now: float = None, window_s: float = SLOT_WINDOW_S):
+    """Autonomous draft slots left this week, or None when there is no cap.
+
+    `rows` are the owner's docket rows across ALL his courses ({status, created}); the cap is per owner, not per
+    course (D-11). A row uses a slot when it is `writing`, `draft`, `approved` or `discarded`; a `failed` row
+    (gate-blocked, gates unavailable or a broken writer) never does. With `now` given, only rows created within
+    `window_s` of it count; without it the caller has already filtered to the window in SQL."""
+    if cap is None:
+        return None
+    used = 0
+    for r in rows:
+        if r.get("status") not in SLOT_STATUSES:
+            continue
+        if now is not None and now - (r.get("created") or 0) >= window_s:
+            continue
+        used += 1
+    return max(0, int(cap) - used)
+
+
+def weeks_needing_games(files: list, games: list, now: float, failed_backoff_s: float = 6 * 3600,
+                        max_failures: int = None, max_infra_failures: int = None, slots: int = None) -> list:
     """Weeks with material newer than their last game, oldest week first.
 
     `files` are the course's ticked text files ({week, created}); `games` its docket rows ({week, status,
     created, updated}). A week counts once any of its files is newer than the newest game for it, whatever
     that game's status: a discarded draft is not written again until new material arrives. A failed attempt
-    holds the week back for a while so a broken week does not burn a model call on every visit."""
+    holds the week back for a while so a broken week does not burn a model call on every visit.
+
+    The three optional limits default to None, which is exactly the behaviour above. `max_failures` stops a
+    week once that many failed rows whose `error` starts with GATE_BLOCKED were created after its newest file
+    (one material version); new material resets the count. `max_infra_failures` does the same, separately,
+    for GATE_UNAVAILABLE rows, so an outage does not spend the content quota. `slots` truncates the due list
+    (oldest week first) to that many weeks; 0 queues nothing."""
     newest_file = {}
     for f in files:
         w = str(f.get("week") or "").strip()
         if w:
             newest_file[w] = max(newest_file.get(w, 0), f.get("created") or 0)
     newest_game, busy = {}, set()
+    blocked, infra = {}, {}
     for g in games:
         w = str(g.get("week") or "")
         if g.get("status") == "writing" and now - (g.get("updated") or 0) < AUTO_STALE_S:
             busy.add(w)
+        if g.get("status") == "failed" and (max_failures is not None or max_infra_failures is not None):
+            if (g.get("created") or 0) > newest_file.get(w, 0):
+                err = str(g.get("error") or "")
+                if err.startswith(GATE_BLOCKED):
+                    blocked[w] = blocked.get(w, 0) + 1
+                elif err.startswith(GATE_UNAVAILABLE):
+                    infra[w] = infra.get(w, 0) + 1
         if g.get("status") == "failed" and now - (g.get("updated") or 0) >= failed_backoff_s:
             continue
         newest_game[w] = max(newest_game.get(w, 0), g.get("created") or 0)
-    due = [w for w, t in newest_file.items() if w not in busy and t > newest_game.get(w, 0)]
-    return sorted(due, key=lambda w: (int(w) if w.isdigit() else 999, w))
+    spent = set()
+    if max_failures is not None:
+        spent |= {w for w, n in blocked.items() if n >= max_failures}
+    if max_infra_failures is not None:
+        spent |= {w for w, n in infra.items() if n >= max_infra_failures}
+    due = [w for w, t in newest_file.items() if w not in busy and w not in spent and t > newest_game.get(w, 0)]
+    due = sorted(due, key=lambda w: (int(w) if w.isdigit() else 999, w))
+    return due if slots is None else due[:max(0, int(slots))]
