@@ -14,11 +14,17 @@ does both, so this module stays pure and testable.
 """
 import json
 import re
+import unicodedata
 
 SET_KINDS = ("customs_yard", "office", "courtroom", "street", "classroom", "parliament", "generic", "tv_studio")
 ARRIVAL_SETS = ("street", "customs_yard")
 PHASES = ("arrival", "examination", "verdict", "epilogue")
 KEYS = "ABCD"
+# Interaction kinds a quiz may declare. "mcq" (the default when no `kind` is set) is the frozen A–D
+# path. The produce-type kinds carry a cached `answer` and NO `options`, are graded deterministically
+# in the browser (play/player/grade.js), and classify as "generation" in the studio retrieval gate.
+PRODUCE_KINDS = ("spot", "order", "slot")
+INTERACTION_KINDS = ("mcq",) + PRODUCE_KINDS
 MIN_ROUNDS, MAX_ROUNDS = 2, 4
 SOURCE_CHARS = 110_000            # what the writer reads from a week; past exams and WG material first
 FILE_CHARS = 40_000               # no single reader may crowd the rest out
@@ -129,11 +135,105 @@ def all_text(game: dict) -> str:
         out.append(q.get("question", ""))
         for o in q.get("options") or []:
             out += [o.get("text", ""), o.get("story", ""), o.get("teaching", "")]
+        # produce-type quizzes carry their player-visible text outside `options`, so the citation
+        # check sees the cites in a fact pattern, teaching note or answer label too.
+        out += [q.get("text", ""), q.get("teaching", "")]
+        ans = q.get("answer") or {}
+        for it in ans.get("issues") or []:
+            out.append(it.get("label", ""))
+        for coll in ("bank", "elements", "facts", "taxonomy"):
+            for x in ans.get(coll) or []:
+                out.append(x.get("label", ""))
     v = game.get("verdict") or {}
     for r in v.get("irac") or []:
         out += [r.get(k, "") for k in ("issue", "rule", "application", "conclusion")]
     out.append(v.get("takeaway", ""))
     return "\n".join(str(x) for x in out if x)
+
+
+def _spans_ok(spans) -> bool:
+    """A list of [start, end] integer character offsets, start < end, 0 <= start."""
+    if not isinstance(spans, list) or not spans:
+        return False
+    for sp in spans:
+        if not (isinstance(sp, (list, tuple)) and len(sp) == 2):
+            return False
+        a, b = sp
+        if not (isinstance(a, int) and isinstance(b, int) and 0 <= a < b):
+            return False
+    return True
+
+
+def _norm_text(text) -> str:
+    """The same normalisation the player applies before computing offsets: CR-stripped, NFC."""
+    return unicodedata.normalize("NFC", str(text or "").replace("\r\n", "\n").replace("\r", "\n"))
+
+
+def _validate_produce_answer(qid, kind, q) -> list:
+    """Per-kind checks on a produce-type quiz's cached answer key. Empty list when it is gradable."""
+    bad = []
+    ans = q.get("answer")
+    if not isinstance(ans, dict) or not ans:
+        return [f"{qid} ({kind}) has no answer key."]
+    if kind == "spot":
+        norm = _norm_text(q.get("text"))
+        if not norm.strip():
+            bad.append(f"{qid} (spot) has no fact text for the player to select.")
+        if any(ord(c) > 0xFFFF for c in norm):
+            # Python offsets count code points; JS .length/.slice count UTF-16 units, so an astral
+            # char (emoji, rare CJK) would shift every baked offset against the browser's.
+            bad.append(f"{qid} (spot) fact text contains astral characters, which misalign JS offsets.")
+        issues = ans.get("issues")
+        if not isinstance(issues, list) or not issues:
+            bad.append(f"{qid} (spot) needs at least one issue in its answer.")
+            issues = []
+        taxo_ids = {str(t.get("id")) for t in (ans.get("taxonomy") or []) if isinstance(t, dict) and t.get("id")}
+        for it in issues:
+            iid = str((it or {}).get("id") or "")
+            if not iid:
+                bad.append(f"{qid} (spot) has an issue with no id.")
+            elif taxo_ids and iid not in taxo_ids:
+                bad.append(f"{qid} (spot) issue {iid!r} is not in the taxonomy.")
+            spans = (it or {}).get("spans")
+            if not _spans_ok(spans):
+                bad.append(f"{qid} (spot) issue {iid or '?'} needs spans as [start, end] offsets.")
+            elif norm:
+                for sp in spans:
+                    if sp[1] > len(norm):
+                        bad.append(f"{qid} (spot) issue {iid or '?'} has a span past the end of the fact text.")
+                        break
+        th = ans.get("threshold", 0.7)
+        if not (isinstance(th, (int, float)) and 0 < th <= 1):
+            bad.append(f"{qid} (spot) threshold must be between 0 and 1.")
+    elif kind == "order":
+        seq = ans.get("sequence")
+        if not isinstance(seq, list) or len(seq) < 3:
+            # Below three, a deranged bank still leaves too few arrangements to be a real recall act.
+            bad.append(f"{qid} (order) needs a sequence of at least three elements.")
+            seq = seq if isinstance(seq, list) else []
+        bank_ids = {str(b.get("id")) for b in (ans.get("bank") or []) if isinstance(b, dict) and b.get("id")}
+        if bank_ids:
+            missing = [str(x) for x in seq if str(x) not in bank_ids]
+            if missing:
+                bad.append(f"{qid} (order) sequence names ids not in the bank: {', '.join(missing)}.")
+    elif kind == "slot":
+        elems = {str(e.get("id")) for e in (ans.get("elements") or []) if isinstance(e, dict) and e.get("id")}
+        facts = {str(f.get("id")) for f in (ans.get("facts") or []) if isinstance(f, dict) and f.get("id")}
+        key = ans.get("key")
+        if len(elems) < 2:
+            # A single element makes every fact a free mark — there is nothing to discriminate.
+            bad.append(f"{qid} (slot) needs at least two elements.")
+        if not facts:
+            bad.append(f"{qid} (slot) needs at least one fact.")
+        if not isinstance(key, dict) or not key:
+            bad.append(f"{qid} (slot) needs a non-empty fact->element key.")
+            key = {}
+        for f, e in key.items():
+            if facts and str(f) not in facts:
+                bad.append(f"{qid} (slot) key maps unknown fact {f!r}.")
+            if elems and str(e) not in elems:
+                bad.append(f"{qid} (slot) key maps fact {f!r} to unknown element {e!r}.")
+    return bad
 
 
 def validate(game, keys) -> list:
@@ -165,22 +265,39 @@ def validate(game, keys) -> list:
         q = s.get("quiz")
         if not q:
             continue
-        opts = q.get("options") if isinstance(q.get("options"), list) else []
-        if [o.get("key") for o in opts] != list(KEYS):
-            bad.append(f"{q.get('id', 'A quiz')} needs four options, A to D.")
-        if sum(1 for o in opts if o.get("correct") is True) != 1:
-            bad.append(f"{q.get('id', 'A quiz')} must have exactly one correct option.")
+        qid = q.get("id", "A quiz")
+        kind = str(q.get("kind") or "mcq").lower()
         if not str(q.get("question") or "").strip():
-            bad.append(f"{q.get('id', 'A quiz')} has no question.")
-        for o in opts:
-            if not str(o.get("teaching") or "").strip():
-                bad.append(f"{q.get('id', 'quiz')} option {o.get('key', '?')} has no teaching text.")
+            bad.append(f"{qid} has no question.")
+        if kind == "mcq":
+            opts = q.get("options") if isinstance(q.get("options"), list) else []
+            if [o.get("key") for o in opts] != list(KEYS):
+                bad.append(f"{qid} needs four options, A to D.")
+            if sum(1 for o in opts if o.get("correct") is True) != 1:
+                bad.append(f"{qid} must have exactly one correct option.")
+            for o in opts:
+                if not str(o.get("teaching") or "").strip():
+                    bad.append(f"{qid} option {o.get('key', '?')} has no teaching text.")
+        elif kind in PRODUCE_KINDS:
+            # Produce-type: carries a cached `answer` and MUST NOT carry `options` (an options list of
+            # >=2 is what the retrieval gate reads as recognition — the whole point is generation).
+            if q.get("options") is not None:
+                bad.append(f"{qid} is a {kind} interaction and must not carry 'options'.")
+            if not str(q.get("teaching") or "").strip():
+                bad.append(f"{qid} ({kind}) has no teaching text.")
+            bad += _validate_produce_answer(qid, kind, q)
+        else:
+            bad.append(f"{qid} has an unknown interaction kind {kind!r} (one of {', '.join(INTERACTION_KINDS)}).")
     cited = set()
     for text in [all_text(game)]:
         cited |= {m.group(1) for m in _CITE.finditer(text)}
     for s in scenes:
-        for o in ((s.get("quiz") or {}).get("options") or []) if isinstance(s, dict) else []:
+        if not isinstance(s, dict):
+            continue
+        q = s.get("quiz") or {}
+        for o in q.get("options") or []:
             cited |= {_cite_key(c) for c in o.get("cites") or [] if _cite_key(c)}
+        cited |= {_cite_key(c) for c in q.get("cites") or [] if _cite_key(c)}
     for c in game.get("checks") or []:
         cited |= {_cite_key(x) for x in (c.get("cites") or []) if _cite_key(x)}
     unknown = sorted(cited - keys)
@@ -212,6 +329,42 @@ def finish(game: dict, gid: str, code: str, keyed: dict) -> dict:
                 o.setdefault("cites", []); o.setdefault("story", ""); o.setdefault("outcome_title", "")
                 o["stamp"] = "SUSTAINED" if o.get("correct") else "OVERRULED"
     return g
+
+
+def interactions_from_game(game: dict) -> list:
+    """Project a game's quizzes into the interaction list the studio retrieval_density gate scores.
+
+    The player JSON has no `interactions` key; this derives it. One interaction per *productive act*:
+    an mcq emits one recognition item carrying `options` (and its answer key); each produce-type act
+    emits a generation item carrying an `answer` and NO `options`. An interaction is emitted only when
+    its key is non-empty, so an empty answer never reads as non-retrieval and drags density down.
+    """
+    out = []
+    for s in game.get("scenes") or []:
+        if not isinstance(s, dict):
+            continue
+        q = s.get("quiz")
+        if not q:
+            continue
+        qid = str(q.get("id") or s.get("id") or "q")
+        kind = str(q.get("kind") or "mcq").lower()
+        ans = q.get("answer") or {}
+        if kind == "mcq":
+            opts = q.get("options") if isinstance(q.get("options"), list) else []
+            if len(opts) >= 2:
+                correct = next((o.get("key") for o in opts if o.get("correct") is True), None)
+                out.append({"id": qid, "kind": "mcq", "options": [o.get("key") for o in opts], "answer": correct})
+        elif kind == "spot":
+            for it in ans.get("issues") or []:
+                if it.get("id") and it.get("spans"):
+                    out.append({"id": f"{qid}:{it['id']}", "kind": "spot", "answer": {"spans": it["spans"], "tag": it["id"]}})
+        elif kind == "order":
+            if ans.get("sequence"):
+                out.append({"id": qid, "kind": "order", "answer": list(ans["sequence"])})
+        elif kind == "slot":
+            for f, e in (ans.get("key") or {}).items():
+                out.append({"id": f"{qid}:{f}", "kind": "slot", "answer": e})
+    return out
 
 
 def review_issues(review) -> list:
