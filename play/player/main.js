@@ -361,7 +361,7 @@ async function playScene(s, scene, i, round, totalRounds, { jumpToQuiz = false, 
       stage.epilogueBeat();
       s.skipScene = false;
       const ep = shotRunner(s, scene, scene.epilogueShots, { loopLast: false });
-      const correct = scene.quiz.options.find((o) => o.correct);
+      const correct = scene.quiz.options?.find((o) => o.correct);
       if (correct?.story) ui.caption(correct.story, 7000);
       await Promise.race([ep.done, ui.prompt('Continue')]);
       ep.stop();

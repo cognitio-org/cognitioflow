@@ -2,6 +2,7 @@
 // and the verdict (closing argument, case outcome vs advocate score, claims & sources, epilogue).
 import { el } from './ui.js';
 import { shuffle } from './data.js';
+import { PRODUCE_KINDS, gradeProduce } from './grade.js';
 
 const $ = (s) => document.querySelector(s);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -59,7 +60,12 @@ async function stamp(panel, kind, audio, reduced) {
 /**
  * One examination round. Returns {firstTry, attempts, wrongKeys}.
  */
-export async function runRound({ ui, audio, stage, quiz, round, total, asker, reduced }) {
+export async function runRound(ctx) {
+  const { quiz } = ctx;
+  // Produce-type kinds (spot / order / slot) render their own surface over the calm overlay and are
+  // graded deterministically; the A–D path below is unchanged for every existing (mcq) quiz.
+  if (quiz && PRODUCE_KINDS.has(quiz.kind)) return runProduce(ctx);
+  const { ui, audio, stage, round, total, asker, reduced } = ctx;
   const root = $('#exam');
   let attempts = 0;
   const wrongKeys = [];
@@ -122,6 +128,204 @@ export async function runRound({ ui, audio, stage, quiz, round, total, asker, re
     await choose(body, { R: 'retry' });
     audio?.music('examination');
   }
+}
+
+// ---------------------------------------------------------------------------
+// Produce-type rounds (spot / order / slot). The player PRODUCES an answer over an open space; the
+// response is graded by pure set / sequence / bipartite math (grade.js) with no model and no network.
+// Single attempt, then an elaborative cited reveal (desirable difficulty; no twitch retry loop).
+// ---------------------------------------------------------------------------
+
+/** Resolve with the first [matching] element clicked inside root. */
+function awaitClick(root, selector) {
+  return new Promise((resolve) => {
+    const h = (e) => { const b = e.target.closest(selector); if (b && root.contains(b) && !b.disabled) { root.removeEventListener('click', h); resolve(b); } };
+    root.addEventListener('click', h);
+  });
+}
+
+/** Split a string into whitespace-delimited word tokens carrying their char offsets into that string. */
+function tokenize(text) {
+  const toks = [];
+  const re = /\S+/g;
+  let m;
+  while ((m = re.exec(text))) toks.push({ s: m.index, e: m.index + m[0].length, w: m[0] });
+  return toks;
+}
+
+async function runProduce({ ui, audio, stage, quiz, round, total, asker, reduced }) {
+  const root = $('#exam');
+  audio?.music('examination');
+  stage.freeze(true);
+  ui.hideSubtitle();
+  const head = (extra) => el('div', { class: 'exam-head' },
+    el('span', { class: 'exam-round', text: `Examination · Round ${round} of ${total}` }), extra || null);
+  const asked = el('p', { class: 'exam-asker', text: asker ? `${asker} puts the task` : 'The bench puts the task' });
+
+  let response;
+  if (quiz.kind === 'spot') response = await spotPanel({ ui, root, quiz, head, asked });
+  else if (quiz.kind === 'order') response = await orderPanel({ ui, root, quiz, head, asked });
+  else response = await slotPanel({ ui, root, quiz, head, asked });
+
+  const graded = gradeProduce(quiz.kind, response, quiz.answer);
+  audio?.sting('select');
+  const score = Math.round(graded.score * SCORE_FIRST);
+  await produceResult({ ui, audio, root, quiz, graded, score, reduced });
+  stage.freeze(false);
+  return { firstTry: graded.correct, attempts: 1, wrongKeys: [], score };
+}
+
+/** spot — free-range (word-granular) issue spotting + open-taxonomy tagging. */
+async function spotPanel({ ui, root, quiz, head, asked }) {
+  // Match the offsets baked offline: strip CR (a Windows checkout shifts every offset by 1 per line)
+  // and NFC-normalise (§/—/smart quotes and macOS NFD input otherwise drift from the baked span).
+  const text = String(quiz.text || quiz.question || '').replace(/\r\n?/g, '\n').normalize('NFC');
+  const toks = tokenize(text);
+  const selected = new Set();                 // indices of selected tokens
+  const picks = [];                            // committed {span,tag,label}
+  let tag = null;                              // current taxonomy pick {id,label}
+
+  const tokEls = toks.map((t, i) => el('span', { class: 'tok', tabindex: '0', role: 'button', 'aria-pressed': 'false', 'data-i': String(i), text: t.w }));
+  const factEl = el('p', { class: 'spot-text', id: 'factpattern', 'aria-label': 'Fact pattern — select the words that raise an issue' });
+  tokEls.forEach((tEl, i) => { factEl.append(tEl); if (i < tokEls.length - 1) factEl.append(document.createTextNode(' ')); });
+
+  const toggle = (i) => {
+    if (selected.has(i)) selected.delete(i); else selected.add(i);
+    tokEls[i].classList.toggle('is-sel', selected.has(i));
+    tokEls[i].setAttribute('aria-pressed', selected.has(i) ? 'true' : 'false');
+  };
+  factEl.addEventListener('click', (e) => { const t = e.target.closest('.tok'); if (t) toggle(Number(t.dataset.i)); });
+  factEl.addEventListener('keydown', (e) => { if ((e.key === ' ' || e.key === 'Enter') && e.target.classList.contains('tok')) { e.preventDefault(); toggle(Number(e.target.dataset.i)); } });
+
+  const taxoList = el('ul', { class: 'taxo', role: 'listbox', 'aria-label': 'Issue taxonomy' });
+  const tagInput = el('input', { class: 'spot-tag', type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: 'Name the issue (type 3+ letters)…', 'aria-label': 'Name the issue' });
+  const renderTaxo = () => {
+    const q = tagInput.value.trim().toLowerCase();
+    taxoList.replaceChildren();
+    if (q.length < 3) return;                 // no suggestions until 3 chars (recall, not recognition)
+    for (const t of quiz.answer.taxonomy) {
+      if (!`${t.label} ${t.id}`.toLowerCase().includes(q)) continue;
+      taxoList.append(el('li', { class: 'taxo-opt', role: 'option', tabindex: '0', 'data-id': t.id, text: t.label }));
+    }
+  };
+  tagInput.addEventListener('input', renderTaxo);
+  const chooseTag = (id, label) => { tag = { id, label }; tagInput.value = label; taxoList.replaceChildren(); };
+  taxoList.addEventListener('click', (e) => { const o = e.target.closest('.taxo-opt'); if (o) chooseTag(o.dataset.id, o.textContent); });
+  taxoList.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('taxo-opt')) { e.preventDefault(); chooseTag(e.target.dataset.id, e.target.textContent); } });
+
+  const picksEl = el('ul', { class: 'picks', 'aria-label': 'Issues you have spotted' });
+  const renderPicks = () => {
+    picksEl.replaceChildren(...picks.map((p, i) => el('li', { class: 'pick' },
+      el('span', { class: 'pick-tag', text: p.label }),
+      el('span', { class: 'pick-quote', text: `“${text.slice(p.span[0], p.span[1])}”` }),
+      el('button', { class: 'pick-x', type: 'button', 'data-rm': String(i), 'aria-label': `Remove ${p.label}` }, '×'))));
+  };
+  picksEl.addEventListener('click', (e) => { const b = e.target.closest('[data-rm]'); if (b) { picks.splice(Number(b.dataset.rm), 1); renderPicks(); } });
+
+  const addBtn = el('button', { class: 'btn btn-ghost', type: 'button', 'data-add': true }, 'Add this issue');
+  const msg = el('p', { class: 'spot-msg', role: 'status' });
+  const panel = el('div', { class: 'exam-panel produce glass', role: 'group', 'aria-labelledby': 'examQ' },
+    head(), asked,
+    el('h2', { class: 'exam-q', id: 'examQ' }, ui.rich(quiz.question)),
+    factEl,
+    el('div', { class: 'spot-tagrow' }, tagInput, addBtn), taxoList, msg,
+    el('h3', { class: 'picks-h', text: 'Spotted issues' }), picksEl,
+    el('div', { class: 'res-actions' }, el('button', { class: 'btn btn-primary', type: 'button', 'data-value': 'submit', 'data-spot': true, 'data-autofocus': true }, 'Submit to the bench')));
+  panel.addEventListener('click', (e) => {
+    if (!e.target.closest('[data-add]')) return;
+    if (!selected.size || !tag) { msg.textContent = !tag ? 'Name the issue first.' : 'Select the words that raise it.'; return; }
+    const idx = [...selected];
+    const span = [Math.min(...idx.map((i) => toks[i].s)), Math.max(...idx.map((i) => toks[i].e))];
+    picks.push({ span, tag: tag.id, label: tag.label });
+    selected.clear(); tokEls.forEach((tEl) => { tEl.classList.remove('is-sel'); tEl.setAttribute('aria-pressed', 'false'); });
+    tag = null; tagInput.value = ''; msg.textContent = ''; renderPicks();
+  });
+  root.replaceChildren(panel); root.hidden = false;
+  (panel.querySelector('[data-autofocus]') || panel).focus?.({ preventScroll: true });
+  await awaitClick(panel, '[data-spot]');
+  root.hidden = true;
+  return { selections: picks.map((p) => ({ span: p.span, tag: p.tag })) };
+}
+
+/** order — assemble the governing test from a shuffled bank. */
+async function orderPanel({ ui, root, quiz, head, asked }) {
+  const source = quiz.answer.bank.length ? quiz.answer.bank : quiz.answer.sequence.map((id) => ({ id, label: id }));
+  // Derange: never present the canonical order, so submitting untouched cannot score full marks.
+  let bank = shuffle(source);
+  if (!quiz.answer.unordered) {
+    let guard = 0;
+    while (bank.length > 1 && guard++ < 24 && bank.every((b, i) => b.id === quiz.answer.sequence[i])) bank = shuffle(source);
+  }
+  const list = el('ol', { class: 'order-list', id: 'irac-rule', 'aria-label': 'Order the elements of the test' });
+  const render = () => {
+    list.replaceChildren(...bank.map((b, i) => el('li', { class: 'order-row', 'data-id': b.id },
+      el('span', { class: 'order-num', 'aria-hidden': 'true', text: String(i + 1) }),
+      el('span', { class: 'order-label' }, ui.rich(b.label)),
+      el('span', { class: 'order-moves' },
+        el('button', { class: 'mv', type: 'button', 'data-up': String(i), 'aria-label': `Move “${b.label}” up`, disabled: i === 0 }, '↑'),
+        el('button', { class: 'mv', type: 'button', 'data-down': String(i), 'aria-label': `Move “${b.label}” down`, disabled: i === bank.length - 1 }, '↓')))));
+  };
+  list.addEventListener('click', (e) => {
+    const u = e.target.closest('[data-up]'); const d = e.target.closest('[data-down]');
+    if (u) { const i = Number(u.dataset.up); [bank[i - 1], bank[i]] = [bank[i], bank[i - 1]]; render(); }
+    else if (d) { const i = Number(d.dataset.down); [bank[i + 1], bank[i]] = [bank[i], bank[i + 1]]; render(); }
+  });
+  render();
+  const panel = el('div', { class: 'exam-panel produce glass', role: 'group', 'aria-labelledby': 'examQ' },
+    head(), asked,
+    el('h2', { class: 'exam-q', id: 'examQ' }, ui.rich(quiz.question)),
+    list,
+    el('div', { class: 'res-actions' }, el('button', { class: 'btn btn-primary', type: 'button', 'data-value': 'submit', 'data-order': true, 'data-autofocus': true }, 'Submit the test')));
+  root.replaceChildren(panel); root.hidden = false;
+  (panel.querySelector('[data-autofocus]') || panel).focus?.({ preventScroll: true });
+  await awaitClick(panel, '[data-order]');
+  root.hidden = true;
+  return { order: bank.map((b) => b.id) };
+}
+
+/** slot — map each salient fact onto the element it satisfies. */
+async function slotPanel({ ui, root, quiz, head, asked }) {
+  const assignments = {};
+  const rows = quiz.answer.facts.map((f) => {
+    const sel = el('select', { class: 'slot-sel', 'aria-label': `Element satisfied by: ${f.label}` },
+      el('option', { value: '', text: '— choose an element —' }),
+      ...quiz.answer.elements.map((eEl) => el('option', { value: eEl.id, text: eEl.label })));
+    sel.addEventListener('change', () => { if (sel.value) assignments[f.id] = sel.value; else delete assignments[f.id]; });
+    return el('div', { class: 'slot-row', 'data-slot': f.id }, el('span', { class: 'slot-fact' }, ui.rich(f.label)), sel);
+  });
+  const panel = el('div', { class: 'exam-panel produce glass', role: 'group', 'aria-labelledby': 'examQ' },
+    head(), asked,
+    el('h2', { class: 'exam-q', id: 'examQ' }, ui.rich(quiz.question)),
+    el('div', { class: 'slot-grid' }, rows),
+    el('div', { class: 'res-actions' }, el('button', { class: 'btn btn-primary', type: 'button', 'data-value': 'submit', 'data-slot-submit': true, 'data-autofocus': true }, 'Submit the application')));
+  root.replaceChildren(panel); root.hidden = false;
+  (panel.querySelector('[data-autofocus]') || panel).focus?.({ preventScroll: true });
+  await awaitClick(panel, '[data-slot-submit]');
+  root.hidden = true;
+  return { assignments };
+}
+
+/** The elaborative, cited reveal after a produce round: score, the model key, IRAC. */
+async function produceResult({ ui, audio, root, quiz, graded, score, reduced }) {
+  const pass = graded.correct;
+  audio?.sting(pass ? 'sustained' : 'overruled');
+  const a = quiz.answer;
+  let modelKey = null;
+  if (quiz.kind === 'spot') modelKey = el('ul', { class: 'key-list' }, a.issues.map((it) => el('li', {}, el('span', { class: 'pick-tag', text: it.label }))));
+  else if (quiz.kind === 'order') modelKey = el('ol', { class: 'key-list' }, a.sequence.map((id) => { const b = a.bank.find((x) => x.id === id); return el('li', {}, ui.rich(b ? b.label : id)); }));
+  else modelKey = el('ul', { class: 'key-list' }, Object.entries(a.key).map(([f, e]) => { const fo = a.facts.find((x) => x.id === f); const eo = a.elements.find((x) => x.id === e); return el('li', {}, el('span', { class: 'slot-fact', text: fo ? fo.label : f }), el('span', { class: 'key-arrow', 'aria-hidden': 'true', text: ' → ' }), el('span', { class: 'slot-elem', text: eo ? eo.label : e })); }));
+
+  const body = el('div', { class: `exam-result produce-result glass ${pass ? 'is-right' : 'is-wrong'}`, id: 'debrief' },
+    el('div', { class: 'exam-head' }, el('span', { class: 'exam-round', text: `${pass ? 'Sustained' : 'Overruled'} · +${score}` })),
+    quiz.teaching ? el('div', { class: 'teach' }, el('h3', { text: 'Why it works' }), el('p', {}, ui.rich(quiz.teaching)), ui.chips(quiz.cites)) : null,
+    el('div', { class: 'model-key' }, el('h3', { text: 'The answer the bench expected' }), modelKey),
+    quiz.irac && Object.values(quiz.irac).some(Boolean) ? iracBlock(ui, quiz.irac, { heading: 'The argument, in IRAC', reduced }) : null,
+    quiz.cites?.length ? el('div', { class: 'res-cites' }, el('span', { text: 'Sources' }), ui.chips(quiz.cites)) : null,
+    el('div', { class: 'res-actions' }, el('button', { class: 'btn btn-primary', type: 'button', 'data-value': 'go', 'data-autofocus': true }, 'Continue', el('span', { class: 'btn-arrow', 'aria-hidden': 'true', text: '→' }))));
+  root.replaceChildren(body); root.hidden = false;
+  (body.querySelector('[data-autofocus]') || body).focus?.({ preventScroll: true });
+  await awaitClick(body, '[data-value="go"]');
+  root.hidden = true;
 }
 
 function outcomeOf(game, score, max) {

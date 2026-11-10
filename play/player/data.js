@@ -1,5 +1,7 @@
 // data.js: loading the game index and game JSON, normalising it, progress storage, media override lookup.
 
+import { PRODUCE_KINDS } from './grade.js';
+
 // Everything is resolved relative to this module, so the player works when embedded under another path.
 export const PLAYER_BASE = new URL('./', import.meta.url);
 export const GAMES_BASE = new URL('../', import.meta.url);
@@ -149,14 +151,71 @@ function normOption(o, i) {
   };
 }
 
+// ---------- produce-type interaction kinds (spot / order / slot) ----------
+// These carry a cached `answer` and NO `options`; they are graded deterministically in-browser
+// (see grade.js) and classify as "generation" in the studio's retrieval-density gate. The A–D
+// ("mcq") kind below is unchanged.
+
+function span2(s) { return Array.isArray(s) && s.length === 2 ? [Number(s[0]) || 0, Number(s[1]) || 0] : null; }
+function spans(list) { return (Array.isArray(list) ? list : []).map(span2).filter(Boolean); }
+
+function normProduceAnswer(kind, a) {
+  a = a || {};
+  if (kind === 'spot') {
+    return {
+      issues: (Array.isArray(a.issues) ? a.issues : []).map((it) => ({
+        id: str(it?.id), label: str(it?.label || it?.id), spans: spans(it?.spans),
+      })).filter((it) => it.id && it.spans.length),
+      decoys: spans(a.decoys),
+      taxonomy: (Array.isArray(a.taxonomy) ? a.taxonomy : []).map((t) => ({ id: str(t?.id), label: str(t?.label || t?.id) })).filter((t) => t.id),
+      threshold: Number.isFinite(Number(a.threshold)) ? Number(a.threshold) : 0.7,
+    };
+  }
+  if (kind === 'order') {
+    return {
+      sequence: (Array.isArray(a.sequence) ? a.sequence : []).map(str).filter(Boolean),
+      bank: (Array.isArray(a.bank) ? a.bank : []).map((b) => ({ id: str(b?.id), label: str(b?.label || b?.id) })).filter((b) => b.id),
+      unordered: !!a.unordered,
+    };
+  }
+  if (kind === 'slot') {
+    const key = {};
+    if (a.key && typeof a.key === 'object') for (const [k, v] of Object.entries(a.key)) key[str(k)] = str(v);
+    return {
+      elements: (Array.isArray(a.elements) ? a.elements : []).map((e) => ({ id: str(e?.id), label: str(e?.label || e?.id) })).filter((e) => e.id),
+      facts: (Array.isArray(a.facts) ? a.facts : []).map((f) => ({ id: str(f?.id), label: str(f?.label || f?.id) })).filter((f) => f.id),
+      key,
+    };
+  }
+  return a;
+}
+
 function normQuiz(q, sceneIdx) {
-  if (!q || !Array.isArray(q.options) || !q.options.length) return null;
+  if (!q) return null;
+  const kind = str(q.kind || 'mcq').toLowerCase();
   const irac = q.irac || {};
+  const iracObj = { issue: str(irac.issue), rule: str(irac.rule), application: str(irac.application), conclusion: str(irac.conclusion) };
+  if (!PRODUCE_KINDS.has(kind)) {
+    // A–D multiple choice — unchanged behaviour (a quiz with no options array is still dropped).
+    if (!Array.isArray(q.options) || !q.options.length) return null;
+    return {
+      id: str(q.id || `q${sceneIdx + 1}`),
+      kind: 'mcq',
+      question: str(q.question),
+      options: q.options.map(normOption),
+      irac: iracObj,
+      cites: cites(q.cites),
+    };
+  }
+  // produce-type: carries `answer`, NO `options`.
   return {
     id: str(q.id || `q${sceneIdx + 1}`),
+    kind,
     question: str(q.question),
-    options: q.options.map(normOption),
-    irac: { issue: str(irac.issue), rule: str(irac.rule), application: str(irac.application), conclusion: str(irac.conclusion) },
+    text: str(q.text),
+    teaching: str(q.teaching),
+    answer: normProduceAnswer(kind, q.answer),
+    irac: iracObj,
     cites: cites(q.cites),
   };
 }
