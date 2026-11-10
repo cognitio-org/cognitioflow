@@ -194,6 +194,98 @@ def test_distractor_requires_quotes():
     print("  (p) distractor quotes always required: PASS")
 
 
+# Reconstructed reviewer probe: a thinking model drafts an ok:true verdict (with a
+# genuinely verifiable SOURCE quote) inside its reasoning, then changes its mind.
+# Before the fix, the first JSON object (the draft) won.
+PROBE_DRAFT = '{"ok": true, "issues": [], "quotes": ["An offer may be revoked at any time before acceptance."]}'
+PROBE_FINAL = '{"ok": false, "issues": ["reversed the rule: the source makes offers revocable"]}'
+PROBE = ("<think>\nDraft verdict: " + PROBE_DRAFT +
+         "\nWait: the generated text says offers are irrevocable, which reverses the source.\n</think>\n"
+         + PROBE_FINAL)
+
+
+def test_ok_true_with_issues_fails():
+    """(q) ok=true but a non-empty issues list is contradictory → fail closed, issues kept."""
+    v = parse_verdict('{"ok": true, "issues": ["invented an element"]}')
+    assert v.ok is False, v
+    assert "invented an element" in v.issues, v.issues
+    # also without require_quotes, and with a verifiable quote attached
+    rev = _says(True, issues=["invented an element"],
+                quotes=["An offer may be revoked at any time before acceptance."])
+    assert review_doctrine(SOURCE, "x", rev).ok is False
+    assert review_doctrine(SOURCE, "x", rev, require_quotes=True).ok is False
+    assert review_distractor(SOURCE, "Q", "opt", "teach", rev).ok is False
+    print("  (q) ok=true with issues fails: PASS")
+
+
+def test_think_draft_cannot_win():
+    """(r) a draft ok:true inside <think>...</think> never beats the final verdict."""
+    v = parse_verdict(PROBE)
+    assert v.ok is False, v
+    assert v.issues == ["reversed the rule: the source makes offers revocable"], v.issues
+    assert v.raw == PROBE  # raw is the untouched reviewer output
+    for req in (False, True):
+        assert review_doctrine(SOURCE, "Offers are irrevocable.", lambda p: PROBE, require_quotes=req).ok is False
+    assert review_distractor(SOURCE, "Q", "opt", "teach", lambda p: PROBE).ok is False
+    # tag case does not matter
+    assert parse_verdict(PROBE.replace("think>", "THINK>")).ok is False
+    print("  (r) <think> draft cannot win: PASS")
+
+
+def test_orphan_close_think_drops_prefix():
+    """(s) an orphan </think> (opening tag eaten by the chat template) drops everything before it."""
+    raw = "Draft verdict: " + PROBE_DRAFT + "\nHmm, no.\n</think>\n" + PROBE_FINAL
+    v = parse_verdict(raw)
+    assert v.ok is False and v.issues == ["reversed the rule: the source makes offers revocable"], v
+    print("  (s) orphan </think> drops prefix: PASS")
+
+
+def test_reasoning_only_is_unparseable():
+    """(t) reasoning with no final verdict, or an unclosed <think>, fails closed."""
+    for raw in ("<think>" + PROBE_DRAFT + "</think>",
+                PROBE_DRAFT + "</think>   ",
+                "<think>still drafting " + PROBE_DRAFT):
+        v = parse_verdict(raw)
+        assert v.ok is False and v.issues == ["unparseable reviewer output"], (raw, v)
+    print("  (t) reasoning-only / unclosed <think> fails closed: PASS")
+
+
+def test_think_stripped_then_good_verdict_passes():
+    """(u) a genuine final ok:true after reasoning still passes with a verified quote."""
+    raw = "<think>checking " + PROBE_FINAL + "</think>" + PROBE_DRAFT
+    v = review_doctrine(SOURCE, "Offers can be revoked before acceptance.", lambda p: raw, require_quotes=True)
+    assert v.ok is True, v
+    print("  (u) final ok:true after reasoning passes: PASS")
+
+
+TYPO_SOURCE = ("The court held that the \u201cpostal rule\u201d applies \u2013 acceptance is "
+               "complete on posting \u2014 unless the offeror\u2019s terms exclude it.")
+
+
+def test_typographic_quotes_and_dashes_normalised():
+    """(v) curly quotes / en-em dashes / case differences between quote and source still verify."""
+    quotes = ['the "postal rule" applies - acceptance is complete on posting',
+              "ACCEPTANCE IS COMPLETE ON POSTING - UNLESS THE OFFEROR'S TERMS",
+              "the \u2018postal rule\u2019 applies \u2014 acceptance"]
+    assert unverified_quotes(TYPO_SOURCE, quotes) == [quotes[2]]  # single curly != double straight
+    # straight in source, curly in quote
+    assert unverified_quotes('the offeror\'s "terms" - here apply', ["offeror\u2019s \u201cterms\u201d \u2013 here"]) == []
+    v = review_doctrine(TYPO_SOURCE, "x", _says(True, quotes=quotes[:2]), require_quotes=True)
+    assert v.ok is True, v
+    assert v.quotes == quotes[:2]  # original strings are kept, not the normalised forms
+    print("  (v) typographic quotes/dashes + case normalised: PASS")
+
+
+def test_normalisation_does_not_admit_fabrication():
+    """(w) normalisation never lets a fabricated or too-short quote through."""
+    bad = ["The \u201cPostal Rule\u201d never applies \u2013 acceptance is complete on receipt",
+           "\u201cPOSTAL RULE\u201d",          # 13 chars incl. quotes: in source, long enough
+           "\u201cpostal\u201d",                # 8 chars after normalisation: too short
+           "acceptance is complete on posting\u2014 unless the OFFEREE"]
+    assert unverified_quotes(TYPO_SOURCE, bad) == [bad[0], bad[2], bad[3]]
+    print("  (w) normalisation does not admit fabrication: PASS")
+
+
 if __name__ == "__main__":
     test_ok_true()
     test_fenced_json()
@@ -212,4 +304,11 @@ if __name__ == "__main__":
     test_distractor_false_law_as_fact_fails()
     test_distractor_clean_passes()
     test_distractor_requires_quotes()
+    test_ok_true_with_issues_fails()
+    test_think_draft_cannot_win()
+    test_orphan_close_think_drops_prefix()
+    test_reasoning_only_is_unparseable()
+    test_think_stripped_then_good_verdict_passes()
+    test_typographic_quotes_and_dashes_normalised()
+    test_normalisation_does_not_admit_fabrication()
     print("OK")
