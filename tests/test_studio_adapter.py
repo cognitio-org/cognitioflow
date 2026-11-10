@@ -1061,3 +1061,75 @@ def test_r2_real_fixtures_have_no_wordless_rounds():
     """The pre-check must not false-block the good games the rest of the suite relies on."""
     for g in (finished(), finished(game()), finished(produce_game())):
         assert not [it["id"] for it in da.items_for_terminology(g, src_keyed()) if da._no_words(it["generated_text"])]
+
+
+# ==================================================================== S4 fix round 3 (adversarial review)
+
+_DISTRACTOR_HEAD = "DISTRACTOR (the wrong option, including any story text):\n"
+_TEACHING_HEAD = "TEACHING (the explanation shown to the player of why this option is wrong):\n"
+
+
+def _distractor_prompts(rev):
+    return [p for p in rev.prompts if _DISTRACTOR_HEAD in p]
+
+
+def _wordless_distractor_game(label):
+    """mixed_game with q4's wrong options emptied of words in one way; the correct option stays intact, so the
+    round's terminology text and pass-1 doctrine text still have words. Returns (game, ids of wordless items)."""
+    g = mixed_game()
+    wrong = [o for o in g["scenes"][4]["quiz"]["options"] if not o["correct"]]
+    if label == "all blank, teaching cite-only":                     # the round-3 repro (r3refine.py section 1)
+        for o in wrong:
+            o.update(text="", story="", teaching="[S1]")
+        bad = wrong
+    elif label == "one option text cite-only":
+        wrong[0]["text"], wrong[0]["story"] = "[S1] [S1 p.4]", ""
+        bad = wrong[:1]
+    elif label == "one teaching blank":
+        wrong[0]["teaching"] = ""
+        bad = wrong[:1]
+    else:                                                           # "one teaching cite-only"
+        wrong[0]["teaching"] = "[S1]\n[S1]"
+        bad = wrong[:1]
+    return g, {f"q4:{o['key']}" for o in bad}
+
+
+@pytest.mark.parametrize("enforce", [None, "doctrine"])
+@pytest.mark.parametrize("label", ["all blank, teaching cite-only", "one option text cite-only",
+                                   "one teaching blank", "one teaching cite-only"])
+def test_r3_doctrine_pass2_fails_a_wordless_distractor_without_calling_the_reviewer(monkeypatch, label, enforce):
+    """Round-3 BLOCKING: the 'no text to check' pre-check ran in doctrine pass 1 only, so a distractor with no
+    words (blank option, teaching '[S1]') was sent to the reviewer with an empty DISTRACTOR block, an ok reply
+    passed it, and the card passed. Pass 2 now fails such an item before any reviewer call."""
+    if enforce:
+        monkeypatch.setenv("CF_STUDIO_ENFORCE_GATES", enforce)
+    g, bad = _wordless_distractor_game(label)
+    fin = finished(g)
+    p2 = da.distractors_for_review(fin, src_keyed())
+    assert {d["id"] for d in p2 if da._no_words(d["option_text"]) or da._no_words(d["teaching"])} == bad
+    assert not [d["id"] for d in da.rounds_for_doctrine(fin, src_keyed()) if da._no_words(d["generated_text"])]
+    rev = FakeReviewer()
+    card = assert_schema(run(final=fin, runtime=full_runtime(reviewer=rev)))
+    d = gate(card, "doctrine")
+    assert d["passed"] is False, d["detail"]
+    for i in sorted(bad):
+        assert f"{i}: no text to check" in d["detail"], d["detail"]
+        rec = next(r for r in card["doctrine_items"] if r["id"] == i and r["pass"] == 2)
+        assert rec["ok"] is False and rec["issues"] == ["no text to check"]
+    assert card["overall_pass"] is False
+    # never sent: exactly the worded distractors reached the reviewer, and no prompt has an empty DISTRACTOR
+    # block or a cite-only / empty TEACHING block
+    sent = _distractor_prompts(rev)
+    assert len(sent) == len(p2) - len(bad), (len(sent), len(p2), bad)
+    for p in sent:
+        assert _DISTRACTOR_HEAD + "\n" not in p
+        assert _TEACHING_HEAD + "\n" not in p and _TEACHING_HEAD + "[S1]\n\n" not in p \
+            and _TEACHING_HEAD + "[S1]\n[S1]\n\n" not in p
+    assert card["reviewer_calls"] == len(rev.prompts)
+
+
+def test_r3_real_fixtures_have_no_wordless_distractors():
+    """The pass-2 pre-check must not false-block the good games' distractors."""
+    for g in (finished(), finished(game()), finished(produce_game())):
+        assert not [d["id"] for d in da.distractors_for_review(g, src_keyed())
+                    if da._no_words(d["option_text"]) or da._no_words(d["teaching"])]

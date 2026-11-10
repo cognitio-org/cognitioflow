@@ -339,10 +339,11 @@ _ALNUM = re.compile(r"[^\W_]")                          # any Unicode letter or 
 
 
 def _no_words(text) -> bool:
-    """The shared structural pre-check (terminology, and doctrine pass 1): True when `text` has no letter or digit
-    left once cite markers ([S1], [S1 p.4]) and projection labels are stripped. '[S1]\n[S1]' is cited and
-    non-blank, yet says nothing. Any letter counts (stopwords and 1-char words too: a fixture rule reads 'r [S1]');
-    whether a short answer says enough is the reviewer's call, not a structural one."""
+    """The shared structural pre-check (terminology; doctrine pass 1; each distractor's option and teaching in
+    doctrine pass 2): True when `text` has no letter or digit left once cite markers ([S1], [S1 p.4]) and
+    projection labels are stripped. '[S1]\n[S1]' is cited and non-blank, yet says nothing. Any letter counts
+    (stopwords and 1-char words too: a fixture rule reads 'r [S1]'); whether a short answer says enough is the
+    reviewer's call, not a structural one."""
     return _ALNUM.search(_LABEL.sub(" ", docketgen._CITE.sub(" ", str(text or "")))) is None
 
 
@@ -610,7 +611,8 @@ def _g_doctrine(ctx):
         rec = {"id": _short(it["id"], 80), "pass": pas, "ok": False, "issues": [], "quotes_ok": False,
                "source_chars": len(src), "keys_windowed": windowed, "uncited": not it["cites"], "infra": False}
         ctx.doctrine_items.append(rec)
-        if pas == 1 and wordless[idx]:                   # p1 comes first in `work`, so idx is the p1 index
+        if (wordless[idx] if pas == 1                    # p1 comes first in `work`, so idx is the p1 index
+                else _no_words(it["option_text"]) or _no_words(it["teaching"])):  # a distractor needs both
             rec["issues"] = ["no text to check"]
             content_failed = True
             shown.append(f"{rec['id']}: no text to check")
