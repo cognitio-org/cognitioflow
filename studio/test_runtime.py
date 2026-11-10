@@ -28,9 +28,13 @@ import aesthetic_judge  # noqa: E402
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=")
 
 
-def _reply(content, finish="stop", model="mlx-community/Qwen3-30B-A3B-Thinking-2507-4bit"):
-    return {"model": model, "choices": [{"index": 0, "finish_reason": finish,
-                                         "message": {"role": "assistant", "content": content}}]}
+def _reply(content, finish="stop", model="mlx-community/Qwen3-30B-A3B-Thinking-2507-4bit", **extra):
+    msg = {"role": "assistant", "content": content, **extra}
+    return {"model": model, "choices": [{"index": 0, "finish_reason": finish, "message": msg}]}
+
+
+# mlx_lm.server 0.31 splits a Thinking model's reasoning into message.reasoning and leaves only the answer in content.
+SPLIT = {"reasoning": 'scratch: {"ok": false, "issues": ["draft"]} ... done'}
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -45,7 +49,7 @@ class _Handler(BaseHTTPRequestHandler):
         mode = self.path.split("/")[1]       # /<mode>/v1/chat/completions
         if mode == "slow":
             time.sleep(1.5)
-            return self._json(_reply('{"ok": true, "issues": []}'))
+            return self._json(_reply('{"ok": true, "issues": []}', **SPLIT))
         if mode == "e500":
             self.send_response(500); self.end_headers(); self.wfile.write(b'{"error": "generation thread died"}')
             return
@@ -58,7 +62,11 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         replies = {
-            "ok": _reply('{"ok": true, "issues": []}'),
+            "ok": _reply('{"ok": true, "issues": []}', **SPLIT),
+            "ok_rc": _reply('{"ok": true, "issues": []}', reasoning_content="thought it through"),
+            # older/unsplit server, no </think> anywhere: may be raw reasoning end to end -> must fail closed
+            "bare": _reply('{"ok": true, "issues": []}'),
+            "blank_reasoning": _reply('{"ok": true, "issues": []}', reasoning="   "),
             "think": _reply('<think>scratch: {"ok": true, "issues": []}</think>\n{"ok": false, "issues": ["x"]}'),
             "orphan_close": _reply('scratch: {"ok": true, "issues": []}\n</think>\n\n{"ok": false, "issues": ["y"]}'),
             "length": _reply('{"ok": tr', finish="length"),
@@ -67,7 +75,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "role": "assistant", "content": None, "reasoning_content": '{"ok": true, "issues": []}'}}]},
             "nochoices": {"model": "m", "choices": []},
             "claude": _reply('{"ok": true, "issues": []}', model="claude-x"),
-            "vlm": _reply('{"score": 0.8, "notes": "ok"}', model="mlx-community/Qwen2.5-VL-7B-Instruct-4bit"),
+            "vlm": _reply('{"score": 0.8, "notes": "ok"}', model="mlx-community/Qwen3-VL-4B-Instruct-4bit"),
         }
         self._json(replies.get(mode, _reply("unknown mode")))
 
@@ -134,9 +142,44 @@ def test_reviewer_happy_path_and_request_shape():
         path, body = srv.requests[-1]
         assert path == "/ok/v1/chat/completions"
         assert body["model"] == "mlx-community/Qwen3-30B-A3B-Thinking-2507-4bit"
-        assert body["max_tokens"] == 123 and body["temperature"] == 0
+        assert body["max_tokens"] == 123
         assert body["messages"] == [{"role": "user", "content": "PROMPT"}]
     print("  reviewer happy path: PASS")
+
+
+def test_reviewer_sampling_matches_qwen3_thinking_card():
+    # Model card: Temperature=0.6, TopP=0.95, TopK=20, MinP=0; output length 32,768. Never greedy.
+    with fake_server() as (srv, base):
+        with env(CF_STUDIO_REVIEW_MAX_TOKENS=None):
+            r = m4_reviewer(base=f"{base}/ok/v1", timeout=5)
+            assert r.max_tokens == 32768
+            r("p")
+        _, body = srv.requests[-1]
+        assert body["temperature"] == 0.6 and body["top_p"] == 0.95 and body["min_p"] == 0
+        assert body["top_k"] == 20 and type(body["top_k"]) is int        # mlx_lm.server rejects a float top_k
+        assert body["max_tokens"] == 32768
+        with env(CF_STUDIO_REVIEW_MAX_TOKENS="16000"):
+            m4_reviewer(base=f"{base}/ok/v1", timeout=5)("p")
+            assert srv.requests[-1][1]["max_tokens"] == 16000
+            m4_reviewer(base=f"{base}/ok/v1", timeout=5, max_tokens=4096)("p")   # explicit arg beats env
+            assert srv.requests[-1][1]["max_tokens"] == 4096
+        for bad in ("abc", "0", "-5"):
+            with env(CF_STUDIO_REVIEW_MAX_TOKENS=bad):
+                _raises(GateConfigError, m4_reviewer, base="http://127.0.0.1:1/v1")
+    print("  reviewer sampling = card (T0.6/p0.95/k20/min_p0), max_tokens 32768 default, arg/env override: PASS")
+
+
+def test_thinking_reply_without_split_evidence_fails_closed():
+    with fake_server() as (_, base):
+        thinking = "mlx-community/Qwen3-30B-A3B-Thinking-2507-4bit"
+        assert m4_reviewer(base=f"{base}/ok/v1", model=thinking, timeout=5)("p") == '{"ok": true, "issues": []}'
+        assert m4_reviewer(base=f"{base}/ok_rc/v1", model=thinking, timeout=5)("p") == '{"ok": true, "issues": []}'
+        for mode in ("bare", "blank_reasoning"):
+            e = _raises(GateInfraError, m4_reviewer(base=f"{base}/{mode}/v1", model=thinking, timeout=5), "p")
+            assert "</think>" in str(e), e
+        # the rule keys off the CONFIGURED model: a non-thinking reviewer model may answer bare JSON
+        assert m4_reviewer(base=f"{base}/bare/v1", model="qwen-x", timeout=5)("p") == '{"ok": true, "issues": []}'
+    print("  thinking reply with no </think> and no reasoning field -> GateInfraError; split replies pass: PASS")
 
 
 def test_think_block_stripped_and_truncation_fails_closed():
@@ -260,7 +303,8 @@ def test_vlm_happy_path_and_aesthetic_gate():
         vlm = m4_vlm(base=f"{base}/vlm/v1", timeout=5)
         assert vlm(png) == '{"score": 0.8, "notes": "ok"}'
         _, body = srv.requests[-1]
-        assert body["model"] == runtime.DEFAULT_VLM_MODEL
+        assert body["model"] == runtime.DEFAULT_VLM_MODEL == "mlx-community/Qwen3-VL-4B-Instruct-4bit"
+        assert body["temperature"] == 0 and body["max_tokens"] == runtime.DEFAULT_VLM_MAX_TOKENS
         parts = body["messages"][0]["content"]
         assert parts[0]["type"] == "text" and "score" in parts[0]["text"]
         url = parts[1]["image_url"]["url"]
@@ -286,13 +330,16 @@ def test_vlm_bad_images():
 
 def test_env_defaults_read_at_call_time():
     names = ["CF_STUDIO_REVIEW_BASE", "CF_STUDIO_REVIEW_MODEL", "CF_STUDIO_REVIEW_TIMEOUT",
-             "CF_STUDIO_REVIEW_MAX_TOKENS", "CF_STUDIO_VLM_BASE", "CF_STUDIO_VLM_MODEL", "CF_STUDIO_VLM_TIMEOUT"]
+             "CF_STUDIO_REVIEW_MAX_TOKENS", "CF_STUDIO_VLM_BASE", "CF_STUDIO_VLM_MODEL", "CF_STUDIO_VLM_TIMEOUT",
+             "CF_STUDIO_VLM_MAX_TOKENS"]
     with env(**{n: None for n in names}):
         r = m4_reviewer()
         assert r.url == "http://100.64.0.3:8082/v1/chat/completions"
         assert r.model == "mlx-community/Qwen3-30B-A3B-Thinking-2507-4bit" and r.timeout == 180.0
+        assert r.max_tokens == 32768
         v = m4_vlm()
         assert v.url == "http://100.64.0.3:8083/v1/chat/completions" and v.timeout == 60.0
+        assert v.model == "mlx-community/Qwen3-VL-4B-Instruct-4bit"   # fleet VLM plan, not spec section 5
     with env(CF_STUDIO_REVIEW_BASE="http://127.0.0.1:9/v1", CF_STUDIO_REVIEW_MODEL="qwen-x",
              CF_STUDIO_REVIEW_TIMEOUT="7"):
         r = m4_reviewer()

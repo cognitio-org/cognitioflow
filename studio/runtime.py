@@ -5,7 +5,8 @@ Two factories build the callables the gates take as injected dependencies:
 - ``m4_reviewer()`` -> ``callable(prompt: str) -> str`` for ``doctrinal_review``
   (Qwen3-30B-A3B-Thinking on the M4, OpenAI-compatible ``/chat/completions``).
 - ``m4_vlm()`` -> ``callable(image_path: str) -> str`` for ``aesthetic_judge``
-  (a Qwen2.5-VL model on the M4; the image goes inline as a base64 data URL).
+  (Qwen3-VL-4B-Instruct on the M4's pinned mlx_vlm.server slot, per the fleet VLM plan; the image goes
+  inline as a base64 data URL).
 
 Guards (they are the point of this module, not decoration):
 
@@ -18,7 +19,8 @@ Guards (they are the point of this module, not decoration):
   gpt-6-luna, decision D-3) is refused, at factory time and again if the server
   reports such a model in its reply. No gate ever runs on those models.
 - **Typed failures.** Transport problems (timeout, refused/reset connection,
-  HTTP error status, unreadable body, truncated model output) raise
+  HTTP error status, unreadable body, truncated model output, a Thinking-model reply with no evidence that
+  its reasoning was separated from the answer) raise
   ``GateInfraError`` so the adapter can record "Gates unavailable" instead of a
   content block. A refused configuration raises ``GateConfigError``, which is
   deliberately NOT a ``GateInfraError``: a misconfiguration is not an outage.
@@ -56,10 +58,21 @@ FORBIDDEN_MODEL_MARKERS = ("claude", "anthropic", "fable", "opus", "sonnet", "ha
 DEFAULT_REVIEW_BASE = "http://100.64.0.3:8082/v1"
 DEFAULT_REVIEW_MODEL = "mlx-community/Qwen3-30B-A3B-Thinking-2507-4bit"
 DEFAULT_REVIEW_TIMEOUT = 180.0
-DEFAULT_REVIEW_MAX_TOKENS = 8000
+# Qwen3-30B-A3B-Thinking-2507 model card, "Best Practices": "We recommend using an output length of 32,768 tokens
+# for most queries." A lower cap turns long reasoning into finish_reason=length -> GateInfraError, not a verdict.
+# Overridable per call (max_tokens=) or by env CF_STUDIO_REVIEW_MAX_TOKENS. The call is non-streaming, so the
+# 180 s timeout, not this cap, is what bounds a long generation; calibrate both in shadow runs.
+DEFAULT_REVIEW_MAX_TOKENS = 32768
+# Same card: "We suggest using Temperature=0.6, TopP=0.95, TopK=20, and MinP=0." Never greedy (temperature 0):
+# Qwen3 thinking models loop on greedy decoding, which ends in finish_reason=length and burns the infra retries.
+# Field names match mlx_lm.server's request parser (top_k must be an int there).
+REVIEW_SAMPLING = {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0.0}
 
-DEFAULT_VLM_BASE = "http://100.64.0.3:8083/v1"          # mlx_vlm.server slot (fleet VLM plan)
-DEFAULT_VLM_MODEL = "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"
+# Fleet VLM plan (memory note fleet-vlm-serving): Qwen3-VL-4B-Instruct-4bit, pinned / non-evictable, on the M4's
+# mlx_vlm.server at :8083. It beats the old Qwen2.5-VL-7B at about a third of the RAM. The fleet plan wins over
+# spec section 5 (which named the 7B); override with CF_STUDIO_VLM_MODEL / CF_STUDIO_VLM_BASE.
+DEFAULT_VLM_BASE = "http://100.64.0.3:8083/v1"
+DEFAULT_VLM_MODEL = "mlx-community/Qwen3-VL-4B-Instruct-4bit"
 DEFAULT_VLM_TIMEOUT = 60.0
 DEFAULT_VLM_MAX_TOKENS = 400
 
@@ -165,8 +178,20 @@ def _post_json(url: str, payload: dict, timeout: float) -> dict:
     return data
 
 
-def _content_of(data: dict) -> str:
-    """Extract the final answer text, fail-closed: never return partial or thinking-only output."""
+def is_thinking_model(model: str) -> bool:
+    """True for reasoning models (Qwen3 *-Thinking-*, *think*) whose replies must show the reasoning was split off."""
+    return "think" in model.lower()
+
+
+def _content_of(data: dict, thinking: bool = False) -> str:
+    """Extract the final answer text, fail-closed: never return partial or thinking-only output.
+
+    ``thinking=True`` (the configured model is a reasoning model) additionally requires evidence that the
+    reasoning was separated from the answer: either the content carries a ``</think>`` (the text before it is
+    dropped), or the server split the reasoning into its own ``reasoning`` / ``reasoning_content`` field (as
+    mlx_lm.server 0.31 does). A Thinking reply with neither may be raw reasoning end to end, and the first JSON
+    object in it would reach ``parse_verdict`` — so it raises ``GateInfraError`` instead.
+    """
     served = data.get("model")
     if isinstance(served, str) and _forbidden_marker(served):
         raise GateConfigError(f"gate endpoint answered as forbidden model {served!r}")
@@ -181,6 +206,11 @@ def _content_of(data: dict) -> str:
     # Deliberately no fallback to "reasoning_content": a scratch {"ok": true} in the reasoning must never pass.
     if not isinstance(content, str):
         raise GateInfraError("gate endpoint reply has no message content")
+    if thinking:
+        split = any(isinstance(msg.get(k), str) and msg.get(k).strip() for k in ("reasoning", "reasoning_content"))
+        if not split and "</think>" not in content.lower():
+            raise GateInfraError("thinking-model reply has no </think> and no separate reasoning field: "
+                                 "cannot tell the answer from the reasoning")
     content = _THINK_BLOCK.sub("", content)
     # Qwen3 Thinking-2507's chat template pre-injects the opening <think>, so a reply can carry only the
     # closing tag: everything before the last orphan </think> is reasoning and must never reach the parser.
@@ -202,15 +232,16 @@ def m4_reviewer(base=None, model=None, timeout=None, max_tokens=None) -> Callabl
                            "CF_STUDIO_REVIEW_TIMEOUT", float)
     mtk = _positive_number(_env_or(max_tokens, "CF_STUDIO_REVIEW_MAX_TOKENS", DEFAULT_REVIEW_MAX_TOKENS),
                            "CF_STUDIO_REVIEW_MAX_TOKENS", int)
+    thinking = is_thinking_model(mdl)
 
     def reviewer(prompt: str) -> str:
         if not isinstance(prompt, str):
             raise TypeError("reviewer prompt must be a str")
-        payload = {"model": mdl, "temperature": 0, "max_tokens": mtk,
+        payload = {"model": mdl, **REVIEW_SAMPLING, "max_tokens": mtk,
                    "messages": [{"role": "user", "content": prompt}]}
-        return _content_of(_post_json(url, payload, tmo))
+        return _content_of(_post_json(url, payload, tmo), thinking=thinking)
 
-    reviewer.model, reviewer.url, reviewer.timeout = mdl, url, tmo   # for the review card / logs
+    reviewer.model, reviewer.url, reviewer.timeout, reviewer.max_tokens = mdl, url, tmo, mtk   # for the review card / logs
     return reviewer
 
 
@@ -245,5 +276,5 @@ def m4_vlm(base=None, model=None, timeout=None, max_tokens=None) -> Callable[[st
                    ]}]}
         return _content_of(_post_json(url, payload, tmo))
 
-    vlm.model, vlm.url, vlm.timeout = mdl, url, tmo
+    vlm.model, vlm.url, vlm.timeout, vlm.max_tokens = mdl, url, tmo, mtk
     return vlm
