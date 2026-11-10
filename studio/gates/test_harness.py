@@ -86,6 +86,16 @@ def test_run_gate():
     r = run_gate("x", True, lambda: (True, BadStr()))
     assert r["passed"] is False and "unprintable" in r["detail"], r
 
+    # an exception whose own str() raises still fails closed, never escapes run_gate
+    class BadExc(Exception):
+        def __str__(self):
+            raise ValueError("unprintable exc")
+    def raises_unprintable():
+        raise BadExc()
+    r = run_gate("doctrine", True, raises_unprintable)
+    assert r == {"name": "doctrine", "passed": False, "mandatory": True,
+                 "detail": "gate error (fail-closed): <unprintable BadExc>"}, r
+
     # run_gates still goes through it: a raising reviewer is a blocking doctrine failure
     def down(p):
         raise RuntimeError("model unreachable")
@@ -131,7 +141,7 @@ def test_build_card():
     card = build_card(meta, [{"name": "doctrine", "passed": False, "detail": ""}])
     assert card["overall_pass"] is False and card["gates"][0]["mandatory"] is True, card
     card = build_card(meta, [{"name": "doctrine", "passed": False, "mandatory": "no", "detail": ""}])
-    assert card["overall_pass"] is False, card
+    assert card["overall_pass"] is False and card["blocking_failures"] == ["doctrine"], card
 
     # inputs are not mutated
     hand = [{"name": "doctrine", "passed": "true", "detail": ""}]
@@ -144,6 +154,104 @@ def test_build_card():
     # renders like any other card
     md = render(build_card(meta, failing, extra))
     assert "Week 3" in md and "doctrine" in md
+
+
+def test_build_card_mandatory_unless_literally_false():
+    """S2 fix: only the literal False makes a gate advisory; None, 0 and '' stay mandatory.
+
+    A passing mandatory gate sits beside the gate under test, so the verdict itself
+    flips if a falsy `mandatory` were (wrongly) read as advisory.
+    """
+    meta = {"title": "t"}
+    ok = {"name": "terminology", "passed": True, "mandatory": True, "detail": ""}
+    for falsy in (None, 0, ""):
+        card = build_card(meta, [ok, {"name": "doctrine", "passed": False, "mandatory": falsy,
+                                      "detail": ""}])
+        assert card["overall_pass"] is False, (falsy, card)
+        assert card["blocking_failures"] == ["doctrine"], (falsy, card)
+        assert card["gates"][1]["mandatory"] is True, (falsy, card)
+    # the literal False is advisory: a failing advisory gate beside a passing mandatory one passes
+    card = build_card(meta, [ok, {"name": "polish", "passed": False, "mandatory": False, "detail": ""}])
+    assert card["overall_pass"] is True and card["blocking_failures"] == [], card
+
+
+def test_build_card_no_mandatory_gate_never_passes():
+    """S2 fix: a card with no mandatory gate (incl. empty results) fails closed."""
+    meta = {"title": "t"}
+    advisory_fail = {"name": "polish", "passed": False, "mandatory": False, "detail": "cramped"}
+    advisory_pass = {"name": "polish", "passed": True, "mandatory": False, "detail": "clean"}
+    for results in ([], [advisory_fail], [advisory_pass]):
+        card = build_card(meta, results)
+        assert card["overall_pass"] is False, (results, card)
+        render(card)  # still renders
+    # extra can't forge a pass onto an empty card either
+    card = build_card(meta, [], {"overall_pass": True, "mode": "shadow"})
+    assert card["overall_pass"] is False and card["mode"] == "shadow", card
+
+
+def test_build_card_malformed_entries_fail_closed():
+    """S2 fix: an entry that is not a dict with a str name becomes a failing 'malformed' gate."""
+    meta = {"title": "t"}
+    ok = {"name": "terminology", "passed": True, "mandatory": True, "detail": ""}
+    for bad in (None, "doctrine", 42, ["doctrine", True], {"passed": True, "mandatory": True},
+                {"name": None, "passed": True}, {"name": 7, "passed": True, "detail": ""}):
+        card = build_card(meta, [ok, bad])
+        assert card["overall_pass"] is False, (bad, card)
+        assert card["blocking_failures"] == ["malformed"], (bad, card)
+        g = card["gates"][1]
+        assert g["name"] == "malformed" and g["passed"] is False and g["mandatory"] is True, (bad, g)
+        assert g["detail"].startswith("gate error (fail-closed): malformed gate result at index 1"), g
+        render(card)  # still renders
+    # a lone malformed entry is itself mandatory, so it blocks by name
+    card = build_card(meta, [None])
+    assert card["overall_pass"] is False and card["blocking_failures"] == ["malformed"], card
+
+
+def test_build_card_detail_is_str():
+    """S2 fix: detail is str()-ed; an unprintable detail fails the gate closed."""
+    meta = {"title": "t"}
+    card = build_card(meta, [{"name": "doctrine", "passed": True, "mandatory": True, "detail": 5}])
+    g = card["gates"][0]
+    assert g["detail"] == "5" and g["passed"] is True and card["overall_pass"] is True, card
+    card = build_card(meta, [{"name": "doctrine", "passed": True, "mandatory": True}])
+    assert card["gates"][0]["detail"] == "", card  # missing detail -> "" (render needs the key)
+    render(card)
+
+    class BadStr:
+        def __str__(self):
+            raise ValueError("unprintable")
+    card = build_card(meta, [{"name": "doctrine", "passed": True, "mandatory": True,
+                              "detail": BadStr()}])
+    g = card["gates"][0]
+    assert g["passed"] is False and card["overall_pass"] is False, card
+    assert card["blocking_failures"] == ["doctrine"], card
+    assert g["detail"] == "gate error (fail-closed): <unprintable BadStr>", g
+    render(card)
+
+
+def test_build_card_shares_no_mutable_state():
+    """S2 fix: meta, gates and extra are deep-copied; card edits never reach the inputs."""
+    meta = {"title": "t", "course": {"code": "pil", "weeks": [3]}}
+    gate = {"name": "doctrine", "passed": True, "mandatory": True, "detail": "ok",
+            "evidence": {"spans": [1, 2]}}
+    extra = {"timings_ms": {"doctrine": 41000}, "tags": ["a"]}
+    card = build_card(meta, [gate], extra)
+
+    card["game"]["course"]["weeks"].append(99)
+    assert meta["course"]["weeks"] == [3], meta
+    card["gates"][0]["evidence"]["spans"].append(99)
+    assert gate["evidence"]["spans"] == [1, 2], gate
+    card["timings_ms"]["doctrine"] = 0
+    card["tags"].append("b")
+    assert extra == {"timings_ms": {"doctrine": 41000}, "tags": ["a"]}, extra
+
+    # and the other way: editing inputs after the fact does not change the card
+    meta["course"]["code"] = "x"
+    gate["evidence"]["spans"].clear()
+    extra["timings_ms"]["doctrine"] = 1
+    assert card["game"]["course"]["code"] == "pil", card
+    assert card["gates"][0]["evidence"]["spans"] == [1, 2, 99], card
+    assert card["timings_ms"]["doctrine"] == 0, card
 
 
 def main():
@@ -183,6 +291,11 @@ def main():
 
     test_run_gate()
     test_build_card()
+    test_build_card_mandatory_unless_literally_false()
+    test_build_card_no_mandatory_gate_never_passes()
+    test_build_card_malformed_entries_fail_closed()
+    test_build_card_detail_is_str()
+    test_build_card_shares_no_mutable_state()
 
     print("OK")
 
