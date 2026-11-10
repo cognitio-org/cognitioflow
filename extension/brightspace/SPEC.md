@@ -72,8 +72,10 @@ wrappers) or module description; `dedupe()` collapses the two when they share a 
 
 **Per-item decision (`lib.js` `decide`)**: never handled → upload · handled but no stored signal (v0.1
 Add/Remember, hand-added material) → *adopt* the signal seen now, upload nothing · signal unchanged or
-absent → skip without downloading · signal changed → download, sha256; same hash → ledger only, new hash →
-upload as a new row, logged "updated (old version still in CognitioFlow)".
+absent → skip without downloading · signal changed → download, sha256; same hash → ledger only; entry had
+no hash yet (baseline / Remember / hand-added) → learn the hash, **no upload**, logged so you can add it by
+hand if the content really changed; otherwise new hash → upload as a new row, logged "updated (old
+version still in CognitioFlow)". A failed HEAD on a linked file counts as "no signal", not as signed-out.
 
 **Automatic upload happens only when all hold:** course in `courses` with a `cid`; `confirmed[org]`;
 `auto[org]`; `cfKeys[cid]` present, `courseId === cid`, not expired; the CF origin permission granted.
@@ -224,3 +226,9 @@ asserting through `storage.local` when debugging a scan.
   `LastModifiedDate` are unverified. A wrapper that yields no document is listed in `status[org].emptyPages`.
 - Files over 49 MB are skipped and logged (the whole multipart body is capped at 50 MB server-side).
 - A key's expiry shows in Options; there is no badge warning before it lapses — a lapsed key shows `KEY`.
+- Options revokes a key it removes or replaces (through the CF tab); a pasted key has no id, so revoke it
+  in CognitioFlow yourself.
+- Baseline "match" compares file names exactly (case and spacing folded); a hand-added file renamed on
+  upload is not matched and would upload once.
+- Relative links now resolve against the page's own folder (browser semantics), so an `f:` key from v0.1
+  for a page in a subfolder may be offered again in the popup.

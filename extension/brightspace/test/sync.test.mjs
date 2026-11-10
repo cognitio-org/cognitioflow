@@ -307,3 +307,34 @@ test("testKey: 413 on an empty POST means the key and the route are good", async
   await assert.rejects(w.s.testKey({ cid: "not-mine" }));
 });
 
+
+test("a baselined file whose date moves (same bytes) is hashed once and never re-uploaded", async () => {
+  const w = world({ bs: lapopoRoutes(), local: { cfKeys: KEYS, auto: { 564708: true } }, sync: { ...CONF, courses: [COURSES[1]] } });
+  await w.s.baseline({ org: "564708", mode: "all" });
+  await w.s.run();
+  assert.equal(w.calls.cf.length, 0);
+  const moved = lapopoRoutes({ "/d2l/api/le/1.97/564708/content/toc": () => ({ body: { Modules: [{ ModuleId: 201, Title: "Week 1", Modules: [], Topics: [
+    { TopicId: 8001, Title: "LaPoPo lecture 1 (renamed)", TypeIdentifier: "File", Url: "/content/enforced/564708-X/LaPoPo 1.pdf", LastModifiedDate: "2026-11-20T08:00:00Z" },
+  ] }] } }) });
+  const again = world({ bs: moved, local: w.store.local, sync: { ...CONF, courses: [COURSES[1]] } });
+  await again.s.run();
+  assert.equal(again.calls.cf.length, 0, "no twin of a hand-added file");
+  const e = again.store.local.ledger["564708"]["t:8001"];
+  assert.ok(e.sha && e.signal === "2026-11-20T08:00:00Z");
+  // and from now on a real content change is detectable
+  const third = world({ bs: lapopoRoutes({ ...Object.fromEntries([["/d2l/api/le/1.97/564708/content/toc", moved["/d2l/api/le/1.97/564708/content/toc"]]]) }), local: again.store.local, sync: { ...CONF, courses: [COURSES[1]] } });
+  await third.s.run();
+  assert.equal(third.calls.cf.length, 0, "unchanged signal: no download, no upload");
+});
+
+test("a HEAD that fails on a linked file is 'no signal', not a sign-in problem", async () => {
+  const first = world({ bs: pilRoutes(), local: READY, sync: { ...CONF, courses: [COURSES[0]] } });
+  await first.s.run();
+  const headFails = pilRoutes();
+  const p = enc(`${FOLDER}/Readings/Reading week 2.pdf`);
+  headFails[p] = (init) => (init.method === "HEAD" ? { status: 403, type: "text/html", body: "" } : { type: "application/pdf", body: pdf("reading 2") });
+  const w = world({ bs: headFails, local: first.store.local, sync: { ...CONF, courses: [COURSES[0]] } });
+  await w.s.run();
+  assert.equal(w.store.local.status["564701"].state, STATE.ok);
+  assert.equal(w.calls.cf.length, 0);
+});
