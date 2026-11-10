@@ -1,14 +1,19 @@
 {
-  "version": "pil-draft-1",
-  "status": "DRAFT - not signed off by Matej",
+  "version": "pil-v2",
+  "status": "APPROVED by Matej 2026-11-10",
   "terms": {
-    "treaty": ["agreement", "contract"],
-    "reservation": ["exception", "opt-out"],
+    "reservation": ["opt-out", "interpretative declaration"],
     "state responsibility": ["state liability"],
     "jus cogens": ["customary law"],
-    "opinio juris": ["opinion of lawyers", "legal opinion"],
-    "international organization": ["NGO"],
+    "erga omnes": ["jus cogens"],
+    "opinio juris": ["opinion of jurists", "opinion of lawyers"],
+    "international organization": ["NGO", "non-governmental organization"],
+    "state immunity": ["diplomatic immunity"],
     "sovereign immunity": ["diplomatic immunity"],
-    "erga omnes": ["jus cogens"]
+    "specialized agency": ["subsidiary organ"],
+    "subsidiary organ": ["specialized agency"],
+    "codification": ["legislation"],
+    "progressive development": ["codification"],
+    "advisory opinion": ["advisory judgment", "advisory ruling"]
   }
 }

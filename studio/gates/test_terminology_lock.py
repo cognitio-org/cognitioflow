@@ -64,7 +64,7 @@ def run_tests():
 
     # The shipped PIL seed loads.
     lex, ver = load_lexicon("pil")
-    assert ver == "pil-draft-1" and "treaty" in lex
+    assert ver == "pil-v2" and "codification" in lex and "treaty" not in lex
 
     print("OK")
 
