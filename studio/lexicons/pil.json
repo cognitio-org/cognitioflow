@@ -1,0 +1,14 @@
+{
+  "version": "pil-draft-1",
+  "status": "DRAFT - not signed off by Matej",
+  "terms": {
+    "treaty": ["agreement", "contract"],
+    "reservation": ["exception", "opt-out"],
+    "state responsibility": ["state liability"],
+    "jus cogens": ["customary law"],
+    "opinio juris": ["opinion of lawyers", "legal opinion"],
+    "international organization": ["NGO"],
+    "sovereign immunity": ["diplomatic immunity"],
+    "erga omnes": ["jus cogens"]
+  }
+}
