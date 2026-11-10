@@ -1,20 +1,55 @@
 {
   "version": "eu-law-draft-1",
-  "status": "DRAFT - not signed off by Matej",
+  "status": "APPROVED by Matej 2026-11-10",
   "terms": {
-    "primacy": ["superiority"],
-    "supremacy": ["superiority"],
-    "preliminary ruling": ["preliminary judgment", "preliminary appeal"],
-    "preliminary reference": ["preliminary appeal"],
-    "action for annulment": ["action for nullification", "annulment appeal"],
-    "direct concern": ["immediate concern"],
-    "individual concern": ["personal concern", "specific concern"],
-    "transposition": ["ratification", "ratified"],
-    "proportionality": ["reasonableness"],
-    "dominant position": ["monopoly position", "market monopoly"],
-    "state liability": ["state responsibility"],
-    "EU citizenship": ["EU nationality", "European nationality"],
-    "Union citizenship": ["EU nationality", "European nationality"],
-    "cross-border element": ["international element"]
+    "primacy": [
+      "superiority"
+    ],
+    "supremacy": [
+      "superiority"
+    ],
+    "preliminary ruling": [
+      "preliminary judgment",
+      "preliminary appeal"
+    ],
+    "preliminary reference": [
+      "preliminary appeal"
+    ],
+    "action for annulment": [
+      "action for nullification",
+      "annulment appeal"
+    ],
+    "direct concern": [
+      "immediate concern"
+    ],
+    "individual concern": [
+      "personal concern",
+      "specific concern"
+    ],
+    "transposition": [
+      "ratification",
+      "ratified"
+    ],
+    "proportionality": [
+      "reasonableness"
+    ],
+    "dominant position": [
+      "monopoly position",
+      "market monopoly"
+    ],
+    "state liability": [
+      "state responsibility"
+    ],
+    "EU citizenship": [
+      "EU nationality",
+      "European nationality"
+    ],
+    "Union citizenship": [
+      "EU nationality",
+      "European nationality"
+    ],
+    "cross-border element": [
+      "international element"
+    ]
   }
 }
