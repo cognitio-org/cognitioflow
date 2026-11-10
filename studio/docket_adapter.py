@@ -1,5 +1,12 @@
-"""CF Game Studio, Phase 2, adapter part 1 (slice S3): pure projections from a finished docket game
-to the inputs the quality gates read. No gate imports, no I/O, no model calls. Part 2 (S4) runs the gates.
+"""CF Game Studio, Phase 2, docket adapter.
+
+Part 1 (slice S3): pure projections from a finished docket game to the inputs the quality gates read.
+No gate imports, no I/O, no model calls.
+
+Part 2 (slice S4, below the projections): `gate_docket(...)` runs every gate fail-closed through
+`harness.run_gate` and returns a schema-valid review card dict (never raises); `block_message(card)`
+turns a failing card into the error prefix S8 counts. Gate modules are imported lazily by `_gates()`,
+so importing this module still needs only `docketgen` and the stdlib.
 
 Selection rule (design section 2): a wrong option is wrong on purpose, so its `text` and `story` never
 reach the terminology gate or doctrine pass 1; they go only to doctrine pass 2 (distractors_for_review).
@@ -12,6 +19,17 @@ not tie IRAC entries to rounds, and a game may carry one IRAC entry for three ro
 Every item is {"id", "kind", "cites", "source_text", "generated_text"}. An item that cites nothing is
 checked against ALL sources (the fail-closed direction: more protected terms, more for the reviewer).
 """
+import copy
+import hashlib
+import importlib
+import json
+import os
+import re
+import sys
+import time
+from pathlib import Path
+from types import SimpleNamespace
+
 import docketgen
 
 SOURCE_CAP = 12_000          # chars of cited source text per item
@@ -179,5 +197,740 @@ def distractors_for_review(game: dict, keyed: dict, cap: int = SOURCE_CAP) -> li
             _add_keys(cites, _keys_in(gen))
             item = _item(f"{_qid(s, q)}:{o.get('key', '?')}", "distractor", cites, gen, keyed, cap)
             item["round"], item["key"], item["question"] = _qid(s, q), str(o.get("key", "?")), str(q.get("question", ""))
+            # S4: review_distractor takes the option and its teaching separately (same strings as generated_text).
+            item["option_text"] = _join([f"OPTION: {o.get('text', '')}" if str(o.get("text") or "").strip() else "",
+                                         f"STORY: {o.get('story', '')}" if str(o.get("story") or "").strip() else ""])
+            item["teaching"] = str(o.get("teaching") or "")
             out.append(item)
     return out
+
+
+# ================================================================================================= part 2 (S4)
+# gate_docket(...) runs every gate over a finished docket game and returns the review card; it never raises.
+# Brief: ~/reports/cf-studio-s4-brief.md. Owner decisions applied on top of the brief:
+#   * gates whose driver is not merged yet (playability: S6, accessibility: S7, polish: S6 screenshot) appear
+#     on the card as advisory "not wired" gates (mandatory False, not_wired True): they never block and are
+#     never in `enforced`. A runtime that supplies the probe (tests now, S6/S7 later) wires them back in as
+#     design-mandatory gates, so they become enforceable once S6/S7 land with no change here.
+#   * course -> lexicon by LEXICON_ALIASES (eu -> eu-law, prop -> property, pil -> pil), overridable per id/slug
+#     with CF_STUDIO_LEXICON_MAP="id_or_slug=file,...".
+
+CARD_SCHEMA = "studio-card/1"
+CARD_MAX_BYTES = 32_768          # what the review JSONB column may hold per card
+DETAIL_MAX = 2_000               # every gate detail starts at most this long
+DOCTRINE_SOURCE_CAP = 32_000     # chars of source per doctrine item (env CF_STUDIO_DOCTRINE_SOURCE_CAP)
+DOCTRINE_CHUNK = 2_000           # relevance-window chunk size, nudged to the nearest paragraph break
+DOCTRINE_BUDGET_S = 1500.0       # doctrine wall-clock budget (env CF_STUDIO_DOCTRINE_BUDGET_S)
+GAP = "\n[…]\n"                  # marks omitted source between two kept, non-adjacent chunks
+_GAP_MARK = GAP.strip()
+
+GATE_ORDER = ("terminology", "doctrine", "retrieval", "self_contained", "citations", "reviewer_high",
+              "playability", "accessibility", "polish")
+ADVISORY_GATES = frozenset({"polish"})                    # never blocks, by design
+DESIGN_MANDATORY = tuple(g for g in GATE_ORDER if g not in ADVISORY_GATES)
+GATE_ALIASES = {"a11y": "accessibility"}
+LEXICON_ALIASES = {"eu": "eu-law", "prop": "property", "pil": "pil"}
+DEFAULT_REQUIRED_SELECTORS = ("#app", "#stage")
+NOT_WIRED_DETAIL = {"playability": "not wired: needs S6 driver (advisory until S6 lands)",
+                    "accessibility": "not wired: needs S7 probe (advisory until S7 lands)",
+                    "polish": "not wired: needs S6 screenshot (advisory)"}
+
+_STUDIO_DIR = Path(__file__).resolve().parent
+_GATES_DIR = _STUDIO_DIR / "gates"
+PLAYER_DIR = _STUDIO_DIR.parent / "play" / "player"
+_GATE_MODULES = ("harness", "terminology_lock", "doctrinal_review", "retrieval_density", "self_contained",
+                 "playability", "a11y", "aesthetic_judge")
+_ENGINE_EXT = (".js", ".html", ".css")
+_ENGINE_SKIP = ("vendor-", "assets-", "fonts-")
+
+_loaded = None
+_bundle_cache: dict = {}
+
+
+def _gates() -> SimpleNamespace:
+    """Import the gate modules (bare imports, so studio/gates goes on sys.path) and studio.runtime, once.
+    Appended, not prepended, so nothing in studio/gates can shadow an app module; a gate module that still
+    resolves somewhere else is refused rather than silently used."""
+    global _loaded
+    if _loaded is None:
+        gdir = str(_GATES_DIR)
+        if gdir not in sys.path:
+            sys.path.append(gdir)
+        mods = {name: importlib.import_module(name) for name in _GATE_MODULES}
+        for name, mod in mods.items():
+            if Path(getattr(mod, "__file__", "") or ".").resolve().parent != _GATES_DIR:
+                raise ImportError(f"gate module {name!r} resolved outside studio/gates: {mod.__file__}")
+        mods["runtime"] = importlib.import_module("studio.runtime")
+        _loaded = SimpleNamespace(**mods)
+    return _loaded
+
+
+# ---------------------------------------------------------------------------------------------- small helpers
+
+def _safe(x) -> str:
+    try:
+        return str(x)
+    except Exception:  # noqa: BLE001
+        return "<unprintable>"
+
+
+def _short(x, n: int = 200) -> str:
+    s = x if isinstance(x, str) else _safe(x)
+    return s if len(s) <= n else s[:max(n - 1, 0)] + "…"
+
+
+def _rt(runtime, name: str):
+    """One field of the test-seam runtime (dict or object); None when absent."""
+    if runtime is None:
+        return None
+    if isinstance(runtime, dict):
+        return runtime.get(name)
+    return getattr(runtime, name, None)
+
+
+def _env_positive(name: str, default, cast, warnings: list):
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = cast(raw)
+        if not (value > 0) or value == float("inf"):
+            raise ValueError(raw)
+        return value
+    except (TypeError, ValueError, OverflowError):
+        warnings.append(f"{name}={_short(raw, 40)!r} is not a positive number; using {default}")
+        return default
+
+
+def _known_keys(keys, keyed: dict) -> list:
+    known = []
+    for k in keys or []:
+        k = docketgen._cite_key(k)
+        if k and k in keyed and k not in known:
+            known.append(k)
+    return known
+
+
+def _has_source(keys, keyed: dict) -> bool:
+    """At least one known cited key with non-blank text (a "[S1] name" header alone is not a source)."""
+    return any(str((keyed[k] or {}).get("text") or "").strip() for k in _known_keys(keys, keyed))
+
+
+# ---------------------------------------------------------------------------- doctrine source relevance windows
+
+_STOP = frozenset("""a an and are as at be been being but by can could did do does for from had has have he her
+his if in into is it its may might must no nor not of on or our shall she should so such than that the their them
+then there these they this those to under was we were what when where which who whom why will with would you your
+question correct answer teaching irac rule option story facts""".split())
+_WORD = re.compile(r"[a-z0-9]+")
+
+
+def _words(text) -> set:
+    return {w for w in _WORD.findall(str(text).lower()) if len(w) > 1 and w not in _STOP}
+
+
+def _chunk_bounds(text: str, size: int = DOCTRINE_CHUNK) -> list:
+    """Contiguous (start, end) offsets covering `text`, ~`size` long, each end nudged to the nearest
+    paragraph break within +-20% of the target."""
+    n, out, start, slack = len(text), [], 0, max(size // 5, 1)
+    while start < n:
+        target = start + size
+        if target >= n:
+            out.append((start, n))
+            break
+        lo, hi = max(start + 1, target - slack), min(n, target + slack)
+        end, best = target, None
+        i = text.find("\n\n", lo)
+        while i != -1 and i + 2 <= hi:
+            d = abs(i + 2 - target)
+            if best is None or d < best:
+                best, end = d, i + 2
+            i = text.find("\n\n", i + 1)
+        out.append((start, end))
+        start = end
+    return out
+
+
+def _assemble(text: str, bounds: list, keep) -> str:
+    """Kept chunks in source order: adjacent ones joined verbatim, GAP only where text was left out."""
+    parts, prev = [], None
+    for i in sorted(keep):
+        s, e = bounds[i]
+        if prev is not None and s != prev:
+            parts.append(GAP)
+        parts.append(text[s:e])
+        prev = e
+    return "".join(parts)
+
+
+def _window(text: str, gen_words: set, budget: int):
+    """(body, windowed): the whole text if it fits `budget`, else the best-scoring chunks that fit."""
+    if len(text) <= budget:
+        return text, False
+    bounds = _chunk_bounds(text)
+    score = [len(_words(text[s:e]) & gen_words) for s, e in bounds]
+    order = sorted(range(len(bounds)), key=lambda i: (-score[i], bounds[i][0]))
+    keep = []
+    for i in order:
+        if len(_assemble(text, bounds, keep + [i])) <= budget:
+            keep.append(i)
+    if not keep:                                   # share smaller than one chunk: the best chunk's head
+        s, e = bounds[order[0]]
+        return text[s:min(e, s + max(budget, 0))], True
+    return _assemble(text, bounds, keep), True
+
+
+def _doctrine_source(keys, keyed: dict, generated_text: str, cap: int):
+    known = _known_keys(keys, keyed)
+    if not known or cap <= 0:
+        return "", []
+    share, gen_words = max(cap // len(known), 1), _words(generated_text)
+    parts, windowed = [], []
+    for k in known:
+        header = f"[{k}] {keyed[k].get('name', '')}\n"
+        text = str(keyed[k].get("text") or "")[:docketgen.FILE_CHARS]
+        body, cut = _window(text, gen_words, max(share - len(header) - 2, 0))
+        if cut:
+            windowed.append(k)
+        parts.append(header + body)
+    return "\n\n".join(parts), windowed
+
+
+def doctrine_source_text(keys, keyed: dict, generated_text: str, cap: int = DOCTRINE_SOURCE_CAP) -> str:
+    """The source the doctrine reviewer reads for one item: one "[KEY] name" block per known cited key, in
+    cite order, deduplicated. Each key gets an equal share of `cap`; a key whose text (up to FILE_CHARS) fits
+    its share goes in whole, otherwise its ~2k-char chunks with the most word overlap with `generated_text`
+    are kept (ties: earlier offset) and emitted in source order. Deterministic, stdlib only."""
+    return _doctrine_source(keys, keyed, generated_text, cap)[0]
+
+
+def _full_source(keys, keyed: dict) -> str:
+    """Terminology's source: every known cited key up to FILE_CHARS, i.e. what the writer read. No cut."""
+    return "\n\n".join(f"[{k}] {keyed[k].get('name', '')}\n{str(keyed[k].get('text') or '')[:docketgen.FILE_CHARS]}"
+                       for k in _known_keys(keys, keyed))
+
+
+# ---------------------------------------------------------------------------------------- config: lexicon, flags
+
+def _lexicon_map(warnings: list) -> dict:
+    raw = os.environ.get("CF_STUDIO_LEXICON_MAP", "")
+    out = {}
+    for part in raw.split(","):
+        if not part.strip():
+            continue
+        key, sep, val = part.partition("=")
+        key, val = key.strip(), val.strip()
+        if not sep or not key or not val:
+            warnings.append(f"CF_STUDIO_LEXICON_MAP malformed at {_short(part.strip(), 60)!r}; map ignored")
+            return {}
+        out[key] = val
+    return out
+
+
+def lexicon_code(course, warnings: list) -> str:
+    """The lexicon file stem for a course: CF_STUDIO_LEXICON_MAP, then LEXICON_ALIASES, each looked up by the
+    course id first (seed ids are fixed; slugs are editable), then its slug. No mapping: the slug itself."""
+    c = course if isinstance(course, dict) else {}
+    cid, slug = _safe(c.get("id") or "").strip(), _safe(c.get("slug") or "").strip()
+    for table in (_lexicon_map(warnings), LEXICON_ALIASES):
+        for key in (cid, slug):
+            if key and key in table:
+                return table[key]
+    return slug
+
+
+def _lexicon_status(code: str, tl) -> str:
+    """The lexicon file's `status` (load_lexicon does not return it). Never fatal."""
+    try:
+        path = tl.LEXICON_DIR / f"{code}.json"
+        if path.exists():
+            status = json.loads(path.read_text(encoding="utf-8")).get("status", "")
+            return _short(status, 200) if isinstance(status, str) else ""
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
+def enforce_set(raw, wired, warnings: list) -> list:
+    """The gates that block, from CF_STUDIO_ENFORCE_GATES. Unset/empty -> every wired design-mandatory gate.
+    An unknown token -> all (fail closed) + warning. polish and not-wired gates are dropped with a warning.
+    Never empty: if nothing is left after dropping, all wired design-mandatory gates + warning."""
+    eligible = [g for g in DESIGN_MANDATORY if g in wired]
+    tokens = [GATE_ALIASES.get(t, t) for t in (t.strip().lower() for t in _safe(raw or "").split(",")) if t]
+    if not tokens:
+        return eligible
+    unknown = [t for t in tokens if t not in GATE_ORDER]
+    if unknown:
+        warnings.append("CF_STUDIO_ENFORCE_GATES: unknown gate(s) "
+                        + ", ".join(repr(_short(t, 40)) for t in unknown[:10]) + "; enforcing all gates")
+        return eligible
+    chosen = []
+    for t in tokens:
+        if t in ADVISORY_GATES:
+            warnings.append(f"CF_STUDIO_ENFORCE_GATES: {t} is advisory and never blocks; dropped")
+        elif t not in wired:
+            warnings.append(f"CF_STUDIO_ENFORCE_GATES: {t} is not wired yet (advisory until S6/S7); dropped")
+        elif t not in chosen:
+            chosen.append(t)
+    if not chosen:
+        warnings.append("CF_STUDIO_ENFORCE_GATES left no enforceable gate; enforcing all gates")
+        return eligible
+    return [g for g in DESIGN_MANDATORY if g in chosen]
+
+
+# ------------------------------------------------------------------------------------------- engine hash, bundle
+
+def _player_files(exts) -> list:
+    return sorted((p for p in PLAYER_DIR.iterdir()
+                   if p.is_file() and p.suffix in exts and not p.name.startswith(_ENGINE_SKIP)),
+                  key=lambda p: p.name)
+
+
+def engine_hash() -> str:
+    """sha256 over the sorted relative paths and bytes of play/player/*.js, *.html, *.css (not vendor-*,
+    assets-*, fonts-*). Changes on uncommitted edits too; needs no git."""
+    files = _player_files(_ENGINE_EXT)
+    if not files:
+        raise FileNotFoundError(f"no player files in {PLAYER_DIR}")
+    h = hashlib.sha256()
+    for p in files:
+        h.update(p.relative_to(PLAYER_DIR).as_posix().encode("utf-8") + b"\0" + p.read_bytes() + b"\0")
+    return h.hexdigest()
+
+
+def player_bundle_text(ehash: str = "") -> str:
+    """play/player/*.js + index.html as text (what ships to the browser), cached per engine hash."""
+    if ehash and ehash in _bundle_cache:
+        return _bundle_cache[ehash]
+    files = _player_files((".js",)) + [PLAYER_DIR / "index.html"]
+    text = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in files)
+    if ehash:
+        _bundle_cache.clear()
+        _bundle_cache[ehash] = text
+    return text
+
+
+# --------------------------------------------------------------------------------------------------- gate bodies
+# Each body takes the run context and returns (passed, detail). Module-level so a test can monkeypatch one to
+# raise; gate_docket looks them up by name at call time.
+
+def _g_terminology(ctx):
+    if ctx.lexicon_error is not None:
+        raise ctx.lexicon_error
+    items = items_for_terminology(ctx.final, ctx.keyed)
+    if not items:
+        return False, "no items to check (the game has no rounds)"
+    problems = []
+    for it in items:
+        use = it["cites"] or list(ctx.keyed)
+        if not _has_source(use, ctx.keyed):
+            problems.append(f"{it['id']}: no source text")
+            continue
+        for v in ctx.g.terminology_lock.check_terminology(_full_source(use, ctx.keyed), it["generated_text"],
+                                                          ctx.lexicon):
+            problems.append(f"{it['id']}: {v.protected_term}->{v.found_synonym}")
+    if problems:
+        return False, "; ".join(problems)
+    return True, f"{len(items)} items, no dangerous term swaps (lexicon {ctx.lexicon_version})"
+
+
+def _g_doctrine(ctx):
+    rt, dr = ctx.g.runtime, ctx.g.doctrinal_review
+    start = ctx.clock()                                  # the budget counts doctrine time only
+    p1 = rounds_for_doctrine(ctx.final, ctx.keyed)
+    p2 = distractors_for_review(ctx.final, ctx.keyed)
+    if not p1:
+        return False, "no rounds to review (the game has no rounds)"
+    has_mcq = any(it["kind"] == "mcq" for it in p1)
+    reviewer = _rt(ctx.runtime, "reviewer")
+    if reviewer is None:
+        try:
+            reviewer = rt.m4_reviewer()                  # validates host + model; no network
+        except Exception as e:  # noqa: BLE001 — GateConfigError and bad env alike block, loudly
+            ctx.warnings.append(f"doctrine reviewer refused: {type(e).__name__}: {_short(e, 200)}")
+            raise
+    ctx.state["reviewer_model"] = _short(getattr(reviewer, "model", "") or "", 200)
+
+    ok = {1: 0, 2: 0}
+    shown, content_failed, infra_stop, config_stop, skipped = [], False, None, False, 0
+    work = [(1, it) for it in p1] + [(2, it) for it in p2]
+    for idx, (pas, it) in enumerate(work):
+        if infra_stop or config_stop:                  # circuit breaker: no more reviewer calls
+            skipped = len(work) - idx
+            break
+        if ctx.clock() - start > ctx.budget_s:
+            ctx.state["budget_exhausted"] = True
+            infra_stop = "GateInfraError: doctrine budget exhausted"
+            skipped = len(work) - idx
+            break
+        use = it["cites"] or list(ctx.keyed)
+        src, windowed = _doctrine_source(use, ctx.keyed, it["generated_text"], ctx.doctrine_cap)
+        rec = {"id": _short(it["id"], 80), "pass": pas, "ok": False, "issues": [], "quotes_ok": False,
+               "source_chars": len(src), "keys_windowed": windowed, "uncited": not it["cites"], "infra": False}
+        ctx.doctrine_items.append(rec)
+        if not _has_source(use, ctx.keyed):
+            rec["issues"] = ["no source text"]
+            content_failed = True
+            shown.append(f"{rec['id']}: no source text")
+            continue
+        try:
+            ctx.beat()
+            ctx.state["reviewer_calls"] += 1
+            if pas == 1:
+                v = dr.review_doctrine(src, it["generated_text"], reviewer, require_quotes=True)
+            else:
+                v = dr.review_distractor(src, it["question"], it["option_text"], it["teaching"], reviewer)
+        except rt.GateInfraError as e:
+            rec["infra"] = True
+            rec["issues"] = [_short(f"reviewer unavailable: {e}", 200)]
+            infra_stop = _short(f"{type(e).__name__}: {e}", 300)
+            continue
+        except rt.GateConfigError as e:
+            ctx.warnings.append(f"doctrine reviewer refused: {_short(e, 200)}")
+            rec["issues"] = [_short(f"reviewer refused: {e}", 200)]
+            content_failed = config_stop = True
+            shown.append(f"{rec['id']}: reviewer refused")
+            continue
+        except Exception as e:  # noqa: BLE001 — unknown reviewer failure: content-class (strict direction)
+            rec["issues"] = [_short(f"reviewer error: {type(e).__name__}: {e}", 200)]
+            content_failed = True
+            shown.append(f"{rec['id']}: {rec['issues'][0]}")
+            continue
+        rec["ok"] = v.ok is True
+        rec["issues"] = [_short(x, 200) for x in list(v.issues or [])[:3]]
+        rec["quotes_ok"] = bool(v.quotes) and not dr.unverified_quotes(src, v.quotes)
+        if rec["ok"] and windowed and any(_GAP_MARK in _safe(q) for q in v.quotes or []):
+            # a "quote" that copies the [...] joiner spans text the reviewer never saw: fail it (strict)
+            rec["ok"], rec["quotes_ok"] = False, False
+            rec["issues"] = ["quote spans an omitted gap in the windowed source"]
+        if rec["ok"]:
+            ok[pas] += 1
+        else:
+            content_failed = True
+            shown.append(f"{rec['id']}: {rec['issues'][0] if rec['issues'] else 'failed'}")
+
+    parts = [f"{ok[1]}/{len(p1)} rounds, {ok[2]}/{len(p2)} distractors ok"]
+    if has_mcq and not p2:
+        content_failed = True
+        parts.append("malformed mcq: no distractors found")
+    elif not p2:
+        parts.append("no distractors (produce-only game)")
+    if skipped:
+        parts.append(f"{skipped} review(s) skipped")
+    if infra_stop:
+        parts.append(f"stopped: {infra_stop}")
+    parts += shown[:5]
+    passed = not content_failed and not infra_stop and ok[1] == len(p1) and ok[2] == len(p2)
+    if infra_stop and not content_failed:            # infra only if no content failure came first
+        ctx.infra.setdefault("doctrine", infra_stop)
+    return passed, "; ".join(parts)
+
+
+def _g_retrieval(ctx):
+    sc = ctx.g.retrieval_density.score_retrieval({"interactions": docketgen.interactions_from_game(ctx.final)})
+    return sc["passes"] is True, f"density={sc['density']:.2f} gen_ratio={sc['generation_ratio']:.2f} n={sc['n']}"
+
+
+def _g_self_contained(ctx):
+    bundle = json.dumps(ctx.final, ensure_ascii=False) + "\n" + player_bundle_text(ctx.ehash)
+    v = ctx.g.self_contained.check_self_contained(bundle)
+    return v.ok is True, ("no external-AI calls at play-time" if v.ok else "; ".join(v.hits[:10]))
+
+
+def _g_citations(ctx):
+    u = ctx.unverified
+    if not isinstance(u, list):
+        return False, f"malformed citation check: no citation check result ({type(u).__name__})"
+    bad = [i for i, x in enumerate(u) if not isinstance(x, (str, dict))]
+    if bad:
+        return False, f"malformed citation check: entry {bad[0]} is {type(u[bad[0]]).__name__}"
+    if not u:
+        return True, "every citation verified"
+    return False, f"{len(u)} unverified citation(s): " + "; ".join(_short(x, 200) for x in u[:10])
+
+
+def _g_reviewer_high(ctx):
+    iss = ctx.issues
+    if not isinstance(iss, list):
+        return False, f"malformed reviewer issues: expected a list, got {type(iss).__name__}"
+    for i, e in enumerate(iss):
+        if not isinstance(e, dict):
+            return False, f"malformed reviewer issues: entry {i} is {type(e).__name__}"
+        if not isinstance(e.get("severity"), str) or e["severity"] not in ("high", "low"):
+            return False, f"malformed reviewer issues: entry {i} severity {_short(e.get('severity'), 40)!r}"
+    high = [e for e in iss if e["severity"] == "high"]
+    if high:
+        return False, (f"{len(high)} high-severity reviewer issue(s): "
+                       + "; ".join(f"{_safe(e.get('where', ''))}: {_safe(e.get('problem', ''))}" for e in high))
+    return True, f"no high-severity reviewer issues ({len(iss)} low)"
+
+
+def _g_playability(ctx):
+    ctx.beat()
+    v = ctx.g.playability.check_playability(_rt(ctx.runtime, "page_probe"), list(ctx.required_selectors))
+    return v.ok is True, ("plays clean" if v.ok else f"errors={v.errors[:5]} missing={v.missing_selectors[:10]}")
+
+
+def _g_accessibility(ctx):
+    ctx.beat()
+    v = ctx.g.a11y.check_accessibility(_rt(ctx.runtime, "a11y_probe"))
+    return v.ok is True, ("accessible" if v.ok else "; ".join(v.issues))
+
+
+def _g_polish(ctx):
+    vlm = _rt(ctx.runtime, "vlm") or ctx.g.runtime.m4_vlm()
+    ctx.beat()
+    v = ctx.g.aesthetic_judge.judge_aesthetics(_safe(_rt(ctx.runtime, "screenshot")), vlm)
+    return v.ok is True, f"polish score={v.score:.2f} ({_short(v.notes, 300)})"
+
+
+_WIRED_BY = {"playability": "page_probe", "accessibility": "a11y_probe", "polish": "screenshot"}
+
+
+# ------------------------------------------------------------------------------------------------ card helpers
+
+def card_infra_error(card) -> bool:
+    """True only if there is at least one enforced blocking failure and every one of them is infra-only
+    (`bool(blocking) and` is load-bearing: all([]) is True). Never raises."""
+    try:
+        blocking = card.get("blocking_failures")
+        if not isinstance(blocking, list) or not blocking:
+            return False
+        infra = {g.get("name") for g in card.get("gates") or []
+                 if isinstance(g, dict) and isinstance(g.get("infra"), str) and g.get("infra")}
+        return all(n in infra for n in blocking)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _card_bytes(card: dict) -> int:
+    return len(json.dumps(card, ensure_ascii=False, allow_nan=False).encode("utf-8"))
+
+
+def _cut_details(card: dict, n: int) -> bool:
+    cut = False
+    for g in card["gates"]:
+        if len(g["detail"]) > n:
+            g["detail"], cut = g["detail"][:n - 1] + "…", True
+    return cut
+
+
+def _cap_card(card: dict) -> dict:
+    """Keep the card within CARD_MAX_BYTES (UTF-8 JSON). Never touches overall_pass, blocking_failures,
+    infra_error or a gate's name/passed/mandatory."""
+    trunc = _cut_details(card, DETAIL_MAX) or bool(card.get("truncated"))
+
+    def over() -> bool:
+        return _card_bytes(card) > CARD_MAX_BYTES
+
+    for n in (500, 120):
+        if over():
+            trunc = _cut_details(card, n) or trunc
+    if over():
+        for it in card["doctrine_items"]:
+            it["issues"] = [_short(s, 80) for s in it["issues"][:1]]
+        trunc = True
+    if over():
+        items = card["doctrine_items"]
+        failing = [it for it in items if not it.get("ok")]
+        card["doctrine_items"] = failing
+        if over():
+            card["doctrine_items"] = failing[:20]
+        card["doctrine_items_dropped"] = len(items) - len(card["doctrine_items"])
+    if over():
+        for g in card["gates"]:
+            g["detail"] = "(truncated)"
+        card["config_warning"] = _short(card["config_warning"], 300)
+    if over():
+        card["doctrine_items_dropped"] = card.get("doctrine_items_dropped", 0) + len(card["doctrine_items"])
+        card["doctrine_items"] = []
+    if over():
+        raise ValueError(f"review card still over {CARD_MAX_BYTES} bytes after truncation")
+    card["truncated"] = trunc
+    return card
+
+
+def _game_meta(final) -> dict:
+    try:
+        f = final if isinstance(final, dict) else {}
+        return {"title": _short(f.get("title") or "", 300), "course": _short(f.get("course") or "", 200),
+                "gid": _short(f.get("id") or "", 200)}
+    except Exception:  # noqa: BLE001
+        return {"title": "", "course": "", "gid": ""}
+
+
+def _fallback_card(final, mode: str, err, warnings=()) -> dict:
+    """The minimal schema-valid failing card for an adapter bug. Not infra: it spends the content quota."""
+    try:
+        detail = _short(f"adapter error (fail-closed): {type(err).__name__}: {_safe(err)}", 300)
+        warning = _short("; ".join(_safe(w) for w in list(warnings) + [detail]), 300)
+    except Exception:  # noqa: BLE001
+        detail = warning = "adapter error (fail-closed)"
+    return {"schema": CARD_SCHEMA, "game": _game_meta(final), "overall_pass": False,
+            "gates": [{"name": "adapter", "passed": False, "mandatory": True, "designed_mandatory": True,
+                       "detail": detail}],
+            "blocking_failures": ["adapter"], "mode": mode, "infra_error": False, "enforced": [], "not_wired": [],
+            "config_warning": warning, "lexicon_version": "", "lexicon_status": "", "engine_hash": "",
+            "game_sha256": "", "reviewer_model": "", "reviewer_calls": 0, "heartbeat_errors": 0,
+            "budget_exhausted": False, "timings_ms": {}, "doctrine_items": [], "texts_count": 0,
+            "truncated": False}
+
+
+# ------------------------------------------------------------------------------------------------ the entry point
+
+def gate_docket(final: dict, keyed: dict, texts: list, course: dict, *,
+                issues: list | None = None, unverified: list | None = None,
+                mode: str = "shadow", heartbeat=None, runtime=None) -> dict:
+    """Run every gate over a finished docket game and return the review card (schema "studio-card/1").
+
+    Never raises (KeyboardInterrupt/SystemExit aside): an adapter bug returns a failing "adapter" card.
+    `mode` is only recorded ("shadow" or "enforce"; anything else is recorded as "enforce" with a warning);
+    the caller decides what a failing card does. `runtime` is a test seam (dict or object with reviewer, vlm,
+    page_probe, a11y_probe, screenshot, required_selectors, clock); None in production."""
+    card_mode = "shadow" if isinstance(mode, str) and mode == "shadow" else "enforce"
+    warnings: list = []
+    try:
+        return _gate_docket(final, keyed, texts, course, issues, unverified, mode, card_mode, heartbeat,
+                            runtime, warnings)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as e:  # noqa: BLE001 — the adapter must never take the writer down
+        return _fallback_card(final, card_mode, e, warnings)
+
+
+def _gate_docket(final, keyed, texts, course, issues, unverified, mode, card_mode, heartbeat, runtime,
+                 warnings) -> dict:
+    t_start = time.monotonic()
+    if not (isinstance(mode, str) and mode in ("shadow", "enforce")):
+        warnings.append(f"unknown gate mode {_short(repr(mode), 40)}; treated as enforce")
+    g = _gates()
+    state = {"reviewer_calls": 0, "heartbeat_errors": 0, "budget_exhausted": False, "reviewer_model": ""}
+
+    def beat():
+        if heartbeat is None:
+            return
+        try:
+            heartbeat()
+        except Exception:  # noqa: BLE001 — a DB blip must never fail a gate
+            state["heartbeat_errors"] += 1
+
+    beat()
+    try:
+        game_sha = hashlib.sha256(json.dumps(final, sort_keys=True, ensure_ascii=False,
+                                             separators=(",", ":")).encode("utf-8")).hexdigest()
+    except Exception as e:  # noqa: BLE001
+        game_sha = ""
+        warnings.append(f"game not hashable as JSON: {_short(e, 120)}")
+    final_c = copy.deepcopy(final)                       # inputs are never mutated
+    try:
+        keyed_c = dict(keyed)                            # read only; a shallow copy (row wrappers may refuse deepcopy)
+    except Exception:  # noqa: BLE001
+        keyed_c = {}
+        warnings.append(f"source keys unreadable ({type(keyed).__name__}); gating against no sources")
+    try:
+        ehash = engine_hash()
+    except Exception as e:  # noqa: BLE001
+        ehash = ""
+        warnings.append(f"engine hash unavailable: {_short(e, 120)}")
+
+    code = lexicon_code(course, warnings)
+    lexicon, lexicon_version, lexicon_status, lexicon_error = None, "", "", None
+    try:
+        lexicon, lexicon_version = g.terminology_lock.load_lexicon(code)
+        if lexicon_version == "fallback":
+            warnings.append(f"no course lexicon for slug {_short(code, 60)!r}; using fallback")
+        else:
+            lexicon_status = _lexicon_status(code, g.terminology_lock)
+    except Exception as e:  # noqa: BLE001 — a broken lexicon blocks (terminology fails), never passes
+        lexicon_error = e
+        warnings.append(f"course lexicon {_short(code, 60)!r} unusable: {_short(e, 160)}")
+
+    wired = {n for n in GATE_ORDER if n not in _WIRED_BY or _rt(runtime, _WIRED_BY[n])}
+    not_wired = [n for n in GATE_ORDER if n not in wired]
+    enforced = enforce_set(os.environ.get("CF_STUDIO_ENFORCE_GATES", ""), wired, warnings)
+    try:
+        texts_count = len(texts) if isinstance(texts, (list, tuple)) else 0
+    except Exception:  # noqa: BLE001
+        texts_count = 0
+
+    ctx = SimpleNamespace(
+        g=g, final=final_c, keyed=keyed_c, issues=issues, unverified=unverified, runtime=runtime,
+        beat=beat, warnings=warnings, state=state, infra={}, doctrine_items=[], ehash=ehash,
+        lexicon=lexicon, lexicon_version=lexicon_version, lexicon_error=lexicon_error,
+        clock=_rt(runtime, "clock") or time.monotonic,
+        budget_s=_env_positive("CF_STUDIO_DOCTRINE_BUDGET_S", DOCTRINE_BUDGET_S, float, warnings),
+        doctrine_cap=_env_positive("CF_STUDIO_DOCTRINE_SOURCE_CAP", DOCTRINE_SOURCE_CAP, int, warnings),
+        required_selectors=_rt(runtime, "required_selectors") or DEFAULT_REQUIRED_SELECTORS,
+    )
+
+    results, timings = [], {}
+    for name in GATE_ORDER:
+        designed = name not in ADVISORY_GATES
+        if name in wired:
+            body = (lambda f: (lambda: f(ctx)))(globals()[f"_g_{name}"])
+        else:
+            body = (lambda d: (lambda: (False, d)))(NOT_WIRED_DETAIL[name])
+
+        def fn(body=body, name=name):
+            try:
+                return body()
+            except g.runtime.GateInfraError as e:
+                ctx.infra.setdefault(name, _short(f"{type(e).__name__}: {e}", 300))
+                raise                                    # run_gate still fails the gate
+
+        t0 = time.monotonic()
+        gate = g.harness.run_gate(name, designed and name in enforced, fn)
+        timings[name] = int((time.monotonic() - t0) * 1000)
+        gate["designed_mandatory"] = designed
+        if name not in wired:
+            gate["not_wired"] = True
+        if not gate["passed"] and name in ctx.infra:
+            gate["infra"] = ctx.infra[name]
+        results.append(gate)
+
+    seen, uniq = set(), []
+    for w in warnings:
+        if w not in seen:
+            seen.add(w)
+            uniq.append(w)
+    timings["total"] = int((time.monotonic() - t_start) * 1000)
+    card = g.harness.build_card(_game_meta(final), results, {
+        "schema": CARD_SCHEMA, "mode": card_mode, "infra_error": False, "enforced": enforced,
+        "not_wired": not_wired, "config_warning": _short("; ".join(uniq), DETAIL_MAX),
+        "lexicon_version": _short(lexicon_version, 120), "lexicon_status": lexicon_status, "engine_hash": ehash,
+        "game_sha256": game_sha, "reviewer_model": state["reviewer_model"],
+        "reviewer_calls": state["reviewer_calls"], "heartbeat_errors": state["heartbeat_errors"],
+        "budget_exhausted": state["budget_exhausted"], "timings_ms": timings,
+        "doctrine_items": ctx.doctrine_items, "texts_count": texts_count, "truncated": False,
+    })
+    card["infra_error"] = card_infra_error(card)
+    card = _cap_card(card)
+    # _set_docket serialises `review` outside R3's try: prove it serialises (and is plain JSON) here.
+    return json.loads(json.dumps(card, ensure_ascii=False, allow_nan=False))
+
+
+def block_message(card) -> str:
+    """The error text for a draft the gates blocked: starts with docketgen.GATE_UNAVAILABLE when every enforced
+    blocking failure is an outage, else docketgen.GATE_BLOCKED (S8 counts both). Accepts anything; never
+    raises; at most 300 chars."""
+    try:
+        if not isinstance(card, dict):
+            return f"{docketgen.GATE_BLOCKED}: unreadable gate card"
+        blocking = card.get("blocking_failures")
+        if not isinstance(blocking, list):
+            return f"{docketgen.GATE_BLOCKED}: malformed blocking failures"
+        names = [_short(n, 80) for n in blocking]
+        if card.get("infra_error") is True and names:
+            reasons = {}
+            for gt in card.get("gates") if isinstance(card.get("gates"), list) else []:
+                if isinstance(gt, dict) and isinstance(gt.get("infra"), str):
+                    reasons.setdefault(_safe(gt.get("name")), gt["infra"])
+            msg = f"{docketgen.GATE_UNAVAILABLE}: " + "; ".join(
+                f"{n}: {_short(reasons.get(n, 'unavailable'), 200)}" for n in names)
+        elif names:
+            msg = f"{docketgen.GATE_BLOCKED}: " + ", ".join(names)
+        else:
+            msg = f"{docketgen.GATE_BLOCKED}: no enforced gate passed"
+        return _short(msg, 300)
+    except Exception:  # noqa: BLE001
+        return f"{docketgen.GATE_BLOCKED}: unreadable gate card"
