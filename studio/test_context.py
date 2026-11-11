@@ -179,6 +179,17 @@ def test_short_generic_reused_or_too_few_quotes_do_not_ground_a_claim():
     reused = [{"claim": "x", "cites": ["S1"], "quote": q}, {"claim": "y", "cites": ["S1"], "quote": " " + q.upper()}]
     probs = grounding.check_problems(reused, KEYED)
     assert len(probs) == 1 and "reuses" in probs[0] and grounding.grounding_share(reused, KEYED) == 0.5
+    trimmed = [{"claim": "x", "cites": ["S1"], "quote": "A reservation is a unilateral statement made by a State"},
+               {"claim": "y", "cites": ["S1"], "quote": q},                                   # contained in the first
+               {"claim": "z", "cites": ["S1"], "quote": "reservation is a unilateral statement made by"}]
+    assert [("reuses" in p) for p in grounding.check_problems(trimmed, KEYED)] == [True, True]
+    whole = "A reservation is a unilateral statement made by a State when signing a treaty."
+    inner = [{"claim": "x", "cites": ["S1"], "quote": whole},
+             {"claim": "y", "cites": ["S1"], "quote": "is a unilateral statement made by"}]  # Jaccard 6/11: containment
+    assert ["reuses" in p for p in grounding.check_problems(inner, KEYED)] == [True]
+    two = [{"claim": "x", "cites": ["S1"], "quote": q},
+           {"claim": "y", "cites": ["S2"], "quote": "the belief that a practice is legally required"}]
+    assert grounding.check_problems(two, KEYED) == []                                   # different sentences: fine
     one = [{"claim": "x", "cites": ["S1"], "quote": q}]
     assert grounding.check_problems(one, KEYED) == []
     assert "at least 3" in grounding.check_problems(one, KEYED, min_checks=3)[0]
