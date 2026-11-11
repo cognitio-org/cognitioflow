@@ -12,6 +12,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import time
 import types
 
 import pytest
@@ -102,9 +103,23 @@ def test_shadow_stores_the_card_and_keeps_the_draft(client, monkeypatch):
     assert c["mode"] == "shadow" and c["issues"] == [] and c["unverified"] == []
     assert c["final"]["id"] == gid and "S1" in c["keyed"] and c["course"]["id"] == cid
     assert any("Registration is constitutive." in t for t in c["texts"])
-    before = run.rows("SELECT updated FROM docket_games WHERE id=?", gid)[0]["updated"]
+    with run.db() as d:                                                # an old stamp, so a no-op heartbeat cannot pass
+        d.execute("UPDATE docket_games SET updated=? WHERE id=?", (1.0, gid))
     c["heartbeat"]()                                                   # the reaper sees a long gate run as alive
-    assert run.rows("SELECT updated FROM docket_games WHERE id=?", gid)[0]["updated"] >= before
+    assert run.rows("SELECT updated FROM docket_games WHERE id=?", gid)[0]["updated"] > 1.0
+
+
+def test_shadow_passes_the_unverified_citations_to_the_adapter(client, monkeypatch):
+    """A citation no source has survives the one repair round: the adapter must get it, as the review does."""
+    monkeypatch.setattr(run, "STUDIO_GATES", "shadow")
+    calls = _install(monkeypatch, card=_card(True))
+    g = game(); g["logline"] = "As held in Case C-999/99."              # in no source; validate() is still clean
+    cid = _course(client, "Shadow Uncited Law")
+    gid, fake = _write(cid, [g, g, OK])                                # write, repair (kept), reviewer
+    assert fake.messages.create.call_count == 3
+    (c,) = calls
+    assert c["unverified"] == ["C-999/99"]
+    assert _row(gid)[2]["unverified"] == ["C-999/99"]
 
 
 def test_shadow_adapter_raising_still_drafts_with_the_error(client, monkeypatch):
@@ -197,12 +212,25 @@ def test_enforce_trusts_nothing_but_literal_true(client, monkeypatch, passed):
     assert status == "failed" and error.startswith("Blocked by the quality gates")
 
 
-def test_enforce_non_dict_card_fails_the_row(client, monkeypatch):
+@pytest.mark.parametrize("card", [None, [], "x"], ids=["none", "list", "str"])
+def test_enforce_non_dict_card_fails_the_row(client, monkeypatch, card):
+    """Blocked on purpose, with a prefix S8 counts: an AttributeError would also fail the row, but its error has
+    neither prefix, so the retry quota never stops that week."""
     monkeypatch.setattr(run, "STUDIO_GATES", "enforce")
-    _install(monkeypatch, card=None)
-    cid = _course(client, "Enforce None Law")
+    _install(monkeypatch, card=card)
+    cid = _course(client, f"Enforce Odd {type(card).__name__} Law")
     gid, _ = _write(cid, [game(), OK])
-    assert _row(gid)[0] == "failed"
+    status, error, _ = _row(gid)
+    assert status == "failed" and error.startswith(docketgen.GATE_BLOCKED)
+
+
+def test_enforce_block_error_is_capped_at_300(client, monkeypatch):
+    monkeypatch.setattr(run, "STUDIO_GATES", "enforce")
+    _install(monkeypatch, card=_card(False, mode="enforce", blocking=[f"gate_{i}_" + "x" * 40 for i in range(50)]))
+    cid = _course(client, "Enforce Long Law")
+    gid, _ = _write(cid, [game(), OK])
+    status, error, _ = _row(gid)
+    assert status == "failed" and error.startswith(docketgen.GATE_BLOCKED) and len(error) <= 300
 
 
 def test_approve_on_a_gate_failed_row_is_409(client, monkeypatch):
@@ -252,6 +280,8 @@ def test_gates_on_infra_failures_have_their_own_cap(client, monkeypatch):
 
 
 def test_weekly_cap_counts_drafts_across_his_courses(client, monkeypatch):
+    """The cap is its own knob: it applies with CF_STUDIO_GATES off too (only cap 0 is today's behaviour)."""
+    monkeypatch.setattr(run, "STUDIO_GATES", "off")
     other = _course(client, "Cap Other Law")
     gid, _ = _write(other, [game(), OK])                               # one draft this week, another course
     cid = _course(client, "Cap Law")
@@ -261,6 +291,53 @@ def test_weekly_cap_counts_drafts_across_his_courses(client, monkeypatch):
     assert run._docket_due(cid) == ["3"]
     monkeypatch.setattr(run, "STUDIO_WEEKLY_CAP", 0)                   # 0 = no cap, today's behaviour
     assert run._docket_due(cid) == ["3"]
+    with run.db() as d:                                                # the same draft, 8 days old: outside the window
+        d.execute("UPDATE docket_games SET created=? WHERE id=?", (time.time() - 8 * 86400, gid))
+    monkeypatch.setattr(run, "STUDIO_WEEKLY_CAP", 1)
+    assert run._docket_due(cid) == ["3"]                               # last week's drafts do not spend this week's cap
+
+
+# ---------------------------------------------------------------- pins: the gate run holds the row in 'writing' (S9 review)
+# These document current behaviour, not a fix: they pass before and after. The final write was already unconditional
+# before S9; the gates only lengthen the window. Whether shadow should draft first is Matej's design call.
+
+
+def test_pin_shadow_row_is_writing_while_the_gates_run(client, monkeypatch):
+    monkeypatch.setattr(run, "STUDIO_GATES", "shadow")
+    seen = {}
+    _install(monkeypatch, card=_card(True))
+    mod = sys.modules["studio.docket_adapter"]
+    orig = mod.gate_docket
+
+    def watch(final, *a, **k):
+        seen["status"] = run.rows("SELECT status FROM docket_games WHERE id=?", final["id"])[0]["status"]
+        return orig(final, *a, **k)
+
+    monkeypatch.setattr(mod, "gate_docket", watch)
+    cid = _course(client, "Pin Shadow Law")
+    gid, _ = _write(cid, [game(), OK])
+    assert seen["status"] == "writing" and _row(gid)[0] == "draft"
+
+
+def test_pin_a_row_reaped_mid_gates_is_still_written(client, monkeypatch):
+    """No heartbeat for AUTO_STALE_S during the gates -> the reaper fails the row -> the writer then drafts it."""
+    monkeypatch.setattr(run, "STUDIO_GATES", "shadow")
+    _install(monkeypatch, card=_card(True))
+    mod = sys.modules["studio.docket_adapter"]
+    orig = mod.gate_docket
+    seen = {}
+
+    def reaped(final, keyed, texts, course, **k):
+        with run.db() as d:
+            d.execute("UPDATE docket_games SET updated=? WHERE id=?", (time.time() - 2 * docketgen.AUTO_STALE_S, final["id"]))
+        run._docket_collect_stale(course["id"])
+        seen["after_reaper"] = run.rows("SELECT status FROM docket_games WHERE id=?", final["id"])[0]["status"]
+        return orig(final, keyed, texts, course, **k)
+
+    monkeypatch.setattr(mod, "gate_docket", reaped)
+    cid = _course(client, "Pin Reaper Law")
+    gid, _ = _write(cid, [game(), OK])
+    assert seen["after_reaper"] == "failed" and _row(gid)[0] == "draft"
 
 
 # ---------------------------------------------------------------- static guards: Cloud Run never loads studio/
@@ -313,6 +390,12 @@ def test_unknown_flag_value_fails_closed_to_enforce():
     assert _fresh_import({"CF_STUDIO_GATES": ""})["gates"] == "off"
     assert _fresh_import({"CF_STUDIO_WEEKLY_CAP": "three"})["cap"] == 0
     assert _fresh_import({"CF_STUDIO_WEEKLY_CAP": "3"})["cap"] == 3
+
+
+@pytest.mark.parametrize("raw", ["\u00b2", "\u0663", "-1", "1.5"])
+def test_weekly_cap_junk_is_no_cap_not_a_crash(raw):
+    """str.isdigit() is True for '\u00b2' and Arabic-Indic digits, which int() rejects: that would crash `import run`."""
+    assert _fresh_import({"CF_STUDIO_WEEKLY_CAP": raw})["cap"] == 0
 
 
 # The image's COPY list at origin/main 1c433b7. studio/ is deliberately absent: Cloud Run never runs the writer.

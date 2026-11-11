@@ -3184,7 +3184,8 @@ STUDIO_GATES = (os.environ.get("CF_STUDIO_GATES", "off").strip().lower() or "off
 if STUDIO_GATES not in ("off", "shadow", "enforce"):
     print(f"CF_STUDIO_GATES={STUDIO_GATES!r} is not off|shadow|enforce: treating it as enforce"); STUDIO_GATES = "enforce"
 _studio_cap = os.environ.get("CF_STUDIO_WEEKLY_CAP", "0").strip()
-STUDIO_WEEKLY_CAP = int(_studio_cap) if _studio_cap.isdigit() else 0   # autonomous drafts/week across his courses; 0 = no cap
+STUDIO_WEEKLY_CAP = int(_studio_cap) if _studio_cap.isascii() and _studio_cap.isdigit() else 0   # isdigit() alone passes '²', which int() rejects
+# autonomous drafts/week across his courses; 0 = no cap. Independent of CF_STUDIO_GATES: a non-zero cap applies with the gates off too.
 _docket_writing: set = set()          # course ids with a writer thread in this process
 _docket_lock = threading.Lock()
 
@@ -3313,7 +3314,7 @@ def _docket_due(cid: str) -> list:
         "SELECT d.status,d.created,d.error FROM docket_games d JOIN courses c ON c.id=d.course_id "
         "WHERE c.user_id=(SELECT user_id FROM courses WHERE id=?) AND d.created>?", cid, time.time() - docketgen.SLOT_WINDOW_S)],
         STUDIO_WEEKLY_CAP) if STUDIO_WEEKLY_CAP else None
-    on = STUDIO_GATES in ("shadow", "enforce")   # gate-blocked rows only exist with the gates on; off = today's call exactly
+    on = STUDIO_GATES in ("shadow", "enforce")   # gate-blocked rows only exist with the gates on; off and cap 0 = today's call exactly
     return docketgen.weeks_needing_games([dict(f) for f in files], [dict(g) for g in games], time.time(),
                                          max_failures=3 if on else None, max_infra_failures=6 if on else None, slots=slots)
 
@@ -3419,6 +3420,9 @@ def _docket_write(cid: str, gid: str):
                     raise RuntimeError(f"{docketgen.GATE_UNAVAILABLE}: {type(e).__name__}: {e}"[:300]) from e
                 card = {"mode": "shadow", "error": f"{type(e).__name__}: {e}"[:300]}
             review["gates"] = card
+            # The row stays 'writing' (not yet in his drafts list) for the whole gate run, shadow included. The adapter
+            # heartbeats before each step so the reaper (AUTO_STALE_S) leaves it alone; the write below is unconditional,
+            # as it was before S9, so a row reaped mid-run is still written. Pinned in tests/test_studio_wiring.py.
             if STUDIO_GATES == "enforce" and (not isinstance(card, dict) or card.get("overall_pass") is not True):
                 status, err = "failed", str(docket_adapter.block_message(card))[:300]   # "Blocked by…" or "Gates unavailable: …"
         _set_docket(gid, status=status, title=str(final.get("title") or label.capitalize())[:120], game=final, model=used, error=err,
