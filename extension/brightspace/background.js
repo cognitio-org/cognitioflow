@@ -3,7 +3,7 @@
      on an alarm, once the course's first batch was reviewed and auto is on;
    - manual (popup Add): the same pipeline with the key, or, for a course with no key yet, the old path —
      the bytes go through an open CognitioFlow tab, which uploads them as you. */
-import { signalOf, looksLikeDocument } from "./lib.js";
+import { signalOf, looksLikeDocument, withTimeout, RELOAD_APP_TAB, RELOAD_BS_TAB, TAB_TIMEOUT_MS, TAB_TIMEOUT_LONG_MS } from "./lib.js";
 import { createSync, badgeFor, STATE } from "./sync.js";
 
 const DEFAULT_SYNC_HOURS = 6;
@@ -12,8 +12,9 @@ const sync = createSync({ chrome, fetch: (...a) => globalThis.fetch(...a) });
 const conf = () => chrome.storage.sync.get({ appUrl: "", courses: [] });
 const local = (d) => chrome.storage.local.get(d);
 
-const ask = (tabId, msg) =>
-  chrome.tabs.sendMessage(tabId, msg).then((r) => {
+const BYTES = new Set(["file", "upload"]);   // these move real bytes: the long limit
+const ask = (tabId, msg, notice = RELOAD_APP_TAB) =>
+  withTimeout(chrome.tabs.sendMessage(tabId, msg), BYTES.has(msg && msg.type) ? TAB_TIMEOUT_LONG_MS : TAB_TIMEOUT_MS, notice).then((r) => {
     if (!r || !r.ok) throw new Error((r && r.error) || "no answer from the page");
     return r.data;
   });
@@ -128,7 +129,7 @@ async function take({ org, keys }) {
   }
   for (const [item, rest] of riders) {
     try {
-      const b = await ask(bs.id, { type: "file", url: item.url });
+      const b = await ask(bs.id, { type: "file", url: item.url }, RELOAD_BS_TAB);
       // Same check as the keyed Add: a 200 text/html login page (expired session) is not the file. Nothing
       // goes up, nothing is marked, and the rest of the Add stops, as a sign-in stop does there.
       if (!looksLikeDocument(item.name, b.type, headOf(b.base64))) throw Object.assign(new Error(STATE.login), { login: true });

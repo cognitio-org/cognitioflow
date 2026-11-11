@@ -1,4 +1,4 @@
-import { appOrigin, readErrorsNote } from "./lib.js";
+import { appOrigin, readErrorsNote, withTimeout, RELOAD_APP_TAB, RELOAD_BS_TAB, TAB_TIMEOUT_MS } from "./lib.js";
 
 const $ = (s) => document.querySelector(s);
 let courses = [];
@@ -63,12 +63,12 @@ async function appTab() {
   if (!url) throw new Error("set the CognitioFlow address first");
   const [tab] = await chrome.tabs.query({ url: `${new URL(url).origin}/*` });
   if (!tab) throw new Error("open CognitioFlow in a tab and sign in, then try again");
-  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content-app.js"] });
+  await withTimeout(chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content-app.js"] }), TAB_TIMEOUT_MS, RELOAD_APP_TAB);
   return tab;
 }
 const askApp = async (msg) => {
   const tab = await appTab();
-  const r = await chrome.tabs.sendMessage(tab.id, msg);
+  const r = await withTimeout(chrome.tabs.sendMessage(tab.id, msg), TAB_TIMEOUT_MS, RELOAD_APP_TAB);
   if (!r || !r.ok) throw new Error((r && r.error) || "no answer from the CognitioFlow tab");
   return r.data;
 };
@@ -164,7 +164,7 @@ async function detect() {
   const [bs] = await chrome.tabs.query({ url: "https://brightspace.rug.nl/*" });
   if (bs) {
     try {
-      const r = await chrome.tabs.sendMessage(bs.id, { type: "courses" });
+      const r = await withTimeout(chrome.tabs.sendMessage(bs.id, { type: "courses" }), TAB_TIMEOUT_MS, RELOAD_BS_TAB);
       if (r && r.ok) for (const e of r.data || []) {
         const o = e.OrgUnit || {};
         if (!o.Id || courses.some((c) => String(c.org) === String(o.Id))) continue;
