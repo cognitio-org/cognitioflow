@@ -3,15 +3,22 @@
 # (fast, test, worthiness) pass — this job just arms it. No label = manual,
 # which keeps auth/schema/tags/money PRs a human decision.
 #
-# The label means "the council reviewed THIS head". So:
-#   labeled automerge      -> arm, only if the PR has no hold label, is not a draft, and its live head is
-#                             still the head the label was put on (also passed as --match-head-commit, which
-#                             GitHub checks when arming only; later pushes are caught by synchronize below).
-#   synchronize (a push)   -> if labelled: disarm AND remove `automerge`; the council must re-review the
-#                             new head and re-label it. (Before this, a push RE-ARMED auto-merge — that is
-#                             how #200 merged code the council never saw.)
-#   labeled hold           -> disarm.   unlabeled automerge -> disarm.   converted_to_draft -> disarm.
-#   opened / reopened / ready_for_review never arm: arming needs a fresh `automerge` label event.
+# The label means "the council reviewed THIS head". Invariant: auto-merge is left on only by a
+# `labeled automerge` run whose live checks all pass; every disarm path disarms unless the live PR
+# reads exactly "not armed".
+#   labeled automerge      -> arm, only if the PR has no hold label, is not a draft, still has the label
+#                             and its live head is still the head the label was put on (also passed as
+#                             --match-head-commit, which GitHub checks when arming only). Any failed check
+#                             disarms instead; a moved head also removes the label. After arming, the live
+#                             PR is re-read and anything that changed meanwhile disarms again.
+#   synchronize (a push)   -> disarm whenever armed (labelled or not), and remove `automerge` if present;
+#                             the council must re-review the new head and re-label it. (Before this, a
+#                             push RE-ARMED auto-merge — that is how #200 merged code the council never saw.)
+#                             A human who armed by hand re-arms after pushing.
+#   labeled <hold label>   -> disarm (council's hold set: lower-cased, spaces/underscores folded to '-').
+#   labeled <other label containing "hold" or "merge"> -> disarm if the PR is held or a draft.
+#   unlabeled automerge    -> disarm.   converted_to_draft -> disarm.
+#   opened / reopened / ready_for_review / unlabeled hold never arm: arming needs a fresh `automerge` label.
 #
 # Fork safety: pull_request_target runs with a write token, so this job NEVER checks out or runs PR
 # code. It only calls the GitHub API with the PR number/URL from the event payload (passed via env,
@@ -28,19 +35,21 @@ permissions:
 
 jobs:
   reconcile:
-    # Only the events that matter start a job; other labels do nothing. (Expected, not yet observed
-    # live: a job skipped by this `if:` does not enter the concurrency group below.)
+    # Label events start a job only if the label could be a hold (contains "hold" or "merge" — a
+    # superset of every spelling the council folds into its hold set) or is `automerge` itself.
     if: >-
       github.event.action == 'synchronize' ||
       github.event.action == 'converted_to_draft' ||
-      (github.event.action == 'labeled' && github.event.label.name == 'automerge') ||
       (github.event.action == 'unlabeled' && github.event.label.name == 'automerge') ||
-      (github.event.action == 'labeled' && contains(fromJSON('["hold","on-hold","on hold","on_hold","do-not-merge","do not merge","do_not_merge","dont-merge","dont merge","don''t-merge","don''t merge"]'), github.event.label.name))
+      (github.event.action == 'labeled' && (contains(github.event.label.name, 'hold') || contains(github.event.label.name, 'merge')))
     runs-on: ubuntu-latest
-    # One run per PR at a time; a newer event cancels an older in-flight run, so an older "arm" can
-    # never land after a newer "disarm". Every run also re-reads the live PR state before acting.
+    timeout-minutes: 10
+    # Only ARM runs share a per-PR group (cancel-in-progress: the newest `automerge` label wins, and it
+    # re-reads live state before and after arming). Every other run gets a group of its own, so a disarm
+    # can never be cancelled or replaced while pending by a later event — GitHub replaces a pending run
+    # in a shared group even without cancel-in-progress.
     concurrency:
-      group: automerge-pr-${{ github.event.pull_request.number }}
+      group: ${{ (github.event.action == 'labeled' && github.event.label.name == 'automerge') && format('automerge-arm-pr-{0}', github.event.pull_request.number) || format('automerge-disarm-run-{0}', github.run_id) }}
       cancel-in-progress: true
     steps:
       # Arm under a PAT (AUTODEPLOY_PAT) rather than GITHUB_TOKEN. Why: when GitHub completes an
@@ -66,68 +75,99 @@ jobs:
           # --- automerge-reconcile:begin ---
           set -euo pipefail
           MERGE_LABEL=automerge
+          TRIES=4   # API calls are retried with backoff 2s, 4s, 8s: a 5xx or rate limit must not fail open
 
-          read_state() {
-            # Live PR state (never the event payload, which can be stale): line 1 draft, 2 head sha,
-            # 3 armed (auto_merge set), then one label per line.
-            local s
-            s="$(GH_TOKEN="$GITHUB_TOKEN" gh api "repos/$REPO/pulls/$PR_NUMBER" \
-                  --jq '(.draft|tostring), .head.sha, ((.auto_merge != null)|tostring), .labels[].name')"
-            DRAFT="$(printf '%s\n' "$s" | sed -n 1p)"
-            HEAD_SHA="$(printf '%s\n' "$s" | sed -n 2p)"
-            ARMED="$(printf '%s\n' "$s" | sed -n 3p)"
-            LABELS="$(printf '%s\n' "$s" | sed -n '4,$p')"
+          gh_as() { local tok="$1"; shift; GH_TOKEN="$tok" gh "$@"; }
+          retry() {
+            local i=1 d=2
+            until "$@"; do
+              if [ "$i" -ge "$TRIES" ]; then return 1; fi
+              echo "::warning::attempt $i of $TRIES failed — retrying in ${d}s"
+              sleep "$d"; i=$((i + 1)); d=$((d * 2))
+            done
           }
+
+          read_state_once() {
+            # Live PR state (never the event payload, which can be stale): line 1 draft, 2 head sha,
+            # 3 armed (auto_merge set), then one label per line. Anything malformed counts as unreadable.
+            local s
+            s="$(gh_as "$GITHUB_TOKEN" api "repos/$REPO/pulls/$PR_NUMBER" \
+                  --jq '(.draft|tostring), .head.sha, ((.auto_merge != null)|tostring), .labels[].name')" || return 1
+            DRAFT="$(sed -n 1p <<<"$s")"
+            HEAD_SHA="$(sed -n 2p <<<"$s")"
+            ARMED="$(sed -n 3p <<<"$s")"
+            LABELS="$(sed -n '4,$p' <<<"$s")"
+            if [[ "$DRAFT" =~ ^(true|false)$ && "$ARMED" =~ ^(true|false)$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              return 0
+            fi
+            echo "::warning::unexpected PR state: draft='$DRAFT' armed='$ARMED' head='$HEAD_SHA'"
+            ARMED=unknown
+            return 1
+          }
+          read_state() { retry read_state_once; }
+
           # here-strings, not pipes: under pipefail an early-exiting grep could read as "no label".
           has_label() { grep -Fxq -- "$1" <<<"$LABELS"; }
-          # Same hold set as the council: lower-cased, spaces/underscores folded to '-'.
-          held() {
-            local norm
-            norm="$(tr '[:upper:]' '[:lower:]' <<<"$LABELS" | sed -E 's/[[:space:]_]+/-/g')"
-            grep -Exq "hold|on-hold|do-not-merge|dont-merge|don't-merge" <<<"$norm"
-          }
+          # The council's hold set and normalisation (council_merge.py _norm_label / HOLD_LABELS):
+          # strip, lower-case, fold runs of whitespace/underscores to '-'.
+          norm_labels() { tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/[[:space:]_]+/-/g'; }
+          is_hold() { norm_labels <<<"$1" | grep -Exq "hold|on-hold|do-not-merge|dont-merge|don't-merge"; }
+          held() { norm_labels <<<"$LABELS" | grep -Exq "hold|on-hold|do-not-merge|dont-merge|don't-merge"; }
 
           disarm() {
-            if [ "$ARMED" != true ]; then
+            # Success is judged by re-reading live state, never by gh's exit code.
+            if [ "$ARMED" = false ]; then
               echo "auto-merge is not armed — nothing to disarm ($1)"
               return 0
             fi
             echo "disarming auto-merge: $1"
-            if ! GH_TOKEN="$GITHUB_TOKEN" gh pr merge --disable-auto "$PR_URL"; then
-              if [ -n "$PAT" ]; then
-                echo "::warning::GITHUB_TOKEN could not disarm — retrying with AUTODEPLOY_PAT"
-                GH_TOKEN="$PAT" gh pr merge --disable-auto "$PR_URL"
-              else
-                echo "::error::could not disarm auto-merge on #$PR_NUMBER"; exit 1
-              fi
-            fi
-            read_state
-            if [ "$ARMED" = true ]; then
-              echo "::error::auto-merge on #$PR_NUMBER is STILL armed after --disable-auto"; exit 1
-            fi
-            echo "disarmed"
+            local name tok i d
+            for name in GITHUB_TOKEN PAT; do
+              tok="${!name}"
+              if [ -z "$tok" ]; then continue; fi
+              i=1; d=2
+              while :; do
+                gh_as "$tok" pr merge --disable-auto "$PR_URL" || echo "::warning::--disable-auto with $name failed (attempt $i)"
+                if read_state_once && [ "$ARMED" = false ]; then
+                  echo "disarmed"
+                  return 0
+                fi
+                if [ "$i" -ge "$TRIES" ]; then break; fi
+                sleep "$d"; i=$((i + 1)); d=$((d * 2))
+              done
+            done
+            echo "::error::auto-merge on #$PR_NUMBER could not be confirmed off"
+            exit 1
           }
 
-          read_state
+          remove_merge_label() {
+            if ! has_label "$MERGE_LABEL"; then return 0; fi
+            if retry gh_as "$GITHUB_TOKEN" api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/$MERGE_LABEL" >/dev/null; then
+              echo "removed '$MERGE_LABEL' — the council must re-review the new head and re-label"
+              return 0
+            fi
+            if read_state && ! has_label "$MERGE_LABEL"; then return 0; fi
+            echo "::error::could not remove the '$MERGE_LABEL' label from #$PR_NUMBER"
+            exit 1
+          }
+
+          if ! read_state; then
+            # Fail closed: cannot tell whether it is armed, so turn auto-merge off blind, then go red.
+            echo "::error::cannot read #$PR_NUMBER's state — disarming blind and failing (event=$EVENT_ACTION)"
+            retry gh_as "$GITHUB_TOKEN" pr merge --disable-auto "$PR_URL" || true
+            if [ -n "$PAT" ]; then retry gh_as "$PAT" pr merge --disable-auto "$PR_URL" || true; fi
+            if [ "$EVENT_ACTION" = synchronize ]; then
+              retry gh_as "$GITHUB_TOKEN" api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/$MERGE_LABEL" >/dev/null || true
+            fi
+            exit 1
+          fi
           echo "event=$EVENT_ACTION label=${EVENT_LABEL:-} draft=$DRAFT armed=$ARMED head=$HEAD_SHA"
 
           case "$EVENT_ACTION" in
             synchronize)
-              if has_label "$MERGE_LABEL"; then
-                # Disarm first: if this run is cancelled after this point, the merge is already off.
-                disarm "new push to a labelled PR — the council has not reviewed $HEAD_SHA"
-                if ! GH_TOKEN="$GITHUB_TOKEN" gh api -X DELETE \
-                      "repos/$REPO/issues/$PR_NUMBER/labels/$MERGE_LABEL" >/dev/null; then
-                  read_state
-                  if has_label "$MERGE_LABEL"; then
-                    echo "::error::could not remove the '$MERGE_LABEL' label from #$PR_NUMBER"; exit 1
-                  fi
-                fi
-                echo "removed '$MERGE_LABEL' — the council must re-review the new head and re-label"
-              else
-                # Not labelled: leave any human-armed auto-merge alone.
-                echo "no '$MERGE_LABEL' label — nothing to do"
-              fi
+              # Disarm first (labelled or not): if this run dies after this point, the merge is already off.
+              disarm "new push — nobody reviewed $HEAD_SHA"
+              remove_merge_label
               ;;
             unlabeled)
               disarm "'$MERGE_LABEL' label removed"
@@ -137,25 +177,40 @@ jobs:
               ;;
             labeled)
               if [ "$EVENT_LABEL" != "$MERGE_LABEL" ]; then
-                disarm "hold label '$EVENT_LABEL' added"
+                if is_hold "$EVENT_LABEL" || held; then
+                  disarm "hold label on the PR ('$EVENT_LABEL' added)"
+                elif [ "$DRAFT" = true ]; then
+                  disarm "PR is a draft"
+                else
+                  echo "'$EVENT_LABEL' is not a hold label — nothing to do"
+                fi
               elif held; then
                 disarm "PR carries a hold label — not arming"
               elif [ "$DRAFT" = true ]; then
                 disarm "PR is a draft — not arming"
               elif ! has_label "$MERGE_LABEL"; then
-                echo "'$MERGE_LABEL' already removed again — not arming"
+                disarm "'$MERGE_LABEL' already removed again — not arming"
               elif [ "$HEAD_SHA" != "$EVENT_HEAD_SHA" ]; then
-                echo "head moved since the label was added ($EVENT_HEAD_SHA -> $HEAD_SHA) — not arming"
+                disarm "head moved since the label was added ($EVENT_HEAD_SHA -> $HEAD_SHA) — not arming"
+                remove_merge_label
               else
                 # GitHub refuses to arm if the head is no longer the labelled one (checked at arm time only).
-                if [ -n "$PAT" ] && GH_TOKEN="$PAT" gh pr merge --auto --squash \
+                if [ -n "$PAT" ] && retry gh_as "$PAT" pr merge --auto --squash \
                       --match-head-commit "$EVENT_HEAD_SHA" "$PR_URL"; then
                   echo "armed with AUTODEPLOY_PAT at $EVENT_HEAD_SHA — the merge will trigger deploy.yml"
                 else
                   echo "::warning::AUTODEPLOY_PAT missing or invalid — falling back to GITHUB_TOKEN; the merge will NOT trigger deploy (relies on deploy-catchup.yml)."
-                  GH_TOKEN="$GITHUB_TOKEN" gh pr merge --auto --squash \
+                  retry gh_as "$GITHUB_TOKEN" pr merge --auto --squash \
                     --match-head-commit "$EVENT_HEAD_SHA" "$PR_URL"
                   echo "armed with GITHUB_TOKEN at $EVENT_HEAD_SHA"
+                fi
+                # Re-check: a hold, unlabel, draft or push that landed while arming must win.
+                if ! read_state; then
+                  ARMED=unknown
+                  disarm "cannot re-read the PR after arming"
+                elif held || [ "$DRAFT" = true ] || ! has_label "$MERGE_LABEL" || [ "$HEAD_SHA" != "$EVENT_HEAD_SHA" ]; then
+                  disarm "the PR changed while arming"
+                  if [ "$HEAD_SHA" != "$EVENT_HEAD_SHA" ]; then remove_merge_label; fi
                 fi
               fi
               ;;
