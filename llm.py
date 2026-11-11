@@ -430,11 +430,21 @@ def local_call(task, **kw):
 # client().messages.stream(...) — so run.py needs no change. Default OFF: unless LLM_PROVIDER=kernal,
 # none of this is reached and the anthropic/openrouter/gateway paths are untouched.
 
-def _kernal_body(model, system, messages, max_tokens, temperature, stream) -> dict:
+#: Sampling fields an OpenAI-compatible server (mlx_lm.server) accepts beyond temperature. Forwarded only when a
+#: caller passes them (the Game Studio v2 docket writer does, with the Qwen3-Coder card values); otherwise the body
+#: is exactly as before.
+KERNAL_SAMPLING = {"top_p": float, "top_k": int, "min_p": float, "repetition_penalty": float}
+
+
+def _kernal_body(model, system, messages, max_tokens, temperature, stream, sampling=None) -> dict:
     body = {"model": model, "messages": _to_openai_messages(system, messages),
             "max_tokens": int(max_tokens), "stream": bool(stream)}
     if temperature is not None:
         body["temperature"] = float(temperature)
+    for k, cast in KERNAL_SAMPLING.items():
+        v = (sampling or {}).get(k)
+        if v is not None:
+            body[k] = cast(v)
     return body
 
 
@@ -514,10 +524,11 @@ class _KernalMessages:
 
     def create(self, *, model, max_tokens=1024, system=None, messages=None, temperature=None, **_ignored) -> _LocalMessage:
         """One non-streaming POST, returned in the Anthropic shape run.py reads. `_ignored` swallows
-        Anthropic-only kwargs (stop_sequences, cache_control wrappers already flattened) Kernal ignores."""
+        Anthropic-only kwargs (stop_sequences, cache_control wrappers already flattened) Kernal ignores;
+        the KERNAL_SAMPLING fields in it are forwarded."""
         import json as _json
         import urllib.request
-        body = _kernal_body(model, system, messages, max_tokens, temperature, False)
+        body = _kernal_body(model, system, messages, max_tokens, temperature, False, _ignored)
         with urllib.request.urlopen(_kernal_request(self._base, self._key, body), timeout=KERNAL_TIMEOUT) as resp:
             data = _json.loads(resp.read().decode("utf-8"))
         choice = (data.get("choices") or [{}])[0]
