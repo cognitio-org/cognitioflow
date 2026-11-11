@@ -1,9 +1,14 @@
 /* Runs inside a CognitioFlow tab, injected on demand. Everything here is same-origin, so your signed-in
    session does the talking. Three jobs: the manual upload path for a course with no sync key, reading a
    course's file names (for the first-run baseline), and minting a course's write key (Options) — the key
-   is handed straight back to the extension page that asked and is never kept here. */
-if (!window.__cfGrabber) {
-  window.__cfGrabber = true;
+   is handed straight back to the extension page that asked and is never kept here.
+
+   Injected again on every ask, so it must be safe to run twice in one page. No plain "already here" flag:
+   after the extension is reloaded, a copy injected by the OLD extension leaves that flag behind while its
+   listener is dead, and a new copy that trusted the flag registered nothing, so every ask hung. Instead each
+   copy drops the listener the previous copy left (one live listener, so an upload is never POSTed twice) and
+   registers its own. The block scope keeps the consts from colliding on a second run. */
+{
   const toBlob = (base64, type) => {
     const bin = atob(base64);
     const buf = new Uint8Array(bin.length);
@@ -56,10 +61,19 @@ if (!window.__cfGrabber) {
     },
   };
 
-  chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+  const listener = (msg, _sender, reply) => {
     const fn = handlers[msg && msg.type];
     if (!fn) return false;
     Promise.resolve(fn(msg)).then((data) => reply({ ok: true, data }), (e) => reply({ ok: false, error: String(e.message || e) }));
     return true;
-  });
+  };
+
+  const prev = window.__cfGrabber;   // `true` from a pre-fix copy, or { listener, runtimeId, version }
+  if (prev && typeof prev.listener === "function") {
+    try { chrome.runtime.onMessage.removeListener(prev.listener); } catch {}   // a dead context may refuse: its listener cannot fire anyway
+  }
+  chrome.runtime.onMessage.addListener(listener);
+  let version = "";
+  try { version = chrome.runtime.getManifest().version; } catch {}
+  window.__cfGrabber = { listener, runtimeId: chrome.runtime.id || "", version };
 }

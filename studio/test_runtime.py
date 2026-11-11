@@ -147,6 +147,21 @@ def test_reviewer_happy_path_and_request_shape():
     print("  reviewer happy path: PASS")
 
 
+def test_reviewer_system_prompt_is_the_shared_brief():
+    """Model-quality plan section 4: the reviewer gets the same STUDIO_BRIEF system prompt as the writer."""
+    with fake_server() as (srv, base):
+        r = m4_reviewer(base=base + "/ok/v1", model="qwen-x", system="STUDIO BRIEF TEXT")
+        assert r("check this") == '{"ok": true, "issues": []}' and r.system == "STUDIO BRIEF TEXT"
+        msgs = srv.requests[-1][1]["messages"]
+        assert msgs == [{"role": "system", "content": "STUDIO BRIEF TEXT"}, {"role": "user", "content": "check this"}]
+        assert r.last_served == "mlx-community/Qwen3-30B-A3B-Thinking-2507-4bit"
+        r0 = m4_reviewer(base=base + "/ok/v1", model="qwen-x")       # default: no system message (today)
+        r0("x")
+        assert [m["role"] for m in srv.requests[-1][1]["messages"]] == ["user"]
+    _raises(GateConfigError, m4_reviewer, base="http://127.0.0.1:9/v1", model="qwen-x", system=42)
+    print("  reviewer system prompt = shared brief; absent = today's request: PASS")
+
+
 def test_reviewer_sampling_matches_qwen3_thinking_card():
     # Model card: Temperature=0.6, TopP=0.95, TopK=20, MinP=0; output length 32,768. Never greedy.
     with fake_server() as (srv, base):

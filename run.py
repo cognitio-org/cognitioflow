@@ -3186,6 +3186,13 @@ if STUDIO_GATES not in ("off", "shadow", "enforce"):
 _studio_cap = os.environ.get("CF_STUDIO_WEEKLY_CAP", "0").strip()
 STUDIO_WEEKLY_CAP = int(_studio_cap) if _studio_cap.isascii() and _studio_cap.isdigit() else 0   # isdigit() alone passes '²', which int() rejects
 # autonomous drafts/week across his courses; 0 = no cap. Independent of CF_STUDIO_GATES: a non-zero cap applies with the gates off too.
+# Game Studio WRITER v2 (model-quality plan rungs 0-2): v1 = today's writer exactly (the default, and the only
+# writer Cloud Run could ever reach). v2 = code-picked round mix, intermediate shape compiled by docketgen, shared
+# STUDIO_BRIEF + course brief + lexicon + ranked sources, quote-checked claims, Thinker review, explicit sampling.
+# v2 runs only on the M4 writer: every role is pinned to an allow-listed M4 base and it refuses otherwise.
+DOCKET_WRITER = os.environ.get("CF_DOCKET_WRITER", "v1").strip().lower()
+DOCKET_SAMPLING = {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "repetition_penalty": 1.05}   # Qwen3-Coder card
+DOCKET_REVIEW_MAX_TOKENS = 16384   # Thinker cap (plan rung 0 item 1: bounded in-flight KV on the M4)
 _docket_writing: set = set()          # course ids with a writer thread in this process
 _docket_lock = threading.Lock()
 
@@ -3364,6 +3371,7 @@ def _docket_write(cid: str, gid: str):
     if not row or not course: return
     week, course = row[0]["week"], course[0]
     label = _scope_label(week)
+    if DOCKET_WRITER == "v2": return _docket_write_v2(cid, gid, course, week, label)
     try:
         files = _docket_files(cid, week)
         if not files: raise ValueError(f"No ticked files with text for {label}.")
@@ -3430,6 +3438,95 @@ def _docket_write(cid: str, gid: str):
                     review=review, files=[f["id"] for f in files])
     except Exception as e:
         print("docket write:", type(e).__name__, e)
+        _set_docket(gid, status="failed", error=str(getattr(e, "detail", "") or e)[:300])
+
+
+def _docket_v2_guard():
+    """WRITER v2 fails closed to the M4 (plan rung 0 item 10): the writer client must be the OpenAI-compatible
+    Kernal client on an allow-listed M4/loopback base with a non-closed model id. No fallback: an outage fails
+    the row, it is never re-sent elsewhere. Returns studio.runtime for the Thinker."""
+    from studio import runtime as srt          # lazy: studio/ is only on the M4 writer, never in the prod image
+    if llm.PROVIDER != "kernal" or getattr(llm, "LOCAL_BASE_URL", ""):
+        raise ValueError("WRITER v2 refused: the writer must use LLM_PROVIDER=kernal on the M4, with no local fallback")
+    srt.check_base_url(llm.KERNAL_BASE)
+    srt.check_model(MODEL)
+    for base in (u.strip() for u in DOCKET_RAG_URL.split(",") if u.strip()):
+        srt.check_base_url(base)   # _law_sources sends course exam text as the query: M4/loopback RAG only
+    return srt
+
+
+def _docket_context(cid: str, course: dict, week: str) -> dict:
+    """Everything one v2 draft is written from, built once (the M4 kit's best-of-N reuses it for N drafts).
+    The M4 guard runs FIRST: _law_sources below sends course exam text to the RAG bases."""
+    _docket_v2_guard()
+    from studio import context as sctx, docket_adapter as sda
+    files = docketgen.dedupe_versions(_docket_files(cid, week))
+    if not files: raise ValueError(f"No ticked files with text for {_scope_label(week)}.")
+    law = _law_sources(files)
+    files = files + law
+    keyed = docketgen.source_keys(files)
+    query = " ".join((f.get("text") or "")[:4000] for f in files if (f.get("role") or "") in ("exam", "wg", "assignment"))
+    src = docketgen.ranked_sources_block(keyed, query, relevance.rank)
+    code = sda.lexicon_code(course, [])
+    ctx = sctx.load(course, code)
+    texts = [f["text"] for f in rows("SELECT text FROM files WHERE course_id=? AND selected=1 AND COALESCE(text,'')<>''", cid)] \
+        + [l["text"] for l in law]
+    lawnote = (" The later SOURCES marked kind=\"law\" are EU legislation and CJEU case law; ground the law in them "
+               "and in the course files, course files first.") if law else ""
+    return {"cid": cid, "course": course, "week": week, "label": _scope_label(week), "files": files, "keyed": keyed,
+            "texts": texts, "prefix": sctx.shared_prefix(ctx, src), "studio": ctx, "code": code, "lawnote": lawnote,
+            "split": sctx.split_of(code, week)}
+
+
+def _docket_draft_v2(dctx: dict, salt: str, review: bool = True, heartbeat=None) -> dict:
+    """One v2 draft from a _docket_context: no database writes. Returns docketgen.write_draft_v2's result plus the
+    provenance record (every call's served model and base)."""
+    srt = _docket_v2_guard()
+    from studio import grounding, provenance
+    brief = dctx["studio"]["brief"]
+
+    def coder(role, system, user, max_tokens):
+        m = ask_model(MODEL, max_tokens=max_tokens, system=system, messages=[{"role": "user", "content": user}], **DOCKET_SAMPLING)
+        return _text(m), getattr(m, "model", ""), llm.KERNAL_BASE
+
+    thinker = srt.m4_reviewer(system=brief, max_tokens=DOCKET_REVIEW_MAX_TOKENS) if review else None
+
+    def reviewer(role, system, user, max_tokens):
+        return thinker(user), thinker.last_served, thinker.url.rsplit("/chat/completions", 1)[0]
+
+    mix = docketgen.pick_mix(salt)
+    out = docketgen.write_draft_v2(
+        coder, system=brief, prefix=dctx["prefix"], label=dctx["label"], mix=mix, keyed=dctx["keyed"],
+        reviewer=reviewer if review else None, course_name=dctx["course"]["name"], lawnote=dctx["lawnote"],
+        exemplars=dctx["studio"]["exemplar_block"], heartbeat=heartbeat,
+        unverified=lambda g: [c["raw"] for c in citecheck.unverified(docketgen.all_text(g), dctx["texts"])],
+        quote_problems=grounding.check_problems)
+    out["grounding"] = grounding.grounding_share(out["game"].get("checks") or [], dctx["keyed"])
+    st = dctx["studio"]
+    out["provenance"] = provenance.record(
+        course_id=dctx["cid"], week=dctx["week"], split=dctx["split"], calls=out["calls"],
+        prompt_version=out["prompt_version"], brief_hash=st["brief_hash"], sampling=DOCKET_SAMPLING,
+        config={"mix": mix, "course_brief_hash": st["course_brief_hash"], "lexicon": st["lexicon_version"],
+                "exemplars": st["exemplar_ids"], "review": bool(review)},
+        source_privacy=["public" if (f.get("kind") == "law") else "private" for f in dctx["files"]],
+        extra={"mix": mix, "course_brief_source": st["course_brief_source"], "lexicon_version": st["lexicon_version"],
+               "exemplar_ids": st["exemplar_ids"], "grounding": out["grounding"],
+               "generation_ratio": out["generation_ratio"]})
+    return out
+
+
+def _docket_write_v2(cid: str, gid: str, course: dict, week: str, label: str):
+    """The v2 writer for one queued row: a draft (with its provenance record in `review`) or failed."""
+    try:
+        dctx = _docket_context(cid, course, week)
+        out = _docket_draft_v2(dctx, gid, heartbeat=lambda: _set_docket(gid, updated=time.time()))
+        final = docketgen.finish(out["game"], gid, _docket_code(course), dctx["keyed"])
+        _set_docket(gid, status="draft", title=str(final.get("title") or label.capitalize())[:120], game=final,
+                    model=out["model"], error="", files=[f["id"] for f in dctx["files"]],
+                    review={"issues": out["issues"], "unverified": out["unverified"], "revised": out["revised"],
+                            "writer": "v2", "mix": out["mix"], "provenance": out["provenance"]})
+    except Exception as e:
+        print("docket write v2:", type(e).__name__, e)
         _set_docket(gid, status="failed", error=str(getattr(e, "detail", "") or e)[:300])
 
 
