@@ -28,7 +28,7 @@ def _job_if():
 
 def job_runs(action, label=None):
     """Evaluate the GitHub expression the way Actions does (string == is case-insensitive)."""
-    expr = _job_if().lower()
+    expr = _job_if().lower().replace("''", "\\'")   # '' is an escaped quote inside an Actions string
     expr = expr.replace("&&", " and ").replace("||", " or ")
     expr = re.sub(r"!(?!=)", " not ", expr)
     expr = expr.replace("fromjson(", "_fromjson(").replace("contains(", "_contains(")
@@ -41,7 +41,7 @@ def job_runs(action, label=None):
 def test_the_job_only_starts_for_events_that_arm_or_disarm():
     assert job_runs("synchronize") and job_runs("converted_to_draft")
     assert job_runs("labeled", "automerge") and job_runs("unlabeled", "automerge")
-    for hold in ("hold", "Hold", "on-hold", "do-not-merge"):
+    for hold in ("hold", "Hold", "on-hold", "On Hold", "do-not-merge", "don't-merge"):
         assert job_runs("labeled", hold), hold
     assert not job_runs("labeled", "bug")            # unrelated labels never start (or cancel) a run
     assert not job_runs("unlabeled", "hold")         # lifting a hold does not arm by itself

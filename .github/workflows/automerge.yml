@@ -4,8 +4,9 @@
 # which keeps auth/schema/tags/money PRs a human decision.
 #
 # The label means "the council reviewed THIS head". So:
-#   labeled automerge      -> arm, pinned to the head the label was put on (--match-head-commit),
-#                             only if the PR has no hold label, is not a draft, and has not moved since.
+#   labeled automerge      -> arm, only if the PR has no hold label, is not a draft, and its live head is
+#                             still the head the label was put on (also passed as --match-head-commit, which
+#                             GitHub checks when arming only; later pushes are caught by synchronize below).
 #   synchronize (a push)   -> if labelled: disarm AND remove `automerge`; the council must re-review the
 #                             new head and re-label it. (Before this, a push RE-ARMED auto-merge — that is
 #                             how #200 merged code the council never saw.)
@@ -27,14 +28,14 @@ permissions:
 
 jobs:
   reconcile:
-    # Only the events that matter start a job (other labels do nothing — and, being skipped, do not
-    # enter the concurrency group below, so they cannot cancel an in-flight disarm).
+    # Only the events that matter start a job; other labels do nothing. (Expected, not yet observed
+    # live: a job skipped by this `if:` does not enter the concurrency group below.)
     if: >-
       github.event.action == 'synchronize' ||
       github.event.action == 'converted_to_draft' ||
       (github.event.action == 'labeled' && github.event.label.name == 'automerge') ||
       (github.event.action == 'unlabeled' && github.event.label.name == 'automerge') ||
-      (github.event.action == 'labeled' && contains(fromJSON('["hold","on-hold","on hold","on_hold","do-not-merge","do not merge","do_not_merge","dont-merge","dont merge"]'), github.event.label.name))
+      (github.event.action == 'labeled' && contains(fromJSON('["hold","on-hold","on hold","on_hold","do-not-merge","do not merge","do_not_merge","dont-merge","dont merge","don''t-merge","don''t merge"]'), github.event.label.name))
     runs-on: ubuntu-latest
     # One run per PR at a time; a newer event cancels an older in-flight run, so an older "arm" can
     # never land after a newer "disarm". Every run also re-reads the live PR state before acting.
@@ -77,11 +78,13 @@ jobs:
             ARMED="$(printf '%s\n' "$s" | sed -n 3p)"
             LABELS="$(printf '%s\n' "$s" | sed -n '4,$p')"
           }
-          has_label() { printf '%s\n' "$LABELS" | grep -Fxq -- "$1"; }
+          # here-strings, not pipes: under pipefail an early-exiting grep could read as "no label".
+          has_label() { grep -Fxq -- "$1" <<<"$LABELS"; }
           # Same hold set as the council: lower-cased, spaces/underscores folded to '-'.
           held() {
-            printf '%s\n' "$LABELS" | tr '[:upper:]' '[:lower:]' | sed -E 's/[[:space:]_]+/-/g' \
-              | grep -Exq "hold|on-hold|do-not-merge|dont-merge|don't-merge"
+            local norm
+            norm="$(tr '[:upper:]' '[:lower:]' <<<"$LABELS" | sed -E 's/[[:space:]_]+/-/g')"
+            grep -Exq "hold|on-hold|do-not-merge|dont-merge|don't-merge" <<<"$norm"
           }
 
           disarm() {
@@ -144,7 +147,7 @@ jobs:
               elif [ "$HEAD_SHA" != "$EVENT_HEAD_SHA" ]; then
                 echo "head moved since the label was added ($EVENT_HEAD_SHA -> $HEAD_SHA) — not arming"
               else
-                # Pin to the labelled head: GitHub refuses if the head has moved since.
+                # GitHub refuses to arm if the head is no longer the labelled one (checked at arm time only).
                 if [ -n "$PAT" ] && GH_TOKEN="$PAT" gh pr merge --auto --squash \
                       --match-head-commit "$EVENT_HEAD_SHA" "$PR_URL"; then
                   echo "armed with AUTODEPLOY_PAT at $EVENT_HEAD_SHA — the merge will trigger deploy.yml"
