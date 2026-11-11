@@ -3178,6 +3178,13 @@ DOCKET_SETTLE_S = 90                  # an upload batch lands file by file; wait
 DOCKET_REVIEW_MODEL = os.environ.get("CF_DOCKET_REVIEW_MODEL", STRONG_MODEL)
 DOCKET_RAG_URL = os.environ.get("CF_RAG_URL", "").strip()   # one or more RAG bases, comma-separated: primary (M4) then fallback mirrors — a primary outage falls through, so law-games never go degraded. Empty disables.
 DOCKET_LAW_CORPORA = os.environ.get("CF_RAG_LAW_CORPORA", "law:eu:3,law:eu:6,law:eu:2")  # EU legislation, CJEU, intl agreements
+# Game Studio quality gates on the writer (studio/, Mac only; S9). off = today. shadow = card stored, never blocks.
+# enforce = a draft the gates do not pass becomes failed. An unknown value fails closed to enforce, loudly.
+STUDIO_GATES = (os.environ.get("CF_STUDIO_GATES", "off").strip().lower() or "off")
+if STUDIO_GATES not in ("off", "shadow", "enforce"):
+    print(f"CF_STUDIO_GATES={STUDIO_GATES!r} is not off|shadow|enforce: treating it as enforce"); STUDIO_GATES = "enforce"
+_studio_cap = os.environ.get("CF_STUDIO_WEEKLY_CAP", "0").strip()
+STUDIO_WEEKLY_CAP = int(_studio_cap) if _studio_cap.isdigit() else 0   # autonomous drafts/week across his courses; 0 = no cap
 _docket_writing: set = set()          # course ids with a writer thread in this process
 _docket_lock = threading.Lock()
 
@@ -3301,8 +3308,14 @@ def _docket_collect_stale(cid: str):
 
 def _docket_due(cid: str) -> list:
     files = rows("SELECT week,created FROM files WHERE course_id=? AND selected=1 AND kind<>'image' AND COALESCE(text,'')<>''", cid)
-    games = rows("SELECT week,status,created,updated FROM docket_games WHERE course_id=?", cid)
-    return docketgen.weeks_needing_games([dict(f) for f in files], [dict(g) for g in games], time.time())
+    games = rows("SELECT week,status,created,updated,error FROM docket_games WHERE course_id=?", cid)
+    slots = docketgen.weekly_slots([dict(r) for r in rows(
+        "SELECT d.status,d.created,d.error FROM docket_games d JOIN courses c ON c.id=d.course_id "
+        "WHERE c.user_id=(SELECT user_id FROM courses WHERE id=?) AND d.created>?", cid, time.time() - docketgen.SLOT_WINDOW_S)],
+        STUDIO_WEEKLY_CAP) if STUDIO_WEEKLY_CAP else None
+    on = STUDIO_GATES in ("shadow", "enforce")   # gate-blocked rows only exist with the gates on; off = today's call exactly
+    return docketgen.weeks_needing_games([dict(f) for f in files], [dict(g) for g in games], time.time(),
+                                         max_failures=3 if on else None, max_infra_failures=6 if on else None, slots=slots)
 
 
 def _docket_queue(cid: str, weeks: list) -> list:
@@ -3394,8 +3407,22 @@ def _docket_write(cid: str, gid: str):
                                messages=[{"role": "user", "content": f"{src}\n\nGAME:\n{docketgen.for_review(game)}"}])
                 issues = docketgen.review_issues(_model_json(m3))
         final = docketgen.finish(game, gid, _docket_code(course), keyed)
-        _set_docket(gid, status="draft", title=str(final.get("title") or label.capitalize())[:120], game=final, model=used, error="",
-                    review={"issues": issues, "unverified": gone, "revised": revised}, files=[f["id"] for f in files])
+        status, err, review = "draft", "", {"issues": issues, "unverified": gone, "revised": revised}
+        if STUDIO_GATES in ("shadow", "enforce"):
+            try:
+                from studio import docket_adapter        # lazy: only the Mac writer (CF_DOCKET_AUTO=1) reaches here
+                card = docket_adapter.gate_docket(final, keyed, texts, course, issues=issues, unverified=gone,
+                                                  mode=STUDIO_GATES, heartbeat=lambda: _set_docket(gid, updated=time.time()))
+                card = json.loads(json.dumps(card, allow_nan=False))   # _set_docket serialises outside this try; jsonb has no NaN
+            except Exception as e:                       # noqa: BLE001
+                if STUDIO_GATES == "enforce":            # fail-closed; the prefix keeps it on S8's infra retry cap
+                    raise RuntimeError(f"{docketgen.GATE_UNAVAILABLE}: {type(e).__name__}: {e}"[:300]) from e
+                card = {"mode": "shadow", "error": f"{type(e).__name__}: {e}"[:300]}
+            review["gates"] = card
+            if STUDIO_GATES == "enforce" and (not isinstance(card, dict) or card.get("overall_pass") is not True):
+                status, err = "failed", str(docket_adapter.block_message(card))[:300]   # "Blocked by…" or "Gates unavailable: …"
+        _set_docket(gid, status=status, title=str(final.get("title") or label.capitalize())[:120], game=final, model=used, error=err,
+                    review=review, files=[f["id"] for f in files])
     except Exception as e:
         print("docket write:", type(e).__name__, e)
         _set_docket(gid, status="failed", error=str(getattr(e, "detail", "") or e)[:300])
