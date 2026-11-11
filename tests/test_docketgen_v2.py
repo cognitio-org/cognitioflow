@@ -40,11 +40,11 @@ def inter(mix="A"):
         if r["kind"] == "mcq" and i:
             for o in r["options"]:
                 o["teaching"] += f" (round {i})"
-    return {"title": "The Ruritanian Statement", "logline": "l", "learning_goal": "g", "case_file": ["Claimant: X"],
+    return {"title": "The Ruritanian Statement", "logline": "A statement made abroad.", "learning_goal": "Spot a reservation.", "case_file": ["Claimant: X"],
             "arrival": {"place": "Harbour", "action": ["walk"], "dialogue": []}, "rounds": rounds,
-            "verdict": {"outcome": "WON", "irac": [{"issue": "i", "rule": "the rule [S1]", "application": "a", "conclusion": "c"}],
-                        "takeaway": "t"},
-            "epilogue": {"action": ["e"]},
+            "verdict": {"outcome": "WON", "irac": [{"issue": "the issue", "rule": "the rule [S1]", "application": "the application", "conclusion": "the conclusion"}],
+                        "takeaway": "the takeaway"},
+            "epilogue": {"action": ["Weeks later."]},
             "checks": [{"claim": "reservations are unilateral", "cites": ["S1"],
                         "quote": "A reservation is a unilateral statement made by a State"},
                        {"claim": "custom needs a belief in obligation", "cites": ["S1"],
