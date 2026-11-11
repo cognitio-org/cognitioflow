@@ -21,8 +21,12 @@ def card(fail=(), doctrine=True, bad_items=0, overall=None, polish=False, drop=(
             "doctrine_items": [{"ok": True}] * 3 + [{"ok": False}] * bad_items}
 
 
-def c(i, crd, g=0.5, r=0.5):
-    return {"id": i, "card": crd, "grounding": g, "generation_ratio": r}
+def game(*kinds):
+    return {"scenes": [{"id": "s1"}] + [{"id": f"s{n + 2}", "quiz": {"kind": k}} for n, k in enumerate(kinds)]}
+
+
+def c(i, crd, g=0.5, r=0.5, gm=None):
+    return {"id": i, "card": crd, "grounding": g, "generation_ratio": r, "game": gm}
 
 
 def test_none_pass_surfaces_nothing_with_reasons():
@@ -37,9 +41,26 @@ def test_only_the_all_gates_draft_wins():
     assert out["winner"] == "b" and out["reasons"]["b"] == "selected"
 
 
-def test_ties_break_on_doctrine_then_grounding_then_ratio_then_id():
+def test_ties_break_on_doctrine_then_grounding_then_produce_rounds_then_id():
     assert best_of_n.select([c("a", card(), g=0.5), c("b", card(), g=0.9)])["winner"] == "b"
-    assert best_of_n.select([c("a", card(), g=0.5, r=0.4), c("b", card(), g=0.5, r=0.8)])["winner"] == "b"
+    a = c("a", card(), gm=game("mcq", "mcq", "slot"))
+    b = c("b", card(), gm=game("mcq", "slot", "spot"))
+    assert best_of_n.select([a, b])["winner"] == "b"
+
+
+def test_padding_items_does_not_win_a_tie():
+    # generation_ratio counts every slot fact / spot issue: a padded draft has a higher ratio but the same rounds.
+    lean = c("a", card(), r=0.6, gm=game("mcq", "slot", "spot"))
+    padded = c("b", card(), r=0.95, gm=game("mcq", "slot", "spot"))
+    assert best_of_n.select([padded, lean])["winner"] == "a"          # falls through to id, not to the ratio
+
+
+def test_doctrine_is_required_even_when_not_enforced():
+    # CF_STUDIO_ENFORCE_GATES can leave doctrine out of `enforced`, so overall_pass may be True with doctrine failed.
+    crd = card(doctrine=False, overall=True)
+    crd["enforced"] = list(DET)
+    out = best_of_n.select([c("a", crd)])
+    assert out["winner"] is None and "doctrine" in out["reasons"]["a"]
     assert best_of_n.select([c("b", card()), c("a", card())])["ranked"] == ["a", "b"]
     # fewer failing doctrine items beats better grounding (doctrine is the primary score)
     out = best_of_n.select([c("a", card(bad_items=0, overall=True), g=0.1),
