@@ -5,6 +5,11 @@ not a model, verifies it: the quote must verify (doctrinal_review.unverified_quo
 enough, with a real word) against the text of a cited key. A failure becomes a repair-round problem for the
 writer; the grounding share is a selection tie-break in best-of-N and a metric in the eval.
 
+WRITER v2 (writer-v2.1+) no longer lets the model type the quote: it cites a numbered sentence id, and
+docketgen.numbered_sentence_checks copies that exact source text in as `quote` (and sets `sentence`). This check
+then runs unchanged on the copied text, so the 6-word minimum and the reuse / near-duplicate rules still apply; a
+check whose id did not resolve is marked `unresolved` and skipped here (its problem is already reported).
+
 Stdlib only. Reuses the doctrine gate's normaliser so the writer and the gate agree on what "verbatim" means.
 """
 from __future__ import annotations
@@ -36,8 +41,9 @@ def _dr():
 
 
 def _key(c) -> str:
-    s = str(c or "").strip().strip("[]")
-    return s.split()[0] if s else ""
+    """The source key a check cites; a sentence id or range ("S1.18", "S1.18-S1.20") names its source "S1"
+    (docketgen._cite_key, the one normaliser the citation check also uses)."""
+    return docket_adapter.docketgen._cite_key(c) if str(c or "").strip() else ""
 
 
 def check_problems(checks, keyed: dict, min_checks: int = 1) -> list:
@@ -53,6 +59,9 @@ def check_problems(checks, keyed: dict, min_checks: int = 1) -> list:
         if not isinstance(c, dict):
             bad.append(f"check {i} is not an object.")
             continue
+        if c.get("unresolved"):
+            continue                               # its sentence id did not resolve: that problem is already reported
+        sid = str(c.get("sentence") or "").strip()  # WRITER v2: code copied the quote from this sentence id
         quote = str(c.get("quote") or "").strip()
         keys = [k for k in (_key(x) for x in (c.get("cites") or [])) if _KEY.fullmatch(k or "")]
         if not quote:
@@ -62,12 +71,16 @@ def check_problems(checks, keyed: dict, min_checks: int = 1) -> list:
             bad.append(f"check {i} cites no source key.")
             continue
         if len(_WORDS.findall(quote)) < MIN_QUOTE_WORDS:
-            bad.append(f"check {i}: the quote {quote[:80]!r} is too short; copy a whole sentence (at least "
+            bad.append(f"check {i}: sentence {sid} ({quote[:80]!r}) is under {MIN_QUOTE_WORDS} words; cite a sentence "
+                       f"that states the claim, or a range with its neighbour." if sid else
+                       f"check {i}: the quote {quote[:80]!r} is too short; copy a whole sentence (at least "
                        f"{MIN_QUOTE_WORDS} words) that states the claim.")
             continue
         norm = dr._norm(quote)
         if any(_same_support(norm, prev) for prev in seen):
-            bad.append(f"check {i} reuses (or trims) the quote of an earlier check; each claim needs its own support.")
+            bad.append(f"check {i}: sentence {sid} says the same as an earlier check's sentence; each claim needs its "
+                       f"own support." if sid else
+                       f"check {i} reuses (or trims) the quote of an earlier check; each claim needs its own support.")
             continue
         texts = [str((keyed.get(k) or {}).get("text") or "") for k in keys]
         if not any(t and not dr.unverified_quotes(t, [quote], split_sources=lambda s: ([s], [])) for t in texts):
@@ -83,4 +96,5 @@ def grounding_share(checks, keyed: dict) -> float:
     if not isinstance(checks, list) or not checks:
         return 0.0
     failed = len(check_problems(checks, keyed))     # min_checks=1: only per-check problems count here
+    failed += sum(1 for c in checks if isinstance(c, dict) and c.get("unresolved"))
     return max(0.0, (len(checks) - failed) / len(checks))
