@@ -166,3 +166,27 @@ def test_v2_enforce_adapter_raising_fails_the_row_on_the_infra_cap(client, monke
     _, _, row = _run_v2(client, monkeypatch)
     assert row["status"] == "failed" and row["error"].startswith(docketgen.GATE_UNAVAILABLE)
     assert "M4 unreachable" in row["error"]
+
+
+# ---------------------------------------------------------------- v2's own findings reach the gate card
+
+HIGH = {"verdict": "revise", "issues": [{"where": "round 1", "problem": "states the wrong test", "severity": "high"}]}
+
+
+def test_v2_reviewer_issues_and_unverified_citations_reach_the_gate(client, monkeypatch):
+    """The other v2 tests use a clean review (issues == unverified == []), so a mutant passing [] for either to
+    the adapter survived them. Here the Thinker's high-severity issue survives the revision and one citation stays
+    unverified: both must reach gate_docket exactly as stored, or enforce's reviewer_high/citations gates pass a
+    draft v2's own checks flagged."""
+    monkeypatch.setattr(run, "STUDIO_GATES", "enforce")
+    monkeypatch.setattr(run.citecheck, "unverified", lambda text, texts: [{"raw": "[Z9]"}])
+    calls = _spy(monkeypatch, card=_card(False, mode="enforce", blocking=["reviewer_high", "citations"]))
+    cid = _course_v2(client)
+    fake, _ = _v2(monkeypatch, [inter("A"), inter("A"), inter("A")], [HIGH, HIGH])   # write, repair, revise
+    gid, row = _write_v2(cid, fake)
+    review = _review(row)
+    (c,) = calls
+    assert review["issues"] and review["issues"][0]["severity"] == "high"
+    assert review["unverified"] == ["[Z9]"]
+    assert c["issues"] == review["issues"] and c["unverified"] == review["unverified"]
+    assert row["status"] == "failed" and row["error"].startswith(docketgen.GATE_BLOCKED)
