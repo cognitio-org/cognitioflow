@@ -18,7 +18,17 @@ _KEY = re.compile(r"[A-Z][A-Z0-9]{0,5}")
 # claim could "cite". A claim's support must be a real sentence fragment: at least MIN_QUOTE_WORDS words, and no
 # quote may be reused for a second claim (adversarial review 2026-11-11).
 MIN_QUOTE_WORDS = 6
+MAX_WORD_OVERLAP = 0.6   # a quote sharing more of its words than this with an earlier one is the same support
 _WORDS = re.compile(r"[^\W_]+")
+
+
+def _same_support(a: str, b: str) -> bool:
+    """True when two normalised quotes are one piece of support: one contains the other, or their word sets
+    overlap by more than MAX_WORD_OVERLAP (Jaccard). Stops one sentence being trimmed into several 'checks'."""
+    if a in b or b in a:
+        return True
+    wa, wb = set(_WORDS.findall(a)), set(_WORDS.findall(b))
+    return bool(wa and wb) and len(wa & wb) / len(wa | wb) > MAX_WORD_OVERLAP
 
 
 def _dr():
@@ -56,8 +66,8 @@ def check_problems(checks, keyed: dict, min_checks: int = 1) -> list:
                        f"{MIN_QUOTE_WORDS} words) that states the claim.")
             continue
         norm = dr._norm(quote)
-        if norm in seen:
-            bad.append(f"check {i} reuses the quote of an earlier check; each claim needs its own support.")
+        if any(_same_support(norm, prev) for prev in seen):
+            bad.append(f"check {i} reuses (or trims) the quote of an earlier check; each claim needs its own support.")
             continue
         texts = [str((keyed.get(k) or {}).get("text") or "") for k in keys]
         if not any(t and not dr.unverified_quotes(t, [quote], split_sources=lambda s: ([s], [])) for t in texts):
