@@ -172,6 +172,18 @@ def test_quote_from_the_wrong_key_missing_or_invented_fails():
     assert grounding.check_problems([], KEYED) and grounding.grounding_share([], KEYED) == 0.0
 
 
+def test_short_generic_reused_or_too_few_quotes_do_not_ground_a_claim():
+    short = [{"claim": "reservations are always void", "cites": ["S1"], "quote": "made by a State"}]
+    assert "too short" in grounding.check_problems(short, KEYED)[0]           # verifies in S1, but says nothing
+    q = "a unilateral statement made by a State"
+    reused = [{"claim": "x", "cites": ["S1"], "quote": q}, {"claim": "y", "cites": ["S1"], "quote": " " + q.upper()}]
+    probs = grounding.check_problems(reused, KEYED)
+    assert len(probs) == 1 and "reuses" in probs[0] and grounding.grounding_share(reused, KEYED) == 0.5
+    one = [{"claim": "x", "cites": ["S1"], "quote": q}]
+    assert grounding.check_problems(one, KEYED) == []
+    assert "at least 3" in grounding.check_problems(one, KEYED, min_checks=3)[0]
+
+
 # ------------------------------------------------------------------------------------------------ provenance
 
 def _calls(*extra):
