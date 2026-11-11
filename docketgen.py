@@ -770,6 +770,10 @@ def validate_v2(game, keys, mix: str = None) -> list:
     for c in game.get("checks") or []:
         if isinstance(c, dict) and not str(c.get("quote") or "").strip():
             bad.append(f"Check {c.get('n', '?')} has no quote from its source.")
+    checks = [c for c in game.get("checks") or [] if isinstance(c, dict)]
+    if rounds and len(checks) < len(rounds):     # one quoted claim cannot ground a whole game (adversarial review)
+        bad.append(f"The game has {len(checks)} checks for {len(rounds)} rounds; give at least one quoted check per "
+                   f"round.")
     return bad
 
 

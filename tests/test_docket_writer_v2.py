@@ -12,7 +12,7 @@ import llm
 import run
 from studio import runtime as srt
 from test_docket_drafts import _course
-from test_docketgen_v2 import inter
+from test_docketgen_v2 import SRC, inter
 
 CODER = "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ"
 THINKER = "mlx-community/Qwen3-30B-A3B-Thinking-2507-4bit"
@@ -55,8 +55,7 @@ def _write(cid, fake):
 
 def _course_v2(client):
     cid = _course(client, "PIL v2")
-    client.post(f"/api/courses/{cid}/files", files={"file": ("W3 lecture.txt", __import__("io").BytesIO(
-        b"A reservation is a unilateral statement made by a State when signing a treaty."), "text/plain")},
+    client.post(f"/api/courses/{cid}/files", files={"file": ("W3 lecture.txt", __import__("io").BytesIO(SRC.encode()), "text/plain")},
         data={"week": "3"})
     return cid
 
@@ -100,6 +99,15 @@ def test_v2_refuses_off_the_m4_and_fails_closed(client, monkeypatch):
         fake, _ = _v2(monkeypatch, [inter("A")], [{"verdict": "ok", "issues": []}], provider, base, model)
         gid, row = _write(cid, fake)
         assert row["status"] == "failed" and fake.messages.create.call_count == 0, (provider, base, model)
+
+
+def test_v2_refuses_a_rag_base_off_the_m4(client, monkeypatch):
+    cid = _course_v2(client)
+    fake, _ = _v2(monkeypatch, [inter("A")], [{"verdict": "ok", "issues": []}])
+    monkeypatch.setattr(run, "DOCKET_RAG_URL", "http://100.64.0.3:8123,https://rag-mirror.example.com")
+    with mock.patch("urllib.request.urlopen") as net:
+        gid, row = _write(cid, fake)
+    assert row["status"] == "failed" and fake.messages.create.call_count == 0 and not net.called
 
 
 def test_v2_quote_not_in_source_is_repaired_then_fails(client, monkeypatch):

@@ -46,7 +46,11 @@ def inter(mix="A"):
                         "takeaway": "t"},
             "epilogue": {"action": ["e"]},
             "checks": [{"claim": "reservations are unilateral", "cites": ["S1"],
-                        "quote": "A reservation is a unilateral statement made by a State"}]}
+                        "quote": "A reservation is a unilateral statement made by a State"},
+                       {"claim": "custom needs a belief in obligation", "cites": ["S1"],
+                        "quote": "Opinio juris is the belief that a practice is legally required"},
+                       {"claim": "practice must be general", "cites": ["S1"],
+                        "quote": "State practice must be general and consistent"}]}
 
 
 def test_every_mix_clears_the_generation_ratio_and_the_banned_one_does_not():
@@ -173,6 +177,7 @@ def test_pipeline_write_review_ok_shares_prefix_and_records_every_call():
     assert all(s == "BRIEF" and u.startswith("PREFIX\n\n") for _, _, s, u in log)
     assert log[0][3].rstrip().endswith("1 to 3 checks per round.") and "TASK (reviewer)" in log[1][3]
     assert "WRONG ON PURPOSE" in log[1][3] and "Do NOT suggest a fix" in log[1][3]
+    assert "never report it for being\nwrong" in log[1][3]
     assert [c["role"] for c in out["calls"]] == ["write", "review"] and out["mix"] == "A" and not out["revised"]
     assert out["model"] == "mlx-community/Qwen3-coder"
 
@@ -222,3 +227,17 @@ def test_unverifiable_page_numbers_are_stripped():
     g = inter("A"); g["rounds"][0]["options"][0]["teaching"] = "It is a unilateral statement [S1 p.14]"
     out, _ = _run([g], None)
     assert out["game"]["scenes"][1]["quiz"]["options"][0]["teaching"].endswith("[S1]")
+
+
+def test_fewer_checks_than_rounds_is_rejected():
+    g = inter("A"); g["checks"] = g["checks"][:1]
+    game, _ = docketgen.compile_game(g, "A")
+    assert any("1 checks for 3 rounds" in p for p in docketgen.validate_v2(game, KEYED.keys(), "A"))
+
+
+def test_a_revision_that_fails_the_checks_is_not_adopted():
+    broken = inter("A"); broken["title"] = "Broken"; broken["rounds"] = broken["rounds"][:2]
+    out, log = _run([inter("A"), broken],
+                    [{"verdict": "fix", "issues": [{"where": "round 1", "problem": "p", "severity": "high", "quote": ""}]}])
+    assert [r for _, r, _, _ in log] == ["write", "review", "revise"]
+    assert not out["revised"] and out["game"]["title"] != "Broken" and out["issues"][0]["severity"] == "high"

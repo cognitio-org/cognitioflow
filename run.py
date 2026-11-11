@@ -3418,11 +3418,15 @@ def _docket_v2_guard():
         raise ValueError("WRITER v2 refused: the writer must use LLM_PROVIDER=kernal on the M4, with no local fallback")
     srt.check_base_url(llm.KERNAL_BASE)
     srt.check_model(MODEL)
+    for base in (u.strip() for u in DOCKET_RAG_URL.split(",") if u.strip()):
+        srt.check_base_url(base)   # _law_sources sends course exam text as the query: M4/loopback RAG only
     return srt
 
 
 def _docket_context(cid: str, course: dict, week: str) -> dict:
-    """Everything one v2 draft is written from, built once (the M4 kit's best-of-N reuses it for N drafts)."""
+    """Everything one v2 draft is written from, built once (the M4 kit's best-of-N reuses it for N drafts).
+    The M4 guard runs FIRST: _law_sources below sends course exam text to the RAG bases."""
+    _docket_v2_guard()
     from studio import context as sctx, docket_adapter as sda
     files = docketgen.dedupe_versions(_docket_files(cid, week))
     if not files: raise ValueError(f"No ticked files with text for {_scope_label(week)}.")
