@@ -22,7 +22,7 @@ except Exception:  # pragma: no cover - harness absent
 def _spot_round():
     return {
         "id": "s2", "title": "The facts", "phase": "examination", "set": "courtroom",
-        "action": ["x"], "dialogue": [{"speaker": "JUDGE VOS", "line": "Spot the issues."}],
+        "action": ["The court sits."], "dialogue": [{"speaker": "JUDGE VOS", "line": "Spot the issues."}],
         "quiz": {
             "id": "q1", "kind": "spot",
             "question": "Select each passage that raises a distinct issue, and name it.",
@@ -49,7 +49,7 @@ def _spot_round():
 def _order_round():
     return {
         "id": "s3", "title": "The rule", "phase": "examination", "set": "courtroom",
-        "action": ["x"], "dialogue": [{"speaker": "JUDGE VOS", "line": "Assemble the test."}],
+        "action": ["The court sits."], "dialogue": [{"speaker": "JUDGE VOS", "line": "Assemble the test."}],
         "quiz": {
             "id": "q2", "kind": "order",
             "question": "Order the Francovich conditions as the court applies them.",
@@ -70,7 +70,7 @@ def _order_round():
 def _slot_round():
     return {
         "id": "s4", "title": "Apply", "phase": "examination", "set": "courtroom",
-        "action": ["x"], "dialogue": [{"speaker": "JUDGE VOS", "line": "Apply the facts."}],
+        "action": ["The court sits."], "dialogue": [{"speaker": "JUDGE VOS", "line": "Apply the facts."}],
         "quiz": {
             "id": "q3", "kind": "slot",
             "question": "Map each fact onto the element it satisfies.",
@@ -90,15 +90,15 @@ def _slot_round():
 def produce_game():
     """A sound flagship round built on the produce-type kinds."""
     return {
-        "title": "The Harbour Permit", "logline": "l", "case_file": ["Claimant: Kade"],
+        "title": "The Harbour Permit", "logline": "A contract signed under threat.", "case_file": ["Claimant: Kade"],
         "scenes": [
             {"id": "s1", "title": "Arrival", "phase": "arrival", "set": "street", "action": ["walk"], "dialogue": []},
             _spot_round(), _order_round(), _slot_round(),
-            {"id": "s5", "title": "Verdict", "phase": "verdict", "set": "courtroom", "action": ["v"], "dialogue": []},
-            {"id": "s6", "title": "Epilogue", "phase": "epilogue", "set": "generic", "action": ["e"], "dialogue": []},
+            {"id": "s5", "title": "Verdict", "phase": "verdict", "set": "courtroom", "action": ["The judge rules."], "dialogue": []},
+            {"id": "s6", "title": "Epilogue", "phase": "epilogue", "set": "generic", "action": ["Weeks later."], "dialogue": []},
         ],
         "verdict": {"outcome": "WON", "irac": [{"issue": "the issue", "rule": "the rule [S1]", "application": "the application", "conclusion": "the conclusion"}], "takeaway": "the takeaway"},
-        "checks": [{"n": 1, "claim": "c", "cites": ["S1"]}],
+        "checks": [{"n": 1, "claim": "Duress voids consent.", "cites": ["S1"]}],
     }
 
 
@@ -111,7 +111,7 @@ def test_a_sound_produce_game_passes_validate():
 def test_mixed_mcq_and_produce_game_passes_validate():
     g = produce_game()
     g["scenes"].insert(4, {
-        "id": "s4b", "title": "Pick", "phase": "examination", "set": "courtroom", "action": ["x"],
+        "id": "s4b", "title": "Pick", "phase": "examination", "set": "courtroom", "action": ["The court sits."],
         "dialogue": [{"speaker": "JUDGE VOS", "line": "Well?"}],
         "quiz": {"id": "q4", "question": "Advise her.", "options": [
             {"key": "A", "text": "a", "correct": False, "teaching": "no [S1]", "cites": ["S1"]},

@@ -232,7 +232,7 @@ def src_keyed(text=SRC, *more):
 
 
 def mcq_round(n, cites=("S1",)):
-    return {"id": f"s{n}", "title": "Pick", "phase": "examination", "set": "courtroom", "action": ["x"],
+    return {"id": f"s{n}", "title": "Pick", "phase": "examination", "set": "courtroom", "action": ["The court sits."],
             "dialogue": [], "quiz": {"id": f"q{n}", "question": "Advise her.", "options": [
                 {"key": k, "text": f"answer {k}", "correct": k == "B", "teaching": f"because {k} [S1]",
                  "cites": list(cites)} for k in "ABCD"]}}
@@ -1255,7 +1255,8 @@ _PROBES = {
     "wrong story cite-only": (lambda: _mixed(lambda g: _wrongs(g)[1].update(story="[S1]")), ["q4:C.story: no words"]),
     "correct text one letter": (lambda: _mixed(lambda g: _right(g).update(text="a [S1]")), ["q4:B.text: no words"]),
     "correct text spaced letters": (lambda: _mixed(lambda g: _right(g).update(text="a b c")), ["q4:B.text: no words"]),
-    "correct text digits only": (lambda: _mixed(lambda g: _right(g).update(text="34 (2)")), ["q4:B.text: no words"]),
+    "correct text citation shorthand only": (lambda: _mixed(lambda g: _right(g).update(text="pp. 34-35 [S1]")),
+                                              ["q4:B.text: no words"]),   # was "34 (2)": a number counts (strict rule)
     "correct text a projection label": (
         lambda: _mixed(lambda g: _right(g).update(text="CORRECT ANSWER: [S1]")), ["q4:B.text: no words"]),
     "correct text not a string": (lambda: _mixed(lambda g: _right(g).update(text=None)), ["q4:B.text: no words"]),
@@ -1374,7 +1375,8 @@ def test_r4_the_good_game_still_passes_every_subset(monkeypatch, subset):
     ("Duress voids consent [S1]", True), ("ab", True), ("a", False), ("a b", False), ("[S1]", False),
     ("[S1 p.4] [S2 pp. 3-5]", False), ("TEACHING (B): [S1]", False), (HF * 4, False), ("​ab​", True),
     ("été", True), ("Straße", True), ("नमस्ते", True),  # namaste: marks
-    ("½ Ⅷ", False), ("12.3", False), ("...?!", False), (None, False), (7, False), ("", False),
+    ("½ Ⅷ", False), ("12.3", True),  # strict rule: a number counts
+    ("...?!", False), (None, False), (7, False), ("", False),
     ("ㅤㅤ", False), ("ﾠﾠ", False), ("ᅟᅠ", False),
 ])
 def test_r4_real_word_rule(text, words):
@@ -1548,11 +1550,10 @@ def test_r5_good_fixtures_carry_real_words_in_the_verdict():
         assert da.has_real_word(v["takeaway"]) and da.has_real_word(g["title"])
 
 
-@pytest.mark.parametrize("text,words", [("[S1] pp. 4", True), ("zz", True), ("C-6/90", False), ("34 (2)", False)])
-def test_r5_known_edges_of_the_two_letter_rule(text, words):
-    """Review MINOR, pinned on purpose. A page reference outside the brackets ('pp') or any two letters count as a
-    word; a lone case number or digits do not (a false block, in the fail-closed direction). The rule is literal (a
-    run of >= 2 letters); changing it is a separate decision."""
+@pytest.mark.parametrize("text,words", [("[S1] pp. 4", False), ("zz", True), ("C-6/90", True), ("34 (2)", True)])
+def test_r5_known_edges_of_the_word_rule(text, words):
+    """Review MINOR, decided by Matej on 2026-11-11: STRICT. A page reference ('[S1] pp. 4') is citation shorthand
+    and no word; a lone case number or digits are real answers and count. Any two letters ('zz') still count."""
     assert da.has_real_word(text) is words
 
 
@@ -1582,3 +1583,128 @@ def test_r5_adv3_a_refused_review_base_is_infra_and_never_passes(monkeypatch):
     assert card["overall_pass"] is False and card["infra_error"] is True
     assert d["passed"] is False and "GateInfraError" in (d.get("infra") or "")
     assert da.block_message(card).startswith(docketgen.GATE_UNAVAILABLE)
+
+
+# ==================================================================== #201 strict word rule + strict-review fix-first items
+# Matej, sitting 2026-11-11: the word rule is STRICT. Citation shorthand ("pp.", "p.", "Id.", "ibid", "op. cit.", with
+# its page locator) is not a word; a number or case code ("1957", "C-6/90", "§ 4", "Art. 28") is. A digit glued to a
+# letter (a raw id such as "e1") is still not a number, so H5-H7 stay blocked. Repros: scratchpad s4rev7/r7probe.py,
+# r7b.py (the strict review of 7faeaa4).
+@pytest.mark.parametrize("text", [
+    "[S1] pp. 4", "pp. 4-5", "pp 4", "p. 12", "[S1 p.4] ibid.", "Id.", "id", "Id. at 5", "ibid", "Ibid., 34", "ibidem",
+    "op. cit.", "op. cit., p. 12", "Op cit", "loc. cit.", "cf.", "supra", "infra", "et seq.", "pp. 4 ff.",
+    "Id.; ibid.; op. cit. [S1]", "e1", "e2", "f9", "s1", "q4", "1e", "a", "?", "[S1]", HF + " pp. 4",
+])
+def test_strict_citation_shorthand_and_raw_ids_are_not_words(text):
+    assert da.has_real_word(text) is False
+
+
+@pytest.mark.parametrize("text", [
+    "1957", "C-6/90", "§ 4", "Art. 28", "34 (2)", "26/62", "12.3", "4", "T-123/04", "Case 26/62", "zz",
+    "Idaho", "option", "citizen", "apple", "copp", "pp. 4 Van Gend", "Id. at 5: the Treaty", "ibid. 1957 is wrong",
+])
+def test_strict_numbers_case_codes_and_real_words_count(text):
+    assert da.has_real_word(text) is True
+
+
+def _sc(g, i):
+    return g["scenes"][i]
+
+
+# name -> (edit on mixed_game, problems content_problems must report). Each one passed validate, content_problems
+# and 48/48 subsets on 7faeaa4 (strict review, rows T and C1-C8, S1).
+_STRICT_PROBES = {
+    "T correct text '[S1] pp. 4'": (lambda g: _right(g).update(text="[S1] pp. 4"), ["q4:B.text: no words"]),
+    "T correct text 'pp. 4-5'": (lambda g: _right(g).update(text="pp. 4-5"), ["q4:B.text: no words"]),
+    "T correct text '[S1 p.4] ibid.'": (lambda g: _right(g).update(text="[S1 p.4] ibid."), ["q4:B.text: no words"]),
+    "T correct text 'Id.'": (lambda g: _right(g).update(text="Id."), ["q4:B.text: no words"]),
+    "T wrong teaching 'op. cit. [S1]'": (lambda g: _wrongs(g)[0].update(teaching="op. cit. [S1]"),
+                                         ["q4:A.teaching: no words"]),
+    "C1 logline cite-only": (lambda g: g.update(logline="[S1]"), ["game:logline: no words"]),
+    "C1 logline filler": (lambda g: g.update(logline=HF), ["game:logline: no words"]),
+    "C2 learning_goal whitespace": (lambda g: g.update(learning_goal=" "), ["game:learning_goal: no words"]),
+    "C3 case_file entry cite-only": (lambda g: g.update(case_file=["Claimant: Kade", "[S1]"]),
+                                     ["game:case_file[1]: no words"]),
+    "C4 scene action line filler": (lambda g: _sc(g, 0).update(action=["walk to court", HF]),
+                                    ["s1:action[1]: no words"]),
+    "C4 scene action scalar cite-only": (lambda g: _sc(g, 0).update(action="[S1]"), ["s1:action[0]: no words"]),
+    "C5 dialogue line cite-only": (lambda g: _sc(g, 1).update(dialogue=[{"speaker": "JUDGE VOS", "line": "[S1]"}]),
+                                   ["s2:dialogue[0].line: no words"]),
+    "C5 dialogue speaker filler": (lambda g: _sc(g, 1).update(dialogue=[{"speaker": HF, "line": "Spot the issues."}]),
+                                   ["s2:dialogue[0].speaker: no words"]),
+    "C7 checks claim cite-only": (lambda g: g.update(checks=[{"n": 1, "claim": "[S1]", "cites": ["S1"]}]),
+                                  ["game:checks[0].claim: no words"]),
+    "C8 scene title filler": (lambda g: _sc(g, 0).update(title=HF), ["s1:title: no words"]),
+    "removed entry cite-only": (lambda g: g.update(removed=["[S1]"]), ["game:removed[0]: no words"]),
+    "verdict outcome of 3+ tokens, cite-only": (lambda g: g["verdict"].update(outcome="[S1] [S1] [S1]"),
+                                                ["verdict:outcome: no words"]),
+    "S1 verdict irac as a scalar string": (lambda g: g["verdict"].update(irac="x"), ["verdict:irac[0].rule: no words"]),
+}
+
+
+def _strict_build(name):
+    return _mixed(_STRICT_PROBES[name][0])
+
+
+@pytest.mark.parametrize("name", list(_STRICT_PROBES))
+def test_strict_content_problems_names_every_wordless_field(name):
+    probs = da.content_problems(_strict_build(name))
+    for e in _STRICT_PROBES[name][1]:
+        assert e in probs, (e, probs)
+
+
+@pytest.mark.parametrize("name", list(_STRICT_PROBES))
+def test_strict_a_wordless_field_fails_terminology_and_doctrine_in_every_enforcement_subset(monkeypatch, name):
+    final = _strict_build(name)
+    expected = _STRICT_PROBES[name][1]
+    for subset in _CONTENT_SUBSETS:
+        if subset:
+            monkeypatch.setenv("CF_STUDIO_ENFORCE_GATES", subset)
+        else:
+            monkeypatch.delenv("CF_STUDIO_ENFORCE_GATES", raising=False)
+        rev = FakeReviewer()
+        card = assert_schema(run(final=copy.deepcopy(final), runtime=full_runtime(reviewer=rev)))
+        assert card["overall_pass"] is False, (subset, card["enforced"])
+        t, d = gate(card, "terminology"), gate(card, "doctrine")
+        assert t["passed"] is False and d["passed"] is False, (subset, t["detail"], d["detail"])
+        assert rev.prompts == [] and expected[0] in t["detail"] and expected[0] in d["detail"], subset
+
+
+def test_strict_source_file_and_note_are_gated():
+    """C8 sources: finish() writes the sources legend; a cite-only note or a filler file name renders in the case
+    panel (ui.js cf-file / cf-note)."""
+    final = _mixed(lambda g: None)
+    final["sources"]["S1"] = dict(final["sources"]["S1"], note="[S1]")
+    assert "game:sources[S1].note: no words" in da.content_problems(final)
+    final["sources"]["S1"] = {"file": HF}
+    assert "game:sources[S1].file: no words" in da.content_problems(final)
+    final["sources"]["S1"] = HF                                    # data.js: a string value is the file name
+    assert "game:sources[S1].file: no words" in da.content_problems(final)
+
+
+# No false blocks: real short answers that are a number or case code, and narrative chrome the player treats as
+# absent (None, '', missing, an outcome of <= 2 tokens that quiz.js does not render).
+_STRICT_CLEAN = {
+    "correct text '1957'": lambda g: _right(g).update(text="1957"),
+    "correct text 'C-6/90'": lambda g: _right(g).update(text="C-6/90"),
+    "correct text '§ 4'": lambda g: _right(g).update(text="§ 4"),
+    "correct text '34 (2)'": lambda g: _right(g).update(text="34 (2)"),
+    "wrong text 'Art. 28'": lambda g: _wrongs(g)[0].update(text="Art. 28"),
+    "logline / learning_goal ''": lambda g: g.update(logline="", learning_goal=""),
+    "logline / learning_goal missing": lambda g: (g.pop("logline", None), g.pop("learning_goal", None)),
+    "case_file [] / missing checks / removed": lambda g: (g.update(case_file=[], removed=[]), g.pop("checks", None)),
+    "case_file '' entries dropped": lambda g: g.update(case_file=["", None, "Claimant: Kade"]),
+    "scene action '' and title ''": lambda g: _sc(g, 0).update(action=["", "walk to court"], title=""),
+    "dialogue line '' dropped, even with a filler speaker": lambda g: _sc(g, 1).update(
+        dialogue=[{"speaker": HF, "line": ""}, {"speaker": "JUDGE VOS", "line": "Spot the issues."}]),
+    "verdict outcome one or two tokens": lambda g: g["verdict"].update(outcome="[S1] ."),
+    "verdict outcome real sentence": lambda g: g["verdict"].update(outcome="The court finds for Kade."),
+}
+
+
+@pytest.mark.parametrize("name", list(_STRICT_CLEAN))
+def test_strict_no_false_blocks(name):
+    final = _mixed(_STRICT_CLEAN[name])
+    assert da.content_problems(final) == []
+    card = assert_schema(run(final=final))
+    assert card["overall_pass"] is True, [(g["name"], g["detail"]) for g in card["gates"] if not g["passed"]]

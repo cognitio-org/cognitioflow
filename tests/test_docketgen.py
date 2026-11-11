@@ -5,16 +5,16 @@ import docketgen
 
 def game():
     opt = lambda k, ok: {"key": k, "text": f"answer {k}", "correct": ok, "teaching": f"because [S1] {k}", "cites": ["S1"]}
-    rnd = lambda n: {"id": f"s{n}", "title": "Examination", "phase": "examination", "set": "courtroom", "action": ["x"],
+    rnd = lambda n: {"id": f"s{n}", "title": "Examination", "phase": "examination", "set": "courtroom", "action": ["The court sits."],
                      "dialogue": [{"speaker": "JUDGE VOS", "line": "Well?"}],
                      "quiz": {"id": f"q{n}", "question": "Advise her.", "options": [opt("A", False), opt("B", True), opt("C", False), opt("D", False)]}}
-    return {"title": "The Canal House", "logline": "l", "case_file": ["Claimant: Anna"],
+    return {"title": "The Canal House", "logline": "A contract signed under threat.", "case_file": ["Claimant: Anna"],
             "scenes": [{"id": "s1", "title": "Arrival", "phase": "arrival", "set": "street", "action": ["walk"], "dialogue": []},
                        rnd(2), rnd(3),
-                       {"id": "s4", "title": "Verdict", "phase": "verdict", "set": "courtroom", "action": ["v"], "dialogue": []},
-                       {"id": "s5", "title": "Epilogue", "phase": "epilogue", "set": "generic", "action": ["e"], "dialogue": []}],
+                       {"id": "s4", "title": "Verdict", "phase": "verdict", "set": "courtroom", "action": ["The judge rules."], "dialogue": []},
+                       {"id": "s5", "title": "Epilogue", "phase": "epilogue", "set": "generic", "action": ["Weeks later."], "dialogue": []}],
             "verdict": {"outcome": "WON", "irac": [{"issue": "the issue", "rule": "the rule [S1]", "application": "the application", "conclusion": "the conclusion"}], "takeaway": "the takeaway"},
-            "checks": [{"n": 1, "claim": "c", "cites": ["S1"]}]}
+            "checks": [{"n": 1, "claim": "Duress voids consent.", "cites": ["S1"]}]}
 
 
 def test_a_sound_game_passes():

@@ -352,23 +352,47 @@ def _visible(text: str) -> str:
     return "".join(c for c in text if c not in _FILLERS and unicodedata.category(c) != "Cf")
 
 
+# Citation shorthand (Matej, 2026-11-11: the word rule is STRICT). A whole token, any case, with an optional dot and
+# the page locator that follows it ("pp. 4-7", "Id. at 5", "ibid., 34", "op. cit., p. 12"): none of it is content.
+_LOCATOR = r"(?:[ \t]*,?[ \t]*(?:at[ \t]+)?\d+(?:[ \t]*[-\u2013\u2014][ \t]*\d+)?(?:[ \t]*(?:ff?|et[ \t]+seqq?)(?!\w)\.?)?)*"
+_SHORTHAND = re.compile(r"(?<!\w)(?:pp|p|id|ibid|ibidem|op\.?[ \t]*cit|loc\.?[ \t]*cit|et[ \t]+seqq?|cf|supra|infra|ff)(?!\w)\.?"
+                        + _LOCATOR, re.I)
+
+
 def has_real_word(text) -> bool:
-    """True when `text` (a str; anything else is wordless) holds a real word: a run of >= 2 Unicode letters
-    (category L*; combining marks inside a run neither break nor count) once invisible/filler characters, cite
-    markers ([S1], [S1 p.4]) and the adapter's projection labels are removed. '[S1]', 'a', 'a b', '34', '?' and a
-    row of U+3164 have none."""
+    """True when `text` (a str; anything else is wordless) holds a real word once invisible/filler characters, cite
+    markers ([S1], [S1 p.4]), citation shorthand with its page locator (pp., p., Id., ibid(em), op. cit., loc. cit.,
+    cf., supra, infra, et seq., ff.) and the adapter's projection labels are removed. A real word is a run of >= 2
+    Unicode letters (category L*; combining marks inside a run neither break nor count), or a number: a run of decimal
+    digits with no letter directly before or after it. So '1957', 'C-6/90', '§ 4', '34 (2)' and 'Art. 28' count
+    (the STRICT rule, Matej 2026-11-11), while '[S1]', '[S1] pp. 4', 'Id.', 'ibid', 'a', 'a b', '?', a row of U+3164
+    and a raw id such as 'e1' (its digit is glued to a letter) do not."""
     if not isinstance(text, str):
         return False
-    s = _LABEL.sub(" ", docketgen._CITE.sub(" ", _visible(text)))
-    run = 0
-    for c in s:
+    s = _SHORTHAND.sub(" ", _LABEL.sub(" ", docketgen._CITE.sub(" ", _visible(text))))
+    run, prev = 0, ""
+    n = len(s)
+    i = 0
+    while i < n:
+        c = s[i]
         cat = unicodedata.category(c)
+        if cat == "Nd":
+            j = i
+            while j < n and unicodedata.category(s[j]) == "Nd":
+                j += 1
+            before = unicodedata.category(s[i - 1])[0] if i else ""
+            after = unicodedata.category(s[j])[0] if j < n else ""
+            if before != "L" and after != "L" and not (before == "M" and run):
+                return True
+            run, i = 0, j
+            continue
         if cat[0] == "L":
             run += 1
             if run >= 2:
                 return True
         elif not (cat[0] == "M" and run):
             run = 0
+        i += 1
     return False
 
 
@@ -421,8 +445,15 @@ def content_problems(final) -> list:
     any option's story and outcome_title, each round's IRAC issue/rule/application/conclusion, the verdict IRAC
     issue/application/conclusion, the verdict takeaway and the game-level takeaway. Hand-authored games leave the
     correct option's teaching and story ''.
-    Not gated (narrative chrome, not law): logline, learning_goal, case_file, scene titles, action and dialogue lines,
-    the verdict outcome, checks. Pure, stdlib + docketgen only; never raises on a malformed game."""
+    Narrative chrome (strict review of #201), gated the way play/player/data.js keeps it: the logline and
+    learning_goal (optional); each case_file entry, scene action line (a scalar action is one line), removed entry
+    and checks claim that is not absent; each scene title that is not absent (data.js shows 'Scene N' instead); each
+    dialogue line that is not absent (data.js drops the rest) and that line's speaker if not absent; each source's
+    file (a string value is the file), kind and note if not absent; each scene slug part (int_ext, place, time; a
+    string slug is the place) if not absent; the verdict outcome when quiz.js shows it (more
+    than two whitespace-separated tokens). The verdict IRAC is read as data.js reads it: a list, else any truthy
+    value as one entry. Not gated: ids, set, phase, shot fields (camera directions), source keys, bible,
+    coordinator_notes (none is shown as text). Pure, stdlib + docketgen only; never raises on a malformed game."""
     out = []
 
     def need(where, v):
@@ -437,9 +468,48 @@ def content_problems(final) -> list:
         for part in _IRAC_PARTS:
             (need if part in required else optional)(f"{where}.{part}", irac.get(part) if isinstance(irac, dict) else None)
 
+    def each(where, items):
+        items = items if isinstance(items, list) else ([items] if items else [])
+        for i, v in enumerate(items):
+            optional(f"{where}[{i}]", v)
+
     g = final if isinstance(final, dict) else {}
     need("game:title", g.get("title"))
     optional("game:takeaway", g.get("takeaway"))
+    optional("game:logline", g.get("logline"))
+    optional("game:learning_goal", g.get("learning_goal"))
+    each("game:case_file", g.get("case_file") if isinstance(g.get("case_file"), list) else [])
+    each("game:removed", g.get("removed") if isinstance(g.get("removed"), list) else [])
+    for i, c in enumerate(g.get("checks") if isinstance(g.get("checks"), list) else []):
+        optional(f"game:checks[{i}].claim", c.get("claim") if isinstance(c, dict) else None)
+    sources = g.get("sources")
+    for k, v in (sources.items() if isinstance(sources, dict) else ()):
+        where = f"game:sources[{_short(k, 20)}]"
+        if isinstance(v, dict):
+            optional(f"{where}.file", v.get("file") or v.get("name"))
+            optional(f"{where}.kind", v.get("kind"))
+            optional(f"{where}.note", v.get("note"))
+        else:
+            optional(f"{where}.file", v)
+    for n, sc in enumerate(g.get("scenes") if isinstance(g.get("scenes"), list) else [], 1):
+        if not isinstance(sc, dict):
+            continue
+        sid = _short(sc.get("id") or f"s{n}", 40)
+        if sc.get("title"):                                # data.js: title || `Scene ${i + 1}`
+            need(f"{sid}:title", sc.get("title"))
+        slug = sc.get("slug")                              # main.js slugText: the title card's location line
+        if isinstance(slug, dict):
+            for part in ("int_ext", "place", "time"):
+                optional(f"{sid}:slug.{part}", slug.get(part))
+        elif slug:
+            optional(f"{sid}:slug.place", slug)
+        each(f"{sid}:action", sc.get("action"))
+        for i, d in enumerate(sc.get("dialogue") if isinstance(sc.get("dialogue"), list) else []):
+            line = d.get("line") if isinstance(d, dict) else None
+            if not _absent(line):                          # data.js drops a dialogue entry with no line
+                need(f"{sid}:dialogue[{i}].line", line)
+                if d.get("speaker"):
+                    need(f"{sid}:dialogue[{i}].speaker", d.get("speaker"))
     rounds = list(_rounds(final))
     if not rounds:
         out.append("game: no rounds")
@@ -492,10 +562,14 @@ def content_problems(final) -> list:
     verdict = g.get("verdict")
     if isinstance(verdict, dict):
         irac = verdict.get("irac")
-        irac = [irac] if isinstance(irac, dict) else irac          # data.js accepts one IRAC object as well as a list
+        if not isinstance(irac, list):                             # data.js: a list, else any truthy value as [x]
+            irac = [irac] if (irac or isinstance(irac, dict)) else []
         for i, r in enumerate(irac if isinstance(irac, list) else []):
             irac_parts(f"verdict:irac[{i}]", r, required=("rule",))
         optional("verdict:takeaway", verdict.get("takeaway"))
+        outcome = verdict.get("outcome")
+        if isinstance(outcome, str) and outcome and len(re.split(r"\s+", outcome)) > 2:   # quiz.js shows it only then
+            need("verdict:outcome", outcome)
     return out
 
 
