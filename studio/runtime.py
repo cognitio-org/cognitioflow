@@ -224,8 +224,14 @@ def _content_of(data: dict, thinking: bool = False) -> str:
 
 # ---------------------------------------------------------------------------------------------- factories
 
-def m4_reviewer(base=None, model=None, timeout=None, max_tokens=None) -> Callable[[str], str]:
-    """Build the doctrine reviewer callable. Validates host and model now; raises GateConfigError if refused."""
+def m4_reviewer(base=None, model=None, timeout=None, max_tokens=None, system=None) -> Callable[[str], str]:
+    """Build the doctrine reviewer callable. Validates host and model now; raises GateConfigError if refused.
+
+    ``system`` (optional) is sent as the system message on every call: the shared STUDIO_BRIEF
+    (studio/brief.md), so the reviewer judges by the same aim and terms as the writer (model-quality plan,
+    section 4). None = no system message (today's behaviour)."""
+    if system is not None and not isinstance(system, str):
+        raise GateConfigError("reviewer system prompt must be a str")
     url = check_base_url(_env_or(base, "CF_STUDIO_REVIEW_BASE", DEFAULT_REVIEW_BASE)) + "/chat/completions"
     mdl = check_model(_env_or(model, "CF_STUDIO_REVIEW_MODEL", DEFAULT_REVIEW_MODEL))
     tmo = _positive_number(_env_or(timeout, "CF_STUDIO_REVIEW_TIMEOUT", DEFAULT_REVIEW_TIMEOUT),
@@ -237,11 +243,14 @@ def m4_reviewer(base=None, model=None, timeout=None, max_tokens=None) -> Callabl
     def reviewer(prompt: str) -> str:
         if not isinstance(prompt, str):
             raise TypeError("reviewer prompt must be a str")
-        payload = {"model": mdl, **REVIEW_SAMPLING, "max_tokens": mtk,
-                   "messages": [{"role": "user", "content": prompt}]}
-        return _content_of(_post_json(url, payload, tmo), thinking=thinking)
+        msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
+        payload = {"model": mdl, **REVIEW_SAMPLING, "max_tokens": mtk, "messages": msgs}
+        data = _post_json(url, payload, tmo)
+        reviewer.last_served = data.get("model") if isinstance(data.get("model"), str) else ""
+        return _content_of(data, thinking=thinking)
 
-    reviewer.model, reviewer.url, reviewer.timeout, reviewer.max_tokens = mdl, url, tmo, mtk   # for the review card / logs
+    reviewer.model, reviewer.url, reviewer.timeout, reviewer.max_tokens = mdl, url, tmo, mtk
+    reviewer.system, reviewer.last_served = system, ""   # for the review card / logs
     return reviewer
 
 

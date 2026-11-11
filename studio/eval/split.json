@@ -1,0 +1,15 @@
+{
+  "version": "split-v1-2026-11-11",
+  "status": "DEFAULT (D-SQ4), locked 2026-11-11; Matej may swap weeks before the first baseline run, never after",
+  "note": "Held-out weeks are never used for prompt tuning, exemplars or training rows. Picked from file listings only (no course text read). PIL week 2 is contaminated (dry run + probe) and is dev. Keys are lexicon/course codes.",
+  "heldout": {
+    "pil": ["3", "4"],
+    "eu-law": ["4", "6"],
+    "property": ["4", "6"]
+  },
+  "dev": {
+    "pil": ["1", "2"],
+    "eu-law": ["1", "2"],
+    "property": ["1", "2"]
+  }
+}
