@@ -477,14 +477,15 @@ def weeks_needing_games(files: list, games: list, now: float, failed_backoff_s: 
 # - the writer returns a simple intermediate shape; compile_game builds the player JSON (spot offsets, ids, keys);
 # - every wrong option states its `flaw`; the reviewer is told wrong options are wrong on purpose and returns
 #   location + verbatim source quote, never a suggested fix;
-# - every checks[] entry carries a verbatim `quote`, verified by code (injected `quote_problems`);
+# - every checks[] entry cites a numbered source sentence id (or a short range); code copies that exact text in as
+#   its `quote` (numbered_sentence_checks), then verifies it (injected `quote_problems`) - the writer never types quotes;
 # - the prompt is laid out as system = STUDIO_BRIEF, user = shared prefix (course brief, lexicon, sources) + ROLE
 #   TASK last, so every role shares the M4 prefix cache.
 # The pipeline is pure: the model calls are injected callables, so run.py and the M4 kit's best-of-N share it.
 
 import hashlib
 
-PROMPT_VERSION = "writer-v2.0"
+PROMPT_VERSION = "writer-v2.1"           # 2.1: checks cite numbered sentence ids, code inserts the quote
 MIN_GEN_RATIO = 0.4
 MIXES = {                          # model-quality plan rung 0 item 3; every mix clears generation_ratio 0.4
     "A": ("mcq", "slot", "spot"),
@@ -543,7 +544,10 @@ def writer_task(label: str, mix: str, *, course_name: str = "", lawnote: str = "
 ROUND PLAN, chosen for you (follow it exactly, in this order): {plan}.
 Minimums: slot has at least {MIN_SLOT_FACTS} facts and 2 elements; spot has at least {MIN_SPOT_ISSUES} issues; order has at least {MIN_ORDER_STEPS} steps.
 Every wrong mcq option has a "flaw" (the one real student mistake it makes) and its own teaching; no two options share teaching.
-Every entry in "checks" has "quote": one sentence copied word for word from a source it cites.
+Every SOURCES sentence is numbered, like [S1.47]. Every entry in "checks" has "sentence": the id of the ONE source
+sentence that states its claim ("S1.47"), or a range of at most {MAX_RANGE_SENTENCES} neighbouring sentences ("S1.47-S1.48").
+Do NOT type quotes: the code copies the sentence. Each check cites different sentences. Sentence ids go only in
+"checks"; elsewhere cite the source as [S1].
 Order "steps" are given in the CORRECT order (the game shuffles them). Spot "phrase" must be copied exactly from "text".{ex}
 
 Return ONLY this JSON (no prose, no code fence):
@@ -560,7 +564,7 @@ Return ONLY this JSON (no prose, no code fence):
              "irac": [{{"issue": "...", "rule": "... [KEY]", "application": "...", "conclusion": "..."}}],
              "takeaway": "one line to remember for the exam"}},
  "epilogue": {{"action": ["..."]}},
- "checks": [{{"claim": "a legal claim the game relies on", "cites": ["KEY"], "quote": "an exact sentence from that source"}}]
+ "checks": [{{"claim": "a legal claim the game relies on", "sentence": "S1.47"}}]
 }}
 The "rounds" list has exactly {len(kinds)} entries, one per round of the plan. Dialogue is short and spoken (3-6 lines),
 speakers in CAPITALS, the same names throughout. 1 to 3 checks per round."""
@@ -568,6 +572,7 @@ speakers in CAPITALS, the same names throughout. 1 to 3 checks per round."""
 
 def reviewer_task(game_json: str) -> str:
     return f"""TASK (reviewer): check the GAME below against the SOURCES above.
+The [S1.47] tags in the SOURCES are sentence labels, not source text; a check's "sentence" names the sentence it rests on.
 In every multiple-choice round exactly one option is marked correct and the others are WRONG ON PURPOSE. Each wrong
 option states its "flaw". A wrong option that makes its stated mistake is doing its job: never report it for being
 wrong. Check instead that the stated flaw is the real error in that option.
@@ -768,7 +773,7 @@ def validate_v2(game, keys, mix: str = None) -> list:
             if got is not None and got != list(range(len(labels))):
                 bad.append(f"{qid} (order): the teaching names the steps in a different order from the answer key.")
     for c in game.get("checks") or []:
-        if isinstance(c, dict) and not str(c.get("quote") or "").strip():
+        if isinstance(c, dict) and not c.get("unresolved") and not str(c.get("quote") or "").strip():
             bad.append(f"Check {c.get('n', '?')} has no quote from its source.")
     checks = [c for c in game.get("checks") or [] if isinstance(c, dict)]
     if rounds and len(checks) < len(rounds):     # one quoted claim cannot ground a whole game (adversarial review)
@@ -841,17 +846,24 @@ def _chunks(text: str, size: int = CHUNK_CHARS) -> list:
 
 
 def ranked_sources_block(keyed: dict, query: str, rank=None) -> str:
-    """Like sources_block, but a file over FILE_CHARS keeps its most relevant passages (ranked against `query`,
-    the course's exam / WG / standard-answer text) in their original order, with [...] marking cuts. Passages are
-    verbatim, so a quote from them still verifies against the file. No query: sources_block exactly."""
-    if not str(query or "").strip() or rank is None:
-        return sources_block(keyed)
+    """The v2 writer's SOURCES: every file split into numbered sentences ("[S1.47] ..." one per line, see
+    sentence_spans), so the writer cites a sentence id and code copies the quote (numbered_sentence_checks).
+    A file over its share (FILE_CHARS, and the SOURCE_CHARS budget) keeps its most relevant passages, ranked
+    against `query` (the course's exam / WG / standard-answer text), in their original order, with [...] marking
+    cuts. No query (or no ranker): the first share of each file, as sources_block cuts it. Only whole sentences
+    are shown: a sentence is shown when it starts inside a kept passage. Ids are numbered over the WHOLE file, so
+    they do not depend on what was kept."""
+    ranked = bool(str(query or "").strip()) and rank is not None
     parts, budget = [], SOURCE_CHARS
     for key, f in keyed.items():
         if budget <= 0:
             break
         text, cap = f.get("text") or "", min(FILE_CHARS, budget)
-        if len(text) > cap:
+        if len(text) <= cap:
+            kept = [(0, len(text))]
+        elif not ranked:
+            kept = [(0, cap)]
+        else:
             spans = _chunks(text)
             scores = rank(query, [text[a:b] for a, b in spans])
             keep, used = set(), 0
@@ -861,16 +873,194 @@ def ranked_sources_block(keyed: dict, query: str, rank=None) -> str:
                     continue
                 keep.add(i)
                 used += n
-            pieces, prev = [], None
-            for i in sorted(keep):
-                if prev is not None and i != prev + 1:
-                    pieces.append(GAP)
-                pieces.append(text[spans[i][0]:spans[i][1]])
-                prev = i
-            text = "".join(pieces)
-        budget -= len(text)
-        parts.append(f'<source key="{key}" file="{f.get("name", "")}" kind="{f.get("role") or f.get("kind") or ""}">\n{text}\n</source>')
+            kept = [spans[i] for i in sorted(keep)]
+        lines, prev = [], None
+        for n, (a, b) in enumerate(sentence_spans(text), 1):
+            if not any(x <= a < y for x, y in kept):
+                continue
+            if prev is not None and n != prev + 1:
+                lines.append(GAP.strip("\n"))
+            lines.append(f"[{key}.{n}] " + " ".join(text[a:b].split()))
+            prev = n
+        body = "\n".join(lines)
+        budget -= len(body)
+        parts.append(f'<source key="{key}" file="{f.get("name", "")}" kind="{f.get("role") or f.get("kind") or ""}">\n{body}\n</source>')
     return "SOURCES:\n" + "\n\n".join(parts)
+
+
+# ---------------------------------------------------------------- numbered sentences (the writer cites ids, code quotes)
+# The local Coder paraphrased and stitched "verbatim" quotes (PIL wk4 pilot: 4/4 v2 drafts rejected). So the
+# writer no longer types quotes: it cites a sentence id ("S1.47") or a short range ("S1.47-S1.49") from the
+# numbered SOURCES, and code copies that exact source text in as the check's quote. studio.grounding then
+# verifies it as before (6-word minimum, no reuse or near-duplicates), and it passes by construction.
+
+MAX_SENTENCE_CHARS = 600           # a longer run of text (a slide with no full stops) is cut at a space
+MAX_RANGE_SENTENCES = 3            # a check may cite one sentence or up to 3 contiguous ones
+_ABBREV = {"cf", "v", "vs", "e.g", "i.e", "eg", "ie", "mr", "mrs", "ms", "dr", "prof", "ibid", "al", "op", "jr",
+           "approx", "resp", "viz", "ecr", "jur", "rv"}        # never end a sentence
+_NUM_ABBREV = {"art", "arts", "p", "pp", "para", "paras", "no", "nos", "nr", "ch", "ss", "reg", "dir", "vol", "fig",
+               "sec", "par", "sub", "lit", "oj", "nrs"}         # do not end one when a number follows ("Art. 5")
+_SENT_END = re.compile(r"[.!?]+[\"'\u201d\u2019)\]]*(?=\s)")
+_NEXT_START = re.compile(r"\s+(?=[\"'\u201c\u2018(\[]?[A-Z0-9\u00c0-\u00de\u2022\-\u2013*])")
+_BULLET_LINE = re.compile(r"\n[ \t]*(?:[\u2022\u25aa\u25cf\u25e6\-\u2013*>]|\(?[0-9]{1,2}[.)]|\(?[a-z][.)]|\([ivx]{1,4}\))[ \t]")
+_PARA = re.compile(r"\n[ \t]*\n")
+_TAGGED_LINE = re.compile(r"(?m)^\[([A-Z][A-Z0-9]{0,5})\.([0-9]+)\] ")
+_SENT_REF = re.compile(r"^\[?\s*([A-Z][A-Z0-9]{0,5})\.([0-9]+)\s*(?:[-\u2013\u2014]|to)\s*(?:([A-Z][A-Z0-9]{0,5})\.)?([0-9]+)\s*\]?$"
+                       r"|^\[?\s*([A-Z][A-Z0-9]{0,5})\.([0-9]+)\s*\]?$")
+_INLINE_SENT_CITE = re.compile(r"\[([A-Z][A-Z0-9]{0,5})\.[0-9]+(?:\s*[-\u2013\u2014]\s*(?:[A-Z][A-Z0-9]{0,5}\.)?[0-9]+)?\]")
+
+
+_SENT_FIELDS = ("sentence", "sentences", "sentence_ids")
+
+
+def _cut_long(text: str, a: int, b: int) -> list:
+    out = []
+    while b - a > MAX_SENTENCE_CHARS:
+        k = max(text.rfind(" ", a + MAX_SENTENCE_CHARS // 2, a + MAX_SENTENCE_CHARS),
+                text.rfind("\n", a + MAX_SENTENCE_CHARS // 2, a + MAX_SENTENCE_CHARS))
+        k = k if k > a else a + MAX_SENTENCE_CHARS
+        out.append((a, k))
+        a = k
+    out.append((a, b))
+    return out
+
+
+def sentence_spans(text: str) -> list:
+    """[(start, end)] of every sentence of `text`, in order: the stable numbering behind sentence ids (id n is
+    span n-1). A paragraph break, a bullet / numbered line, or [.!?] followed by a capital or digit ends a
+    sentence; a full stop after a legal abbreviation ("Art.", "p.", "v.", "e.g.") or an initial does not. Each span
+    is trimmed of surrounding whitespace and has a letter or digit; runs over MAX_SENTENCE_CHARS are cut at a space.
+    Deterministic, stdlib only."""
+    text = str(text or "")
+    cuts = {0, len(text)}
+    for m in _PARA.finditer(text):
+        cuts.add(m.start())
+    for m in _BULLET_LINE.finditer(text):
+        cuts.add(m.start())
+    for m in _SENT_END.finditer(text):
+        nxt = _NEXT_START.match(text, m.end())
+        if not nxt:
+            continue
+        if text[m.start()] == ".":
+            w = re.search(r"([^\W\d_][\w.]*)$", text[max(0, m.start() - 12):m.start()])
+            word = (w.group(1) if w else "").lower()
+            if word in _ABBREV or (w and len(w.group(1)) == 1) or (word in _NUM_ABBREV and text[nxt.end()].isdigit()):
+                continue
+            if re.fullmatch(r"[ \t]*\(?[0-9]{1,3}|[ \t]*\(?[ivx]{1,4}", text[text.rfind("\n", 0, m.start()) + 1:m.start()]):
+                continue                                          # "1. First step": a list number, not an end
+        cuts.add(m.end())
+    out, edges = [], sorted(cuts)
+    for a, b in zip(edges, edges[1:]):
+        seg = text[a:b]
+        lead = len(seg) - len(seg.lstrip())
+        a2, b2 = a + lead, a + len(seg.rstrip())
+        if b2 <= a2 or not re.search(r"[^\W_]", text[a2:b2]):
+            continue
+        out.extend(_cut_long(text, a2, b2))
+    return out
+
+
+def shown_sentence_ids(prefix: str) -> set:
+    """{(key, n)} of every sentence id tag the writer was shown (line-start "[S1.47] " in the prompt prefix)."""
+    return {(m.group(1), int(m.group(2))) for m in _TAGGED_LINE.finditer(str(prefix or ""))}
+
+
+def _parse_sentence_ref(ref):
+    """(key, first, last) from "S1.47", "[S1.47]", "S1.47-S1.49", "S1.47-49" or ["S1.47", "S1.49"]; None if
+    malformed, ("", 0, 0) if a list mixes sources."""
+    if isinstance(ref, list):
+        ref = [str(x).strip() for x in ref if str(x).strip()]
+        if len(ref) == 1:
+            ref = ref[0]
+        elif ref:
+            ends = [_parse_sentence_ref(x) for x in ref]
+            if any(e is None for e in ends):
+                return None
+            keys, ns = {e[0] for e in ends}, sorted(n for e in ends for n in (e[1], e[2]))
+            if len(keys) != 1:
+                return "", 0, 0
+            if len(ref) > 2 and ns != list(range(ns[0], ns[0] + len(ns))):
+                return None                                      # a list of ids must be contiguous
+            return keys.pop(), ns[0], ns[-1]
+        else:
+            return None
+    m = _SENT_REF.match(str(ref or "").strip())
+    if not m:
+        return None
+    if m.group(5):
+        return m.group(5), int(m.group(6)), int(m.group(6))
+    if m.group(3) and m.group(3) != m.group(1):
+        return "", 0, 0
+    return m.group(1), int(m.group(2)), int(m.group(4))
+
+
+def numbered_sentence_checks(checks, keyed: dict, shown=None):
+    """(checks, problems): each check's sentence id (or short range) resolved to the exact source text, which
+    becomes its `quote`; its `cites` become that id's source key. Any quote the model typed is discarded. A check
+    whose id is missing, malformed, unknown, not shown to the writer (`shown`, from shown_sentence_ids; None = any
+    id in the file), reversed, over MAX_RANGE_SENTENCES, across two sources, or overlapping an earlier check's
+    sentences gets a problem and is marked `unresolved` (studio.grounding skips it: one problem per check)."""
+    out, bad, used, idx = [], [], set(), {}
+    for i, c in enumerate(checks if isinstance(checks, list) else [], 1):
+        if not isinstance(c, dict):
+            out.append(c)
+            continue
+        c = {k: v for k, v in c.items() if k not in ("quote", "unresolved")}
+        n_ = c.get("n", i)
+        ref = next((c[f] for f in _SENT_FIELDS if f in c), None)
+        problem = None
+        parsed = _parse_sentence_ref(ref) if ref not in (None, "", []) else None
+        if ref in (None, "", []):
+            problem = (f"check {n_} has no \"sentence\": give the id of the source sentence that states the claim "
+                       f"(e.g. \"S1.12\", or a range of up to {MAX_RANGE_SENTENCES} like \"S1.12-S1.13\"); do not type a quote.")
+        elif parsed is None:
+            problem = (f"check {n_}: {str(ref)[:40]!r} is not a sentence id; use an id shown in the SOURCES, like "
+                       f"\"S1.12\" or \"S1.12-S1.13\".")
+        elif not parsed[0]:
+            problem = f"check {n_}: the range {str(ref)[:40]!r} crosses two sources; cite sentences from one source."
+        else:
+            key, a, b = parsed
+            if key not in keyed:
+                problem = f"check {n_}: {key} is not a source key."
+            else:
+                if key not in idx:
+                    idx[key] = sentence_spans((keyed[key] or {}).get("text") or "")
+                spans = idx[key]
+                if b < a:
+                    problem = f"check {n_}: the range {key}.{a}-{key}.{b} runs backwards."
+                elif b - a + 1 > MAX_RANGE_SENTENCES:
+                    problem = (f"check {n_}: {key}.{a}-{key}.{b} is {b - a + 1} sentences; cite the one sentence that "
+                               f"states the claim (a range of at most {MAX_RANGE_SENTENCES}).")
+                elif a < 1 or b > len(spans) or (shown is not None and any((key, n) not in shown for n in range(a, b + 1))):
+                    problem = (f"check {n_}: {key}.{a}" + (f"-{key}.{b}" if b != a else "")
+                               + " is not a sentence shown in the SOURCES; cite an id you can see there.")
+                elif any((key, n) in used for n in range(a, b + 1)):
+                    problem = (f"check {n_}: {key}.{a}" + (f"-{key}.{b}" if b != a else "")
+                               + " repeats a sentence an earlier check cites; each claim needs its own support.")
+                else:
+                    text = keyed[key].get("text") or ""
+                    used.update((key, n) for n in range(a, b + 1))
+                    c["sentence"] = f"{key}.{a}" + (f"-{key}.{b}" if b != a else "")
+                    c["cites"] = [key]
+                    c["quote"] = " ".join(text[spans[a - 1][0]:spans[b - 1][1]].split())
+        if problem:
+            bad.append(problem)
+            c["unresolved"] = True
+        out.append(c)
+    return out, bad
+
+
+def collapse_sentence_cites(obj):
+    """A copy with every inline sentence id ("[S1.47]", "[S1.4-S1.6]") in player text rewritten as its source cite
+    ("[S1]"): ids belong in a check's "sentence", but a leaked one must still count as a citation of S1. The
+    "sentence" fields themselves are left alone."""
+    if isinstance(obj, str):
+        return _INLINE_SENT_CITE.sub(lambda m: f"[{m.group(1)}]", obj)
+    if isinstance(obj, list):
+        return [collapse_sentence_cites(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: (v if k in _SENT_FIELDS else collapse_sentence_cites(v)) for k, v in obj.items()}
+    return obj
 
 
 # ---------------------------------------------------------------- the pipeline
@@ -908,15 +1098,18 @@ def write_draft_v2(coder, *, system: str, prefix: str, label: str, mix: str, key
         beat()
         return text
 
+    shown = shown_sentence_ids(prefix)
+
     def check(g):
         raw = g
-        game, probs = compile_game(g, mix)
+        game, probs = compile_game(collapse_sentence_cites(g), mix)
         if game is None:
             return None, probs, [], []
         game = strip_unverifiable_pages(game, keyed)
+        game["checks"], quotes = numbered_sentence_checks(game.get("checks") or [], keyed, shown)
         probs = probs + validate_v2(game, keyed.keys(), mix)
         gone = list(unverified(game)) if unverified else []
-        quotes = list(quote_problems(game.get("checks") or [], keyed)) if quote_problems else []
+        quotes = quotes + (list(quote_problems(game.get("checks") or [], keyed)) if quote_problems else [])
         return game, probs, gone, quotes, raw
 
     task = writer_task(label, mix, course_name=course_name, lawnote=lawnote, exemplars=exemplars)

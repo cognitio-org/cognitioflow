@@ -110,13 +110,24 @@ def test_v2_refuses_a_rag_base_off_the_m4(client, monkeypatch):
     assert row["status"] == "failed" and fake.messages.create.call_count == 0 and not net.called
 
 
-def test_v2_quote_not_in_source_is_repaired_then_fails(client, monkeypatch):
+def test_v2_unknown_sentence_id_is_repaired_then_fails(client, monkeypatch):
     cid = _course_v2(client)
-    bad = inter("A"); bad["checks"][0]["quote"] = "reservations are void under jus cogens norms always"
+    bad = inter("A"); bad["checks"][0]["sentence"] = "S1.99"
     fake, _ = _v2(monkeypatch, [bad, bad], [])
     gid, row = _write(cid, fake)
     assert row["status"] == "failed" and "checks" in row["error"]
-    assert "quote" in fake.messages.create.call_args_list[1].kwargs["messages"][0]["content"]
+    assert "S1.99 is not a sentence shown" in fake.messages.create.call_args_list[1].kwargs["messages"][0]["content"]
+
+
+def test_v2_a_typed_quote_is_replaced_by_the_cited_sentence(client, monkeypatch):
+    cid = _course_v2(client)
+    g = inter("A"); g["checks"][0]["quote"] = "reservations are void under jus cogens norms always"
+    fake, _ = _v2(monkeypatch, [g], [{"verdict": "ok", "issues": []}])
+    gid, row = _write(cid, fake)
+    assert row["status"] == "draft", row["error"]
+    user = fake.messages.create.call_args_list[0].kwargs["messages"][0]["content"]
+    assert "[S1.1] A reservation is a unilateral statement" in user
+    assert row["game"]["checks"][0]["quote"] == "A reservation is a unilateral statement made by a State when signing a treaty."
 
 
 def test_v2_draft_runs_without_db_rows_for_best_of_n(client, monkeypatch):
