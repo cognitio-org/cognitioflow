@@ -3364,6 +3364,33 @@ def docket_autodraft(cid: str):
     return weeks
 
 
+def _studio_gate(gid: str, final: dict, keyed: dict, texts: list, course: dict, issues: list, unverified: list,
+                 review: dict) -> tuple:
+    """S9: the Game Studio gate card for one finished draft, shared by the v1 and v2 writers. Returns (status, error)
+    for the caller's final _set_docket and, with the gates on, stores the card in review["gates"]. off returns
+    ("draft", "") before importing anything and leaves `review` untouched: today's write exactly. Call it inside the
+    writer's try: enforce re-raises an adapter failure as "Gates unavailable: …" so the row fails on S8's infra cap."""
+    if STUDIO_GATES not in ("shadow", "enforce"):
+        return "draft", ""
+    try:
+        from studio import docket_adapter        # lazy: only the Mac writer (CF_DOCKET_AUTO=1) reaches here
+        card = docket_adapter.gate_docket(final, keyed, texts, course, issues=issues, unverified=unverified,
+                                          mode=STUDIO_GATES, heartbeat=lambda: _set_docket(gid, updated=time.time()))
+        card = json.loads(json.dumps(card, allow_nan=False))   # _set_docket serialises outside this try; jsonb has no NaN
+    except Exception as e:                       # noqa: BLE001
+        if STUDIO_GATES == "enforce":            # fail-closed; the prefix keeps it on S8's infra retry cap
+            raise RuntimeError(f"{docketgen.GATE_UNAVAILABLE}: {type(e).__name__}: {e}"[:300]) from e
+        card = {"mode": "shadow", "error": f"{type(e).__name__}: {e}"[:300]}
+    review["gates"] = card
+    # The row stays 'writing' (not yet in his drafts list) for the whole gate run, shadow included. The adapter
+    # beats at the start, before each doctrine reviewer call and before the playability/a11y/polish gates; one step
+    # that runs past AUTO_STALE_S without a beat lets the reaper fail the row, and the caller's unconditional final
+    # _set_docket (as before S9) then drafts it anyway. Pinned in tests/test_studio_wiring.py.
+    if STUDIO_GATES == "enforce" and (not isinstance(card, dict) or card.get("overall_pass") is not True):
+        return "failed", str(docket_adapter.block_message(card))[:300]   # "Blocked by…" or "Gates unavailable: …"
+    return "draft", ""
+
+
 def _docket_write(cid: str, gid: str):
     """Write, check, review and (once) revise one game. Ends with the row a draft or failed, never left writing."""
     row = rows("SELECT week FROM docket_games WHERE id=?", gid)
@@ -3416,24 +3443,8 @@ def _docket_write(cid: str, gid: str):
                                messages=[{"role": "user", "content": f"{src}\n\nGAME:\n{docketgen.for_review(game)}"}])
                 issues = docketgen.review_issues(_model_json(m3))
         final = docketgen.finish(game, gid, _docket_code(course), keyed)
-        status, err, review = "draft", "", {"issues": issues, "unverified": gone, "revised": revised}
-        if STUDIO_GATES in ("shadow", "enforce"):
-            try:
-                from studio import docket_adapter        # lazy: only the Mac writer (CF_DOCKET_AUTO=1) reaches here
-                card = docket_adapter.gate_docket(final, keyed, texts, course, issues=issues, unverified=gone,
-                                                  mode=STUDIO_GATES, heartbeat=lambda: _set_docket(gid, updated=time.time()))
-                card = json.loads(json.dumps(card, allow_nan=False))   # _set_docket serialises outside this try; jsonb has no NaN
-            except Exception as e:                       # noqa: BLE001
-                if STUDIO_GATES == "enforce":            # fail-closed; the prefix keeps it on S8's infra retry cap
-                    raise RuntimeError(f"{docketgen.GATE_UNAVAILABLE}: {type(e).__name__}: {e}"[:300]) from e
-                card = {"mode": "shadow", "error": f"{type(e).__name__}: {e}"[:300]}
-            review["gates"] = card
-            # The row stays 'writing' (not yet in his drafts list) for the whole gate run, shadow included. The adapter
-            # beats at the start, before each doctrine reviewer call and before the playability/a11y/polish gates; one step
-            # that runs past AUTO_STALE_S without a beat lets the reaper fail the row, and the unconditional write below
-            # (as before S9) then drafts it anyway. Pinned in tests/test_studio_wiring.py.
-            if STUDIO_GATES == "enforce" and (not isinstance(card, dict) or card.get("overall_pass") is not True):
-                status, err = "failed", str(docket_adapter.block_message(card))[:300]   # "Blocked by…" or "Gates unavailable: …"
+        review = {"issues": issues, "unverified": gone, "revised": revised}
+        status, err = _studio_gate(gid, final, keyed, texts, course, issues, gone, review)
         _set_docket(gid, status=status, title=str(final.get("title") or label.capitalize())[:120], game=final, model=used, error=err,
                     review=review, files=[f["id"] for f in files])
     except Exception as e:
@@ -3521,10 +3532,11 @@ def _docket_write_v2(cid: str, gid: str, course: dict, week: str, label: str):
         dctx = _docket_context(cid, course, week)
         out = _docket_draft_v2(dctx, gid, heartbeat=lambda: _set_docket(gid, updated=time.time()))
         final = docketgen.finish(out["game"], gid, _docket_code(course), dctx["keyed"])
-        _set_docket(gid, status="draft", title=str(final.get("title") or label.capitalize())[:120], game=final,
-                    model=out["model"], error="", files=[f["id"] for f in dctx["files"]],
-                    review={"issues": out["issues"], "unverified": out["unverified"], "revised": out["revised"],
-                            "writer": "v2", "mix": out["mix"], "provenance": out["provenance"]})
+        review = {"issues": out["issues"], "unverified": out["unverified"], "revised": out["revised"],
+                  "writer": "v2", "mix": out["mix"], "provenance": out["provenance"]}
+        status, err = _studio_gate(gid, final, dctx["keyed"], dctx["texts"], course, out["issues"], out["unverified"], review)
+        _set_docket(gid, status=status, title=str(final.get("title") or label.capitalize())[:120], game=final,
+                    model=out["model"], error=err, files=[f["id"] for f in dctx["files"]], review=review)
     except Exception as e:
         print("docket write v2:", type(e).__name__, e)
         _set_docket(gid, status="failed", error=str(getattr(e, "detail", "") or e)[:300])

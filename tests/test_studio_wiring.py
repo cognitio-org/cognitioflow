@@ -361,8 +361,10 @@ def test_run_does_not_import_studio_at_module_level():
 
     scan(tree)
     assert bad == [], f"run.py imports studio/gate modules at module level on lines {bad}"
-    src = (ROOT / "run.py").read_text(encoding="utf-8")
-    assert src.count("from studio import") == 1                        # the one lazy import, in _docket_write
+    lazy = sorted({fn.name for fn in ast.walk(tree) if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+                   for sub in ast.walk(fn) if isinstance(sub, ast.ImportFrom) and (sub.module or "").split(".")[0] == "studio"})
+    # every studio import is lazy, in a writer-only function: the S9 gate helper and the #207 v2 writer (M4 only)
+    assert lazy == ["_docket_context", "_docket_draft_v2", "_docket_v2_guard", "_studio_gate"]
 
 
 def _fresh_import(extra_env: dict) -> dict:
