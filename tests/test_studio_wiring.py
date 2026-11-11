@@ -268,21 +268,21 @@ def test_weekly_cap_counts_drafts_across_his_courses(client, monkeypatch):
 
 def test_run_does_not_import_studio_at_module_level():
     tree = ast.parse((ROOT / "run.py").read_text(encoding="utf-8"))
+    banned = {"studio", *GATE_NAMES}
     bad = []
 
-    def scan(body):
-        for node in body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                continue                                               # a function body runs only when called
-            for sub in ast.walk(node):
-                if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-                    break
-                if isinstance(sub, ast.Import) and any(a.name.split(".")[0] in {"studio", *GATE_NAMES} for a in sub.names):
-                    bad.append(sub.lineno)
-                if isinstance(sub, ast.ImportFrom) and (sub.module or "").split(".")[0] in {"studio", *GATE_NAMES}:
-                    bad.append(sub.lineno)
+    def scan(node):
+        """Everything that runs at import: module body, top-level if/try/with, class bodies. Not function bodies."""
+        for sub in ast.iter_child_nodes(node):
+            if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                continue                                               # runs only when called
+            if isinstance(sub, ast.Import) and any(a.name.split(".")[0] in banned for a in sub.names):
+                bad.append(sub.lineno)
+            if isinstance(sub, ast.ImportFrom) and (sub.module or "").split(".")[0] in banned:
+                bad.append(sub.lineno)
+            scan(sub)
 
-    scan(tree.body)
+    scan(tree)
     assert bad == [], f"run.py imports studio/gate modules at module level on lines {bad}"
     src = (ROOT / "run.py").read_text(encoding="utf-8")
     assert src.count("from studio import") == 1                        # the one lazy import, in _docket_write
