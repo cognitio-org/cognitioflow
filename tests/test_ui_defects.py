@@ -97,3 +97,16 @@ def test_every_screen_is_reachable_from_the_command_palette():
     screens = re.search(r"const SCREENS=\[(.*?)\];", PAGE, re.S).group(1)
     named = set(re.findall(r"\['(\w+)',", pal))
     assert set(re.findall(r"'(\w+)'", screens)) == named
+
+
+def test_print_header_reads_the_real_course_dropdown():
+    """The print header looked up #courseSel; the dropdown is #course, so the course name was dropped."""
+    assert "#courseSel" not in PAGE
+    assert 'id="course"' in PAGE
+    assert re.search(r"\$\('#course'\)\.selectedOptions", PAGE)
+
+
+def test_recall_due_count_refreshes_after_each_card():
+    """After the last due card was rated the subtitle still said '1 due' beside 'Queue clear'."""
+    m = re.search(r"function nextCard\(\)\{(.*?)\nfunction ", PAGE, flags=re.S)
+    assert m and "recallSub(" in m.group(1), "nextCard must refresh the due count"

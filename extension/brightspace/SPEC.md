@@ -52,7 +52,7 @@ with a 404 and no fallback.
 
 | Store | Key | Shape | Meaning |
 |---|---|---|---|
-| `storage.sync` | `appUrl` | string | CognitioFlow origin, e.g. `https://app.cognitioflow.ai` |
+| `storage.sync` | `appUrl` | string | CognitioFlow origin, e.g. `https://cognitioflow.ai` |
 | `storage.sync` | `courses` | `[{org, name, cid}]` | Brightspace org unit ↔ CognitioFlow course id. **The allow-list:** nothing outside it is read or uploaded |
 | `storage.sync` | `syncHours` | number (1–48, default 6) | alarm period |
 | `storage.local` | `cfKeys` | `{cid: {token, id, courseId, expires(ms), origin}}` | write keys. **Local only, never sync**; only the worker sends them, and only when `appUrl`'s origin equals the `origin` recorded when the key was made or pasted (https, or http on localhost) — otherwise status `key is for another address`; the UI shows the last 4 characters |

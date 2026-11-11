@@ -1861,7 +1861,7 @@ $('#noteEdit').onclick=()=>{noteMode='edit';localStorage.setItem('cf.noteMode','
 $('#notePrint').onclick=async()=>{ const was=noteMode; noteMode='read'; await showNote();
   // the title lives in an <input> outside .noteview, so print never saw it. Put a header inside.
   const head=document.createElement('div'); head.className='printhead';
-  const course=($('#courseSel')&&$('#courseSel').selectedOptions[0]||{}).textContent||'';
+  const course=($('#course')&&$('#course').selectedOptions[0]||{}).textContent||'';
   head.textContent=$('#noteTitle').value||'Untitled';
   const meta=document.createElement('span'); meta.className='meta';
   meta.textContent=[course, new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})].filter(Boolean).join(' · ');
@@ -1922,6 +1922,7 @@ $('#noteToTutor').onclick=async()=>{if(!nid) return; clearTimeout(saveT);
 /* recall */
 let queue=[], cur=null, flipped=false;
 let rmode='cards', qStart=0, qTotal=0, rweek='', rweak=false;
+let rScope='', rAll=0;   // kept so the subtitle's due count can be refreshed after each review
 async function loadWeekDir(){ const m=await api(`/courses/${cid}/recall-map`); const d=$('#weekdir');
   const chip=(label,val,due,ready,extra='')=>`<div class="wk ${extra} ${rweek===val&&!rweak?'sel':''}" data-wk="${val}"><span class="rd ${ready}"></span>${label}${due!=null?`<span class="n">${due} due</span>`:''}</div>`;
   let html=chip('All','',m.weeks.reduce((a,w)=>a+w.due,0),'ready');
@@ -1935,14 +1936,15 @@ async function loadRecall(){ const fs=await api(`/courses/${cid}/files`); $('#ge
   loadWeekDir();
   const all=await api(`/courses/${cid}/cards?x=1${scopeQS()}`); queue=await api(`/courses/${cid}/cards?due=1${scopeQS()}`);
   const scope = rweak?'weak cards':(rweek?('Week '+rweek):'all weeks');
-  $('#recallSub').textContent=`${C().name} · ${scope} · ${queue.length} due · ${all.length} total`; qStart=queue.length; renderAll(all);
+  rScope=scope; rAll=all.length; recallSub(queue.length); qStart=queue.length; renderAll(all);
   if(rmode==='cards') nextCard(); else startQuiz(); }
+function recallSub(due){ $('#recallSub').textContent=`${C().name} · ${rScope} · ${due} due · ${rAll} total`; }
 function setRMode(m){ rmode=m; $('#mCards').setAttribute('aria-pressed',m==='cards'); $('#mQuiz').setAttribute('aria-pressed',m==='quiz');
   $('#cardStage').hidden=m!=='cards'; $('#quizStage').hidden=m!=='quiz'; loadRecall(); }
 $('#mCards').onclick=()=>setRMode('cards'); $('#mQuiz').onclick=()=>setRMode('quiz');
 function rprog(done,total){ $('#rprog').firstElementChild.style.width=total?(done/total*100)+'%':'0'; }
 function nextCard(){ cur=queue.shift()||null; flipped=false; $('#ratings').hidden=true; $('#fc').classList.remove('flipped');
-  rprog(qStart-queue.length-(cur?1:0), qStart||1);
+  rprog(qStart-queue.length-(cur?1:0), qStart||1); recallSub(queue.length+(cur?1:0));
   if(!cur){ $('#fc').hidden=true; $('#rdone').hidden=false; $('#rdone').innerHTML='<b>Queue clear</b><span>Generate cards from a file, or come back tomorrow.</span>'; rprog(1,1); return; }
   $('#fc').hidden=false; $('#rdone').hidden=true; $('#fcFront').textContent=cur.front; $('#fcBack').textContent=cur.back; }
 function flipCard(){ if(!cur) return; flipped=!flipped; $('#fc').classList.toggle('flipped',flipped); $('#ratings').hidden=!flipped; }

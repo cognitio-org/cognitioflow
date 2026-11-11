@@ -223,3 +223,17 @@ test("red-team round 3: a first-review file the last scan did not find says so i
   assert.equal(pendingNote({ key: "t:1", name: "a.pdf" }), "");
   assert.equal(pendingNote({ key: "t:1", name: "a.pdf", missing: true }), "not on Brightspace at the last check — still needs a choice");
 });
+
+test("withTimeout: a tab that never answers becomes a clear error instead of a hang", async () => {
+  const never = new Promise(() => {});
+  await assert.rejects(lib.withTimeout(never, 20, lib.RELOAD_APP_TAB), (e) => e.timeout === true && e.message === lib.RELOAD_APP_TAB);
+  assert.match(lib.RELOAD_APP_TAB, /Reload your CognitioFlow tab \(⌘R\) and try again/);
+  assert.match(lib.RELOAD_BS_TAB, /Reload your Brightspace tab \(⌘R\) and try again/);
+  assert.equal(lib.TAB_TIMEOUT_MS, 15000);
+});
+
+test("withTimeout: answers and errors pass through untouched", async () => {
+  assert.equal(await lib.withTimeout(Promise.resolve({ ok: true }).then((r) => r.ok), 1000, "x"), true);
+  await assert.rejects(lib.withTimeout(Promise.reject(new Error("boom")), 1000, "x"), (e) => e.message === "boom" && !e.timeout);
+  assert.equal(await lib.withTimeout("plain", 1000, "x"), "plain");
+});

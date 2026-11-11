@@ -31,6 +31,7 @@
 import {
   documents, pages, moduleIds, linksIn, enforcedFolder, dedupe, unseen, decide, signalOf,
   looksLikeDocument, isLoginResponse, sha256, sameName, appOrigin, BRIGHTSPACE_HOST,
+  withTimeout, RELOAD_BS_TAB, TAB_TIMEOUT_LONG_MS,
 } from "./lib.js";
 
 export const BS_ORIGIN = `https://${BRIGHTSPACE_HOST}`;
@@ -76,8 +77,10 @@ export function createSync({ chrome, fetch, sleep = (ms) => new Promise((r) => s
     return tab || null;
   }
 
+  // The long limit for every read: a slow table of contents must not turn into an error state, and the
+  // hang this guards against (a tab whose content script belongs to a reloaded extension) never answers at all.
   const askTab = (tabId, msg) =>
-    chrome.tabs.sendMessage(tabId, msg).then((r) => {
+    withTimeout(chrome.tabs.sendMessage(tabId, msg), TAB_TIMEOUT_LONG_MS, RELOAD_BS_TAB).then((r) => {
       if (!r || !r.ok) throw new Error((r && r.error) || "no answer from the Brightspace tab");
       return r.data;
     });

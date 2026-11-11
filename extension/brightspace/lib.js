@@ -296,3 +296,19 @@ export const sameName = (a, b) => {
   const n = (s) => basename(s).toLowerCase().replace(/\s+/g, " ").trim();
   return n(a) === n(b);
 };
+
+/* Messages to a page tab can wait forever: a tab whose content script belongs to an older (reloaded)
+   extension never answers. Every tab message is raced against a timer so the UI says what to do instead. */
+export const RELOAD_APP_TAB = "No answer from the CognitioFlow tab. Reload your CognitioFlow tab (⌘R) and try again.";
+export const RELOAD_BS_TAB = "No answer from the Brightspace tab. Reload your Brightspace tab (⌘R) and try again.";
+export const TAB_TIMEOUT_MS = 15000;
+export const TAB_TIMEOUT_LONG_MS = 120000;   // file reads and uploads move real bytes
+
+/** Rejects with `message` (error.timeout = true) if `promise` has not settled within `ms`; clears its timer either way. */
+export function withTimeout(promise, ms, message) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error(message), { timeout: true })), ms);
+  });
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
+}

@@ -19,7 +19,8 @@ not tie IRAC entries to rounds, and a game may carry one IRAC entry for three ro
 Every item is {"id", "kind", "cites", "source_text", "generated_text"}. An item that cites nothing carries
 ALL sources in its `source_text` (the doctrine reviewer then sees everything). The S4 terminology gate does
 NOT use that: an uncited item fails terminology as "uncited", and a cited item is checked against each cited
-source's full text (up to FILE_CHARS) on its own, never against a join that one source's synonym can silence.
+source's whole text on its own (no cut: the v2 writer reads passages from anywhere in a file), never against a
+join that one source's synonym can silence.
 
 Structural check (S4 fix rounds 4-5): `content_problems(final)` walks the gated player-visible fields of the raw game
 (title, questions, every option's text on its own and never through its story, teaching, story, outcome titles,
@@ -632,7 +633,7 @@ def _doctrine_source(keys, keyed: dict, generated_text: str, cap: int):
     parts, windowed = [], []
     for k in known:
         header = f"[{k}] {keyed[k].get('name', '')}\n"
-        text = str(keyed[k].get("text") or "")[:docketgen.FILE_CHARS]
+        text = str(keyed[k].get("text") or "")         # whole: the v2 writer reads past FILE_CHARS too
         body, cut = _window(text, gen_words, max(share - len(header) - 2, 0))
         if cut:
             windowed.append(k)
@@ -642,16 +643,17 @@ def _doctrine_source(keys, keyed: dict, generated_text: str, cap: int):
 
 def doctrine_source_text(keys, keyed: dict, generated_text: str, cap: int = DOCTRINE_SOURCE_CAP) -> str:
     """The source the doctrine reviewer reads for one item: one "[KEY] name" block per known cited key, in
-    cite order, deduplicated. Each key gets an equal share of `cap`; a key whose text (up to FILE_CHARS) fits
+    cite order, deduplicated. Each key gets an equal share of `cap`; a key whose whole text fits
     its share goes in whole, otherwise its ~2k-char chunks with the most word overlap with `generated_text`
     are kept (ties: earlier offset) and emitted in source order. Deterministic, stdlib only."""
     return _doctrine_source(keys, keyed, generated_text, cap)[0]
 
 
 def _source_bodies(keys, keyed: dict) -> list:
-    """Terminology's sources: (key, text) for every known cited key, up to FILE_CHARS (what the writer read),
-    with no header line (a file name is not source text) and no S3 per-key cap."""
-    return [(k, str(keyed[k].get("text") or "")[:docketgen.FILE_CHARS]) for k in _known_keys(keys, keyed)]
+    """Terminology's sources: (key, text) for every known cited key, whole, with no header line (a file name is
+    not source text), no S3 per-key cap and no FILE_CHARS cut: the v2 writer (ranked_sources_block) reads
+    passages from anywhere in a longer file, and a lexicon scan is cheap."""
+    return [(k, str(keyed[k].get("text") or "")) for k in _known_keys(keys, keyed)]
 
 
 def _split_doctrine_source(src: str):
@@ -965,8 +967,19 @@ def _g_accessibility(ctx):
 
 def _g_polish(ctx):
     vlm = _rt(ctx.runtime, "vlm") or ctx.g.runtime.m4_vlm()
+    outage = []
+
+    def watched(path):                                   # judge_aesthetics folds any vlm exception into ok=False;
+        try:                                             # keep the outage so it reaches the card as infra
+            return vlm(path)
+        except ctx.g.runtime.GateInfraError as e:
+            outage.append(e)
+            raise
+
     ctx.beat()
-    v = ctx.g.aesthetic_judge.judge_aesthetics(_safe(_rt(ctx.runtime, "screenshot")), vlm)
+    v = ctx.g.aesthetic_judge.judge_aesthetics(_safe(_rt(ctx.runtime, "screenshot")), watched)
+    if outage:
+        raise outage[0]
     return v.ok is True, f"polish score={v.score:.2f} ({_short(v.notes, 300)})"
 
 
