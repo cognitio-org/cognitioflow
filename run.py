@@ -3421,8 +3421,9 @@ def _docket_write(cid: str, gid: str):
                 card = {"mode": "shadow", "error": f"{type(e).__name__}: {e}"[:300]}
             review["gates"] = card
             # The row stays 'writing' (not yet in his drafts list) for the whole gate run, shadow included. The adapter
-            # heartbeats before each step so the reaper (AUTO_STALE_S) leaves it alone; the write below is unconditional,
-            # as it was before S9, so a row reaped mid-run is still written. Pinned in tests/test_studio_wiring.py.
+            # beats at the start, before each doctrine reviewer call and before the playability/a11y/polish gates; one step
+            # that runs past AUTO_STALE_S without a beat lets the reaper fail the row, and the unconditional write below
+            # (as before S9) then drafts it anyway. Pinned in tests/test_studio_wiring.py.
             if STUDIO_GATES == "enforce" and (not isinstance(card, dict) or card.get("overall_pass") is not True):
                 status, err = "failed", str(docket_adapter.block_message(card))[:300]   # "Blocked by…" or "Gates unavailable: …"
         _set_docket(gid, status=status, title=str(final.get("title") or label.capitalize())[:120], game=final, model=used, error=err,
