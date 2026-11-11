@@ -1448,3 +1448,68 @@ def test_r4_sweep_uncited_round_still_fails_terminology():
     assert da.content_problems(finished(g)) == []
     t = gate(card, "terminology")
     assert t["passed"] is False and "q4: uncited" in t["detail"]
+
+
+# ==================================================================== post-S4 fixes (before S9 #202 goes to shadow)
+# The S4 batch holes (1) per cited source, (2) the 12000//n S3 cap and (6) GateInfraError classified before
+# run_gate are covered by the test_r1_* tests above (fixed in #200). These cover what was left: the gates still
+# cut each source at docketgen.FILE_CHARS (40k) while the v2 writer (ranked_sources_block) reads passages from
+# anywhere in a longer file, and the polish gate's judge swallowed a VLM outage into a content failure.
+
+def test_p1_terminology_sees_a_protected_term_past_file_chars():
+    """The term sits at ~50k in a 60k source: past FILE_CHARS, so a 40k prefix cut silently hid the swap."""
+    text = _paragraphs(60_000, "Here state liability arises.", 50_000)
+    assert text.index("state liability") > docketgen.FILE_CHARS
+    k = src_keyed(text)
+    g = game()
+    for s in g["scenes"]:
+        for o in (s.get("quiz") or {}).get("options") or []:
+            if o["correct"]:
+                o["text"] = "state responsibility applies"
+    card = run(final=finished(g, k), keyed_=k, runtime=full_runtime(reviewer=FakeReviewer(lambda n, p: bad_reply())))
+    t = gate(assert_schema(card), "terminology")
+    assert t["passed"] is False and "state liability->state responsibility" in t["detail"]
+
+
+def test_p1_doctrine_windows_over_the_whole_source_not_a_file_chars_prefix():
+    """The supporting passage sits at ~50k: the window must be able to pick it, and the cut is reported."""
+    k = src_keyed(_paragraphs(60_000, SUPPORT, 50_000))
+    assert k["S1"]["text"].index(SUPPORT) > docketgen.FILE_CHARS
+    gen = "QUESTION: Advise her.\nCORRECT ANSWER: Francovich requires a sufficiently serious breach of Union law"
+    src, windowed = da._doctrine_source(["S1"], k, gen, da.DOCTRINE_SOURCE_CAP)
+    assert SUPPORT in src and windowed == ["S1"] and len(src) <= da.DOCTRINE_SOURCE_CAP
+    g = game()
+    for s in g["scenes"]:
+        for o in (s.get("quiz") or {}).get("options") or []:
+            if o["correct"]:
+                o["text"] = "Francovich requires a sufficiently serious breach of Union law"
+    rev = FakeReviewer(lambda n, p: ok_reply(SUPPORT) if SUPPORT in p else bad_reply("not in source"))
+    card = assert_schema(run(final=finished(g, k), keyed_=k, runtime=full_runtime(reviewer=rev)))
+    assert all(it["keys_windowed"] == ["S1"] for it in card["doctrine_items"])            # the cut is reported
+    rounds = [it for it in card["doctrine_items"] if it["pass"] == 1 and it["id"] != "verdict"]
+    assert rounds and all(it["ok"] and it["quotes_ok"] for it in rounds), rounds          # and the reviewer saw 50k
+
+
+def test_p1_a_short_source_still_goes_to_doctrine_whole():
+    k = src_keyed(_paragraphs(20_000))
+    src, windowed = da._doctrine_source(["S1"], k, "anything", da.DOCTRINE_SOURCE_CAP)
+    assert src == "[S1] Week 3 lecture.pdf\n" + k["S1"]["text"] and windowed == []
+
+
+def test_p3_a_vlm_outage_is_polish_infra_not_a_content_failure():
+    """aesthetic_judge folds any vlm exception into ok=False; the adapter must still see the GateInfraError."""
+    rt = rtmod()
+
+    def vlm_down(path):
+        raise rt.GateInfraError("vlm endpoint unreachable")
+
+    card = assert_schema(run(runtime=full_runtime(vlm=vlm_down)))
+    p = gate(card, "polish")
+    assert p["passed"] is False and "GateInfraError" in p.get("infra", "") and "unreachable" in p["infra"]
+    assert p["mandatory"] is False and card["overall_pass"] is True       # polish is advisory: still never blocks
+
+
+def test_p3_a_vlm_that_answers_badly_stays_a_content_failure():
+    card = assert_schema(run(runtime=full_runtime(vlm=lambda path: "not json")))
+    p = gate(card, "polish")
+    assert p["passed"] is False and "infra" not in p
