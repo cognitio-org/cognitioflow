@@ -808,11 +808,11 @@ def _stem(name: str) -> str:
 
 
 def dedupe_versions(files: list) -> list:
-    """One file per document: versions of the same name (copies, '(1)', 'v2', 'final', 'checked') collapse to the
-    'checked' one, else the newest. Order of first appearance is kept."""
+    """One file per document: versions of the same name in the same week (copies, '(1)', 'v2', 'final', 'checked')
+    collapse to the 'checked' one, else the newest. Order of first appearance is kept."""
     best, order = {}, []
     for f in files:
-        s = _stem(f.get("name"))
+        s = (str(f.get("week") or ""), _stem(f.get("name")))   # same name in two weeks = two documents
         if s not in best:
             order.append(s)
             best[s] = f

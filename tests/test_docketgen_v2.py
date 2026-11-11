@@ -121,6 +121,23 @@ def test_dedupe_keeps_checked_else_newest():
              {"id": 3, "name": "Week 2 worksheet (1).pdf", "created": 5}, {"id": 4, "name": "Week-2 worksheet checked.pdf", "created": 2}]
     assert [f["id"] for f in docketgen.dedupe_versions(files)] == [4, 2]
     assert [f["id"] for f in docketgen.dedupe_versions(files[:3])] == [3, 2]
+    two_weeks = [{"id": 1, "name": "worksheet.pdf", "week": "1"}, {"id": 2, "name": "worksheet.pdf", "week": "2"}]
+    assert [f["id"] for f in docketgen.dedupe_versions(two_weeks)] == [1, 2]
+
+
+def test_a_v2_game_passes_the_real_deterministic_gates():
+    """The compiled v2 shape meets the real studio gate card (not a fake): best-of-N can pick it."""
+    from studio import best_of_n, docket_adapter, runtime
+    g, _ = docketgen.compile_game(inter("A"), "A")
+    final = docketgen.finish(g, "gx", "CF-pil", KEYED)
+
+    def deferred(prompt):
+        raise runtime.GateInfraError("deferred")
+    card = docket_adapter.gate_docket(final, KEYED, [SRC], {"id": "x", "slug": "pil"}, issues=[], unverified=[],
+                                      mode="shadow", runtime={"reviewer": deferred})
+    assert best_of_n.deterministic_pass(card), [(x["name"], x["detail"]) for x in card["gates"]]
+    assert "doctrine" in card["enforced"] and "playability" not in card["enforced"]
+    assert all("ok" in it for it in card["doctrine_items"])
 
 
 def test_ranked_sources_keep_relevant_verbatim_passages_and_keys():
