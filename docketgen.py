@@ -125,11 +125,23 @@ def sources_json(keyed: dict) -> dict:
 
 # ---------------------------------------------------------------- the checks
 
-_CITE = re.compile(r"\[([A-Z][A-Z0-9]{0,5})(?:\s+p{1,2}\.\s*[0-9]+(?:\s*[-–]\s*[0-9]+)?)?\]")
+# [S1], [S1 p.4], and (WRITER v2.1+) a leaked sentence id [S1.18] / [S1.18-S1.20]: group 1 is always the source key.
+_CITE = re.compile(r"\[([A-Z][A-Z0-9]{0,5})(?:\.[0-9]+(?:\s*[-\u2013\u2014]\s*(?:[A-Z][A-Z0-9]{0,5}\.)?[0-9]+)?)?"
+                   r"(?:\s+p{1,2}\.\s*[0-9]+(?:\s*[-–]\s*[0-9]+)?)?\]")
 
 
 def _cite_key(c) -> str:
-    return str(c).strip().strip("[]").split()[0] if str(c).strip() else ""
+    """The source key a cite names: "S1", "[S1]", "S1 p.4" -> "S1". A sentence id or range ("S1.18", "[S1.18]",
+    "S1.18-S1.20", "S1.18-20") is a citation of its source, so it is "S1" too (the writer v2 pilot put sentence ids
+    in "cites" lists). A malformed or cross-source ref ("S1.x", "S1.4-S2.5") is returned as typed, so the
+    citation check still reports it as an unknown source."""
+    s = str(c).strip().strip("[]").strip()
+    if not s:
+        return ""
+    ref = _parse_sentence_ref(s) if "." in s.split()[0] else None
+    if ref and ref[0]:
+        return ref[0]
+    return s if "." in s.split()[0] else s.split()[0]
 
 
 def all_text(game: dict) -> str:
@@ -485,7 +497,8 @@ def weeks_needing_games(files: list, games: list, now: float, failed_backoff_s: 
 
 import hashlib
 
-PROMPT_VERSION = "writer-v2.1"           # 2.1: checks cite numbered sentence ids, code inserts the quote
+PROMPT_VERSION = "writer-v2.2"           # 2.1: checks cite numbered sentence ids, code inserts the quote;
+                                         # 2.2: the prompt says "cites" takes source ids only, sentence ids go in "sentence"
 MIN_GEN_RATIO = 0.4
 MIXES = {                          # model-quality plan rung 0 item 3; every mix clears generation_ratio 0.4
     "A": ("mcq", "slot", "spot"),
@@ -544,10 +557,13 @@ def writer_task(label: str, mix: str, *, course_name: str = "", lawnote: str = "
 ROUND PLAN, chosen for you (follow it exactly, in this order): {plan}.
 Minimums: slot has at least {MIN_SLOT_FACTS} facts and 2 elements; spot has at least {MIN_SPOT_ISSUES} issues; order has at least {MIN_ORDER_STEPS} steps.
 Every wrong mcq option has a "flaw" (the one real student mistake it makes) and its own teaching; no two options share teaching.
-Every SOURCES sentence is numbered, like [S1.47]. Every entry in "checks" has "sentence": the id of the ONE source
-sentence that states its claim ("S1.47"), or a range of at most {MAX_RANGE_SENTENCES} neighbouring sentences ("S1.47-S1.48").
-Do NOT type quotes: the code copies the sentence. Each check cites different sentences. Sentence ids go only in
-"checks"; elsewhere cite the source as [S1].
+Every SOURCES sentence is numbered, like [S1.47]. Two kinds of id, never mixed:
+- a SOURCE id is the file key alone (S1, S2): it is the only thing that goes in any "cites" list (["S1"], never
+  ["S1.47"]) and in [S1] markers in text (teaching, rule, lines);
+- a SENTENCE id (S1.47) goes ONLY in a check's "sentence" field, never in "cites" and never in text. "sentence" is
+  the id of the ONE source sentence that states the check's claim ("S1.47"), or a range of at most
+  {MAX_RANGE_SENTENCES} neighbouring sentences ("S1.47-S1.48").
+Do NOT type quotes: the code copies the sentence and fills in the check's source. Each check cites different sentences.
 Order "steps" are given in the CORRECT order (the game shuffles them). Spot "phrase" must be copied exactly from "text".{ex}
 
 Return ONLY this JSON (no prose, no code fence):
@@ -907,7 +923,10 @@ _PARA = re.compile(r"\n[ \t]*\n")
 _TAGGED_LINE = re.compile(r"(?m)^\[([A-Z][A-Z0-9]{0,5})\.([0-9]+)\] ")
 _SENT_REF = re.compile(r"^\[?\s*([A-Z][A-Z0-9]{0,5})\.([0-9]+)\s*(?:[-\u2013\u2014]|to)\s*(?:([A-Z][A-Z0-9]{0,5})\.)?([0-9]+)\s*\]?$"
                        r"|^\[?\s*([A-Z][A-Z0-9]{0,5})\.([0-9]+)\s*\]?$")
-_INLINE_SENT_CITE = re.compile(r"\[([A-Z][A-Z0-9]{0,5})\.[0-9]+(?:\s*[-\u2013\u2014]\s*(?:[A-Z][A-Z0-9]{0,5}\.)?[0-9]+)?\]")
+_ONE_SENT = r"[A-Z][A-Z0-9]{0,5}\.[0-9]+(?:\s*[-\u2013\u2014]\s*(?:[A-Z][A-Z0-9]{0,5}\.)?[0-9]+)?"
+# "[S1.47]", "[S1.4-S1.6]", and a list in one bracket "[S1.18, S2.3]" / "[S1.4; S1.6-S1.7]"
+_INLINE_SENT_CITE = re.compile(r"\[(" + _ONE_SENT + r"(?:\s*[,;]\s*" + _ONE_SENT + r")*)\]")
+_SENT_ID_SHAPE = re.compile(r"^\[?\s*[A-Z][A-Z0-9]{0,5}\.[0-9]")   # looks like a sentence id, not a source key
 
 
 _SENT_FIELDS = ("sentence", "sentences", "sentence_ids")
@@ -1008,6 +1027,9 @@ def numbered_sentence_checks(checks, keyed: dict, shown=None):
         c = {k: v for k, v in c.items() if k not in ("quote", "unresolved")}
         n_ = c.get("n", i)
         ref = next((c[f] for f in _SENT_FIELDS if f in c), None)
+        if ref in (None, "", []):          # no "sentence" but a sentence id in "cites": the same rules resolve it
+            ids = [x for x in (c.get("cites") or []) if isinstance(x, str) and _SENT_ID_SHAPE.match(x.strip())]
+            ref = ids[0] if len(ids) == 1 else (ids or ref)
         problem = None
         parsed = _parse_sentence_ref(ref) if ref not in (None, "", []) else None
         if ref in (None, "", []):
@@ -1046,20 +1068,53 @@ def numbered_sentence_checks(checks, keyed: dict, shown=None):
         if problem:
             bad.append(problem)
             c["unresolved"] = True
+            if isinstance(c.get("cites"), list):   # one problem per check: S1.99 is reported here, not as a source
+                c["cites"] = _source_cites(c["cites"])
         out.append(c)
     return out, bad
 
 
-def collapse_sentence_cites(obj):
-    """A copy with every inline sentence id ("[S1.47]", "[S1.4-S1.6]") in player text rewritten as its source cite
-    ("[S1]"): ids belong in a check's "sentence", but a leaked one must still count as a citation of S1. The
-    "sentence" fields themselves are left alone."""
+def _source_cites(cites) -> list:
+    """A "cites" list with every sentence id or range ("S1.18", "[S1.18-S1.20]") replaced by its source key, in
+    order, without duplicates. Anything that does not resolve (an unknown or cross-source ref) is kept as typed so
+    validate() still reports it."""
+    out = []
+    for c in cites:
+        k = _cite_key(c) if isinstance(c, str) else c
+        if k not in ("", None) and k not in out:
+            out.append(k)
+    return out
+
+
+def _collapse_inline(m) -> str:
+    keys = []
+    for part in re.split(r"\s*[,;]\s*", m.group(1)):
+        k = _cite_key(part)
+        if k not in keys:
+            keys.append(k)
+    return "".join(f"[{k}]" for k in keys)
+
+
+def collapse_sentence_cites(obj, _in_checks: bool = False):
+    """A copy with every sentence id that leaked out of a check's "sentence" rewritten as its source cite: inline
+    ("[S1.47]", "[S1.4-S1.6]", "[S1.18, S2.3]") in player text becomes "[S1]" / "[S1][S2]", and "cites": ["S1.18"]
+    becomes ["S1"] - ids belong in a check's "sentence", but a leaked one must still count as a citation of S1. The
+    "sentence" fields are left alone, and so are the "cites" of checks: numbered_sentence_checks reads a sentence id
+    there when the check has no "sentence", then sets them to the source key itself."""
     if isinstance(obj, str):
-        return _INLINE_SENT_CITE.sub(lambda m: f"[{m.group(1)}]", obj)
+        return _INLINE_SENT_CITE.sub(_collapse_inline, obj)
     if isinstance(obj, list):
-        return [collapse_sentence_cites(x) for x in obj]
+        return [collapse_sentence_cites(x, _in_checks) for x in obj]
     if isinstance(obj, dict):
-        return {k: (v if k in _SENT_FIELDS else collapse_sentence_cites(v)) for k, v in obj.items()}
+        out = {}
+        for k, v in obj.items():
+            if k in _SENT_FIELDS:
+                out[k] = v
+            elif k == "cites" and isinstance(v, list):
+                out[k] = list(v) if _in_checks else _source_cites(v)
+            else:
+                out[k] = collapse_sentence_cites(v, _in_checks or k == "checks")
+        return out
     return obj
 
 

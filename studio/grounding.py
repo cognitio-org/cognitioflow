@@ -41,8 +41,9 @@ def _dr():
 
 
 def _key(c) -> str:
-    s = str(c or "").strip().strip("[]")
-    return s.split()[0] if s else ""
+    """The source key a check cites; a sentence id or range ("S1.18", "S1.18-S1.20") names its source "S1"
+    (docketgen._cite_key, the one normaliser the citation check also uses)."""
+    return docket_adapter.docketgen._cite_key(c) if str(c or "").strip() else ""
 
 
 def check_problems(checks, keyed: dict, min_checks: int = 1) -> list:
