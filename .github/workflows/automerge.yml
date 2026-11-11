@@ -111,8 +111,9 @@ jobs:
           # The council's hold set and normalisation (council_merge.py _norm_label / HOLD_LABELS):
           # strip, lower-case, fold runs of whitespace/underscores to '-'.
           norm_labels() { tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/[[:space:]_]+/-/g'; }
-          is_hold() { norm_labels <<<"$1" | grep -Exq "hold|on-hold|do-not-merge|dont-merge|don't-merge"; }
-          held() { norm_labels <<<"$LABELS" | grep -Exq "hold|on-hold|do-not-merge|dont-merge|don't-merge"; }
+          HOLD_RE="hold|on-hold|do-not-merge|dont-merge|don't-merge"
+          is_hold() { local n; n="$(norm_labels <<<"$1")"; grep -Exq -- "$HOLD_RE" <<<"$n"; }
+          held() { local n; n="$(norm_labels <<<"$LABELS")"; grep -Exq -- "$HOLD_RE" <<<"$n"; }
 
           disarm() {
             # Success is judged by re-reading live state, never by gh's exit code.
@@ -200,8 +201,13 @@ jobs:
                   echo "armed with AUTODEPLOY_PAT at $EVENT_HEAD_SHA — the merge will trigger deploy.yml"
                 else
                   echo "::warning::AUTODEPLOY_PAT missing or invalid — falling back to GITHUB_TOKEN; the merge will NOT trigger deploy (relies on deploy-catchup.yml)."
-                  retry gh_as "$GITHUB_TOKEN" pr merge --auto --squash \
-                    --match-head-commit "$EVENT_HEAD_SHA" "$PR_URL"
+                  if ! retry gh_as "$GITHUB_TOKEN" pr merge --auto --squash \
+                        --match-head-commit "$EVENT_HEAD_SHA" "$PR_URL"; then
+                    # A call may have taken effect server-side despite the error: make sure it is off.
+                    ARMED=unknown
+                    disarm "arming failed with both tokens"
+                    echo "::error::could not arm auto-merge on #$PR_NUMBER"; exit 1
+                  fi
                   echo "armed with GITHUB_TOKEN at $EVENT_HEAD_SHA"
                 fi
                 # Re-check: a hold, unlabel, draft or push that landed while arming must win.
@@ -209,6 +215,7 @@ jobs:
                   ARMED=unknown
                   disarm "cannot re-read the PR after arming"
                 elif held || [ "$DRAFT" = true ] || ! has_label "$MERGE_LABEL" || [ "$HEAD_SHA" != "$EVENT_HEAD_SHA" ]; then
+                  ARMED=true   # this run just armed it: do not trust a possibly stale "not armed" read
                   disarm "the PR changed while arming"
                   if [ "$HEAD_SHA" != "$EVENT_HEAD_SHA" ]; then remove_merge_label; fi
                 fi

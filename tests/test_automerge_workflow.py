@@ -112,7 +112,8 @@ def test_workflow_shape_is_fork_safe():
 FAKE_GH = r"""#!/usr/bin/env bash
 # Fake gh: state lives in $STATE (the REST pull JSON); every call is logged to $LOG with its token.
 # Failure injection: FAIL_READS=N fails the first N state reads (N=99: always); FAIL_DISABLE_FOR /
-# FAIL_ARM_FOR fail every call made with that token; FAIL_READS_AFTER=N fails every read after the Nth; FAIL_DELETE fails label removal.
+# FAIL_ARM_FOR fail every call made with that token (ALL: every token); ARM_TAKES_EFFECT_BUT_FAILS
+# arms but exits 1; STALE_ARMED_AFTER=N reports auto_merge null on every read after the Nth; FAIL_READS_AFTER=N fails every read after the Nth; FAIL_DELETE fails label removal.
 who=GITHUB_TOKEN; [ "${GH_TOKEN:-}" = "pat-secret" ] && who=PAT
 echo "$who $*" >> "$LOG"
 bump() { local n; n=$(cat "$STATE.$1" 2>/dev/null || echo 0); echo $((n + 1)) > "$STATE.$1"; echo $((n + 1)); }
@@ -123,12 +124,18 @@ elif [ "$1" = api ]; then
   n="$(bump reads)"
   if [ "$n" -le "${FAIL_READS:-0}" ]; then echo "HTTP 502" >&2; exit 1; fi
   if [ -n "${FAIL_READS_AFTER:-}" ] && [ "$n" -gt "$FAIL_READS_AFTER" ]; then echo "HTTP 502" >&2; exit 1; fi
+  if [ -n "${STALE_ARMED_AFTER:-}" ] && [ "$n" -gt "$STALE_ARMED_AFTER" ] && ! [ -f "$STATE.disarmed" ]; then
+    jq '.auto_merge = null' "$STATE" | jq -r "$4"; exit 0
+  fi
   jq -r "$4" "$STATE"; exit 0
 elif [ "$1 $2" = "pr merge" ] && [ "$3" = "--disable-auto" ]; then
   [ -n "${FAIL_DISABLE_FOR:-}" ] && [ "$who" = "$FAIL_DISABLE_FOR" ] && exit 1
-  jq '.auto_merge = null' "$STATE" > "$STATE.t" && mv "$STATE.t" "$STATE"; exit 0
+  jq '.auto_merge = null' "$STATE" > "$STATE.t" && mv "$STATE.t" "$STATE"; touch "$STATE.disarmed"; exit 0
 elif [ "$1 $2" = "pr merge" ]; then
-  [ -n "${FAIL_ARM_FOR:-}" ] && [ "$who" = "$FAIL_ARM_FOR" ] && exit 1
+  [ -n "${FAIL_ARM_FOR:-}" ] && { [ "$who" = "$FAIL_ARM_FOR" ] || [ "$FAIL_ARM_FOR" = ALL ]; } && exit 1
+  if [ -n "${ARM_TAKES_EFFECT_BUT_FAILS:-}" ]; then
+    jq --arg w "$who" '.auto_merge = {"by": $w}' "$STATE" > "$STATE.t" && mv "$STATE.t" "$STATE"; exit 1
+  fi
   jq --arg w "$who" '.auto_merge = {"by": $w}' "$STATE" > "$STATE.t" && mv "$STATE.t" "$STATE"
   # RACE_AFTER_ARM: simulate a concurrent change landing while arming (jq filter on the state).
   if [ -n "${RACE_AFTER_ARM:-}" ]; then jq "$RACE_AFTER_ARM" "$STATE" > "$STATE.t" && mv "$STATE.t" "$STATE"; fi
@@ -318,3 +325,21 @@ def test_a_disarm_whose_state_reads_fail_afterwards_still_fails_red(tmp_path):
     assert p.returncode != 0 and "could not be confirmed off" in p.stdout
     assert s["auto_merge"] is None                     # it did try (with both tokens) — just could not confirm
     assert any(c.startswith("PAT pr merge --disable-auto") for c in calls)
+
+
+@pytest.mark.parametrize("mode", [dict(FAIL_ARM_FOR="ALL"), dict(ARM_TAKES_EFFECT_BUT_FAILS="1")])
+@needs_tools
+def test_a_failed_arm_is_confirmed_off_and_goes_red(tmp_path, mode):
+    p, s, _ = run_event(tmp_path, "labeled", label="automerge", **mode)
+    assert p.returncode != 0
+    assert s["auto_merge"] is None
+
+
+@needs_tools
+def test_a_stale_not_armed_read_after_arming_still_disarms(tmp_path):
+    # read 1 = pre-arm state; reads after that wrongly say "not armed" while a hold landed meanwhile.
+    p, s, calls = run_event(tmp_path, "labeled", label="automerge", STALE_ARMED_AFTER="1",
+                            RACE_AFTER_ARM='.labels += [{"name": "hold"}]')
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert _armed_calls(calls) and s["auto_merge"] is None
+    assert any("--disable-auto" in c for c in calls)
