@@ -14,7 +14,9 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
 
 from studio import runtime  # noqa: E402
-from studio.gates.doctrinal_review import JUDGE_RUBRIC_VERSION, review_doctrine  # noqa: E402
+from studio.gates import doctrinal_review as dr  # noqa: E402
+
+RUBRIC = getattr(dr, "JUDGE_RUBRIC_VERSION", "doctrine-judge-1")   # 1 = before the rubric (for A/B runs)
 
 HERE = os.path.dirname(__file__)
 
@@ -28,10 +30,10 @@ def main(argv=None) -> int:
     reviewer = runtime.m4_reviewer(system=system)
     fixtures = json.load(open(os.path.join(HERE, "doctrine_rubric_fixtures.json")))["fixtures"]
     wrong = 0
-    print(f"rubric {JUDGE_RUBRIC_VERSION} model {reviewer.model} brief={'yes' if system else 'no'}")
+    print(f"rubric {RUBRIC} model {reviewer.model} brief={'yes' if system else 'no'}")
     for f in fixtures:
         for r in range(a.repeat):
-            v = review_doctrine(f["source"], f["generated"], reviewer, require_quotes=True)
+            v = dr.review_doctrine(f["source"], f["generated"], reviewer, require_quotes=True)
             agree = v.ok is f["expect"]
             wrong += not agree
             print(f"{'OK  ' if agree else 'MISS'} {f['id']:<26} run{r + 1} expect={f['expect']} got={v.ok} "
