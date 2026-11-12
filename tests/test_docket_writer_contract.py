@@ -165,3 +165,11 @@ def test_a_first_draft_with_only_an_off_source_citation_is_not_kept_over_its_rep
     assert [r for _, r, _, _ in log] == ["write", "repair", "repair_targeted", "selfcheck", "review"]
     assert json.loads(log[2][3].split("YOUR GAME:\n", 1)[1])["title"] != "Off-source"
     assert out["unverified"] == [] and out["game"]["title"] == "Fixed"
+
+
+def test_a_first_draft_with_only_an_off_source_citation_is_kept_over_a_null_repair():
+    first = inter("A"); first["title"] = "Off-source"
+    gone = lambda game: ["an invented authority"] if game.get("title") == "Off-source" else []
+    out, log = _run([first, "not json at all"], [{"verdict": "ok", "issues": []}], unverified=gone)
+    assert [r for _, r, _, _ in log] == ["write", "repair", "selfcheck", "review"]
+    assert out["game"]["title"] == "Off-source" and out["unverified"] == ["an invented authority"]
