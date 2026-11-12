@@ -159,8 +159,16 @@ def test_ranked_sources_keep_relevant_verbatim_passages_and_keys():
 
 
 def _fake(replies, log, role_tag="coder"):
+    """A model that pops its queued replies in order. The writer-v2.5 legal self-check (role "selfcheck") takes a
+    queued reply only when one is queued as {"_selfcheck": reply}; otherwise it returns its game unchanged."""
     def fn(role, system, user, max_tokens):
         log.append((role_tag, role, system, user))
+        if role == "selfcheck":
+            if replies and isinstance(replies[0], dict) and "_selfcheck" in replies[0]:
+                r = replies.pop(0)["_selfcheck"]
+                return (r if isinstance(r, str) else json.dumps(r)), f"mlx-community/Qwen3-{role_tag}", \
+                    "http://127.0.0.1:8080/v1"
+            return user.rsplit("YOUR GAME:\n", 1)[1], f"mlx-community/Qwen3-{role_tag}", "http://127.0.0.1:8080/v1"
         r = replies.pop(0)
         return (r if isinstance(r, str) else json.dumps(r)), f"mlx-community/Qwen3-{role_tag}", "http://127.0.0.1:8080/v1"
     return fn
@@ -177,19 +185,19 @@ def _run(coder_replies, reviewer_replies=None, **kw):
 
 def test_pipeline_write_review_ok_shares_prefix_and_records_every_call():
     out, log = _run([inter("A")], [{"verdict": "ok", "issues": []}])
-    assert [(t, r) for t, r, _, _ in log] == [("coder", "write"), ("thinker", "review")]
+    assert [(t, r) for t, r, _, _ in log] == [("coder", "write"), ("coder", "selfcheck"), ("thinker", "review")]
     assert all(s == "BRIEF" and u.startswith("PREFIX\n\n") for _, _, s, u in log)
-    assert log[0][3].rstrip().endswith("1 to 3 checks per round.") and "TASK (reviewer)" in log[1][3]
-    assert "WRONG ON PURPOSE" in log[1][3] and "Do NOT suggest a fix" in log[1][3]
-    assert "never report it for being\nwrong" in log[1][3]
-    assert [c["role"] for c in out["calls"]] == ["write", "review"] and out["mix"] == "A" and not out["revised"]
+    assert log[0][3].rstrip().endswith("1 to 3 checks per round.") and "TASK (reviewer)" in log[2][3]
+    assert "WRONG ON PURPOSE" in log[2][3] and "Do NOT suggest a fix" in log[2][3]
+    assert "never report it for being\nwrong" in log[2][3]
+    assert [c["role"] for c in out["calls"]] == ["write", "selfcheck", "review"] and out["mix"] == "A" and not out["revised"]
     assert out["model"] == "mlx-community/Qwen3-coder"
 
 
 def test_pipeline_repairs_once_then_fails_honestly():
     bad = inter("A"); bad["rounds"] = bad["rounds"][:2]
     out, log = _run([bad, inter("A")], [{"verdict": "ok", "issues": []}])
-    assert [r for _, r, _, _ in log] == ["write", "repair", "review"] and "round plan" in log[1][3]
+    assert [r for _, r, _, _ in log] == ["write", "repair", "selfcheck", "review"] and "round plan" in log[1][3]
     assert out["repair_attempted"] is False and out["repaired"] is False   # round one fixed it: no targeted call
     try:
         _run([bad, bad, bad], [])
@@ -203,7 +211,7 @@ def test_quote_problems_block_and_trigger_repair():
     calls = []
     qp = lambda checks, keyed: (calls.append(1) or ["check 1: the quote is not in S1"]) if len(calls) < 1 else []  # noqa: E731
     out, log = _run([inter("A"), inter("A")], None, quote_problems=qp)
-    assert [r for _, r, _, _ in log] == ["write", "repair"] and "quote is not in S1" in log[1][3]
+    assert [r for _, r, _, _ in log] == ["write", "repair", "selfcheck"] and "quote is not in S1" in log[1][3]
     try:
         _run([inter("A"), inter("A"), inter("A")], None, quote_problems=lambda c, k: ["check 1: not in S1"])
     except ValueError:
@@ -218,14 +226,15 @@ def test_high_issue_is_revised_and_rereviewed_on_the_thinker_no_coder_self_revie
                     [{"verdict": "fix", "issues": [{"where": "round 1 option B", "problem": "also right", "severity": "high",
                                                      "quote": "x", "fix": "say Y"}]},
                      {"verdict": "ok", "issues": []}])
-    assert [(t, r) for t, r, _, _ in log] == [("coder", "write"), ("thinker", "review"), ("coder", "revise"), ("thinker", "review")]
+    assert [(t, r) for t, r, _, _ in log] == [("coder", "write"), ("coder", "selfcheck"), ("thinker", "review"), ("coder", "revise"),
+                                              ("thinker", "review")]
     assert out["revised"] and out["game"]["title"] == "Corrected" and out["issues"] == []
     assert "fix" not in docketgen.review_issues_v2({"issues": [{"problem": "p", "fix": "f", "quote": "q"}]})[0]
 
 
 def test_no_reviewer_means_no_review_call_and_no_coder_self_review():
     out, log = _run([inter("A")], None)
-    assert [r for _, r, _, _ in log] == ["write"] and out["issues"] == []
+    assert [r for _, r, _, _ in log] == ["write", "selfcheck"] and out["issues"] == []
 
 
 def test_unverifiable_page_numbers_are_stripped():
@@ -244,7 +253,7 @@ def test_a_revision_that_fails_the_checks_is_not_adopted():
     broken = inter("A"); broken["title"] = "Broken"; broken["rounds"] = broken["rounds"][:2]
     out, log = _run([inter("A"), broken],
                     [{"verdict": "fix", "issues": [{"where": "round 1", "problem": "p", "severity": "high", "quote": ""}]}])
-    assert [r for _, r, _, _ in log] == ["write", "review", "revise"]
+    assert [r for _, r, _, _ in log] == ["write", "selfcheck", "review", "revise"]
     assert not out["revised"] and out["game"]["title"] != "Broken" and out["issues"][0]["severity"] == "high"
 
 
@@ -258,14 +267,14 @@ def _off_plan():
 def test_slip_left_after_the_repair_round_gets_one_targeted_repair_and_passes():
     fixed = inter("A"); fixed["title"] = "Repaired"
     out, log = _run([_off_plan(), _off_plan(), fixed], [{"verdict": "ok", "issues": []}])
-    assert [r for _, r, _, _ in log] == ["write", "repair", "repair_targeted", "review"]
+    assert [r for _, r, _, _ in log] == ["write", "repair", "repair_targeted", "selfcheck", "review"]
     task = log[2][3]
     assert "TASK (targeted repair)" in task and "Fix ONLY these problems" in task
     err = docketgen.validate_v2(docketgen.compile_game(_off_plan(), "A")[0], KEYED.keys(), "A")[0]
     assert err.startswith("The round plan is") and err in task          # the exact check text, verbatim
     assert json.loads(task.split("YOUR GAME:\n", 1)[1])["rounds"] == _off_plan()["rounds"]   # its own last draft
     assert out["repair_attempted"] is True and out["repaired"] is True and out["game"]["title"] == "Repaired"
-    assert [c["role"] for c in out["calls"]] == ["write", "repair", "repair_targeted", "review"]
+    assert [c["role"] for c in out["calls"]] == ["write", "repair", "repair_targeted", "selfcheck", "review"]
     assert out["model"] == "mlx-community/Qwen3-coder"
     # the repaired game is the normal output: finish + the real deterministic gates still apply downstream
     assert not docketgen.validate_v2(out["game"], KEYED.keys(), "A")
@@ -300,7 +309,7 @@ def test_targeted_repair_still_runs_the_quote_checks():
 
 def test_no_slip_means_no_repair_call():
     out, log = _run([inter("A")], [{"verdict": "ok", "issues": []}])
-    assert [r for _, r, _, _ in log] == ["write", "review"]
+    assert [r for _, r, _, _ in log] == ["write", "selfcheck", "review"]
     assert out["repair_attempted"] is False and out["repaired"] is False
 
 

@@ -66,11 +66,12 @@ def test_v1_is_the_default():
 
 def test_v2_writes_a_produce_game_with_explicit_sampling_thinker_review_and_provenance(client, monkeypatch):
     cid = _course_v2(client)
-    fake, seen = _v2(monkeypatch, [inter("A")], [{"verdict": "ok", "issues": []}])
+    fake, seen = _v2(monkeypatch, [inter("A"), inter("A")], [{"verdict": "ok", "issues": []}])   # write, self-check
     gid, row = _write(cid, fake)
     assert row["status"] == "draft", row["error"]
     kw = fake.messages.create.call_args_list[0].kwargs
-    assert fake.messages.create.call_count == 1                        # the Coder never reviews its own game
+    assert fake.messages.create.call_count == 2                        # write + legal self-check; the Thinker reviews
+    assert "TASK (legal self-check)" in fake.messages.create.call_args_list[1].kwargs["messages"][0]["content"]
     assert {k: kw[k] for k in run.DOCKET_SAMPLING} == {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "repetition_penalty": 1.05}
     brief = (run.Path(run.__file__).parent / "studio" / "brief.md").read_text().strip()
     assert kw["system"] == brief                                         # STUDIO_BRIEF is the system prompt
@@ -85,9 +86,9 @@ def test_v2_writes_a_produce_game_with_explicit_sampling_thinker_review_and_prov
     prov = row["review"]["provenance"]
     assert row["review"]["writer"] == "v2" and row["review"]["mix"] == "A"
     assert prov["provenance"] == "clean", prov["taint_reason"]
-    assert [c["role"] for c in prov["calls"]] == ["write", "review"]
+    assert [c["role"] for c in prov["calls"]] == ["write", "selfcheck", "review"]
     assert prov["calls"][0] == {"role": "write", "model": CODER, "base": "http://127.0.0.1:8080/v1"}
-    assert prov["calls"][1]["model"] == THINKER and prov["prompt_version"] == docketgen.PROMPT_VERSION
+    assert prov["calls"][2]["model"] == THINKER and prov["prompt_version"] == docketgen.PROMPT_VERSION
     assert prov["brief_hash"] and prov["sampling"] == run.DOCKET_SAMPLING
 
 
@@ -125,7 +126,7 @@ def test_v2_unknown_sentence_id_is_repaired_then_fails(client, monkeypatch):
 def test_v2_a_typed_quote_is_replaced_by_the_cited_sentence(client, monkeypatch):
     cid = _course_v2(client)
     g = inter("A"); g["checks"][0]["quote"] = "reservations are void under jus cogens norms always"
-    fake, _ = _v2(monkeypatch, [g], [{"verdict": "ok", "issues": []}])
+    fake, _ = _v2(monkeypatch, [g, g], [{"verdict": "ok", "issues": []}])
     gid, row = _write(cid, fake)
     assert row["status"] == "draft", row["error"]
     user = fake.messages.create.call_args_list[0].kwargs["messages"][0]["content"]
@@ -135,13 +136,13 @@ def test_v2_a_typed_quote_is_replaced_by_the_cited_sentence(client, monkeypatch)
 
 def test_v2_draft_runs_without_db_rows_for_best_of_n(client, monkeypatch):
     cid = _course_v2(client)
-    fake, _ = _v2(monkeypatch, [inter("A")], [])
+    fake, _ = _v2(monkeypatch, [inter("A"), inter("A")], [])
     n0 = len(run.rows("SELECT id FROM docket_games WHERE course_id=?", cid))
     course = run.rows("SELECT * FROM courses WHERE id=?", cid)[0]
     with mock.patch.object(run, "client", return_value=fake):
         dctx = run._docket_context(cid, course, "3")
         out = run._docket_draft_v2(dctx, "salt", review=False)
-    assert out["issues"] == [] and [c["role"] for c in out["calls"]] == ["write"] and out["grounding"] == 1.0
+    assert out["issues"] == [] and [c["role"] for c in out["calls"]] == ["write", "selfcheck"] and out["grounding"] == 1.0
     assert out["provenance"]["split"] in ("dev", "heldout", "unassigned")
     assert len(run.rows("SELECT id FROM docket_games WHERE course_id=?", cid)) == n0     # no rows written
 

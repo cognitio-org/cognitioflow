@@ -13,6 +13,7 @@ A game is only a draft until he approves it. Nothing here touches the database o
 does both, so this module stays pure and testable.
 """
 import json
+import os
 import re
 import unicodedata
 
@@ -497,13 +498,15 @@ def weeks_needing_games(files: list, games: list, now: float, failed_backoff_s: 
 
 import hashlib
 
-PROMPT_VERSION = "writer-v2.4"           # 2.1: checks cite numbered sentence ids, code inserts the quote;
+PROMPT_VERSION = "writer-v2.5"           # 2.1: checks cite numbered sentence ids, code inserts the quote;
                                          # 2.2: the prompt says "cites" takes source ids only, sentence ids go in "sentence"
                                          # 2.3: one targeted repair (exact check text, fix only that) after the repair round
                                          # 2.4: both repairs restate the writer contract (plan, shapes, option and id
                                          #      rules); labels keep the sources' threshold words; a round with no
                                          #      "kind" takes its planned kind; the targeted repair starts from the
                                          #      better of write/repair
+                                         # 2.5: the contract (so both repairs) requires a full IRAC verdict and at
+                                         #      least one check per round; one legal self-check pass before review
 MIN_GEN_RATIO = 0.4
 MIXES = {                          # model-quality plan rung 0 item 3; every mix clears generation_ratio 0.4
     "A": ("mcq", "slot", "spot"),
@@ -512,6 +515,7 @@ MIXES = {                          # model-quality plan rung 0 item 3; every mix
     "D": ("mcq", "mcq", "spot"),
 }
 MIN_SLOT_FACTS, MIN_SPOT_ISSUES, MIN_ORDER_STEPS = 3, 2, 3
+IRAC_PARTS = ("issue", "rule", "application", "conclusion")
 CHUNK_CHARS = 2_000                # passage size for ranked sources
 GAP = "\n[…]\n"
 
@@ -578,7 +582,11 @@ Every SOURCES sentence is numbered, like [S1.47]. Two kinds of id, never mixed:
   the id of the ONE source sentence that states the check's claim ("S1.47"), or a range of at most
   {MAX_RANGE_SENTENCES} neighbouring sentences ("S1.47-S1.48"); never a claim, a paraphrase or a quote.
 Do NOT type quotes: the code copies the sentence and fills in the check's source. Each check cites different sentences.
-Order "steps" are given in the CORRECT order (the game shuffles them). Spot "phrase" must be copied exactly from "text"."""
+Order "steps" are given in the CORRECT order (the game shuffles them). Spot "phrase" must be copied exactly from "text".
+The verdict carries an "irac" list with at least one entry, and every entry fills all four of "issue", "rule" (with
+its [KEY] marker), "application" and "conclusion"; a verdict without a full IRAC fails.
+"checks" has at least {len(kinds)} entries: at least one check for EVERY round (1 to 3 per round), each with its own
+"sentence" id; a round no check grounds fails."""
 
 
 def _contract_block(mix) -> str:
@@ -587,7 +595,14 @@ def _contract_block(mix) -> str:
         return ""
     return ("\n\nTHE WRITER CONTRACT (unchanged; the fixed game must still meet all of it):\n" + contract_rules(mix)
             + f"\nThe \"rounds\" list has exactly {len(MIXES[mix])} entries. Round shapes:\n"
-            + "\n".join(_shapes(mix)))
+            + "\n".join(_shapes(mix)) + "\n" + _TAIL_SHAPES)
+
+
+_TAIL_SHAPES = """Verdict and checks shapes:
+ "verdict": {"outcome": "WON", "dialogue": [{"speaker": "JUDGE <NAME>", "line": "..."}],
+             "irac": [{"issue": "...", "rule": "... [KEY]", "application": "...", "conclusion": "..."}],
+             "takeaway": "one line to remember for the exam"},
+ "checks": [{"claim": "a legal claim the game relies on", "sentence": "S1.47"}]"""
 
 
 def writer_task(label: str, mix: str, *, course_name: str = "", lawnote: str = "", exemplars: str = "") -> str:
@@ -666,6 +681,35 @@ def targeted_repair_task(problems: list, last: str, mix: str = None) -> str:
             "the game unchanged fails again. Keep everything the checks do not name: every other round, option, sentence "
             "id and check, in the same JSON shape and round plan. Return the whole corrected game as JSON."
             + _contract_block(mix) + "\n\nYOUR GAME:\n" + last[:30000])
+
+
+def _checked_sentences(checks) -> str:
+    """The code-resolved checks (claim, sentence id, the copied sentence) the self-check reads the game against."""
+    rows = []
+    for c in checks or []:
+        if isinstance(c, dict) and not c.get("unresolved") and str(c.get("quote") or "").strip():
+            rows.append(f"- [{c.get('sentence') or _cite_key(c.get('cites') or [''])}] claim: "
+                        f"{str(c.get('claim') or '')[:300]}\n  sentence: {str(c.get('quote'))[:1200]}")
+    return "\n".join(rows) or "- (none)"
+
+
+def selfcheck_task(game_json: str, checks, mix: str = None) -> str:
+    """The one legal self-check (writer-v2.5, pilot 4: drafts that passed the writer checks failed the doctrine judge on
+    a dropped condition, a renamed term of art, steps out of the sources' order and a rule pinned on the wrong
+    provision). The writer re-reads its own legal wording against the sentences its checks rest on and fixes only that."""
+    return ("TASK (legal self-check): your game below passed the format checks. Re-read its LEGAL wording against the "
+            "SOURCES above, starting with the checked sentences listed below, and fix only legal errors:\n"
+            "- a slot element, spot issue label, order step, correct option, teaching line or IRAC rule that drops a "
+            "condition, qualifier or threshold word the SOURCES attach to the test: restore it in the SOURCES' words;\n"
+            "- a term of art the SOURCES use that the game swapped for a looser word: use the SOURCES' term;\n"
+            "- a rule or obligation pinned on a different article, paragraph, case or provision than the one the "
+            "SOURCES name: attribute it as the SOURCES do;\n"
+            "- order steps not in the order the SOURCES give: put them in that order.\n"
+            "Keep every wrong mcq option wrong on purpose, with its flaw (never make a second option correct). Keep the "
+            "round plan, every id, every check and its \"sentence\" id, and the JSON shape; change nothing else. When "
+            "nothing needs fixing, return the game unchanged. Return ONLY the whole game as JSON."
+            + _contract_block(mix) + "\n\nCHECKED SENTENCES:\n" + _checked_sentences(checks)
+            + "\n\nYOUR GAME:\n" + game_json[:30000])
 
 
 class ChecksFailed(ValueError):
@@ -866,10 +910,19 @@ def validate_v2(game, keys, mix: str = None) -> list:
     for c in game.get("checks") or []:
         if isinstance(c, dict) and not c.get("unresolved") and not str(c.get("quote") or "").strip():
             bad.append(f"Check {c.get('n', '?')} has no quote from its source.")
-    checks = [c for c in game.get("checks") or [] if isinstance(c, dict)]
-    if rounds and len(checks) < len(rounds):     # one quoted claim cannot ground a whole game (adversarial review)
-        bad.append(f"The game has {len(checks)} checks for {len(rounds)} rounds; give at least one quoted check per "
-                   f"round.")
+    # One quoted claim cannot ground a whole game (adversarial review); an unresolved check grounds nothing
+    # (writer-v2.5, pilot 4: drafts died with fewer checks than rounds).
+    quoted = [c for c in game.get("checks") or []
+              if isinstance(c, dict) and not c.get("unresolved") and str(c.get("quote") or "").strip()]
+    if rounds and len(quoted) < len(rounds):
+        bad.append(f"The game has {len(quoted)} checks for {len(rounds)} rounds (counting checks with a quote); give "
+                   f"at least one quoted check per round, each on its own sentence id.")
+    irac = (game.get("verdict") or {}).get("irac") or []
+    for i, r in enumerate(irac if isinstance(irac, list) else [irac], 1):
+        miss = [k for k in IRAC_PARTS if not (isinstance(r, dict) and str(r.get(k) or "").strip())]
+        if miss:
+            bad.append(f"Verdict IRAC entry {i} has no {', '.join(miss)}; fill all four of issue, rule, application "
+                       f"and conclusion.")
     return bad
 
 
@@ -1217,7 +1270,8 @@ def write_draft_v2(coder, *, system: str, prefix: str, label: str, mix: str, key
     unverified(player_game) -> [raw citation not found in the course files]
     quote_problems(checks, keyed) -> [problem]
     Returns {game (player JSON, not finished), intermediate, issues, unverified, revised, model, calls, mix,
-    prompt_version, repair_attempted, repaired}. repair_attempted/repaired describe the targeted repair only (the
+    prompt_version, repair_attempted, repaired, selfchecked}. After the checks pass, one legal self-check call
+    (role "selfcheck") runs before the review. repair_attempted/repaired describe the targeted repair only (the
     first repair round runs on most drafts). Raises ChecksFailed (a ValueError) when the game still fails the checks
     after both."""
     if mix not in MIXES:
@@ -1290,6 +1344,17 @@ def write_draft_v2(coder, *, system: str, prefix: str, label: str, mix: str, key
     if game is None or probs or quotes:
         raise ChecksFailed("The game did not pass the checks: " + " ".join((probs + quotes)[:4]),
                            repair_attempted=repair_attempted, calls=calls, stages=stages)
+    # One legal self-check (writer-v2.5), before the reviewer and before best-of-N's doctrine judge. Bounded to one
+    # call; its game is kept only when it still passes every writer check with no new off-source citation, so the
+    # pass can tighten wording but never cost a passing draft. CF_DOCKET_SELFCHECK=0 turns it off.
+    selfchecked = False
+    if os.environ.get("CF_DOCKET_SELFCHECK", "1").strip() != "0":
+        sc = parse_json_tolerant(call(coder, "selfcheck", selfcheck_task(
+            json.dumps(inter, ensure_ascii=False), game.get("checks") or [], mix), 12000))
+        if sc is not None and sc != inter:
+            sres = check(sc)
+            if sres[0] is not None and not sres[1] and not sres[3] and len(sres[2]) <= len(gone):
+                inter, game, gone, selfchecked = sc, sres[0], sres[2], True
     issues, revised = [], False
     if reviewer is not None:
         issues = review_issues_v2(parse_json_tolerant(call(reviewer, "review",
@@ -1303,7 +1368,8 @@ def write_draft_v2(coder, *, system: str, prefix: str, label: str, mix: str, key
                     issues = review_issues_v2(parse_json_tolerant(call(reviewer, "review",
                                               reviewer_task(json.dumps(inter, ensure_ascii=False)), 16000)))
     writer_model = next((c["model"] for c in reversed(calls)
-                         if c["role"] in ("write", "repair", "repair_targeted", "revise")), "")
+                         if c["role"] in ("write", "repair", "repair_targeted", "selfcheck", "revise")), "")
     return {"game": game, "intermediate": inter, "issues": issues, "unverified": gone, "revised": revised,
             "model": writer_model, "calls": calls, "mix": mix, "prompt_version": PROMPT_VERSION,
-            "generation_ratio": generation_ratio(game), "repair_attempted": repair_attempted, "repaired": repaired}
+            "generation_ratio": generation_ratio(game), "repair_attempted": repair_attempted, "repaired": repaired,
+            "selfchecked": selfchecked}
