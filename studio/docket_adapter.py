@@ -22,9 +22,10 @@ NOT use that: an uncited item fails terminology as "uncited", and a cited item i
 source's whole text on its own (no cut: the v2 writer reads passages from anywhere in a file), never against a
 join that one source's synonym can silence.
 
-Structural check (S4 fix round 4): `content_problems(final)` walks every player-visible field of the raw game
-(each option's text on its own, never through its story) and lists the ones with no real word (see
-`has_real_word`). Terminology and doctrine both fail on it before any lexicon or reviewer work; their own per-pass
+Structural check (S4 fix rounds 4-5): `content_problems(final)` walks the gated player-visible fields of the raw game
+(title, questions, every option's text on its own and never through its story, teaching, story, outcome titles,
+produce answer items, round and verdict IRAC, takeaway; its docstring lists them and the ungated narrative chrome)
+and lists the ones with no real word (see `has_real_word`). Terminology and doctrine both fail on it before any lexicon or reviewer work; their own per-pass
 "no text to check" checks stay behind it as defence in depth.
 """
 import copy
@@ -352,23 +353,47 @@ def _visible(text: str) -> str:
     return "".join(c for c in text if c not in _FILLERS and unicodedata.category(c) != "Cf")
 
 
+# Citation shorthand (Matej, 2026-11-11: the word rule is STRICT). A whole token, any case, with an optional dot and
+# the page locator that follows it ("pp. 4-7", "Id. at 5", "ibid., 34", "op. cit., p. 12"): none of it is content.
+_LOCATOR = r"(?:[ \t]*,?[ \t]*(?:at[ \t]+)?\d+(?:[ \t]*[-\u2013\u2014][ \t]*\d+)?(?:[ \t]*(?:ff?|et[ \t]+seqq?)(?!\w)\.?)?)*"
+_SHORTHAND = re.compile(r"(?<!\w)(?:pp|p|id|ibid|ibidem|op\.?[ \t]*cit|loc\.?[ \t]*cit|et[ \t]+seqq?|cf|supra|infra|ff)(?!\w)\.?"
+                        + _LOCATOR, re.I)
+
+
 def has_real_word(text) -> bool:
-    """True when `text` (a str; anything else is wordless) holds a real word: a run of >= 2 Unicode letters
-    (category L*; combining marks inside a run neither break nor count) once invisible/filler characters, cite
-    markers ([S1], [S1 p.4]) and the adapter's projection labels are removed. '[S1]', 'a', 'a b', '34', '?' and a
-    row of U+3164 have none."""
+    """True when `text` (a str; anything else is wordless) holds a real word once invisible/filler characters, cite
+    markers ([S1], [S1 p.4]), citation shorthand with its page locator (pp., p., Id., ibid(em), op. cit., loc. cit.,
+    cf., supra, infra, et seq., ff.) and the adapter's projection labels are removed. A real word is a run of >= 2
+    Unicode letters (category L*; combining marks inside a run neither break nor count), or a number: a run of decimal
+    digits with no letter directly before or after it. So '1957', 'C-6/90', '§ 4', '34 (2)' and 'Art. 28' count
+    (the STRICT rule, Matej 2026-11-11), while '[S1]', '[S1] pp. 4', 'Id.', 'ibid', 'a', 'a b', '?', a row of U+3164
+    and a raw id such as 'e1' (its digit is glued to a letter) do not."""
     if not isinstance(text, str):
         return False
-    s = _LABEL.sub(" ", docketgen._CITE.sub(" ", _visible(text)))
-    run = 0
-    for c in s:
+    s = _SHORTHAND.sub(" ", _LABEL.sub(" ", docketgen._CITE.sub(" ", _visible(text))))
+    run, prev = 0, ""
+    n = len(s)
+    i = 0
+    while i < n:
+        c = s[i]
         cat = unicodedata.category(c)
+        if cat == "Nd":
+            j = i
+            while j < n and unicodedata.category(s[j]) == "Nd":
+                j += 1
+            before = unicodedata.category(s[i - 1])[0] if i else ""
+            after = unicodedata.category(s[j])[0] if j < n else ""
+            if before != "L" and after != "L" and not (before == "M" and run):
+                return True
+            run, i = 0, j
+            continue
         if cat[0] == "L":
             run += 1
             if run >= 2:
                 return True
         elif not (cat[0] == "M" and run):
             run = 0
+        i += 1
     return False
 
 
@@ -378,9 +403,10 @@ def _no_words(text) -> bool:
     return not has_real_word(text if isinstance(text, str) else str(text or ""))
 
 
-def _blank(v) -> bool:
-    """An optional field the player sees as empty: None, or a str of only whitespace / invisible characters."""
-    return v is None or (isinstance(v, str) and not _visible(v).strip())
+def _absent(v) -> bool:
+    """What the player treats as no value at all: None or '' (play/player/data.js str(): v == null ? '' : String(v),
+    then plain JS truthiness in quiz.js). Anything else renders, including whitespace or filler only."""
+    return v is None or (isinstance(v, str) and v == "")
 
 
 def _shown_label(x) -> object:
@@ -393,19 +419,42 @@ def _shown_label(x) -> object:
 
 _PRODUCE_ITEMS = {"spot": "issues", "order": "sequence", "slot": "key"}
 _PRODUCE_LISTS = ("issues", "taxonomy", "bank", "facts", "elements")
+_IRAC_PARTS = ("issue", "rule", "application", "conclusion")
+
+
+def _labels_by_id(items) -> dict:
+    """id -> shown label for the answer items the player keeps (data.js drops an item with no id)."""
+    out = {}
+    for x in items if isinstance(items, list) else []:
+        if isinstance(x, dict) and not _absent(x.get("id")):
+            out.setdefault(str(x.get("id")), _shown_label(x))
+    return out
 
 
 def content_problems(final) -> list:
-    """Every player-visible field of the game, from the raw dict, that has no real word (see has_real_word), as
-    "qN:field: no words"; plus structural holes ("game: no rounds", "qN:options: no wrong option",
+    """The gated player-visible fields of the game, from the raw dict, that have no real word (see has_real_word), as
+    "<where>:<field>: no words"; plus structural holes ("game: no rounds", "qN:options: no wrong option",
     "qN:options: no correct option", "qN:answer: no items", "qN:kind: unknown kind"). Empty when clean.
 
-    Required (must have a word): each round's question (and prompt, if present); every option's text, correct and
-    wrong, checked on its own and never through its story; every wrong option's teaching; a produce round's
-    teaching, a spot round's fact text and every answer item the player sees (issues, taxonomy, bank, facts,
-    elements); every IRAC rule. Optional (blank is fine, but non-blank needs a word): a correct option's teaching,
-    any option's story and outcome_title (hand-authored games leave the correct option's teaching and story '').
-    Pure, stdlib + docketgen only; never raises on a malformed game."""
+    Required (must have a word): the game title; each round's question (and prompt, if present); every option's
+    text, correct and wrong, checked on its own and never through its story; every wrong option's teaching; a
+    produce round's teaching, a spot round's fact text and every answer item the player sees (issues, taxonomy,
+    bank, facts, elements, plus each order sequence id and slot key fact/element the player shows as a raw id because
+    no bank/fact/element label resolves it); every verdict IRAC rule.
+    Optional (skipped only when the player treats it as absent, None or ''; any other value, whitespace- or
+    filler-only included, needs a word, because quiz.js renders it on plain truthiness): a correct option's teaching,
+    any option's story and outcome_title, each round's IRAC issue/rule/application/conclusion, the verdict IRAC
+    issue/application/conclusion, the verdict takeaway and the game-level takeaway. Hand-authored games leave the
+    correct option's teaching and story ''.
+    Narrative chrome (strict review of #201), gated the way play/player/data.js keeps it: the logline and
+    learning_goal (optional); each case_file entry, scene action line (a scalar action is one line), removed entry
+    and checks claim that is not absent; each scene title that is not absent (data.js shows 'Scene N' instead); each
+    dialogue line that is not absent (data.js drops the rest) and that line's speaker if not absent; each source's
+    file (a string value is the file), kind and note if not absent; each scene slug part (int_ext, place, time; a
+    string slug is the place) if not absent; the verdict outcome when quiz.js shows it (more
+    than two whitespace-separated tokens). The verdict IRAC is read as data.js reads it: a list, else any truthy
+    value as one entry. Not gated: ids, set, phase, shot fields (camera directions), source keys, bible,
+    coordinator_notes (none is shown as text). Pure, stdlib + docketgen only; never raises on a malformed game."""
     out = []
 
     def need(where, v):
@@ -413,9 +462,55 @@ def content_problems(final) -> list:
             out.append(f"{where}: no words")
 
     def optional(where, v):
-        if not _blank(v):
+        if not _absent(v):
             need(where, v)
 
+    def irac_parts(where, irac, required=()):
+        for part in _IRAC_PARTS:
+            (need if part in required else optional)(f"{where}.{part}", irac.get(part) if isinstance(irac, dict) else None)
+
+    def each(where, items):
+        items = items if isinstance(items, list) else ([items] if items else [])
+        for i, v in enumerate(items):
+            optional(f"{where}[{i}]", v)
+
+    g = final if isinstance(final, dict) else {}
+    need("game:title", g.get("title"))
+    optional("game:takeaway", g.get("takeaway"))
+    optional("game:logline", g.get("logline"))
+    optional("game:learning_goal", g.get("learning_goal"))
+    each("game:case_file", g.get("case_file") if isinstance(g.get("case_file"), list) else [])
+    each("game:removed", g.get("removed") if isinstance(g.get("removed"), list) else [])
+    for i, c in enumerate(g.get("checks") if isinstance(g.get("checks"), list) else []):
+        optional(f"game:checks[{i}].claim", c.get("claim") if isinstance(c, dict) else None)
+    sources = g.get("sources")
+    for k, v in (sources.items() if isinstance(sources, dict) else ()):
+        where = f"game:sources[{_short(k, 20)}]"
+        if isinstance(v, dict):
+            optional(f"{where}.file", v.get("file") or v.get("name"))
+            optional(f"{where}.kind", v.get("kind"))
+            optional(f"{where}.note", v.get("note"))
+        else:
+            optional(f"{where}.file", v)
+    for n, sc in enumerate(g.get("scenes") if isinstance(g.get("scenes"), list) else [], 1):
+        if not isinstance(sc, dict):
+            continue
+        sid = _short(sc.get("id") or f"s{n}", 40)
+        if sc.get("title"):                                # data.js: title || `Scene ${i + 1}`
+            need(f"{sid}:title", sc.get("title"))
+        slug = sc.get("slug")                              # main.js slugText: the title card's location line
+        if isinstance(slug, dict):
+            for part in ("int_ext", "place", "time"):
+                optional(f"{sid}:slug.{part}", slug.get(part))
+        elif slug:
+            optional(f"{sid}:slug.place", slug)
+        each(f"{sid}:action", sc.get("action"))
+        for i, d in enumerate(sc.get("dialogue") if isinstance(sc.get("dialogue"), list) else []):
+            line = d.get("line") if isinstance(d, dict) else None
+            if not _absent(line):                          # data.js drops a dialogue entry with no line
+                need(f"{sid}:dialogue[{i}].line", line)
+                if d.get("speaker"):
+                    need(f"{sid}:dialogue[{i}].speaker", d.get("speaker"))
     rounds = list(_rounds(final))
     if not rounds:
         out.append("game: no rounds")
@@ -448,12 +543,34 @@ def content_problems(final) -> list:
                 items = ans.get(coll)
                 for i, x in enumerate(items if isinstance(items, list) else []):
                     need(f"{qid}:{coll}[{i}].label", _shown_label(x))
+            if kind == "order":                       # quiz.js: an empty bank, or an id not in it, shows the raw id
+                bank = _labels_by_id(ans.get("bank"))
+                seq = ans.get("sequence")
+                for i, x in enumerate(seq if isinstance(seq, list) else []):
+                    if _absent(x) or str(x) not in bank:
+                        need(f"{qid}:sequence[{i}]", x)
+            elif kind == "slot":                      # quiz.js model key: fact/element label, else the raw id
+                facts, elems = _labels_by_id(ans.get("facts")), _labels_by_id(ans.get("elements"))
+                key = ans.get("key")
+                for f, e in (key.items() if isinstance(key, dict) else ()):
+                    if str(f) not in facts:
+                        need(f"{qid}:key[{_short(f, 20)}].fact", f)
+                    if _absent(e) or str(e) not in elems:
+                        need(f"{qid}:key[{_short(f, 20)}].element", e)
         else:
             out.append(f"{qid}:kind: unknown kind")
-    verdict = final.get("verdict") if isinstance(final, dict) else None
-    irac = verdict.get("irac") if isinstance(verdict, dict) else None
-    for i, r in enumerate(irac if isinstance(irac, list) else []):
-        need(f"verdict:irac[{i}].rule", r.get("rule") if isinstance(r, dict) else None)
+        irac_parts(f"{qid}:irac", q.get("irac"))
+    verdict = g.get("verdict")
+    if isinstance(verdict, dict):
+        irac = verdict.get("irac")
+        if not isinstance(irac, list):                             # data.js: a list, else any truthy value as [x]
+            irac = [irac] if (irac or isinstance(irac, dict)) else []
+        for i, r in enumerate(irac if isinstance(irac, list) else []):
+            irac_parts(f"verdict:irac[{i}]", r, required=("rule",))
+        optional("verdict:takeaway", verdict.get("takeaway"))
+        outcome = verdict.get("outcome")
+        if isinstance(outcome, str) and outcome and len(re.split(r"\s+", outcome)) > 2:   # quiz.js shows it only then
+            need("verdict:outcome", outcome)
     return out
 
 
