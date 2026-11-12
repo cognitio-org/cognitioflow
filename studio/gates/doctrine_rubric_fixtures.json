@@ -1,0 +1,47 @@
+{
+ "_about": "Doctrine-judge rubric fixtures (judge rubric doctrine-judge-2). Synthetic or public-treaty sentences only, no course content. 'expect' is what the doctrine gate must return. 'mock' is the verdict a correct judge would give, used by test_doctrine_rubric.py (offline); doctrine_rubric_live.py sends the same fixtures to the real reviewer and compares its verdict with 'expect'.",
+ "fixtures": [
+  {
+   "id": "synonym-in-within",
+   "kind": "wording",
+   "source": "Each State must secure the listed rights to all individuals within its territory and subject to its jurisdiction.",
+   "generated": "QUESTION: To whom must the State secure the listed rights?\nCORRECT ANSWER: To all individuals in its territory and subject to its jurisdiction.",
+   "expect": true,
+   "mock": {"ok": true, "issues": [], "quotes": ["secure the listed rights to all individuals within its territory and subject to its jurisdiction"],
+            "wording_notes": ["'in' for 'within': same meaning"]}
+  },
+  {
+   "id": "synonym-take-adopt",
+   "kind": "wording",
+   "source": "Each State must adopt legislative, judicial, administrative and other appropriate measures to give effect to these obligations.",
+   "generated": "QUESTION: What does the obligation require of the State?\nCORRECT ANSWER: The State must take legislative, judicial, administrative and other appropriate measures to give effect to the obligations.",
+   "expect": true,
+   "mock": {"ok": true, "issues": [], "quotes": ["adopt legislative, judicial, administrative and other appropriate measures"],
+            "wording_notes": ["'take' for 'adopt': same meaning"]}
+  },
+  {
+   "id": "term-of-art-meqr",
+   "kind": "term_of_art",
+   "source": "Quantitative restrictions on imports and all measures having equivalent effect shall be prohibited between Member States.",
+   "generated": "QUESTION: What does the free-movement rule prohibit between Member States?\nCORRECT ANSWER: Quantitative restrictions on imports and similar measures.",
+   "expect": false,
+   "mock": {"ok": false, "issues": ["TERM OF ART CHANGED: 'measures having equivalent effect' became 'similar measures'"], "quotes": []}
+  },
+  {
+   "id": "wrong-element-negligence",
+   "kind": "wrong_element",
+   "source": "Liability in negligence requires a duty of care, a breach of that duty, and damage caused by the breach that is not too remote.",
+   "generated": "QUESTION: What must the claimant prove?\nCORRECT ANSWER: A duty of care and damage that is not too remote; no breach of duty needs to be shown.",
+   "expect": false,
+   "mock": {"ok": false, "issues": ["WRONG TEST: breach of duty is a required element; the answer removes it"], "quotes": []}
+  },
+  {
+   "id": "wrong-actor",
+   "kind": "wrong_actor",
+   "source": "If the Commission considers that a Member State has failed to fulfil an obligation, it may bring the matter before the Court of Justice.",
+   "generated": "QUESTION: Who may bring the infringement before the Court of Justice?\nCORRECT ANSWER: Any individual affected by the Member State's failure.",
+   "expect": false,
+   "mock": {"ok": false, "issues": ["WRONG ACTOR: the source gives this power to the Commission"], "quotes": []}
+  }
+ ]
+}
