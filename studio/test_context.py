@@ -63,9 +63,11 @@ def test_course_brief_stored_wins_and_draft_file_is_skipped():
     assert context.load_course_brief("../etc", "") == ("", "none")
 
 
-def test_shipped_pil_brief_is_a_draft_and_not_used_by_default():
+def test_shipped_pil_brief_is_reviewed_and_used_by_default():
+    # Matej approved the filled brief on 2026-11-12, so the DRAFT mark is gone and the writer uses it.
     text, src = context.load_course_brief("pil", "", allow_draft=False)
-    assert text == "" and "DRAFT" in src
+    assert src == "briefs/pil.md" and "Method:" in text
+    assert "TO FILL" not in text and context.DRAFT_MARK not in text
 
 
 def test_lexicon_block_is_generated_from_the_approved_file():
