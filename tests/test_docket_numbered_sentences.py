@@ -189,7 +189,11 @@ def _game(checks):
 
 
 def _fake(replies, log):
+    """Pops queued replies; the writer-v2.5 legal self-check is answered with the game unchanged (and not logged, so
+    the role lists below stay about the write and repair calls)."""
     def fn(role, system, user, max_tokens):
+        if role == "selfcheck":
+            return user.rsplit("YOUR GAME:\n", 1)[1], "mlx-community/Qwen3-coder", "http://127.0.0.1:8080/v1"
         log.append((role, user))
         return json.dumps(replies.pop(0)), "mlx-community/Qwen3-coder", "http://127.0.0.1:8080/v1"
     return fn
@@ -219,7 +223,7 @@ def test_end_to_end_v2_compile_with_a_fake_model_citing_ids():
     assert [c["quote"] for c in checks] == [SRC[a:b] for a, b in spans]
     assert [c["sentence"] for c in checks] == ["S1.1", "S1.2", "S1.3"] and all(c["cites"] == ["S1"] for c in checks)
     assert grounding.grounding_share(checks, E2E) == 1.0 and not any("unresolved" in c for c in checks)
-    assert out["prompt_version"] == "writer-v2.4"
+    assert out["prompt_version"] == "writer-v2.5"
     assert docketgen.validate_v2(out["game"], E2E.keys(), "A") == []
 
 

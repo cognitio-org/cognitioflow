@@ -31,7 +31,11 @@ def _game(checks, round_cites=None):
 
 
 def _fake(replies, log):
+    """Pops queued replies; the writer-v2.5 legal self-check is answered with the game unchanged (and not logged, so
+    the role lists below stay about the write and repair calls)."""
     def fn(role, system, user, max_tokens):
+        if role == "selfcheck":
+            return user.rsplit("YOUR GAME:\n", 1)[1], "mlx-community/Qwen3-coder", "http://127.0.0.1:8080/v1"
         log.append((role, user))
         return json.dumps(replies.pop(0)), "mlx-community/Qwen3-coder", "http://127.0.0.1:8080/v1"
     return fn
@@ -132,4 +136,4 @@ def test_writer_prompt_says_which_field_takes_sentence_ids_and_which_takes_sourc
     assert '"cites"' in task and "SOURCE id" in task and "SENTENCE id" in task
     assert 'never\n  ["S1.47"]' in task or 'never ["S1.47"]' in task
     assert 'ONLY in a check\'s "sentence" field' in task
-    assert docketgen.PROMPT_VERSION == "writer-v2.4"
+    assert docketgen.PROMPT_VERSION == "writer-v2.5"

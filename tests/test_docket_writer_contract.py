@@ -1,4 +1,4 @@
-"""writer-v2.4: both repairs restate the writer contract, a round without a usable "kind" takes its planned kind,
+"""writer-v2.4 (still holds in v2.5): both repairs restate the writer contract, a round without a usable "kind" takes its planned kind,
 a repair that makes the draft worse is not fed to the targeted repair, and a failed draft keeps its per-stage
 problems. Synthetic fixtures and a mocked Coder only."""
 import json
@@ -71,7 +71,7 @@ def test_writer_task_carries_the_contract_and_the_label_rule():
     assert docketgen.contract_rules("A") in t
     assert "keeping every qualifier and threshold word" in t and "never repeats the\nname of the element" in t
     assert '"elements": ["Element one"' not in t and '"label": "Issue name"' not in t
-    assert docketgen.PROMPT_VERSION == "writer-v2.4"
+    assert docketgen.PROMPT_VERSION == "writer-v2.5"
 
 
 def test_a_round_without_kind_takes_its_planned_kind_and_says_so():
@@ -106,7 +106,7 @@ def test_a_round_that_is_not_an_object_does_not_crash_the_compiler():
 def test_a_repair_that_makes_the_draft_worse_is_not_fed_to_the_targeted_repair():
     fixed = inter("A"); fixed["title"] = "Fixed"
     out, log = _run([_one_slip(), _collapsed(), fixed], [{"verdict": "ok", "issues": []}])
-    assert [r for _, r, _, _ in log] == ["write", "repair", "repair_targeted", "review"]
+    assert [r for _, r, _, _ in log] == ["write", "repair", "repair_targeted", "selfcheck", "review"]
     sent = json.loads(log[2][3].split("YOUR GAME:\n", 1)[1])
     assert sent["rounds"] == _one_slip()["rounds"]                 # the first draft, not the collapsed repair
     assert "options C, D" in log[2][3]                             # and the first draft's own problem
@@ -115,7 +115,7 @@ def test_a_repair_that_makes_the_draft_worse_is_not_fed_to_the_targeted_repair()
 
 def test_a_repair_that_does_not_parse_falls_back_to_the_first_draft():
     out, log = _run([_one_slip(), "not json", inter("A")], [{"verdict": "ok", "issues": []}])
-    assert [r for _, r, _, _ in log] == ["write", "repair", "repair_targeted", "review"]
+    assert [r for _, r, _, _ in log] == ["write", "repair", "repair_targeted", "selfcheck", "review"]
     assert json.loads(log[2][3].split("YOUR GAME:\n", 1)[1])["rounds"] == _one_slip()["rounds"]
     assert out["repaired"] is True
 
@@ -162,6 +162,6 @@ def test_a_first_draft_with_only_an_off_source_citation_is_not_kept_over_its_rep
     fixed = inter("A"); fixed["title"] = "Fixed"
     gone = lambda game: ["an invented authority"] if game.get("title") == "Off-source" else []
     out, log = _run([first, _one_slip(), fixed], [{"verdict": "ok", "issues": []}], unverified=gone)
-    assert [r for _, r, _, _ in log] == ["write", "repair", "repair_targeted", "review"]
+    assert [r for _, r, _, _ in log] == ["write", "repair", "repair_targeted", "selfcheck", "review"]
     assert json.loads(log[2][3].split("YOUR GAME:\n", 1)[1])["title"] != "Off-source"
     assert out["unverified"] == [] and out["game"]["title"] == "Fixed"
