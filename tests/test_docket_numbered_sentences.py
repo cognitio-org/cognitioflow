@@ -219,7 +219,7 @@ def test_end_to_end_v2_compile_with_a_fake_model_citing_ids():
     assert [c["quote"] for c in checks] == [SRC[a:b] for a, b in spans]
     assert [c["sentence"] for c in checks] == ["S1.1", "S1.2", "S1.3"] and all(c["cites"] == ["S1"] for c in checks)
     assert grounding.grounding_share(checks, E2E) == 1.0 and not any("unresolved" in c for c in checks)
-    assert out["prompt_version"] == "writer-v2.2"
+    assert out["prompt_version"] == "writer-v2.3"
     assert docketgen.validate_v2(out["game"], E2E.keys(), "A") == []
 
 
@@ -237,7 +237,7 @@ def test_end_to_end_paraphrased_quotes_are_repaired_into_ids():
 def test_end_to_end_bad_ids_after_repair_fail_the_draft():
     bad = copy.deepcopy(IDS); bad[0]["sentence"] = "S1.99"
     try:
-        _draft([_game(bad), _game(bad)])
+        _draft([_game(bad), _game(bad), _game(bad)])   # write, repair, targeted repair
     except ValueError as e:
         assert "S1.99" in str(e)
     else:

@@ -497,8 +497,9 @@ def weeks_needing_games(files: list, games: list, now: float, failed_backoff_s: 
 
 import hashlib
 
-PROMPT_VERSION = "writer-v2.2"           # 2.1: checks cite numbered sentence ids, code inserts the quote;
+PROMPT_VERSION = "writer-v2.3"           # 2.1: checks cite numbered sentence ids, code inserts the quote;
                                          # 2.2: the prompt says "cites" takes source ids only, sentence ids go in "sentence"
+                                         # 2.3: one targeted repair (exact check text, fix only that) after the repair round
 MIN_GEN_RATIO = 0.4
 MIXES = {                          # model-quality plan rung 0 item 3; every mix clears generation_ratio 0.4
     "A": ("mcq", "slot", "spot"),
@@ -621,6 +622,23 @@ GAME:
 def repair_task(problems: list, last: str) -> str:
     return ("TASK (repair): your last attempt had these problems; return the whole game again, in the same JSON shape "
             "and round plan, with them fixed:\n- " + "\n- ".join(problems) + "\n\nLAST ATTEMPT:\n" + last[:30000])
+
+
+def targeted_repair_task(problems: list, last: str) -> str:
+    """The one last-chance repair after the repair round still failed: the exact check text, fix only that."""
+    return ("TASK (targeted repair): your game below still fails these checks, quoted exactly as the checker reported "
+            "them:\n- " + "\n- ".join(problems) + "\n\nFix ONLY these problems. Change nothing else: keep every other "
+            "round, option, sentence id and check exactly as it is, in the same JSON shape and round plan. Return the "
+            "whole corrected game as JSON.\n\nYOUR GAME:\n" + last[:30000])
+
+
+class ChecksFailed(ValueError):
+    """The game still fails the writer checks after the repair round (and the targeted repair, if one was made).
+    Carries the counters the best-of-N eval reads; the message keeps the old 'did not pass the checks' prefix."""
+
+    def __init__(self, msg: str, *, repair_attempted: bool = False, calls: list = None):
+        super().__init__(msg)
+        self.repair_attempted, self.repaired, self.calls = repair_attempted, False, list(calls or [])
 
 
 # ---------------------------------------------------------------- parsing and compiling
@@ -1133,7 +1151,8 @@ def review_issues_v2(review) -> list:
 def write_draft_v2(coder, *, system: str, prefix: str, label: str, mix: str, keyed: dict, reviewer=None,
                    course_name: str = "", lawnote: str = "", exemplars: str = "", unverified=None,
                    quote_problems=None, heartbeat=None) -> dict:
-    """Write, check (one repair round), review on the Thinker and (once) revise one game. Pure orchestration.
+    """Write, check (one repair round, then one targeted repair), review on the Thinker and (once) revise one game.
+    Pure orchestration.
 
     coder(role, system, user, max_tokens) -> (text, served_model, base)   the M4 Coder
     reviewer(role, system, user, max_tokens) -> (text, served_model, base) the M4 Thinker; None skips review
@@ -1141,7 +1160,9 @@ def write_draft_v2(coder, *, system: str, prefix: str, label: str, mix: str, key
     unverified(player_game) -> [raw citation not found in the course files]
     quote_problems(checks, keyed) -> [problem]
     Returns {game (player JSON, not finished), intermediate, issues, unverified, revised, model, calls, mix,
-    prompt_version}. Raises ValueError when the game still fails the checks after the repair round."""
+    prompt_version, repair_attempted, repaired}. repair_attempted/repaired describe the targeted repair only (the
+    first repair round runs on most drafts). Raises ChecksFailed (a ValueError) when the game still fails the checks
+    after both."""
     if mix not in MIXES:
         raise ValueError(f"unknown round mix {mix!r}")
     calls = []
@@ -1177,8 +1198,24 @@ def write_draft_v2(coder, *, system: str, prefix: str, label: str, mix: str, key
                                                                        if inter is not None else ""), 12000))
         res = check(inter) if inter is not None else (None, ["The writer did not return a JSON object."], [], [], None)
         game, probs, gone, quotes = res[:4]
+    # One targeted repair (pilot 2026-11-12: half the drafts died on one small slip left after the repair round): the
+    # Coder gets its own last draft and the exact failing check text, once. Same check() after; nothing is skipped.
+    repair_attempted = repaired = False
+    if (game is None or probs or quotes) and inter is not None:
+        repair_attempted = True
+        fixed = parse_json_tolerant(call(coder, "repair_targeted",
+                                         targeted_repair_task(probs + quotes, json.dumps(inter, ensure_ascii=False)), 12000))
+        if fixed is not None:
+            fres = check(fixed)
+            if fres[0] is not None and not fres[1] and not fres[3]:
+                inter, game, probs, gone, quotes, repaired = fixed, fres[0], fres[1], fres[2], fres[3], True
+            else:
+                probs, quotes = fres[1], fres[3]
+        else:
+            probs, quotes = ["The writer did not return a JSON object."], []
     if game is None or probs or quotes:
-        raise ValueError("The game did not pass the checks: " + " ".join((probs + quotes)[:4]))
+        raise ChecksFailed("The game did not pass the checks: " + " ".join((probs + quotes)[:4]),
+                           repair_attempted=repair_attempted, calls=calls)
     issues, revised = [], False
     if reviewer is not None:
         issues = review_issues_v2(parse_json_tolerant(call(reviewer, "review",
@@ -1191,7 +1228,8 @@ def write_draft_v2(coder, *, system: str, prefix: str, label: str, mix: str, key
                     inter, game, gone, revised = fixed, fres[0], fres[2], True
                     issues = review_issues_v2(parse_json_tolerant(call(reviewer, "review",
                                               reviewer_task(json.dumps(inter, ensure_ascii=False)), 16000)))
-    writer_model = next((c["model"] for c in reversed(calls) if c["role"] in ("write", "repair", "revise")), "")
+    writer_model = next((c["model"] for c in reversed(calls)
+                         if c["role"] in ("write", "repair", "repair_targeted", "revise")), "")
     return {"game": game, "intermediate": inter, "issues": issues, "unverified": gone, "revised": revised,
             "model": writer_model, "calls": calls, "mix": mix, "prompt_version": PROMPT_VERSION,
-            "generation_ratio": generation_ratio(game)}
+            "generation_ratio": generation_ratio(game), "repair_attempted": repair_attempted, "repaired": repaired}
