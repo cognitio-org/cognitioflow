@@ -497,9 +497,13 @@ def weeks_needing_games(files: list, games: list, now: float, failed_backoff_s: 
 
 import hashlib
 
-PROMPT_VERSION = "writer-v2.3"           # 2.1: checks cite numbered sentence ids, code inserts the quote;
+PROMPT_VERSION = "writer-v2.4"           # 2.1: checks cite numbered sentence ids, code inserts the quote;
                                          # 2.2: the prompt says "cites" takes source ids only, sentence ids go in "sentence"
                                          # 2.3: one targeted repair (exact check text, fix only that) after the repair round
+                                         # 2.4: both repairs restate the writer contract (plan, shapes, option and id
+                                         #      rules); labels keep the sources' threshold words; a round with no
+                                         #      "kind" takes its planned kind; the targeted repair starts from the
+                                         #      better of write/repair
 MIN_GEN_RATIO = 0.4
 MIXES = {                          # model-quality plan rung 0 item 3; every mix clears generation_ratio 0.4
     "A": ("mcq", "slot", "spot"),
@@ -529,13 +533,13 @@ _ROUND_SHAPES = {
    "cites": ["KEY"]}""",
     "slot": """  {"kind": "slot", "topic": "...", "set": "courtroom", "dialogue": [{"speaker": "...", "line": "..."}],
    "question": "Map each fact onto the element of the test it satisfies.",
-   "elements": ["Element one", "Element two"],
-   "facts": [{"fact": "a fact from the case file", "element": "Element one"}, {"fact": "...", "element": "Element two"}, {"fact": "...", "element": "..."}],
+   "elements": ["the first element, worded as the SOURCES state it", "the second element, likewise"],
+   "facts": [{"fact": "a fact from the case file", "element": "the first element, worded as the SOURCES state it"}, {"fact": "...", "element": "the second element, likewise"}, {"fact": "...", "element": "..."}],
    "teaching": "why each fact satisfies its element [KEY]", "cites": ["KEY"]}""",
     "spot": """  {"kind": "spot", "topic": "...", "set": "courtroom", "dialogue": [{"speaker": "...", "line": "..."}],
    "question": "Highlight each passage that raises a distinct legal issue.",
    "text": "a short fact pattern, 3-6 sentences",
-   "issues": [{"label": "Issue name", "phrase": "an EXACT phrase copied from text"}, {"label": "...", "phrase": "..."}],
+   "issues": [{"label": "the issue, worded as the SOURCES state the test", "phrase": "an EXACT phrase copied from text"}, {"label": "...", "phrase": "..."}],
    "teaching": "the issues and why they arise [KEY]", "cites": ["KEY"]}""",
     "order": """  {"kind": "order", "topic": "...", "set": "courtroom", "dialogue": [{"speaker": "...", "line": "..."}],
    "question": "Put the steps of the test in the order the course applies them.",
@@ -544,28 +548,56 @@ _ROUND_SHAPES = {
 }
 
 
-def writer_task(label: str, mix: str, *, course_name: str = "", lawnote: str = "", exemplars: str = "") -> str:
-    """The writer's ROLE TASK (last in the user message): the shape for exactly the kinds of this mix."""
-    kinds = MIXES[mix]
+def _shapes(mix: str) -> list:
+    """The JSON shape of each distinct round kind in this mix, in plan order."""
     shapes = []
-    for k in kinds:
+    for k in MIXES[mix]:
         if _ROUND_SHAPES[k] not in shapes:
             shapes.append(_ROUND_SHAPES[k])
-    plan = ", ".join(f"round {i}: {k}" for i, k in enumerate(kinds, 1))
-    ex = f"\n\n{exemplars}" if exemplars else ""
-    return f"""TASK (writer): write ONE game{f' for {course_name}' if course_name else ''} covering {label}.{lawnote}
+    return shapes
 
-ROUND PLAN, chosen for you (follow it exactly, in this order): {plan}.
+
+def contract_rules(mix: str) -> str:
+    """The writer contract every writer-side call carries: the code-picked round plan, minimums, the mcq option rule,
+    label wording and the two kinds of id. writer_task opens with it; both repair prompts restate it with the round
+    shapes (pilot 2026-11-12: repairs that only said "same round plan" collapsed a slot/spot game into mcq)."""
+    kinds = MIXES[mix]
+    plan = ", ".join(f"round {i}: {k}" for i, k in enumerate(kinds, 1))
+    return f"""ROUND PLAN, chosen for you (follow it exactly, in this order): {plan}.
+Every round carries its "kind" exactly as the plan names it, and uses that kind's fields (shown below).
 Minimums: slot has at least {MIN_SLOT_FACTS} facts and 2 elements; spot has at least {MIN_SPOT_ISSUES} issues; order has at least {MIN_ORDER_STEPS} steps.
+Every mcq round has exactly four options, keys A, B, C and D, and exactly one has "correct": true.
 Every wrong mcq option has a "flaw" (the one real student mistake it makes) and its own teaching; no two options share teaching.
+Slot elements and spot issue labels name the test as the SOURCES state it, keeping every qualifier and threshold word
+the SOURCES attach to it; never shorten a test to a bare name. A slot fact describes what happened and never repeats the
+name of the element it satisfies.
 Every SOURCES sentence is numbered, like [S1.47]. Two kinds of id, never mixed:
 - a SOURCE id is the file key alone (S1, S2): it is the only thing that goes in any "cites" list (["S1"], never
   ["S1.47"]) and in [S1] markers in text (teaching, rule, lines);
 - a SENTENCE id (S1.47) goes ONLY in a check's "sentence" field, never in "cites" and never in text. "sentence" is
   the id of the ONE source sentence that states the check's claim ("S1.47"), or a range of at most
-  {MAX_RANGE_SENTENCES} neighbouring sentences ("S1.47-S1.48").
+  {MAX_RANGE_SENTENCES} neighbouring sentences ("S1.47-S1.48"); never a claim, a paraphrase or a quote.
 Do NOT type quotes: the code copies the sentence and fills in the check's source. Each check cites different sentences.
-Order "steps" are given in the CORRECT order (the game shuffles them). Spot "phrase" must be copied exactly from "text".{ex}
+Order "steps" are given in the CORRECT order (the game shuffles them). Spot "phrase" must be copied exactly from "text"."""
+
+
+def _contract_block(mix) -> str:
+    """The contract plus round shapes, appended to a repair prompt; empty for an unknown mix (old callers)."""
+    if mix not in MIXES:
+        return ""
+    return ("\n\nTHE WRITER CONTRACT (unchanged; the fixed game must still meet all of it):\n" + contract_rules(mix)
+            + f"\nThe \"rounds\" list has exactly {len(MIXES[mix])} entries. Round shapes:\n"
+            + "\n".join(_shapes(mix)))
+
+
+def writer_task(label: str, mix: str, *, course_name: str = "", lawnote: str = "", exemplars: str = "") -> str:
+    """The writer's ROLE TASK (last in the user message): the shape for exactly the kinds of this mix."""
+    kinds = MIXES[mix]
+    shapes = _shapes(mix)
+    ex = f"\n\n{exemplars}" if exemplars else ""
+    return f"""TASK (writer): write ONE game{f' for {course_name}' if course_name else ''} covering {label}.{lawnote}
+
+{contract_rules(mix)}{ex}
 
 Return ONLY this JSON (no prose, no code fence):
 {{
@@ -619,26 +651,33 @@ GAME:
 {game_json}"""
 
 
-def repair_task(problems: list, last: str) -> str:
+def repair_task(problems: list, last: str, mix: str = None) -> str:
+    """The repair round: the problems, the writer contract and round shapes for `mix`, then the last attempt."""
     return ("TASK (repair): your last attempt had these problems; return the whole game again, in the same JSON shape "
-            "and round plan, with them fixed:\n- " + "\n- ".join(problems) + "\n\nLAST ATTEMPT:\n" + last[:30000])
+            "and round plan, with them fixed:\n- " + "\n- ".join(problems) + _contract_block(mix)
+            + "\n\nLAST ATTEMPT:\n" + last[:30000])
 
 
-def targeted_repair_task(problems: list, last: str) -> str:
-    """The one last-chance repair after the repair round still failed: the exact check text, fix only that."""
+def targeted_repair_task(problems: list, last: str, mix: str = None) -> str:
+    """The one last-chance repair after the repair round still failed: the exact check text, fix only that. The
+    contract is restated so a fix that needs a round's shape (or a sentence id) has the rule in front of it."""
     return ("TASK (targeted repair): your game below still fails these checks, quoted exactly as the checker reported "
-            "them:\n- " + "\n- ".join(problems) + "\n\nFix ONLY these problems. Change nothing else: keep every other "
-            "round, option, sentence id and check exactly as it is, in the same JSON shape and round plan. Return the "
-            "whole corrected game as JSON.\n\nYOUR GAME:\n" + last[:30000])
+            "them:\n- " + "\n- ".join(problems) + "\n\nFix ONLY these problems, and fix every one of them: returning "
+            "the game unchanged fails again. Keep everything the checks do not name: every other round, option, sentence "
+            "id and check, in the same JSON shape and round plan. Return the whole corrected game as JSON."
+            + _contract_block(mix) + "\n\nYOUR GAME:\n" + last[:30000])
 
 
 class ChecksFailed(ValueError):
     """The game still fails the writer checks after the repair round (and the targeted repair, if one was made).
-    Carries the counters the best-of-N eval reads; the message keeps the old 'did not pass the checks' prefix."""
+    Carries the counters the best-of-N eval reads; the message keeps the old 'did not pass the checks' prefix.
+    `stages` is the full problem list after each writer call ([{"stage": "write" | "repair" | "repair_targeted",
+    "problems": [...]}]) so a failed candidate can be diagnosed without the message's first four problems."""
 
-    def __init__(self, msg: str, *, repair_attempted: bool = False, calls: list = None):
+    def __init__(self, msg: str, *, repair_attempted: bool = False, calls: list = None, stages: list = None):
         super().__init__(msg)
         self.repair_attempted, self.repaired, self.calls = repair_attempted, False, list(calls or [])
+        self.stages = list(stages or [])
 
 
 # ---------------------------------------------------------------- parsing and compiling
@@ -676,9 +715,23 @@ def compile_game(g, mix: str = None):
         return None, ["The writer did not return a JSON object."]
     probs = []
     rounds = g.get("rounds") if isinstance(g.get("rounds"), list) else []
-    kinds = [str((r or {}).get("kind") or "mcq").lower() for r in rounds]
-    if mix in MIXES and kinds != list(MIXES[mix]):
-        probs.append(f"The round plan is {', '.join(MIXES[mix])}; you wrote {', '.join(kinds) or 'no rounds'}.")
+    plan = list(MIXES[mix]) if mix in MIXES else None
+    kinds = []
+    for n, r in enumerate(rounds, 1):
+        r = r if isinstance(r, dict) else {}
+        k = str(r.get("kind") or "").strip().lower()
+        if k not in INTERACTION_KINDS and plan and len(rounds) == len(plan):
+            # No usable "kind" (missing or renamed): compile the round as the planned kind and say so, instead of the
+            # old silent "mcq" default whose cascade ("needs four options") sent the repair after the wrong problem.
+            probs.append(f"Round {n} has {'no' if not k else 'an unknown'} \"kind\"{f' ({k!r})' if k else ''}; the plan "
+                         f"makes it a {plan[n - 1]} round: give it \"kind\": \"{plan[n - 1]}\" and the {plan[n - 1]} fields.")
+            k = plan[n - 1]
+        kinds.append(k or "mcq")
+    if plan and kinds != plan:
+        probs.append(f"The round plan is {', '.join(plan)}; you wrote {', '.join(kinds) or 'no rounds'}.")
+        for n, (want, got) in enumerate(zip(plan, kinds), 1):
+            if want != got:
+                probs.append(f"Round {n} must be a {want} round, in the {want} shape, not {got}.")
     arr = g.get("arrival") if isinstance(g.get("arrival"), dict) else {}
     scenes = [{"id": "s1", "title": "Arrival + Briefing", "phase": "arrival", "set": "street",
                "slug": {"int_ext": "EXT", "place": str(arr.get("place") or ""), "time": "DUSK, WET"},
@@ -792,7 +845,9 @@ def validate_v2(game, keys, mix: str = None) -> list:
             opts = q.get("options") if isinstance(q.get("options"), list) else []
             teach = [" ".join(str(o.get("teaching") or "").split()).lower() for o in opts]
             if len(set(teach)) < len(teach):
-                bad.append(f"{qid}: several options share the same teaching text; each wrong option explains its own mistake.")
+                same = [str(o.get("key", "?")) for o, t in zip(opts, teach) if teach.count(t) > 1]
+                bad.append(f"{qid}: several options share the same teaching text (options {', '.join(same)}); each wrong "
+                           f"option explains its own mistake.")
             for o in opts:
                 if o.get("correct") is True:
                     continue
@@ -1188,25 +1243,39 @@ def write_draft_v2(coder, *, system: str, prefix: str, label: str, mix: str, key
         quotes = quotes + (list(quote_problems(game.get("checks") or [], keyed)) if quote_problems else [])
         return game, probs, gone, quotes, raw
 
+    stages = []
+    nojson = (None, ["The writer did not return a JSON object."], [], [], None)
+
+    def staged(stage, obj):
+        r = check(obj) if obj is not None else nojson
+        stages.append({"stage": stage, "problems": list(r[1]) + list(r[3])
+                       + [f"'{x}' is not in the SOURCES" for x in r[2]]})
+        return r
+
     task = writer_task(label, mix, course_name=course_name, lawnote=lawnote, exemplars=exemplars)
     inter = parse_json_tolerant(call(coder, "write", task, 12000))
-    res = check(inter) if inter is not None else (None, ["The writer did not return a JSON object."], [], [], None)
+    res = staged("write", inter)
     game, probs, gone, quotes = res[:4]
     if probs or gone or quotes:
         fix = probs + quotes + [f"'{x}' is not in the SOURCES: remove it or use what the sources say" for x in gone]
+        first = (inter, game, probs, gone, quotes)
         inter = parse_json_tolerant(call(coder, "repair", repair_task(fix, json.dumps(inter, ensure_ascii=False)
-                                                                       if inter is not None else ""), 12000))
-        res = check(inter) if inter is not None else (None, ["The writer did not return a JSON object."], [], [], None)
+                                                                       if inter is not None else "", mix), 12000))
+        res = staged("repair", inter)
         game, probs, gone, quotes = res[:4]
+        # A repair round can make a draft worse (pilot 2026-11-12: one collapsed a slot/spot game into mcq). Keep the
+        # repair's draft only when it parsed and fails fewer checks than the first; else go on from the first draft.
+        if first[0] is not None and (inter is None or len(probs) + len(quotes) > len(first[2]) + len(first[4])):
+            inter, game, probs, gone, quotes = first
     # One targeted repair (pilot 2026-11-12: half the drafts died on one small slip left after the repair round): the
     # Coder gets its own last draft and the exact failing check text, once. Same check() after; nothing is skipped.
     repair_attempted = repaired = False
     if (game is None or probs or quotes) and inter is not None:
         repair_attempted = True
-        fixed = parse_json_tolerant(call(coder, "repair_targeted",
-                                         targeted_repair_task(probs + quotes, json.dumps(inter, ensure_ascii=False)), 12000))
+        fixed = parse_json_tolerant(call(coder, "repair_targeted", targeted_repair_task(
+            probs + quotes, json.dumps(inter, ensure_ascii=False), mix), 12000))
+        fres = staged("repair_targeted", fixed)
         if fixed is not None:
-            fres = check(fixed)
             if fres[0] is not None and not fres[1] and not fres[3]:
                 inter, game, probs, gone, quotes, repaired = fixed, fres[0], fres[1], fres[2], fres[3], True
             else:
@@ -1215,7 +1284,7 @@ def write_draft_v2(coder, *, system: str, prefix: str, label: str, mix: str, key
             probs, quotes = ["The writer did not return a JSON object."], []
     if game is None or probs or quotes:
         raise ChecksFailed("The game did not pass the checks: " + " ".join((probs + quotes)[:4]),
-                           repair_attempted=repair_attempted, calls=calls)
+                           repair_attempted=repair_attempted, calls=calls, stages=stages)
     issues, revised = [], False
     if reviewer is not None:
         issues = review_issues_v2(parse_json_tolerant(call(reviewer, "review",
