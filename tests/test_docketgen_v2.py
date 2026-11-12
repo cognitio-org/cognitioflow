@@ -45,11 +45,13 @@ def inter(mix="A"):
             "verdict": {"outcome": "WON", "irac": [{"issue": "the issue", "rule": "the rule [S1]", "application": "the application", "conclusion": "the conclusion"}],
                         "takeaway": "the takeaway"},
             "epilogue": {"action": ["Weeks later."]},
-            "checks": [{"claim": "reservations are unilateral", "cites": ["S1"],
+            # writer-v2.1: the writer cites sentence ids; the pipeline discards "quote" and copies the sentence in.
+            # The quotes stay here for the tests that compile + validate without the pipeline.
+            "checks": [{"claim": "reservations are unilateral", "cites": ["S1"], "sentence": "S1.1",
                         "quote": "A reservation is a unilateral statement made by a State"},
-                       {"claim": "custom needs a belief in obligation", "cites": ["S1"],
+                       {"claim": "custom needs a belief in obligation", "cites": ["S1"], "sentence": "S1.2",
                         "quote": "Opinio juris is the belief that a practice is legally required"},
-                       {"claim": "practice must be general", "cites": ["S1"],
+                       {"claim": "practice must be general", "cites": ["S1"], "sentence": "S1.3",
                         "quote": "State practice must be general and consistent"}]}
 
 
@@ -70,7 +72,7 @@ def test_code_picks_the_mix_deterministically_and_spreads_it():
     assert {docketgen.pick_mix(f"g{i}") for i in range(40)} == set(docketgen.MIXES)
     task = docketgen.writer_task("week 2", "B")
     assert "round 1: mcq, round 2: slot, round 3: order" in task
-    assert '"kind": "spot"' not in task and '"kind": "order"' in task and '"flaw"' in task and '"quote"' in task
+    assert '"kind": "spot"' not in task and '"kind": "order"' in task and '"flaw"' in task and '"sentence"' in task and '"quote"' not in task
 
 
 def test_writing_off_the_plan_is_rejected():
@@ -152,7 +154,8 @@ def test_ranked_sources_keep_relevant_verbatim_passages_and_keys():
     block = docketgen.ranked_sources_block(keyed, "opinio juris belief legally required practice", relevance.rank)
     assert key in block and 'key="S1"' in block and 'key="S2"' in block and "[…]" in block
     assert block.count("Paragraph") < big.count("Paragraph")
-    assert docketgen.ranked_sources_block(keyed, "", relevance.rank) == docketgen.sources_block(keyed)
+    plain = docketgen.ranked_sources_block(keyed, "", relevance.rank)       # no query: the first share, numbered
+    assert "[S1.1] Paragraph 0 about tax" in plain and key not in plain and "[S2.1] short WG" in plain
 
 
 def _fake(replies, log, role_tag="coder"):
@@ -166,7 +169,8 @@ def _fake(replies, log, role_tag="coder"):
 def _run(coder_replies, reviewer_replies=None, **kw):
     log = []
     rev = _fake(list(reviewer_replies), log, "thinker") if reviewer_replies is not None else None
-    out = docketgen.write_draft_v2(_fake(list(coder_replies), log), system="BRIEF", prefix="PREFIX", label="week 2",
+    prefix = "PREFIX\n\n" + docketgen.ranked_sources_block(KEYED, "", None)   # numbered: the writer cites S1.n
+    out = docketgen.write_draft_v2(_fake(list(coder_replies), log), system="BRIEF", prefix=prefix, label="week 2",
                                    mix="A", keyed=KEYED, reviewer=rev, **kw)
     return out, log
 
