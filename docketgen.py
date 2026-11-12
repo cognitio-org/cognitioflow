@@ -720,7 +720,9 @@ def compile_game(g, mix: str = None):
     for n, r in enumerate(rounds, 1):
         r = r if isinstance(r, dict) else {}
         k = str(r.get("kind") or "").strip().lower()
-        if k not in INTERACTION_KINDS and plan and len(rounds) == len(plan):
+        if not k and plan and len(rounds) == len(plan) and plan[n - 1] == "mcq":
+            k = "mcq"                  # a kind-less round planned as mcq is mcq, exactly as before v2.4: no new failure
+        elif k not in INTERACTION_KINDS and plan and len(rounds) == len(plan):
             # No usable "kind" (missing or renamed): compile the round as the planned kind and say so, instead of the
             # old silent "mcq" default whose cascade ("needs four options") sent the repair after the wrong problem.
             probs.append(f"Round {n} has {'no' if not k else 'an unknown'} \"kind\"{f' ({k!r})' if k else ''}; the plan "
@@ -1263,9 +1265,12 @@ def write_draft_v2(coder, *, system: str, prefix: str, label: str, mix: str, key
                                                                        if inter is not None else "", mix), 12000))
         res = staged("repair", inter)
         game, probs, gone, quotes = res[:4]
-        # A repair round can make a draft worse (pilot 2026-11-12: one collapsed a slot/spot game into mcq). Keep the
-        # repair's draft only when it parsed and fails fewer checks than the first; else go on from the first draft.
-        if first[0] is not None and (inter is None or len(probs) + len(quotes) > len(first[2]) + len(first[4])):
+        # A repair round can make a draft worse (pilot 2026-11-12: one collapsed a slot/spot game into mcq). Go back to
+        # the first draft only when it still fails a hard check (so the targeted repair and check() still run on it)
+        # and the repair parsed to nothing or left more problems, off-source citations counted on both sides; a
+        # first draft whose only fault was an off-source citation is never kept over its repair.
+        if first[0] is not None and (first[2] or first[4]) and (
+                inter is None or len(probs) + len(quotes) + len(gone) > len(first[2]) + len(first[3]) + len(first[4])):
             inter, game, probs, gone, quotes = first
     # One targeted repair (pilot 2026-11-12: half the drafts died on one small slip left after the repair round): the
     # Coder gets its own last draft and the exact failing check text, once. Same check() after; nothing is skipped.

@@ -141,3 +141,27 @@ def test_duplicate_teaching_names_the_options():
     game, _ = docketgen.compile_game(_one_slip(), "A")
     bad = docketgen.validate_v2(game, KEYED.keys(), "A")
     assert any("several options share the same teaching text (options C, D)" in b for b in bad)
+
+
+def test_a_missing_kind_still_fails_the_draft_end_to_end():
+    g = inter("A")
+    del g["rounds"][1]["kind"]                                     # the slot round, otherwise well formed
+    e = _fail([g, g, g])
+    assert any('Round 2 has no "kind"' in p for p in e.stages[-1]["problems"])
+
+
+def test_a_kindless_round_planned_as_mcq_is_mcq_as_before():
+    g = inter("A")
+    del g["rounds"][0]["kind"]
+    game, probs = docketgen.compile_game(g, "A")
+    assert probs == [] and docketgen.validate_v2(game, KEYED.keys(), "A") == []
+
+
+def test_a_first_draft_with_only_an_off_source_citation_is_not_kept_over_its_repair():
+    first = inter("A"); first["title"] = "Off-source"
+    fixed = inter("A"); fixed["title"] = "Fixed"
+    gone = lambda game: ["an invented authority"] if game.get("title") == "Off-source" else []
+    out, log = _run([first, _one_slip(), fixed], [{"verdict": "ok", "issues": []}], unverified=gone)
+    assert [r for _, r, _, _ in log] == ["write", "repair", "repair_targeted", "review"]
+    assert json.loads(log[2][3].split("YOUR GAME:\n", 1)[1])["title"] != "Off-source"
+    assert out["unverified"] == [] and out["game"]["title"] == "Fixed"
