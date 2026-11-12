@@ -1320,11 +1320,12 @@ def write_draft_v2(coder, *, system: str, prefix: str, label: str, mix: str, key
         res = staged("repair", inter)
         game, probs, gone, quotes = res[:4]
         # A repair round can make a draft worse (pilot 2026-11-12: one collapsed a slot/spot game into mcq). Go back to
-        # the first draft only when it still fails a hard check (so the targeted repair and check() still run on it)
-        # and the repair parsed to nothing or left more problems, off-source citations counted on both sides; a
-        # first draft whose only fault was an off-source citation is never kept over its repair.
-        if first[0] is not None and (first[2] or first[4]) and (
-                inter is None or len(probs) + len(quotes) + len(gone) > len(first[2]) + len(first[3]) + len(first[4])):
+        # the first draft when the repair parsed to nothing (nothing else can run on a null draft), or when the first
+        # still fails a hard check (so the targeted repair and check() still run on it) and the repair left more
+        # problems, off-source citations counted on both sides; a first draft whose only fault was an off-source
+        # citation is never kept over a parsed repair.
+        if first[0] is not None and (inter is None or ((first[2] or first[4]) and
+                len(probs) + len(quotes) + len(gone) > len(first[2]) + len(first[3]) + len(first[4]))):
             inter, game, probs, gone, quotes = first
     # One targeted repair (pilot 2026-11-12: half the drafts died on one small slip left after the repair round): the
     # Coder gets its own last draft and the exact failing check text, once. Same check() after; nothing is skipped.
