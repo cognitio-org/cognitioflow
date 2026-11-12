@@ -6,6 +6,12 @@ Pass 2 (distractors): each deliberately wrong option is checked separately: it
 must be wrong *under the source* for the reason its teaching gives, and must not
 state false law as if it were true outside the mistake it models.
 
+Rubric (JUDGE_RUBRIC_VERSION): both passes judge LEGAL SUBSTANCE against the source's meaning
+(LEGAL_SUBSTANCE_RUBRIC): wrong test/element, wrong outcome, missing condition, wrong actor, misstated
+holding, changed term of art, unsupported rule. A paraphrase or near-synonym that keeps the legal meaning
+passes; the reviewer may note it in ``wording_notes``, which is never read for the verdict. An ``ok: false``
+with no issues still fails and is labelled NO_REASON.
+
 Quoted-support rule: with ``require_quotes=True`` (always on for pass 2, and what
 the docket adapter uses for pass 1), an ``ok: true`` verdict must carry
 ``quotes``: exact substrings of the SOURCE (whitespace-normalised) that Python
@@ -51,8 +57,33 @@ class DoctrineVerdict:
     quotes: list[str] = field(default_factory=list)
 
 
+# Judge rubric version: bump when either prompt below changes (the card's engine_hash also changes with this file).
+JUDGE_RUBRIC_VERSION = "doctrine-judge-2"   # 2: fail on legal substance only; meaning-preserving paraphrase passes
+
+# What counts as a doctrinal error. Shared by both passes so the judge applies one standard. The studio brief
+# (sent as the system message) tells the WRITER to use the course's exact terms; the deterministic terminology
+# gate enforces the lexicon. This judge decides legal MEANING, so ordinary-word paraphrase must not fail here.
+LEGAL_SUBSTANCE_RUBRIC = """Judge LEGAL SUBSTANCE against the MEANING of the SOURCE, not its wording.
+A legal error is one of these (name it at the start of each issue):
+- WRONG TEST: the wrong legal test, rule or provision, or an element of the test is misstated.
+- WRONG OUTCOME: the result, consequence or answer the source gives is reversed or changed.
+- MISSING CONDITION: a condition, limb, qualifier or exception the source requires is dropped, or one is added that the source does not have (for example "or" turned into "and", "only" added or removed).
+- WRONG ACTOR: the duty, right or power is given to the wrong person or body.
+- MISSTATED HOLDING: what a case, court, committee or provision decided or says is misstated.
+- TERM OF ART CHANGED: a legal term of art, or a defined term of the source, is replaced by words with a different legal meaning (for example "measures having equivalent effect" turned into "similar measures", or "direct effect" into "direct applicability").
+- UNSUPPORTED RULE: a legal rule, element or consequence that the source does not state at all.
+NOT a legal error (never fail for these, and never list them in "issues"):
+- an ordinary word swapped for a near-synonym with the same legal meaning (for example "in" for "within", "take" for "adopt", "under" for "subject to", "the State" for "their");
+- a paraphrase, reordering, shortening or change of grammar that keeps every element, condition, actor and outcome;
+- style, tone, length, or a word or article left out that changes no legal meaning.
+If you notice such wording differences, you may list them in "wording_notes"; they never make "ok" false.
+When unsure whether a wording change alters the legal meaning, ask: would a law examiner mark the statement as legally wrong? Only then is it an error."""
+
+
 def build_prompt(source_text: str, generated_text: str) -> str:
     return f"""Compare the GENERATED legal content against the authoritative SOURCE passage. Check that the generated text does not misstate or distort the doctrine in the source, including by inventing a legal rule, misstating an element, or reversing a rule.
+
+{LEGAL_SUBSTANCE_RUBRIC}
 
 SOURCE:
 {source_text}
@@ -61,9 +92,10 @@ GENERATED:
 {generated_text}
 
 Return STRICT JSON only, in this format:
-{{"ok": <bool>, "issues": [<short strings>], "quotes": [<exact substrings copied from SOURCE>]}}
-Set "ok" to false if the generated text states a legal rule, element, or consequence that the source does not support. Otherwise set "ok" to true and "issues" to an empty list.
-When "ok" is true, "quotes" MUST list the exact SOURCE passages (copied verbatim, at least a few words each) that support every legal proposition in the generated text. Do not paraphrase quotes.
+{{"ok": <bool>, "issues": [<short strings>], "quotes": [<exact substrings copied from SOURCE>], "wording_notes": [<optional short strings>]}}
+Set "ok" to false if the generated text makes a legal error as defined above. Then "issues" MUST name each error, starting with its category (for example "MISSING CONDITION: ..."); never set "ok" to false with an empty "issues" list.
+Otherwise set "ok" to true and "issues" to an empty list.
+When "ok" is true, "quotes" MUST list the exact SOURCE passages (copied verbatim, at least a few words each) that support every legal proposition in the generated text. Quotes are the SOURCE's own words even where the generated text paraphrases them. Do not paraphrase quotes.
 """
 
 
@@ -87,10 +119,13 @@ Check two things:
 1. Is the distractor wrong UNDER THE SOURCE, for the reason the teaching gives? The teaching must itself be supported by the source.
 2. Does any of the distractor's text state false law AS IF IT WERE TRUE, outside the specific mistake it models (for example, a narrator line asserting an invented rule as fact)?
 
+Apply this standard to the teaching and to any text outside the modelled mistake:
+{LEGAL_SUBSTANCE_RUBRIC}
+
 Return STRICT JSON only, in this format:
-{{"ok": <bool>, "issues": [<short strings>], "quotes": [<exact substrings copied from SOURCE>]}}
-Set "ok" to true only if the distractor is wrong for the reason the teaching gives AND it states no false law as fact. Otherwise set "ok" to false and describe each problem in "issues".
-When "ok" is true, "quotes" MUST list the exact SOURCE passages (copied verbatim, at least a few words each) that show why the distractor is wrong. Do not paraphrase quotes.
+{{"ok": <bool>, "issues": [<short strings>], "quotes": [<exact substrings copied from SOURCE>], "wording_notes": [<optional short strings>]}}
+Set "ok" to true only if the distractor is wrong for the reason the teaching gives AND it states no false law as fact. Otherwise set "ok" to false and describe each problem in "issues"; never set "ok" to false with an empty "issues" list.
+When "ok" is true, "quotes" MUST list the exact SOURCE passages (copied verbatim, at least a few words each) that show why the distractor is wrong. Quotes are the SOURCE's own words even where the teaching paraphrases them. Do not paraphrase quotes.
 """
 
 
@@ -149,6 +184,7 @@ def _top_level_objects(text: str) -> tuple[list[str], str]:
 
 
 _OK_KEY = re.compile(r'"ok"\s*:')
+NO_REASON = "reviewer failed the item without naming a legal error"
 
 
 def _verdict(data: dict, raw: str) -> DoctrineVerdict:
@@ -163,7 +199,8 @@ def _verdict(data: dict, raw: str) -> DoctrineVerdict:
     if not isinstance(quotes, list) or not all(isinstance(q, str) for q in quotes):
         raise ValueError("invalid reviewer quotes")
     ok = data["ok"] and not data["issues"]  # ok:true + issues is contradictory: fail closed
-    return DoctrineVerdict(ok=ok, issues=data["issues"], raw=raw, quotes=quotes)
+    issues = data["issues"] if (ok or data["issues"]) else [NO_REASON]  # still fails; just says why it is opaque
+    return DoctrineVerdict(ok=ok, issues=issues, raw=raw, quotes=quotes)
 
 
 def parse_verdict(raw: str) -> DoctrineVerdict:
