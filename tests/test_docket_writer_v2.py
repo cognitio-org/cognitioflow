@@ -113,10 +113,13 @@ def test_v2_refuses_a_rag_base_off_the_m4(client, monkeypatch):
 def test_v2_unknown_sentence_id_is_repaired_then_fails(client, monkeypatch):
     cid = _course_v2(client)
     bad = inter("A"); bad["checks"][0]["sentence"] = "S1.99"
-    fake, _ = _v2(monkeypatch, [bad, bad], [])
+    fake, _ = _v2(monkeypatch, [bad, bad, bad], [])
     gid, row = _write(cid, fake)
     assert row["status"] == "failed" and "checks" in row["error"]
     assert "S1.99 is not a sentence shown" in fake.messages.create.call_args_list[1].kwargs["messages"][0]["content"]
+    targeted = fake.messages.create.call_args_list[2].kwargs["messages"][0]["content"]   # one targeted repair, then failed
+    assert "TASK (targeted repair)" in targeted and "S1.99 is not a sentence shown" in targeted
+    assert fake.messages.create.call_count == 3
 
 
 def test_v2_a_typed_quote_is_replaced_by_the_cited_sentence(client, monkeypatch):

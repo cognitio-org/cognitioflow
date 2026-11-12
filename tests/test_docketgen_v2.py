@@ -190,12 +190,13 @@ def test_pipeline_repairs_once_then_fails_honestly():
     bad = inter("A"); bad["rounds"] = bad["rounds"][:2]
     out, log = _run([bad, inter("A")], [{"verdict": "ok", "issues": []}])
     assert [r for _, r, _, _ in log] == ["write", "repair", "review"] and "round plan" in log[1][3]
+    assert out["repair_attempted"] is False and out["repaired"] is False   # round one fixed it: no targeted call
     try:
-        _run([bad, bad], [])
+        _run([bad, bad, bad], [])
     except ValueError as e:
         assert "did not pass the checks" in str(e)
     else:
-        raise AssertionError("a game that still fails after one repair must not become a draft")
+        raise AssertionError("a game that still fails after both repairs must not become a draft")
 
 
 def test_quote_problems_block_and_trigger_repair():
@@ -204,7 +205,7 @@ def test_quote_problems_block_and_trigger_repair():
     out, log = _run([inter("A"), inter("A")], None, quote_problems=qp)
     assert [r for _, r, _, _ in log] == ["write", "repair"] and "quote is not in S1" in log[1][3]
     try:
-        _run([inter("A"), inter("A")], None, quote_problems=lambda c, k: ["check 1: not in S1"])
+        _run([inter("A"), inter("A"), inter("A")], None, quote_problems=lambda c, k: ["check 1: not in S1"])
     except ValueError:
         pass
     else:
@@ -245,3 +246,68 @@ def test_a_revision_that_fails_the_checks_is_not_adopted():
                     [{"verdict": "fix", "issues": [{"where": "round 1", "problem": "p", "severity": "high", "quote": ""}]}])
     assert [r for _, r, _, _ in log] == ["write", "review", "revise"]
     assert not out["revised"] and out["game"]["title"] != "Broken" and out["issues"][0]["severity"] == "high"
+
+
+# ---------------------------------------------------------------- targeted repair (pilot 2026-11-12)
+
+def _off_plan():
+    g = inter("A"); g["rounds"] = g["rounds"] + [copy.deepcopy(g["rounds"][1])]   # one round too many: a small slip
+    return g
+
+
+def test_slip_left_after_the_repair_round_gets_one_targeted_repair_and_passes():
+    fixed = inter("A"); fixed["title"] = "Repaired"
+    out, log = _run([_off_plan(), _off_plan(), fixed], [{"verdict": "ok", "issues": []}])
+    assert [r for _, r, _, _ in log] == ["write", "repair", "repair_targeted", "review"]
+    task = log[2][3]
+    assert "TASK (targeted repair)" in task and "Fix ONLY these problems" in task
+    err = docketgen.validate_v2(docketgen.compile_game(_off_plan(), "A")[0], KEYED.keys(), "A")[0]
+    assert err.startswith("The round plan is") and err in task          # the exact check text, verbatim
+    assert json.loads(task.split("YOUR GAME:\n", 1)[1])["rounds"] == _off_plan()["rounds"]   # its own last draft
+    assert out["repair_attempted"] is True and out["repaired"] is True and out["game"]["title"] == "Repaired"
+    assert [c["role"] for c in out["calls"]] == ["write", "repair", "repair_targeted", "review"]
+    assert out["model"] == "mlx-community/Qwen3-coder"
+    # the repaired game is the normal output: finish + the real deterministic gates still apply downstream
+    assert not docketgen.validate_v2(out["game"], KEYED.keys(), "A")
+
+
+def test_targeted_repair_that_still_fails_is_discarded_with_the_counters():
+    try:
+        _run([_off_plan(), _off_plan(), _off_plan()], [])
+    except docketgen.ChecksFailed as e:
+        assert isinstance(e, ValueError) and str(e).startswith("The game did not pass the checks: The round plan is")
+        assert e.repair_attempted is True and e.repaired is False
+        assert [c["role"] for c in e.calls] == ["write", "repair", "repair_targeted"]
+    else:
+        raise AssertionError("a game that fails the targeted repair too must not become a draft")
+    try:
+        _run([_off_plan(), _off_plan(), "not json"], [])
+    except docketgen.ChecksFailed as e:
+        assert e.repair_attempted is True and e.repaired is False
+    else:
+        raise AssertionError("an unparseable targeted repair must not become a draft")
+
+
+def test_targeted_repair_still_runs_the_quote_checks():
+    qp = lambda checks, keyed: ["check 1: the quote is not in S1"]  # noqa: E731
+    try:
+        _run([inter("A"), inter("A"), inter("A")], None, quote_problems=qp)
+    except docketgen.ChecksFailed as e:
+        assert e.repair_attempted and "quote is not in S1" in str(e)
+    else:
+        raise AssertionError("the targeted repair must not bypass the quote check")
+
+
+def test_no_slip_means_no_repair_call():
+    out, log = _run([inter("A")], [{"verdict": "ok", "issues": []}])
+    assert [r for _, r, _, _ in log] == ["write", "review"]
+    assert out["repair_attempted"] is False and out["repaired"] is False
+
+
+def test_no_parsed_draft_means_no_targeted_repair():
+    try:
+        _run(["not json", "still not json"], [])
+    except docketgen.ChecksFailed as e:
+        assert e.repair_attempted is False and [c["role"] for c in e.calls] == ["write", "repair"]
+    else:
+        raise AssertionError("no JSON from the writer must fail the game")

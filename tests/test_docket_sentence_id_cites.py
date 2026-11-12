@@ -132,4 +132,4 @@ def test_writer_prompt_says_which_field_takes_sentence_ids_and_which_takes_sourc
     assert '"cites"' in task and "SOURCE id" in task and "SENTENCE id" in task
     assert 'never\n  ["S1.47"]' in task or 'never ["S1.47"]' in task
     assert 'ONLY in a check\'s "sentence" field' in task
-    assert docketgen.PROMPT_VERSION == "writer-v2.2"
+    assert docketgen.PROMPT_VERSION == "writer-v2.3"
