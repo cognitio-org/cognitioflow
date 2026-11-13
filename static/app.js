@@ -364,7 +364,7 @@ async function mockResults(p){ const body=$('#mockBody'); if(!p) return loadMock
 $('#mockBack').onclick=()=>show('study');
 
 /* files */
-async function loadFiles(){
+async function loadFiles(){ cfFiles=null;   // a toggle here changes what the tutor's source panel may cite
   const fs=await api(`/courses/${cid}/files`);
   const syl=(C()&&C().brief&&C().brief.syllabus&&C().brief.syllabus.weeks)||[];
   sylTitles={}; syl.forEach(w=>{ if(w&&w.week) sylTitles[String(w.week)]=w.title||'' });
@@ -540,10 +540,10 @@ async function loadTutor(){ if(speakOn) cfWarm();   // the voice is already on: 
   $('#ctxList').innerHTML=selSorted.length?selSorted.map(f=>{ const r=authRank(f.role,ranks); const nm=ROLE_NAMES[f.role]||f.role||'unlabelled';
     return `<li><span class="authdot a${r}" title="${esc(srcTypeTitle(nm,r))}" aria-hidden="true"></span><button type="button" class="srcopen" data-open-src="${esc(f.id)}" title="Open ${esc(f.name)}">${esc(f.label||f.name)}</button></li>`; }).join(''):'<li class="muted">No files ticked in Files.</li>';
   $('#ctxList').querySelectorAll('[data-open-src]').forEach(b=>b.onclick=()=>openSource(b.dataset.openSrc));
-  const chars=sel.reduce((a,f)=>a+(f.chars||0),0); $('#ctxSize').textContent=chars?`≈ ${Math.round(chars/4/1000)}k tokens of text per message${chars>180000?' — over budget, later files will be truncated':''}`:'';
+  const chars=sel.reduce((a,f)=>a+(f.chars||0),0); $('#ctxSize').textContent=chars?`${chars<4000?'under 1k':'≈ '+Math.round(chars/4/1000)+'k'} tokens of text per message${chars>180000?' — over budget, later files will be truncated':''}`:'';
   const ms=await api(`/courses/${cid}/messages`); const ch=$('#chat'); ch.innerHTML=''; ms.forEach(m=>{ if(m.role!=='assistant'){ addMsg(m.role,m.content); return }
     const sm=(m.content||'').match(/^\s*<speech>([\s\S]*?)<\/speech>\s*/), body=sm?m.content.slice(sm[0].length):m.content;
-    const d=addMsg('assistant',body); if(sm) d.dataset.said=sm[1].trim(); render(d,cfTagNorm(body)).then(()=>{ cfSaid(d); cfMark(d); cfSources(d); if(body.trim()&&!body.startsWith('[error]')) cfFoot(d) }) }); if(!ms.length) addMsg('assistant',`Tutor for ${C().name}. Tick files in Files, then ask — or say "drill me on ${(()=>{ const g=sel.find(f=>!isAnswerFile(f)&&f.role!=='admin'); return g?(g.label||g.name.replace(/\.\w+$/,'')):'this week' })()}".`); ch.scrollTop=ch.scrollHeight;
+    const d=addMsg('assistant',body); if(sm) d.dataset.said=sm[1].trim(); render(d,cfTagNorm(body)).then(()=>{ cfSaid(d); cfMark(d); cfSources(d); if(body.trim()&&!body.startsWith('[error]')){ cfFoot(d); cfRecheck(d,body) } }) }); if(!ms.length) addMsg('assistant',`Tutor for ${C().name}. Tick files in Files, then ask — or say "drill me on ${(()=>{ const g=sel.find(f=>!isAnswerFile(f)&&f.role!=='admin'); return g?(g.label||g.name.replace(/\.\w+$/,'')):'this week' })()}".`); ch.scrollTop=ch.scrollHeight;
 }
 let mmTheme=null;   // the scheme mermaid was last initialised for, so a theme switch re-inits rather than latching
 function mmSetup(){
@@ -612,7 +612,7 @@ function cfChips(d){ const walk=document.createTreeWalker(d,NodeFilter.SHOW_TEXT
    [OUTSIDE FILES — unverified, do not cite] — and those reached the screen as raw brackets (pitch baseline
    tutor-03, 2026-11-13): marked split the italics out of them, so no text node held a whole tag. Each is
    rewritten to [TAG: …] before parsing. Only the screen copy: the stored answer and Save as note keep his text. */
-const CF_TAG_ANY=/\[(WG|LECTURE|SLIDES|READER|SCH[UÜ]TZE|SCRIPTUM|DCFR|NATIONAL|ADDED|OUTSIDE FILES)(\s*[:,;—–-][^\]\n]*|\s+[^\]\n]*)?\]/g;
+const CF_TAG_ANY=/\[(WG|LECTURE|SLIDES|READER|SCH[UÜ]TZE|SCRIPTUM|DCFR|NATIONAL|ADDED|OUTSIDE FILES)(\s*[:,;—–-][^\]\n]*|\s+[^\]\n]*)?\](?!\()/g;   // (?!\() : "[NATIONAL law](url)" is a link, not a tag
 function cfTagNorm(t){ return String(t||'').replace(CF_TAG_ANY,(m,k,rest)=>{ const r=(rest||'').replace(/[*_`]/g,'').replace(/^\s*[:,;—–-]?\s*/,'').trim(); return r?`[${k}: ${r}]`:`[${k}]` }); }
 /* An answer cut mid-stream is not markdown yet: "**C-999/97 " showed its two stars until the closing pair came
    (baseline tutor-04). Close what the cut left open, and hold back a tag still arriving, so every frame reads as
@@ -620,7 +620,7 @@ function cfTagNorm(t){ return String(t||'').replace(CF_TAG_ANY,(m,k,rest)=>{ con
 function cfLiveTidy(t){ t=cfTagNorm(t).replace(/\[(?:[A-Z][^\]\n]{0,80})?$/,'').replace(/[*_]+$/,'').replace(/\s+$/,'');
   const prose=t.replace(/```[\s\S]*?(?:```|$)/g,'').replace(/`[^`\n]*`/g,'');
   if((prose.match(/\*\*/g)||[]).length%2) t+='**';
-  if((prose.replace(/\*\*/g,'').replace(/^\s*\*\s/gm,'').match(/\*/g)||[]).length%2) t+='*';
+  if((prose.replace(/\*\*/g,'').replace(/^\s*\*\s/gm,'').replace(/(^|\s)\*(?=\s)/g,'$1').match(/\*/g)||[]).length%2) t+='*';   // "2 * 3" is arithmetic
   return t; }
 /* While the answer is on its way (25-60 s with a full course): what the tutor is doing, read from the stream's own
    events, not guessed. Until the response opens the server is choosing passages from the ticked files; the first
@@ -633,7 +633,7 @@ function cfStatus(d,step,n){ let s=d._status;
     d._tick=setInterval(()=>{ tm.textContent=Math.round((Date.now()-d._t0)/1000)+' s' },1000); }
   const at=CF_STEPS.findIndex(x=>x[0]===step);
   s.querySelectorAll('li').forEach((li,i)=>{ li.classList.toggle('done',i<at); li.classList.toggle('now',i===at); if(i===at) li.setAttribute('aria-current','step'); else li.removeAttribute('aria-current') });
-  if(step==='read'&&n) s.querySelector('[data-step="read"] .tlabel').textContent=`Reading ${n} source${n===1?'':'s'} from your files`;
+  if(step==='read'&&n) s.querySelector('[data-step="read"] .tlabel').textContent=`Reading ${n} of your source${n===1?'':'s'}`;   // n only ever from the server's reading event
   if(!s.isConnected) d.prepend(s); }
 function cfStatusEnd(d){ clearInterval(d._tick); d._tick=null; d._status?.remove(); d._status=null; }
 /* Under every tutor answer: what it is. */
@@ -647,6 +647,24 @@ function cfFlagBox(list){ const w=document.createElement('div'); w.className='un
   p.textContent=`The tutor cited ${one?'this':'these'}, but none of your ticked files contains ${one?'it':'them'} — check before you rely on ${one?'it':'them'}:`; w.append(p);
   const ul=document.createElement('div'); ul.className='cf-flag-list'; for(const c of list){ const k=document.createElement('code'); k.textContent=c; ul.append(k) } w.append(ul);
   return w; }
+/* The "Not in your materials" box on a reloaded answer. The server checks once, while streaming, and does not
+   store the result; this is citecheck.py run again here, on the same full text of the files now ticked, so the
+   box comes back after a reload without a schema change. tests/test_tutor_ux.py holds the two to the same answers. */
+const CC_ECLI=/\bECLI:[A-Z]{2}:[A-Z]+:\d{4}:[A-Z0-9.]*[A-Z0-9]/gi, CC_CASE=/\b([CT])[-‑–](\d{1,4}\/\d{2,4})\b/g,
+  CC_ART=/\b(?:art\.?|article|artikel)\s*(\d+(?::\d+)?[a-z]?)(\(\d+\))?(?:\s+(TFEU|TEU|BW|Charter))?(?!\w)/gi;
+function ccFind(text){ text=String(text||''); const f=[];
+  for(const m of text.matchAll(CC_ECLI)) f.push([m.index,'ecli',m[0],m[0].toUpperCase()]);
+  for(const m of text.matchAll(CC_CASE)) f.push([m.index,'case',m[0],`${m[1].toUpperCase()}-${m[2]}`]);
+  for(const m of text.matchAll(CC_ART)) f.push([m.index,'article',m[0],`art ${m[1].toLowerCase()}${m[2]||''}`+(m[3]?' '+m[3].toLowerCase():'')]);
+  f.sort((a,b)=>a[0]-b[0]||(a[1]<b[1]?-1:a[1]>b[1]?1:0)); const seen=new Set(), out=[];
+  for(const [,kind,raw,norm] of f) if(!seen.has(norm)){ seen.add(norm); out.push({kind,raw,norm}) } return out; }
+function ccSame(c,k){ if(c.kind==='article'&&k.kind==='article'&&c.norm.split(' ').length===2) return c.norm===k.norm.split(' ').slice(0,2).join(' '); return c.norm===k.norm; }
+function ccUnverified(answer,sources){ const known=sources.flatMap(ccFind), text=sources.join('\n');
+  return ccFind(answer).filter(c=>!known.some(k=>ccSame(c,k))&&!(c.kind==='case'&&new RegExp('(?<![\\d/])'+cfEsc(c.norm.slice(2))+'(?![\\d/])').test(text))); }
+async function cfRecheck(d,answer){ const text=String(answer||'').replace(/<speech>[\s\S]*?<\/speech>/g,'');
+  if(!ccFind(text).length) return; try{ const files=(await cfTicked()).filter(f=>f.kind!=='image');
+    const src=(await Promise.all(files.map(f=>cfFileText(f.id)))).filter(Boolean); if(!src.length) return;
+    const miss=ccUnverified(text,src).map(c=>c.raw); if(miss.length&&!d.querySelector('.cf-flag')) cfFlag(d,miss); }catch(_){ } }
 function cfFlag(d,list){ if(!list||!list.length) return; const box=cfFlagBox(list); const said=d.querySelector(':scope > .said'); if(said) said.after(box); else d.prepend(box); }
 /* Per claim: where it appears in your files. A source tag opens the passage from your ticked files that names the
    line's case, ECLI or article, with the file it is in — what your files say, not proof the line is right. Case
@@ -659,12 +677,29 @@ const cfCites=t=>[...new Set([...(t.match(CF_ECLI)||[]),...(t.match(CF_CASE)||[]
 let cfFilesFor='', cfFiles=null; const cfTextCache=new Map();
 async function cfTicked(){ if(cfFilesFor!==cid||!cfFiles){ cfFiles=(await api(`/courses/${cid}/files`)).filter(f=>f.selected); cfFilesFor=cid } return cfFiles; }
 async function cfFileText(id){ if(!cfTextCache.has(id)) cfTextCache.set(id,api(`/files/${id}/text`).then(r=>r.text||'').catch(()=>'')); return cfTextCache.get(id); }
-function cfExcerpt(text,term){ const low=text.toLowerCase(); let i=low.indexOf(term.toLowerCase()), len=term.length;
-  if(i<0){ const bare=term.replace(/^(?:[CT][-‑–]|Cases?\s+)/i,''); i=low.indexOf(bare.toLowerCase()); len=bare.length; }
-  if(i<0) return null;
+const cfEsc=x=>x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+/* The term as a whole word or number: no letter, digit or slash may touch it, so "6/64" does not match inside
+   "2006/64" nor "Article 5" inside "Article 50". "Art 34", "Art. 34" and "Article 34" are the same reference.
+   A bare case number (C- or "Case" dropped, for pre-1989 cases cited both ways) may not follow a dash either:
+   "T-6/64" is another case. */
+function cfTermRe(term,bare){ term=term.trim(); const art=term.match(/^Art(?:icle)?\.?\s*(?=\d)/i);
+  const body=cfEsc(art?term.slice(art[0].length):term).replace(/\s+/g,'\\s+');
+  return new RegExp((bare?'(?<![\\p{L}\\p{N}/\\-‑–])':'(?<![\\p{L}\\p{N}/])')+(art?'art(?:icle|\\.)?\\s*':'')+body+'(?![\\p{L}\\p{N}/])','iu'); }
+function cfExcerpt(text,term){ text=String(text||''); let m=cfTermRe(term).exec(text);
+  if(!m){ const bare=term.replace(/^(?:[CT][-‑–]|Cases?\s+)/i,''); if(bare!==term) m=cfTermRe(bare,true).exec(text); }
+  if(!m) return null; const i=m.index, len=m[0].length;
   let a=Math.max(0,i-170), b=Math.min(text.length,i+len+230);
   if(a>0){ const sp=text.indexOf(' ',a); if(sp>0&&sp<i) a=sp+1 } if(b<text.length){ const sp=text.lastIndexOf(' ',b); if(sp>i+len) b=sp }
   return {pre:(a>0?'…':'')+text.slice(a,i), hit:text.slice(i,i+len), post:text.slice(i+len,b)+(b<text.length?'…':'')}; }
+/* Which search hits may stand under "Where this appears in your files": a ticked file, an exact match (never a
+   meaning match: with RETRIEVAL=on /search adds files that are only about the same topic), and only when the
+   file's own text names the term. Case numbers and ECLIs are read from that passage, never from the tutor's
+   sentence, so an invented C-999/97 is never printed under a real file. Pure, so a test can run it. */
+function cfSourceItems(hits,ids,texts,term,hint){
+  return hits.filter(h=>h.kind==='file'&&ids.has(h.id)&&h.match!=='meaning')
+    .map(h=>({h,ex:cfExcerpt(texts[h.id],term)})).filter(x=>x.ex)
+    .sort((x,y)=>(hint&&y.h.title.includes(hint)?1:0)-(hint&&x.h.title.includes(hint)?1:0)).slice(0,2)
+    .map(x=>({h:x.h,ex:x.ex,cites:cfCites(x.ex.pre+x.ex.hit+x.ex.post)})); }
 async function cfSourcePanel(chip){ const d=chip.closest('.msg,.st-msg'); const block=chip.closest('p,li,blockquote,td')||d;
   const open=block.nextElementSibling?.classList.contains('srcpanel')?block.nextElementSibling:null;
   if(open){ open.remove(); chip.setAttribute('aria-expanded','false'); return }
@@ -678,17 +713,16 @@ async function cfSourcePanel(chip){ const d=chip.closest('.msg,.st-msg'); const 
   say('srch','Where this appears in your files'); const wait=say('muted','Looking…');
   let found=[], used='';
   try{ const files=await cfTicked(), ids=new Set(files.map(f=>f.id));
-    for(const t of terms){ const hits=(await api(`/courses/${cid}/search?q=${encodeURIComponent(t)}`)).filter(h=>h.kind==='file'&&ids.has(h.id));
-      if(hits.length){ used=t; found=hits.sort((x,y)=>(hint&&y.title.includes(hint)?1:0)-(hint&&x.title.includes(hint)?1:0)).slice(0,2); break } } }
+    for(const t of terms){ const hits=(await api(`/courses/${cid}/search?q=${encodeURIComponent(t)}`)).filter(h=>h.kind==='file'&&ids.has(h.id)&&h.match!=='meaning').slice(0,6);
+      if(!hits.length) continue; const texts={}; await Promise.all(hits.map(async h=>{ texts[h.id]=await cfFileText(h.id) }));
+      const items=cfSourceItems(hits,ids,texts,t,hint); if(items.length){ used=t; found=items; break } } }
   catch(e){ wait.textContent='Could not search your files just now.'; return }
   wait.remove();
   if(!found.length){ say('muted',(terms.length?`No passage in your ticked files names ${terms.slice(0,3).join(', ')}.`:'This line names no case or article to look up.')+` The tutor tagged it ${kind}${hint?' · '+hint:''} — open that file to check.`); }
-  for(const h of found){ const ex=cfExcerpt(await cfFileText(h.id),used); const item=document.createElement('div'); item.className='srcitem';
+  for(const {h,ex,cites} of found){ const item=document.createElement('div'); item.className='srcitem';
     const f=document.createElement('div'); f.className='srcfile'; f.textContent=h.title+(h.week?` · Week ${h.week}`:''); item.append(f);
-    if(ex){ const q=document.createElement('blockquote'); const m=document.createElement('mark'); m.textContent=ex.hit; q.append(ex.pre,m,ex.post); item.append(q) }
-    else { const q=document.createElement('blockquote'); q.textContent=h.snippet||''; item.append(q) }
-    const cites=[...new Set([...cfCites(line),...(ex?cfCites(ex.pre+ex.hit+ex.post):[])])];
-    if(cites.length){ const c=document.createElement('div'); c.className='srccites'; c.append('Case number / ECLI: '); cites.forEach((x,i)=>{ const k=document.createElement('code'); k.textContent=x; c.append(...(i?[' · ',k]:[k])) }); item.append(c) }
+    const q=document.createElement('blockquote'); const m=document.createElement('mark'); m.textContent=ex.hit; q.append(ex.pre,m,ex.post); item.append(q);
+    if(cites.length){ const c=document.createElement('div'); c.className='srccites'; c.append('Case number / ECLI in this passage: '); cites.forEach((x,i)=>{ const k=document.createElement('code'); k.textContent=x; c.append(...(i?[' · ',k]:[k])) }); item.append(c) }
     panel.append(item); }
   say('small muted','Shows where your files mention this — it does not prove the tutor’s sentence is right.'); }
 function cfSources(d){ d.querySelectorAll('.src').forEach(c=>{ if(c.dataset.q) return; c.dataset.q='1'; c.tabIndex=0; c.setAttribute('role','button'); c.setAttribute('aria-expanded','false');
@@ -1085,7 +1119,7 @@ async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_
   try{ const r=await fetch(`/api/courses/${cid}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:q,mode,model:$('#modelSel').value,speech:speakOn})});
     const rd=r.body.getReader(); const td=new TextDecoder(); let buf='';
     while(true){const {value,done}=await rd.read(); if(done) break; buf+=td.decode(value,{stream:true}); const lines=buf.split('\n\n'); buf=lines.pop();
-      for(const l of lines){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; const j=JSON.parse(p); if(j.model){d.dataset.model=j.model; if(!acc) cfStatus(d,'read',(cfFilesFor===cid&&cfFiles?cfFiles.length:0)||tutorTickedN); continue} if(j.reading){d.dataset.reading=JSON.stringify(j.reading); showReading(j.reading); if(!acc) cfStatus(d,'read',(j.reading.used||[]).length); continue} if(j.usage){d.dataset.usage=JSON.stringify(j.usage); sessionCost+=(j.usage.cost||0); localStorage.setItem('cf.cost',sessionCost); showCost(); continue} if(j.unverified){d.dataset.unverified=JSON.stringify(j.unverified); continue} if(j.error){err+='\n[error] '+j.error; d.style.borderLeftColor='var(--warn)'; cfLive(d,acc.replace(CF_SPEECH,'')+err)} else { if(!acc){ cfStatus(d,'write'); d.classList.remove('waiting') } acc+=j.t; cfLive(d,acc.replace(CF_SPEECH,''));   // the spoken part is for the ear: it never shows, and it is spoken the moment it closes, while the written answer is still arriving
+      for(const l of lines){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; const j=JSON.parse(p); if(j.model){d.dataset.model=j.model; if(!acc) cfStatus(d,'read'); continue} if(j.reading){d.dataset.reading=JSON.stringify(j.reading); showReading(j.reading); if(!acc) cfStatus(d,'read',(j.reading.used||[]).length); continue} if(j.usage){d.dataset.usage=JSON.stringify(j.usage); sessionCost+=(j.usage.cost||0); localStorage.setItem('cf.cost',sessionCost); showCost(); continue} if(j.unverified){d.dataset.unverified=JSON.stringify(j.unverified); continue} if(j.error){err+='\n[error] '+j.error; d.style.borderLeftColor='var(--warn)'; cfLive(d,acc.replace(CF_SPEECH,'')+err)} else { if(!acc){ cfStatus(d,'write'); d.classList.remove('waiting') } acc+=j.t; cfLive(d,acc.replace(CF_SPEECH,''));   // the spoken part is for the ear: it never shows, and it is spoken the moment it closes, while the written answer is still arriving
         if(speakOn&&!(spk&&spk.closed)){ const m=acc.match(/<speech>([\s\S]*?)(<\/speech>|$)/);   // speak each sentence of it as soon as it is whole
           if(m){ d.dataset.said=m[1].trim(); if(!spk){ spk=cfQueue(); spk.closed=false; early=spk.done; }
             const rest=m[1].slice(said), cut=m[2]?rest.length:(()=>{ let k=-1; for(const x of rest.matchAll(/[.!?](?=\s)/g)) k=x.index+1; return k>=40?k:-1 })();

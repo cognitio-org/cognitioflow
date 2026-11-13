@@ -1,11 +1,17 @@
 """Tutor answers on screen (pitch baseline 2026-11-13, judge 6/10): progress while waiting, markdown that reads as
 markdown mid-stream, the passage behind a source tag, an AI-generated label and a flag that cannot be missed.
 
-There is no JS test runner here and CLAUDE.md forbids adding one, so these read static/ the way
-test_ui_defects.py does. Each guards a defect that shipped and was seen in the baseline screenshots.
+There is no JS test runner here and CLAUDE.md forbids adding one, so most of these read static/ the way
+test_ui_defects.py does; the logic that decides what the source panel and the flag show runs in node
+(skipped where node is absent), as test_note_reading.py does. Each guards a defect that shipped and was seen in the baseline screenshots.
 """
+import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 _S = Path(__file__).resolve().parent.parent / "static"
 JS = (_S / "app.js").read_text(encoding="utf-8")
@@ -60,11 +66,115 @@ def test_every_answer_carries_the_ai_label_and_the_flag_is_a_callout():
 
 def test_source_panel_reads_only_ticked_files_and_never_invents_an_ecli():
     panel = _fn("cfSourcePanel")
-    assert "h.kind==='file'&&ids.has(h.id)" in panel, "unticked files or notes would pass as the source"
+    assert "h.kind==='file'&&ids.has(h.id)&&h.match!=='meaning'" in panel, "unticked files, notes or meaning matches would pass"
     assert "textContent" in panel and "innerHTML" not in panel, "file text must not be parsed as HTML"
     assert "does not prove" in panel
-    # ECLIs and case numbers come from the answer line or the passage, nothing else
-    assert "cfCites(line)" in panel and "cfCites(ex.pre+ex.hit+ex.post)" in panel
+    assert "h.snippet" not in panel, "a hit whose text does not name the term must not be shown at all"
+    # case numbers and ECLIs come from the passage in the file only, never from the tutor's own sentence
+    items = _fn("cfSourceItems")
+    assert "cfCites(x.ex.pre+x.ex.hit+x.ex.post)" in items and "...cfCites(line),...(ex?" not in panel
+
+
+# ---- behaviour: the logic itself, run in node (the pattern test_note_reading.py uses) -------------------------
+
+def _decl(name):
+    m = re.search(r"^(?:const |function |async function )" + re.escape(name) + r"\b.*?\n(?=function |async function |const |let |/\*)",
+                  JS, re.S | re.M)
+    assert m, f"{name} is gone"
+    return m.group(0)
+
+
+_PURE = ["cfEsc", "cfTermRe", "cfExcerpt", "CF_ECLI", "CF_CASE", "cfCites", "cfSourceItems",
+         "CC_ECLI", "ccFind", "ccSame", "ccUnverified", "CF_TAG_ANY", "cfTagNorm", "cfLiveTidy"]
+
+
+def _node(body, data):
+    script = "".join(_decl(n) for n in _PURE) + "\nconst D=" + json.dumps(data) + ";\n" + body
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+_needs_node = pytest.mark.skipif(not shutil.which("node"), reason="node is not on this machine")
+
+_FILE = ("Week 2 — free movement of goods. In Keck and Mithouard (Joined Cases C-267/91 and C-268/91, "
+         "ECLI:EU:C:1993:905) the Court carved selling arrangements out of Article 34 TFEU. Directive 2006/64 "
+         "is unrelated. Article 50 covers something else.")
+
+
+@_needs_node
+def test_a_made_up_case_found_only_by_meaning_shows_no_file():
+    """Skeptic, PR #227: with RETRIEVAL=on /search adds 'match: meaning' hits. A fabricated C-999/97 then showed
+    an unrelated ticked file under 'Where this appears in your files', with C-999/97 printed under it."""
+    data = {"hits": [{"kind": "file", "id": "f1", "title": "W2 Lecture notes", "snippet": "Week 2…", "match": "meaning"},
+                     {"kind": "file", "id": "f2", "title": "WG 2 notes", "snippet": "selling arrangements…"}],
+            "texts": {"f1": _FILE, "f2": "Selling arrangements after Keck."}}
+    got = _node("const ids=new Set(['f1','f2']);"
+                "console.log(JSON.stringify({fake:cfSourceItems(D.hits,ids,D.texts,'C-999/97',''),"
+                "name:cfSourceItems(D.hits,ids,D.texts,'Bianchi v Commission','')}));", data)
+    assert got["fake"] == [], "a meaning match, or a file that does not name the case, must not be shown"
+    assert got["name"] == []
+
+
+@_needs_node
+def test_a_real_case_shows_its_passage_and_only_the_numbers_in_that_passage():
+    data = {"hits": [{"kind": "file", "id": "f1", "title": "W2 Lecture notes"},
+                     {"kind": "file", "id": "f3", "title": "Unticked reader"},
+                     {"kind": "note", "id": "n1", "title": "My note"}],
+            "texts": {"f1": _FILE, "f3": "Keck"}}
+    got = _node("console.log(JSON.stringify(cfSourceItems(D.hits,new Set(['f1']),D.texts,'Keck','')));", data)
+    assert [x["h"]["id"] for x in got] == ["f1"], "only ticked files, never notes"
+    assert got[0]["ex"]["hit"] == "Keck"
+    assert set(got[0]["cites"]) == {"C-267/91", "C-268/91", "ECLI:EU:C:1993:905"}
+
+
+@_needs_node
+def test_excerpt_matches_whole_numbers_only():
+    got = _node("const t=D.t; console.log(JSON.stringify({"
+                "dir:cfExcerpt(t,'C-6/64'), a5:cfExcerpt(t,'Article 5'), a34:cfExcerpt(t,'Art 34 TFEU')?.hit,"
+                "a50:cfExcerpt(t,'Art. 50')?.hit, bare:cfExcerpt('as held in Case 8/74 (Dassonville)','C-8/74')?.hit,"
+                "tcase:cfExcerpt('see T-6/64','C-6/64')}));", {"t": _FILE})
+    assert got["dir"] is None, "'6/64' must not be found inside 'Directive 2006/64'"
+    assert got["a5"] is None, "'Article 5' must not be found inside 'Article 50'"
+    assert got["a34"] == "Article 34 TFEU", "Art 34 TFEU and Article 34 TFEU are the same reference"
+    assert got["a50"] == "Article 50"
+    assert got["bare"] == "8/74", "pre-1989 cases are cited both ways"
+    assert got["tcase"] is None, "T-6/64 is another case"
+
+
+@_needs_node
+def test_reload_recheck_agrees_with_the_server_citation_check():
+    """The flag vanished on reload (server does not store it). The page re-runs citecheck.py's rules on the ticked
+    files; both must give the same answer."""
+    import citecheck
+    cases = [
+        ("Keck (C-267/91) and the invented C-999/97 Bianchi; see Art 34 TFEU and Art 36 TFEU.", [_FILE]),
+        ("Simmenthal C-106/77 and ECLI:EU:C:1978:49, Art 267.", ["Case 106/77 Simmenthal. Article 267 TFEU."]),
+        ("Costa C-6/64, art. 3:84 BW, Article 5(1) TEU.", ["Directive 2006/64. Art 3:84 BW."]),
+        ("No citations at all.", [_FILE]),
+    ]
+    got = _node("console.log(JSON.stringify(D.map(([a,s])=>ccUnverified(a,s).map(c=>c.raw))));", cases)
+    want = [[c["raw"] for c in citecheck.unverified(a, s)] for a, s in cases]
+    assert got == want
+    assert "C-999/97" in got[0] and "C-267/91" not in got[0]
+    assert "cfRecheck(d,body)" in JS, "history answers must re-run the check"
+
+
+@_needs_node
+def test_tag_normaliser_leaves_links_alone_and_tidy_ignores_arithmetic():
+    got = _node("console.log(JSON.stringify({link:cfTagNorm('see [NATIONAL law](https://x.nl)'),"
+                "tag:cfTagNorm('[LECTURE, *Lecture 2*]'), math:cfLiveTidy('2 * 3 = 6 and **bold')}));", {})
+    assert got["link"] == "see [NATIONAL law](https://x.nl)"
+    assert got["tag"] == "[LECTURE: Lecture 2]"
+    assert got["math"] == "2 * 3 = 6 and **bold**"
+
+
+def test_reading_count_comes_only_from_the_server():
+    send = _fn("send")
+    assert "cfStatus(d,'read')" in send and "tutorTickedN); continue" not in send, \
+        "the ticked-file count was shown first and only corrected by the reading event"
+    assert "cfStatus(d,'read',(j.reading.used||[]).length)" in send
+    assert "'under 1k'" in JS, "'≈ 0k tokens' read as broken next to 'Reading 5 sources'"
 
 
 def test_source_chips_are_keyboard_reachable():
