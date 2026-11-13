@@ -56,10 +56,21 @@ def test_doctrine_rounds_carry_question_correct_answer_and_all_teaching():
     items = by_id(da.rounds_for_doctrine(mcq_game(), keyed()))
     assert list(items) == ["q2", "q3", "verdict"]
     gen = items["q3"]["generated_text"]
-    assert "QUESTION: Advise her." in gen and "CORRECT ANSWER: answer B" in gen
+    assert "QUESTION: Advise her." in gen and "CORRECT ANSWER (B): answer B" in gen
     assert all(f"because [S1] {k}" in gen for k in "ABCD")
     assert not any(w in gen for w in ("answer A", "answer C", "answer D", "story A", "story C"))
     assert "IRAC RULE: the rule [S1]" in items["verdict"]["generated_text"]
+
+
+def test_doctrine_mcq_names_the_correct_key_and_marks_wrong_option_teachings():
+    """p5 c2 q2: a bare "CORRECT ANSWER: text" made the judge guess the key and call a correct B a wrong option."""
+    gen = by_id(da.rounds_for_doctrine(mcq_game(), keyed()))["q3"]["generated_text"]
+    assert "CORRECT ANSWER (B): answer B" in gen and "CORRECT ANSWER:" not in gen
+    assert "TEACHING (B): because [S1] B" in gen                    # the correct option's teaching is not "wrong option"
+    for k in "ACD":
+        assert f"TEACHING ({k}, wrong option): because [S1] {k}" in gen
+    assert "TEACHING (B, wrong option)" not in gen
+    assert not da.has_real_word("CORRECT ANSWER (B):") and not da.has_real_word("TEACHING (A, wrong option):")   # labels, not content
 
 
 def test_distractors_are_every_wrong_option_and_only_those():

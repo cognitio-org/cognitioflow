@@ -171,8 +171,11 @@ def rounds_for_doctrine(game: dict, keyed: dict, cap: int = SOURCE_CAP) -> list:
             parts.append(f"FACTS: {q['text']}")
         if kind == "mcq":
             opts = _options(q)
-            parts += [f"CORRECT ANSWER: {o.get('text', '')}" for o in opts if o.get("correct") is True]
-            parts += [f"TEACHING ({o.get('key', '?')}): {o['teaching']}" for o in opts if str(o.get("teaching") or "").strip()]
+            # The key is on the correct answer and the wrong options' teachings say so, so the judge never has to
+            # guess which option is the right one (p5 c2 q2: a correct B was judged "presented as a wrong option").
+            parts += [f"CORRECT ANSWER ({o.get('key', '?')}): {o.get('text', '')}" for o in opts if o.get("correct") is True]
+            parts += [f"TEACHING ({o.get('key', '?')}{'' if o.get('correct') is True else ', wrong option'}): {o['teaching']}"
+                      for o in opts if str(o.get("teaching") or "").strip()]
         else:
             parts += [f"CORRECT ANSWER: {line}" for line in _answer_lines(q)]
             if str(q.get("teaching") or "").strip():
@@ -342,7 +345,7 @@ def _words(text) -> set:
 
 # The adapter's own projection labels, at line start. TEACHING's parenthetical is game-controlled (an option key), so it
 # goes whole: a key like "opt1" must not count as a word of content.
-_LABEL = re.compile(r"^[ \t]*(?:QUESTION|CORRECT ANSWER|TEACHING(?:[ \t]*\([^)\n]*\))?|FACTS|IRAC RULE|OPTION|STORY)"
+_LABEL = re.compile(r"^[ \t]*(?:QUESTION|CORRECT ANSWER(?:[ \t]*\([^)\n]*\))?|TEACHING(?:[ \t]*\([^)\n]*\))?|FACTS|IRAC RULE|OPTION|STORY)"
                     r"[ \t]*:", re.M)
 # Characters that render as nothing. The Hangul fillers are category Lo (letters!), so they are named; every other
 # format character (Cf: zero-width space/joiners, word joiner, BOM, soft hyphen, tag characters) goes by category.
