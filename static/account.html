@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Account · CognitioFlow</title>
+<style>
+:root{--bg:#f7f6f2;--card:#fff;--fg:#1d1f24;--muted:#5d6270;--line:rgba(0,0,0,.1);--accent:#0f8f83;--danger:#b3261e;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif}
+@media (prefers-color-scheme:dark){:root{--bg:#07080d;--card:#0d0f15;--fg:#f3f4f8;--muted:#9aa0b2;--line:rgba(255,255,255,.1);--accent:#3ad6c6;--danger:#ff8a80}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 var(--sans)}
+main{max-width:44rem;margin:0 auto;padding:40px 16px 80px}
+h1{font-size:26px;margin:0 0 4px;font-weight:600}h2{font-size:17px;margin:0 0 8px;font-weight:600}
+.muted{color:var(--muted);font-size:14px}
+section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-top:16px}
+button,input{font:inherit;min-height:36px;border-radius:8px}
+button{border:1px solid var(--line);background:transparent;color:var(--fg);padding:6px 14px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#04110f}
+button.danger{border-color:var(--danger);color:var(--danger)}
+input[type=email],input[type=text]{border:1px solid var(--line);background:transparent;color:var(--fg);padding:6px 10px;width:100%;max-width:22rem}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+table{border-collapse:collapse;width:100%;font-size:14px;margin-top:10px}td,th{border-top:1px solid var(--line);padding:6px;text-align:left}
+.out{font-size:14px;margin-top:8px;min-height:1.5em}
+[hidden]{display:none}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<main>
+<p class="muted"><a href="/">Back to CognitioFlow</a></p>
+<h1>Your account</h1>
+<p class="muted" id="who">Loading…</p>
+<p id="signin" hidden><a href="/auth/login">Sign in</a> to see your account.</p>
+
+<div id="me" hidden>
+<section>
+  <h2>Privacy</h2>
+  <p class="muted">Read the <a href="/static/privacy.html">privacy notice</a>. Your study progress is private to you.</p>
+  <label class="row"><input type="checkbox" id="consent"> Let CognitioFlow keep de-identified copies of flashcards made from my material to improve its own models</label>
+  <div class="out" id="privOut" role="status"></div>
+</section>
+
+<section>
+  <h2>AI use (last 24 hours)</h2>
+  <p id="usage" class="muted"></p>
+</section>
+
+<section>
+  <h2>Your data</h2>
+  <div class="row"><button id="export">Download my data</button></div>
+  <div id="deleteBox">
+    <p class="muted" style="margin-top:16px">Deleting removes your account and all your progress. Shared course material is not affected. This cannot be undone.</p>
+    <div class="row"><input type="email" id="confirm" placeholder="Type your email to confirm" autocomplete="off"><button class="danger" id="delete">Delete my account</button></div>
+  </div>
+  <div class="out" id="dataOut" role="status"></div>
+</section>
+
+<section id="admin" hidden>
+  <h2>Invite a student</h2>
+  <p class="muted">This only records the address. Nothing is emailed: send them the link to cognitioflow.ai yourself. They sign in with Google using exactly this address.</p>
+  <div class="row"><input type="email" id="invEmail" placeholder="student@example.com"><input type="text" id="invNote" placeholder="Note (optional)"><button class="primary" id="invite">Invite</button></div>
+  <div class="out" id="invOut" role="status"></div>
+  <table><thead><tr><th>Email</th><th>Status</th><th></th></tr></thead><tbody id="invites"></tbody></table>
+  <h2 style="margin-top:20px">Accounts</h2>
+  <table><thead><tr><th>Email</th><th>AI cost 24h</th><th>AI cost 30d</th></tr></thead><tbody id="users"></tbody></table>
+</section>
+</div>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function api(path, opts = {}) {
+  const r = await fetch(path, {credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, ...opts});
+  if (!r.ok) { let m = r.statusText; try { m = (await r.json()).detail || m } catch {} throw Object.assign(new Error(m), {status: r.status}) }
+  return r.headers.get('content-type')?.includes('json') ? r.json() : r;
+}
+async function load() {
+  let me;
+  try { me = await api('/api/me') } catch (e) { $('#who').hidden = true; $('#signin').hidden = false; return }
+  $('#who').textContent = me.email + (me.owner ? ' · owner' : '');
+  $('#me').hidden = false;
+  $('#consent').checked = me.privacy.capture_consent === true || (me.owner && me.privacy.capture_consent !== false);
+  const u = me.usage_24h, c = me.caps;
+  $('#usage').textContent = `${u.calls} calls, $${u.cost.toFixed(2)}` + (c ? ` of your daily limit (${c.daily_calls || '∞'} calls, $${c.daily_usd.toFixed(2)}).` : ' (the owner has no per-user limit).');
+  if (me.owner) { $('#deleteBox').hidden = true; $('#admin').hidden = false; loadAdmin() }
+}
+async function loadAdmin() {
+  const inv = await api('/api/admin/invites');
+  $('#invites').innerHTML = inv.map(i => `<tr><td>${esc(i.email)}</td><td>${i.revoked ? 'revoked' : i.accepted ? 'signed in' : 'invited'}</td><td>${i.revoked ? '' : `<button data-revoke="${esc(i.email)}">Revoke</button>`}</td></tr>`).join('') || '<tr><td colspan=3 class="muted">No invites yet.</td></tr>';
+  const users = await api('/api/admin/users');
+  $('#users').innerHTML = users.map(u => `<tr><td>${esc(u.email)}</td><td>$${u.cost_24h.toFixed(2)}</td><td>$${u.cost_30d.toFixed(2)}</td></tr>`).join('');
+}
+$('#consent').onchange = async e => {
+  try { await api('/api/me/privacy', {method: 'PUT', body: JSON.stringify({capture_consent: e.target.checked, privacy_ack: true})}); $('#privOut').textContent = 'Saved.' }
+  catch (err) { $('#privOut').textContent = err.message }
+};
+$('#export').onclick = async () => {
+  try {
+    const r = await fetch('/api/me/export', {credentials: 'same-origin'}); if (!r.ok) throw new Error(r.statusText);
+    const a = Object.assign(document.createElement('a'), {href: URL.createObjectURL(await r.blob()), download: 'cognitioflow-my-data.json'});
+    a.click(); URL.revokeObjectURL(a.href); $('#dataOut').textContent = 'Downloaded.';
+  } catch (e) { $('#dataOut').textContent = e.message }
+};
+$('#delete').onclick = async () => {
+  if (!confirm('Delete your account and all your progress? This cannot be undone.')) return;
+  try { await api('/api/me/delete', {method: 'POST', body: JSON.stringify({confirm: $('#confirm').value})}); location.href = '/auth/signed-out' }
+  catch (e) { $('#dataOut').textContent = e.message }
+};
+$('#invite').onclick = async () => {
+  try { const r = await api('/api/admin/invites', {method: 'POST', body: JSON.stringify({email: $('#invEmail').value, note: $('#invNote').value})}); $('#invOut').textContent = `${r.email} invited. ${r.next}`; $('#invEmail').value = ''; loadAdmin() }
+  catch (e) { $('#invOut').textContent = e.message }
+};
+$('#invites').onclick = async e => {
+  const em = e.target.dataset.revoke; if (!em) return;
+  try { await api('/api/admin/invites/' + encodeURIComponent(em), {method: 'DELETE'}); loadAdmin() } catch (err) { $('#invOut').textContent = err.message }
+};
+load();
+</script>
+</body>
+</html>

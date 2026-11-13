@@ -1,0 +1,283 @@
+diff --git a/.github/workflows/deploy.yml b/.github/workflows/deploy.yml
+index f074a4f..fd0889c 100644
+--- a/.github/workflows/deploy.yml
++++ b/.github/workflows/deploy.yml
+@@ -330,7 +330,7 @@ jobs:
+             --port 8080 --cpu 1 --memory 1Gi --concurrency 20 --timeout 3600 \
+             --min-instances 0 --max-instances 2 --cpu-boost \
+             --set-secrets DATABASE_URL=DATABASE_URL:latest,SESSION_SECRET=SESSION_SECRET:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,LITELLM_API_KEY=LITELLM_API_KEY:latest,OPENROUTER_KEY=OPENROUTER_KEY:latest,KERNAL_API_KEY=KERNAL_API_KEY:latest \
+-            --set-env-vars CF_COMMIT=${GITHUB_SHA:0:12},ENV=production,RETRIEVAL=on,EMBED=local,STORAGE=gcs,GCS_BUCKET=cognitioflow-user-content,GCP_PROJECT=vigilant-axis-483119-r8,STT=hosted,STT_PROVIDER=google,STT_REGION=europe-west4,TTS=google,TTS_VOICE=en-GB-Chirp3-HD-Charon,EDGE_VOICE=en-GB-RyanNeural,VOICE_DIALOG_MODEL=gemini-live-2.5-flash-native-audio,VOICE_DIALOG_LOCATION=europe-west4,ALLOWED_EMAILS=matej@mgms.eu,CANONICAL_HOST=cognitioflow.ai,CF_GATEWAY_SPEND_CEILING=113,LLM_PROVIDER=kernal,CF_GATEWAY_BASE=https://openrouter.ai/api,CF_GATEWAY_MODEL=nvidia/nemotron-3-super-120b-a12b:free,CF_GATEWAY_KEY_ENV=OPENROUTER_KEY \
++            --set-env-vars '^;^'"CF_COMMIT=${GITHUB_SHA:0:12};ENV=production;RETRIEVAL=on;EMBED=local;STORAGE=gcs;GCS_BUCKET=cognitioflow-user-content;GCP_PROJECT=vigilant-axis-483119-r8;STT=hosted;STT_PROVIDER=google;STT_REGION=europe-west4;TTS=google;TTS_VOICE=en-GB-Chirp3-HD-Charon;EDGE_VOICE=en-GB-RyanNeural;VOICE_DIALOG_MODEL=gemini-live-2.5-flash-native-audio;VOICE_DIALOG_LOCATION=europe-west4;ALLOWED_EMAILS=${{ vars.CF_ALLOWED_EMAILS || 'matej@mgms.eu' }};OWNER_EMAIL=matej@mgms.eu;CF_USER_DAILY_USD=${{ vars.CF_USER_DAILY_USD || '1.00' }};CF_USER_DAILY_CALLS=${{ vars.CF_USER_DAILY_CALLS || '150' }};CANONICAL_HOST=cognitioflow.ai;CF_GATEWAY_SPEND_CEILING=113;LLM_PROVIDER=kernal;CF_GATEWAY_BASE=https://openrouter.ai/api;CF_GATEWAY_MODEL=nvidia/nemotron-3-super-120b-a12b:free;CF_GATEWAY_KEY_ENV=OPENROUTER_KEY" \
+             --labels "commit=${GITHUB_SHA:0:12}" \
+             --quiet
+ 
+diff --git a/auth.py b/auth.py
+index cbdf498..a21d09e 100644
+--- a/auth.py
++++ b/auth.py
+@@ -40,6 +40,16 @@ def production() -> bool: return os.environ.get("ENV", "").strip().lower() == "p
+ def allowed_emails() -> set:
+     return {e.strip().lower() for e in os.environ.get("ALLOWED_EMAILS", "").split(",") if e.strip()}
+ 
++def admitted(email: str, db=None) -> bool:
++    """ALLOWED_EMAILS (the deploy's list) OR a live invite the owner recorded in the app (multiuser.py, cached ~30s).
++    A revoked invite stops admitting within that window, exactly as removing an address from ALLOWED_EMAILS does."""
++    email = (email or "").strip().lower()
++    if not email: return False
++    if email in allowed_emails(): return True
++    if db is None: return False
++    import multiuser   # lazy: multiuser imports auth
++    return email in multiuser.invited_emails(db)
++
+ 
+ # ---------------------------------------------------------------- session cookie (stateless, itsdangerous)
+ def serializer():
+@@ -63,12 +73,12 @@ def _public(path: str) -> bool:
+     if path in ("/", "/health", "/healthz", "/sw.js") or path.startswith("/auth/"): return True   # "/" serves the public landing to signed-out visitors; /sw.js: see run.retire_service_worker
+     return path.startswith("/static/") and path != "/static/index.html"  # the UI shell is only served behind auth
+ 
+-def _identity(session: dict):
++def _identity(session: dict, db=None):
+     if auth_off():
+         first = next((e.strip().lower() for e in os.environ.get("ALLOWED_EMAILS", "").split(",") if e.strip()), "")
+         return {"email": first, "name": ""} if first else None
+     u = session.get("user")
+-    if isinstance(u, dict) and str(u.get("email", "")).lower() in allowed_emails():  # re-checked every request
++    if isinstance(u, dict) and admitted(str(u.get("email", "")), db):  # re-checked every request
+         return {"email": u["email"].lower(), "name": u.get("name", "")}
+     return None
+ 
+@@ -106,7 +116,7 @@ def _key_user(db, token: str):
+             row = None
+         if row:
+             d.execute("UPDATE api_tokens SET last_used=? WHERE id=?", (time.time(), row["tid"]))
+-    if not row or str(row["email"]).lower() not in allowed_emails():   # an address taken off the list loses its key too
++    if not row or not admitted(str(row["email"]), db):   # an address taken off the list loses its key too
+         return None
+     return {"id": row["uid"], "email": row["email"], "name": row["name"] or "",
+             "scope": row["scope"] or "read", "course_id": row["course_id"]}
+@@ -147,7 +157,7 @@ class AuthMiddleware:
+         session = _load_session(request.cookies.get(COOKIE))
+         before = json.dumps(session, sort_keys=True)
+         scope["session"] = session
+-        request.state.user = user = _identity(session)
++        request.state.user = user = _identity(session, scope["app"].state.db)
+         if user is None and not _public(scope["path"]):
+             resp = (JSONResponse({"detail": "Not authenticated"}, status_code=401) if scope["path"].startswith("/api/")
+                     else RedirectResponse("/auth/login", status_code=302))
+@@ -172,7 +182,7 @@ class AuthMiddleware:
+             return await send({"type": "websocket.close", "code": 4403})
+         session = _load_session(conn.cookies.get(COOKIE))
+         scope["session"] = session
+-        user = _identity(session)
++        user = _identity(session, scope["app"].state.db)
+         if user is None and not _public(scope["path"]):
+             return await send({"type": "websocket.close", "code": 4401})
+         scope.setdefault("state", {})["user"] = user
+@@ -237,10 +247,13 @@ async def callback(request: Request):
+     request.session.clear()
+     if not email or info.get("email_verified") is not True:
+         return _page("Sign-in failed", "<p>Google did not return a verified email address.</p>", 400)
+-    if email not in allowed_emails():
++    if not admitted(email, request.app.state.db):
+         return _page("403 — not allowed", f"<p>{html.escape(email)} is not allowed to use this app.</p>"
+                      "<p><a href='/auth/login'>Use another account</a></p>", 403)
+     upsert_user(request.app.state.db, email, info.get("name", ""))
++    if email not in allowed_emails():
++        import multiuser
++        multiuser.mark_accepted(request.app.state.db, email)
+     request.session["user"] = {"email": email, "name": info.get("name", "")}
+     return RedirectResponse("/", status_code=302)
+ 
+diff --git a/migrations/036_streak_freezes_per_user.sql b/migrations/036_streak_freezes_per_user.sql
+new file mode 100644
+index 0000000..de5c154
+--- /dev/null
++++ b/migrations/036_streak_freezes_per_user.sql
+@@ -0,0 +1,8 @@
++-- Streak-freeze ledger per user (ships WITH the run.py write that fills streak_freezes.user_id; see
++-- docs/multi-user/protected-changes.patch). The streak number itself was always derived from the caller's own reviews;
++-- this only stops one user's forgiven day being recorded against the course for everyone.
++-- Re-runnable. Existing rows (if any) are attributed to the course owner.
++UPDATE streak_freezes f SET user_id = c.user_id FROM courses c WHERE c.id = f.course_id AND f.user_id IS NULL;
++ALTER TABLE streak_freezes DROP CONSTRAINT IF EXISTS streak_freezes_pkey;
++CREATE UNIQUE INDEX IF NOT EXISTS streak_freezes_course_user_day ON streak_freezes(course_id, user_id, day) NULLS NOT DISTINCT;
++CREATE INDEX IF NOT EXISTS idx_streak_freezes_user ON streak_freezes(user_id);
+diff --git a/run.py b/run.py
+index 582e28c..76609d2 100644
+--- a/run.py
++++ b/run.py
+@@ -285,6 +285,8 @@ def _log_call(u: dict) -> None:
+ if _log_call not in llm.SINKS: llm.SINKS.append(_log_call)
+ 
+ auth.install(app, db)  # session middleware + /auth/* routes; everything else needs a signed-in user
++import multiuser  # noqa: E402
++multiuser.install(app, db, _CALL)  # invites, privacy (export/delete/consent), per-user AI caps - see multiuser.py
+ init()
+ 
+ class CourseIn(BaseModel): name: str; accent: Optional[str] = None; tutor_prompt: str = ""; brief: Optional[dict] = None; slug: Optional[str] = None
+@@ -486,8 +488,12 @@ def _own_recording(rid: str) -> str:  return _own_via("SELECT n.course_id AS cou
+ 
+ @app.get("/api/courses/{cid}/usage")
+ def course_usage(cid: str):
++    """Content counts are shared; messages and sessions are the caller's own (no cross-user totals)."""
+     if not rows("SELECT 1 FROM courses WHERE id=?", cid): raise HTTPException(404)
+-    return _course_usage(cid)
++    u, uid = _course_usage(cid), _uid()
++    u["messages"] = rows("SELECT COUNT(*) AS n FROM messages WHERE course_id=? AND user_id=?", cid, uid)[0]["n"]
++    u["sessions"] = rows("SELECT COUNT(*) AS n FROM sessions WHERE course_id=? AND user_id=?", cid, uid)[0]["n"]
++    return u
+ 
+ @app.delete("/api/courses/{cid}")
+ def delete_course(cid: str, force: int = 0):
+@@ -1292,6 +1298,8 @@ def client():
+     """
+     try:
+         return llm.client()
++    except llm.LimitReached as e:   # a per-user AI cap (multiuser.cap_guard): the student's own daily limit
++        raise HTTPException(429, str(e))
+     except llm.ConfigError as e:
+         raise HTTPException(400, str(e))
+ 
+@@ -1659,13 +1667,16 @@ def chat(cid: str, body: ChatIn):
+ 
+ # ---------------------------------------------------------------- spend
+ @app.get("/api/spend/week")
+-def spend_week():
+-    """The last seven days of AI calls. `unpriced` counts the calls whose cost is not known, so the total says what it leaves out."""
++def spend_week(user: dict = Depends(current_user)):
++    """The last seven days of AI calls. `unpriced` counts the calls whose cost is not known, so the total says what it leaves out.
++    The owner sees the whole app's spend; anyone else sees only their own calls (multi-user: no cross-user totals)."""
+     since = time.time() - 7 * 86400
++    mine = "" if multiuser.is_owner(user) else " AND user_id=?"
++    args = (since,) if not mine else (since, user["id"])
+     t = rows("SELECT COUNT(*) AS calls, COALESCE(SUM(cost_usd),0) AS cost, COUNT(*) - COUNT(cost_usd) AS unpriced, "
+-             "COALESCE(SUM(input_tokens+output_tokens),0) AS tokens FROM ai_calls WHERE at>=?", since)[0]
+-    by = rows("SELECT feature, COUNT(*) AS calls, COALESCE(SUM(cost_usd),0) AS cost FROM ai_calls WHERE at>=? "
+-              "GROUP BY feature ORDER BY cost DESC, calls DESC LIMIT 8", since)
++             "COALESCE(SUM(input_tokens+output_tokens),0) AS tokens FROM ai_calls WHERE at>=?" + mine, *args)[0]
++    by = rows("SELECT feature, COUNT(*) AS calls, COALESCE(SUM(cost_usd),0) AS cost FROM ai_calls WHERE at>=?" + mine +
++              " GROUP BY feature ORDER BY cost DESC, calls DESC LIMIT 8", *args)
+     return {"calls": t["calls"], "cost": round(float(t["cost"]), 4), "unpriced": t["unpriced"], "tokens": int(t["tokens"]),
+             "features": [{"feature": r["feature"], "calls": r["calls"], "cost": round(float(r["cost"]), 4)} for r in by]}
+ 
+@@ -1896,7 +1907,13 @@ CARD_MIN_SOURCE_CHARS = int(os.environ.get("CF_CARD_MIN_SOURCE_CHARS", "400"))
+ def _capture_on() -> bool:
+     """The flywheel can be switched off without a deploy (privacy by default — Art. 25). On by default:
+     capturing the de-identified interaction is the whole point of Phase 19 (Matej decision b)."""
+-    return os.environ.get("CF_CARD_CAPTURE", "on").lower() != "off"
++    if os.environ.get("CF_CARD_CAPTURE", "on").lower() == "off":
++        return False
++    c = _CALL.get() or {}
++    if not c.get("email"):
++        return True   # no request user (a background job): unchanged behaviour
++    # multi-user: the owner keeps his Phase 19 default (on unless he opts out); anyone else only after an explicit yes
++    return multiuser.capture_allowed(db, _uid(), c["email"])
+ 
+ 
+ def _capture_card_sample(sample_id, cid, m, source_kind, week, requested, made, source_text, cards, thin, grounded):
+@@ -3047,11 +3064,21 @@ _SENTENCE = re.compile(r"(?<=[.!?;])\s+|\n+")
+ _SLIDE = re.compile(r"^--- slide (\d+) ---$", re.M)
+ 
+ def _own_course(cid: str, user: dict) -> dict:
+-    """The course, if the signed-in user may see it. Courses seeded before sign-in existed have no owner."""
++    """The course, if the signed-in user may EDIT it (its owner, or anyone for a NULL-owner seed). Authoring only."""
+     c = rows("SELECT id,name,accent,user_id FROM courses WHERE id=?", cid)
+     if not c or (c[0]["user_id"] and c[0]["user_id"] != user["id"]): raise HTTPException(404, "No such course.")
+     return c[0]
+ 
++def _see_course(cid: str) -> dict:
++    """The course, for READING. Course content is read-shared to every signed-in user (#178), so the games and the
++    3D show work for a classmate on the owner's courses; editing still goes through _own_course/_require_owner."""
++    c = rows("SELECT id,name,accent,user_id FROM courses WHERE id=?", cid)
++    if not c: raise HTTPException(404, "No such course.")
++    return c[0]
++
++def _edits(course: dict, user: dict) -> bool:
++    return not course["user_id"] or course["user_id"] == user["id"]
++
+ def _card_level(c: dict) -> int:
+     """1 easy … 3 hard, from the scheduler's own view of the card. FSRS difficulty runs 1–10; SM-2 ease drops on misses."""
+     if c.get("difficulty") is not None:
+@@ -3089,7 +3116,7 @@ def lawyer_pack(cid: str, user: dict = Depends(current_user)):
+     and a quote from the card's source file. `card_id` rides along so a miss can rate the card Again, as the 2D ladder does.
+     """
+     import hashlib
+-    course = _own_course(cid, user)
++    course = _see_course(cid)
+     made = quiz(cid, QuizIn(count=LAWYER_POOL))[:LAWYER_RUNGS]
+     cards_by_id = {c["id"]: c for c in rows(
+         f"SELECT {_CARD_COLS}, {_CS_COLS} FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+@@ -3137,8 +3164,9 @@ def _docket_for(course: dict) -> list:
+ @app.get("/api/courses/{cid}/docket")
+ def docket(cid: str, draft: str = "", user: dict = Depends(current_user)):
+     """The 3D player's library: the hand-made games for this course, then the ones written from his files that he
+-    approved. `draft` adds one unapproved draft, so he can play it before he decides."""
+-    course = _own_course(cid, user)
++    approved. `draft` adds one unapproved draft, so he can play it before he decides (owner only)."""
++    course = _see_course(cid)
++    if not _edits(course, user): draft = ""   # a classmate sees approved games only
+     out = []
+     for g in _docket_for(course):
+         if g.get("mode") == "standalone":
+@@ -3156,8 +3184,9 @@ def docket(cid: str, draft: str = "", user: dict = Depends(current_user)):
+ 
+ @app.get("/api/courses/{cid}/docket/{gid}")
+ def docket_game(cid: str, gid: str, user: dict = Depends(current_user)):
+-    course = _own_course(cid, user)
+-    mine = rows("SELECT game FROM docket_games WHERE id=? AND course_id=? AND status IN ('approved','draft')", gid, cid)
++    course = _see_course(cid)
++    shown = ("approved", "draft") if _edits(course, user) else ("approved", "approved")   # drafts stay the owner's
++    mine = rows("SELECT game FROM docket_games WHERE id=? AND course_id=? AND status IN (?,?)", gid, cid, *shown)
+     if mine and mine[0]["game"]:
+         return Response(content=json.dumps(mine[0]["game"], ensure_ascii=False), media_type="application/json", headers={"Cache-Control": "private, no-cache"})
+     g = next((g for g in _docket_for(course) if g["id"] == gid), None)
+@@ -4586,7 +4615,7 @@ def stats(cid: str):
+         msgs     = d.execute("SELECT COUNT(*) AS n FROM messages WHERE course_id=? AND user_id=? AND role='user'", (cid, uid)).fetchone()["n"]
+         streak, frozen = streak_days({date.fromtimestamp(r["created"]).isoformat() for r in reviews}, day0)
+         for iso in frozen:   # the ledger: the missed days this streak was kept alive across, recorded once each
+-            d.execute("INSERT INTO streak_freezes(course_id,day,created) VALUES(?,?,?) ON CONFLICT DO NOTHING", (cid, iso, time.time()))
++            d.execute("INSERT INTO streak_freezes(course_id,user_id,day,created) VALUES(?,?,?,?) ON CONFLICT DO NOTHING", (cid, uid, iso, time.time()))
+     acc = round(100 * sum(1 for r in reviews if r["rating"] >= 2) / len(reviews)) if reviews else None
+     return {"cards": total, "due": due, "retained": retained, "reviews": len(reviews), "recall_accuracy": acc,
+             "streak": streak, "streak_frozen": frozen,
+diff --git a/tests/test_arena3d.py b/tests/test_arena3d.py
+index 2b02110..b2b8d67 100644
+--- a/tests/test_arena3d.py
++++ b/tests/test_arena3d.py
+@@ -125,14 +125,18 @@ def test_lawyer_pack_without_cards_makes_no_model_call(client, fake):
+     assert pack["questions"] == [] and pack["course"] == "Property Law"
+ 
+ 
+-def test_lawyer_pack_other_users_course_is_404(client, fake, pg):
++def test_lawyer_pack_other_users_course_is_readable_unknown_is_404(client, fake, pg):
++    """Multi-user (#178 + protected-changes.patch): course content is read-shared, so a classmate can open the 3D
++    show and the games on someone else's course; an unknown course is still 404."""
+     fake()
+     other = uuid.uuid4().hex
+     pg.execute("INSERT INTO users(id,email,name,created) VALUES(%s,'someone@example.com','',%s)", (other, time.time()))
+     pg.execute("INSERT INTO courses(id,name,accent,tutor_prompt,created,user_id) VALUES('theirs','Their course','#000','',%s,%s)", (time.time(), other))
+     pg.execute("INSERT INTO cards(id,course_id,front,back,due,created) VALUES('tc1','theirs','Q','A','2020-01-01',%s)", (time.time(),)); pg.commit()
+-    assert client.get("/api/courses/theirs/lawyer-pack").status_code == 404
+-    assert client.get("/api/courses/theirs/docket").status_code == 404
++    assert client.get("/api/courses/theirs/docket").status_code == 200
++    pg.execute("DELETE FROM cards WHERE id='tc1'"); pg.commit()   # no cards -> no distractor model call under `fake`
++    assert client.get("/api/courses/theirs/lawyer-pack").status_code == 200
++    assert client.get("/api/courses/theirs/docket-drafts").status_code == 404   # authoring stays owner-only
+     assert client.get("/api/courses/nope/lawyer-pack").status_code == 404
+     mine = client.post("/api/courses", json={"name": "Mine"}).json()["id"]  # owned by the signed-in user
+     assert client.get(f"/api/courses/{mine}/lawyer-pack").status_code == 200
+diff --git a/tests/test_courses.py b/tests/test_courses.py
+index 352815e..2ca37f4 100644
+--- a/tests/test_courses.py
++++ b/tests/test_courses.py
+@@ -293,7 +293,8 @@ def test_delete_guard_then_force_cascades_without_orphans(client, pg):
+     stored = pg.execute("SELECT key FROM files WHERE course_id=%s", (cid,)).fetchone()[0]
+     assert storage.exists(stored)
+ 
+-    assert client.get(f"/api/courses/{cid}/usage").json() == {"files": 1, "notes": 1, "cards": 1, "messages": 1, "sessions": 1}
++    u = client.get(f"/api/courses/{cid}/usage").json()   # messages/sessions count only the caller's own rows (multi-user)
++    assert {k: u[k] for k in ("files", "notes", "cards")} == {"files": 1, "notes": 1, "cards": 1}
+     r = client.delete(f"/api/courses/{cid}")
+     assert r.status_code == 409 and "1 file(s), 1 note(s) and 1 card(s)" in r.json()["detail"]
+     assert _counts(pg, cid) == before  # guard changed nothing
