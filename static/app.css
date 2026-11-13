@@ -47,7 +47,18 @@
 .authchip.a4{color:var(--graphite)}
 .authchip.a5{color:var(--graphite);opacity:.72;border-style:dashed}
 .authchip.unranked{color:var(--graphite);opacity:.7;border-style:dashed}
-/* authority dots in the tutor's Reading list — same scale, read at a glance */
+/* "Source type" column header + note: the badge ranks the kind of file, not legal authority */
+.srchd{display:inline-flex;align-items:center;gap:.3rem;cursor:help;border-radius:4px}
+.srchd:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.srcq{display:inline-flex;align-items:center;justify-content:center;width:1.05rem;height:1.05rem;border-radius:999px;
+  border:1px solid var(--rule-strong);font-size:.7rem;font-weight:600;color:var(--graphite)}
+.srcnote{margin:.2rem 0 .5rem}
+/* Reading-list items open their source */
+button.srcopen{all:unset;box-sizing:border-box;cursor:pointer;min-height:32px;display:inline-flex;align-items:center;
+  color:inherit;text-decoration:underline;text-decoration-color:var(--rule-strong);text-underline-offset:3px;overflow-wrap:anywhere}
+button.srcopen:hover{text-decoration-color:currentColor;color:var(--ink)}
+button.srcopen:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+/* source-type dots in the tutor's Reading list — same scale, read at a glance */
 #ctxList li{display:flex;align-items:center;gap:.45rem}
 .authdot{display:inline-block;width:.5rem;height:.5rem;border-radius:999px;flex:0 0 auto;
   background:var(--rule-strong);box-shadow:0 0 0 1px var(--rule) inset}
