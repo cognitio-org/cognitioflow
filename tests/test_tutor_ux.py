@@ -88,8 +88,8 @@ _PURE = ["cfEsc", "cfTermRe", "cfExcerpt", "CF_ECLI", "CF_CASE", "cfCites", "cfS
          "CC_ECLI", "ccFind", "ccSame", "ccUnverified", "CF_TAG_ANY", "cfTagNorm", "cfLiveTidy"]
 
 
-def _node(body, data):
-    script = "".join(_decl(n) for n in _PURE) + "\nconst D=" + json.dumps(data) + ";\n" + body
+def _node(body, data, names=None):
+    script = "".join(_decl(n) for n in (names or _PURE)) + "\nconst D=" + json.dumps(data) + ";\n" + body
     r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)
@@ -187,3 +187,128 @@ def test_status_pulse_respects_reduced_motion():
     for line in CSS.splitlines():
         if "animation:tpulse" in line:
             assert "prefers-reduced-motion:no-preference" in line
+
+
+# ---- wave 3 (judge 7/10, skeptic refuted): every term on the line is looked up, and the misses are named --------
+
+_PURE3 = _PURE + ["CF_ART", "cfLineTerms", "cfReportable", "cfPanelPlan"]
+
+
+def _node3(body, data):
+    return _node(body, data, _PURE3)
+
+_KECK = ("Judgment of the Court of 24 November 1993. Criminal proceedings against Bernard Keck and Daniel Mithouard. "
+         "Joined cases C-267/91 and C-268/91. Selling arrangements fall outside Article 34 TFEU.")
+_DASS = "Procureur du Roi v Benoît and Gustave Dassonville. Case 8/74. All trading rules capable of hindering trade."
+_FILES = [{"id": "k", "name": "Keck judgment.pdf", "label": "", "week": "2"},
+          {"id": "d", "name": "Dassonville judgment.pdf", "label": "", "week": "2"}]
+_TEXTS = {"k": _KECK, "d": _DASS}
+
+
+def _plan(line, italics, hint=""):
+    return _node3("const t=cfLineTerms(D.line,D.it); const p=cfPanelPlan(t,D.files,D.texts,D.hint);"
+                 "console.log(JSON.stringify({terms:t,missed:p.missed,shown:p.shown.map(s=>({terms:s.terms,id:s.h.id,cites:s.cites})),also:p.also}));",
+                 {"line": line, "it": italics, "files": _FILES, "texts": _TEXTS, "hint": hint})
+
+
+@_needs_node
+def test_a_made_up_case_beside_a_real_article_is_named_as_not_found():
+    """Skeptic wave 2 (major): the loop stopped at the first term with a passage. 'Bianchi v Commission (C-999/97)
+    ... under Art 34 TFEU' showed the Keck passage and its real case numbers, and never said C-999/97 was missing."""
+    got = _plan("The Court later confirmed in Bianchi v Commission (C-999/97) that under Art 34 TFEU advertising bans are "
+                "always selling arrangements.", ["Bianchi v Commission"])
+    assert got["missed"] == ["C-999/97", "Bianchi v Commission"], got
+    assert [s["terms"] for s in got["shown"]] == [["Art 34 TFEU"]]
+
+
+@_needs_node
+def test_a_made_up_case_beside_a_real_italic_name_is_named_as_not_found():
+    got = _plan("As in Keck, the Court in Bianchi v Commission (C-999/97) held the same.", ["Keck", "Bianchi v Commission"])
+    assert got["missed"] == ["C-999/97", "Bianchi v Commission"], got
+    assert [s["terms"] for s in got["shown"]] == [["Keck"]]
+
+
+@_needs_node
+def test_a_made_up_case_after_a_real_one_is_still_looked_up():
+    """Breaking at the first hit never even tried a later term: C-267/91 was found and C-999/97 never searched."""
+    got = _plan("Keck (C-267/91) was followed in Bianchi (C-999/97).", [])
+    assert got["missed"] == ["C-999/97"], got
+    assert got["shown"][0]["terms"] == ["C-267/91"] and got["shown"][0]["id"] == "k"
+
+
+@_needs_node
+def test_ordinary_emphasis_is_never_reported_as_a_missing_source():
+    got = _plan("This is *always* wrong under Art 34 TFEU.", ["always", "in fact"])
+    assert got["missed"] == [], "an emphasised word is not a citation: no false 'not found'"
+
+
+@_needs_node
+def test_each_passage_says_which_term_it_is_for_and_one_passage_per_case():
+    """Judge (should fix): the Keck sentence showed only the Dassonville 'Case 8/74' passage."""
+    got = _plan("Dassonville (Case 8/74) still stands; Keck (Joined Cases C-267/91 and C-268/91) carved out selling "
+                "arrangements.", ["Dassonville", "Keck"])
+    shown = {s["id"]: s["terms"] for s in got["shown"]}
+    assert shown["d"][0] == "Case 8/74" and "Dassonville" in shown["d"]
+    assert shown["k"][:2] == ["C-267/91", "C-268/91"], "two numbers in one passage are one item, not two"
+    assert got["missed"] == []
+    assert len(got["shown"]) <= 3
+
+
+@_needs_node
+def test_panel_and_banner_agree_on_what_is_missing():
+    """A citation the banner treats as found (pre-1989 'Case 106/77' for C-106/77) is never 'not found' in the panel,
+    and every case the panel reports as missing is in the banner too."""
+    src = "Case 106/77 Simmenthal. Article 267 TFEU."
+    got = _node3("const t=cfLineTerms(D.line,[]); const p=cfPanelPlan(t,[{id:'s',name:'S'}],{s:D.src},'');"
+                "console.log(JSON.stringify({missed:p.missed,banner:ccUnverified(D.line,[D.src]).map(c=>c.raw)}));",
+                {"line": "Simmenthal C-106/77 and the invented C-999/97 under Art 267 TFEU.", "src": src})
+    assert got["missed"] == ["C-999/97"] and got["banner"] == ["C-999/97"]
+
+
+@_needs_node
+def test_reload_recheck_matches_the_server_on_non_ascii_text():
+    """Skeptic wave 2 (minor): JS \\b and (?!\\w) are ASCII-only, Python's are Unicode."""
+    import citecheck
+    cases = [("éC-999/97 and Article 5ä and Art 34 TFEU.", ["Art 34 TFEU"]),
+             ("Ü-Art 36 TFEU, C-120/78ß.", ["nothing"])]
+    got = _node("console.log(JSON.stringify(D.map(([a,s])=>ccUnverified(a,s).map(c=>c.raw))));", cases)
+    assert got == [[c["raw"] for c in citecheck.unverified(a, s)] for a, s in cases]
+
+
+@_needs_node
+def test_a_failed_file_fetch_never_produces_a_flag_and_images_with_text_count():
+    """Skeptic wave 2 (minor): a failed /files/{id}/text became '' and was dropped, so the citations only that file
+    held were flagged; images with text were skipped although the server reads them."""
+    body = "".join(_decl(n) for n in ["cfRecheck"]) + """
+const flagged=[]; function cfFlag(d,l){ flagged.push(l) }
+const d={querySelector:()=>null};
+let T={a:'Keck C-267/91', b:null};
+async function cfTicked(){ return [{id:'a',kind:'pdf'},{id:'b',kind:'pdf'}] }
+async function cfFileText(id){ return T[id] }
+(async()=>{ await cfRecheck(d,'Keck C-267/91 and Simmenthal C-106/77'); const one=flagged.length;
+  T={a:'Keck C-267/91', b:'Simmenthal C-106/77'};
+  cfTicked=async()=>[{id:'a',kind:'pdf'},{id:'b',kind:'image'}];
+  await cfRecheck(d,'Keck C-267/91 and Simmenthal C-106/77');
+  console.log(JSON.stringify({one, two:flagged.length})); })();"""
+    got = _node(body, {})
+    assert got["one"] == 0, "a file that could not be read must suppress the flag, not shrink the sources"
+    assert got["two"] == 0, "an image row with text is read like the server reads it"
+
+
+def test_reloaded_flag_says_what_it_was_checked_against():
+    assert "files ticked now" in _fn("cfFlagBox") and "cfFlag(d,miss,true)" in _fn("cfRecheck")
+
+
+def test_history_answers_keep_save_as_note():
+    assert "cfSaveBtn(" in _fn("loadTutor") and "cfSaveBtn(" in _fn("send")
+
+
+def test_a_chip_on_a_line_with_a_flagged_citation_is_tinted():
+    assert "cfWarnChips(" in _fn("cfFlag")
+    assert ".src.warnline{" in CSS
+
+
+def test_the_reading_strip_never_clips_a_pill_at_1190():
+    """Judge (should fix, dark 1190): the third Reading pill was cut off by max-height:7.5rem on the strip."""
+    assert "aside.col{max-height:7.5rem" not in CSS
+    assert "#ctxLegend" in JS, "the gold/dark/grey dots need a legend in the tutor"
