@@ -368,6 +368,7 @@ async function loadFiles(){
   const fs=await api(`/courses/${cid}/files`);
   const syl=(C()&&C().brief&&C().brief.syllabus&&C().brief.syllabus.weeks)||[];
   sylTitles={}; syl.forEach(w=>{ if(w&&w.week) sylTitles[String(w.week)]=w.title||'' });
+  fs.forEach(f=>{ ctxFiles[f.name]=f; if(f.label) ctxFiles[f.label]=f; });
   sylFill(fs);
   if(!fs.length){ $('#fileRows').innerHTML='<tr><td colspan="7"><div class="emptystate"><b>No files yet</b><span>Drop the Week 2 slides and a transcript in to start.</span><button class="btn small" type="button" onclick="document.getElementById(\'fileInput\').click()">Choose files</button></div></td></tr>'; }
   else {
@@ -391,7 +392,7 @@ async function loadFiles(){
   }
   document.querySelectorAll('[data-toggle]').forEach(b=>b.onchange=async()=>{await post(`/files/${b.dataset.toggle}/toggle`);loadFiles()});
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{if(confirm('Remove this file?')){await del(`/files/${b.dataset.del}`);loadFiles()}});
-  document.querySelectorAll('[data-view]').forEach(b=>b.onclick=async()=>{const t=await api(`/files/${b.dataset.view}/text`);const w=window.open('','_blank');w.document.write(`<pre style="white-space:pre-wrap;font:14px/1.5 Georgia,serif;max-width:80ch;margin:2rem auto">${esc(t.text)}</pre>`);w.document.title=t.name});
+  document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>openSource(b.dataset.view));
   document.querySelectorAll('[data-rename]').forEach(el=>el.onclick=async()=>{
     const now=el.textContent.trim(); const next=prompt('What should this file be called?', now);
     if(next===null||next.trim()===now) return;
@@ -402,6 +403,24 @@ async function loadFiles(){
     try{ await post(`/files/${el.dataset.week}/meta`,{week:next.trim()}); }catch(e){ toast(e.message); return }
     loadFiles(); });
 }
+
+/* Open a source in a new tab: its text with a link to the original upload. Images (no text) open the original.
+   The tab is opened before any await so the browser counts it as part of the click and doesn't block it. */
+let ctxFiles={};        // the tutor's Reading list: file name/label -> file, so "Answered from" names can open too
+function openSource(fid){ if(!fid) return; const raw=`/api/files/${encodeURIComponent(fid)}/raw`;
+  const w=window.open('','_blank'); if(!w){ location.href=raw; return }
+  const f=Object.values(ctxFiles).find(x=>x.id===fid);
+  if(f&&(f.kind==='image'||!f.chars)){ w.location.href=raw; return }
+  w.document.title='Opening…';
+  api(`/files/${encodeURIComponent(fid)}/text`).then(t=>{
+    w.document.open();
+    w.document.write(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(t.name)}</title>`+
+      `<style>:root{color-scheme:light dark}body{margin:0;background:Canvas;color:CanvasText;font:16px/1.55 Georgia,serif}`+
+      `header{position:sticky;top:0;background:Canvas;border-bottom:1px solid color-mix(in srgb,CanvasText 18%,Canvas);padding:.8rem 1rem;display:flex;gap:1rem;align-items:baseline;flex-wrap:wrap;font:14px/1.4 system-ui,sans-serif}`+
+      `header b{flex:1;min-width:12rem}a{color:LinkText}pre{white-space:pre-wrap;font:inherit;max-width:80ch;margin:1.5rem auto;padding:0 1rem}</style>`+
+      `<header><b>${esc(t.name)}</b><a href="${raw}">Download original</a></header><pre>${esc(t.text||'No text was extracted from this file.')}</pre>`);
+    w.document.close(); })
+   .catch(()=>{ w.location.href=raw }); }
 
 const ROLE_NAMES={exam:'Past exam',wg:'WG notes',lecture:'Lecture',slides:'Slides',reader:'Reader',cases:'Case law',assignment:'Assignment',admin:'Course info',note:'Note'};
 /* Authority clearance — lower rank = stronger authority for this course's exam method.
@@ -420,16 +439,30 @@ function authTagRole(t){ const s=String(t).toLowerCase().replace(/[\[\]]/g,'').t
 function authRanks(){ const m={...AUTH_DEFAULT}; const ord=(C()&&C().brief&&C().brief.authority_order)||[];
   ord.forEach((t,i)=>{ const r=authTagRole(t); if(r) m[r]=Math.min(i+1,AUTH_MAX); }); return m; }
 function authRank(role,ranks){ return (ranks||authRanks())[role]||AUTH_MAX; }
-/* A ranked clearance badge: rank pip + role name, tiered by authority. */
-function authChip(f,ranks){ if(!f.role) return `<span class="authchip unranked" title="Not labelled yet — use “Label files”">${esc(f.kind||'file')}</span>`;
+/* Source-type badge: what KIND of material a file is (WG notes, lecture, past exam…), with the order this course
+   prefers the kinds in. It is not a ranking of legal authority — a Treaty article or a CJEU judgment cited inside a
+   rank-3 slide still outranks anything the badge says. The tooltip says so, so nobody reads it as legal weight. */
+const SRC_TYPE_HINT='Source type: what kind of material this file is. The number is the order this course prefers source types in '+
+  '(1 = preferred; set it under Course settings → authority order). It ranks the kind of file, not the legal authority of what the file cites.';
+function srcTypeTitle(name,r){ return `Source type: ${name} · course preference ${r} of ${AUTH_MAX}. Ranks the kind of file, not legal authority — a Treaty article or CJEU judgment outranks any study material.`; }
+function authChip(f,ranks){ if(!f.role) return `<span class="authchip unranked" title="Source type not labelled yet — use “Label files”">${esc(f.kind||'file')}</span>`;
   const r=authRank(f.role,ranks), name=ROLE_NAMES[f.role]||f.role;
-  return `<span class="authchip a${r}" title="Authority rank ${r} of ${AUTH_MAX} — ${esc(name)}${r===1?' · strongest':(r===AUTH_MAX?' · lowest':'')}"><i>${r}</i>${esc(name)}</span>`; }
+  return `<span class="authchip a${r}" title="${esc(srcTypeTitle(name,r))}"><i>${r}</i>${esc(name)}</span>`; }
+/* Answer material — practice-exam model answers, worked WG/assignment answers, answer keys. The role can't tell these
+   apart (role "exam" covers the question paper too, role "wg" the annotated WG notes the tutor must read), so the
+   name decides. They stay out of the default tick and the syllabus picker: reading the answers first defeats the practice. */
+const ANSWER_RX=/(^|[^a-z])(model[\s_-]*answers?|answers?[\s_-]*(key|sheet|model)s?|answers|solutions?|uitwerkingen?|antwoorden|antwoordmodel)([^a-z]|$)/i;
+function isAnswerFile(f){ return ANSWER_RX.test(String((f&&(f.name||''))+' '+(f&&f.label||''))); }
 let sylTitles={};       // week number -> the title the syllabus gives it
 $('#relabelBtn')&&($('#relabelBtn').onclick=async()=>{ const b=$('#relabelBtn'); b.disabled=true; toast('Labelling…');
   try{ const r=await post(`/courses/${cid}/relabel`,{}); toast(r.warning||`${r.labelled} file(s) labelled`); loadFiles(); }
   catch(e){ toast('Labelling failed: '+e.message) } b.disabled=false; });
 
-async function upload(files){ for(const f of files){ const fd=new FormData(); fd.append('file',f); fd.append('week',$('#week').value); toast('Indexing '+f.name+'…'); try{ const r=await api(`/courses/${cid}/files`,{method:'POST',body:fd}); toast(`${f.name}: ${r.status}${r.chars?' · '+Math.round(r.chars/1000)+'k chars':''}`);}catch(e){toast('Failed: '+e.message)} } loadFiles(); }
+async function upload(files){ for(const f of files){ const fd=new FormData(); fd.append('file',f); fd.append('week',$('#week').value); toast('Indexing '+f.name+'…'); try{ const r=await api(`/courses/${cid}/files`,{method:'POST',body:fd});
+    /* Model answers and worked answers arrive unticked: the tutor shouldn't read the answers before he has tried the paper.
+       (The server still ticks every upload — docs/pending-protected/badges-readinglist.patch moves this rule there.) */
+    const off=isAnswerFile({name:f.name})&&r.id; if(off){ try{ await post(`/files/${r.id}/toggle-to`,{on:false}) }catch{} }
+    toast(`${f.name}: ${r.status}${r.chars?' · '+Math.round(r.chars/1000)+'k chars':''}${off?' · left unticked (answer file — tick it when you want the tutor to read it)':''}`);}catch(e){toast('Failed: '+e.message)} } loadFiles(); }
 (function(){ if($('#relabelBtn')||!$('#inferBtn')) return;      // sits beside Detect weeks
   const b=document.createElement('button'); b.className='btn small ghost'; b.id='relabelBtn'; b.type='button';
   b.title='Give every file a readable title and say what kind of material it is'; b.textContent='Label files';
@@ -450,8 +483,16 @@ $('#buildDecks').onclick=async()=>{const b=$('#buildDecks');b.disabled=true;b.te
 let sylProposal=null, sylProposalCid=null;
 function sylFill(fs){ const opts=fs.filter(f=>f.kind!=='image'&&f.chars); const sel=$('#sylFile'); const keep=sel.value;
   sel.innerHTML=opts.length?opts.map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join(''):'<option value="">No readable file yet</option>';
-  if(opts.some(f=>f.id===keep)) sel.value=keep;
-  else { const guess=opts.find(f=>/syllab|course guide|module guide|outline|studiewijzer/i.test(f.name)); if(guess) sel.value=guess.id }
+  /* Default to the course guide, never to whatever was uploaded last: it used to fall through to the first option, which
+     put "Practice exam 2 - Model answers" in the picker. Order: the file the applied schedule came from, a file labelled
+     Course info, a syllabus-like name, else an empty "Choose…" — answer files are never the default. */
+  const applied=(C()&&C().brief&&C().brief.syllabus&&C().brief.syllabus.source)||'';
+  const SYL_RX=/syllab|course (guide|overview|info|planning|description|manual)|module guide|outline|studiewijzer|studiehandleiding/i;
+  const ok=opts.filter(f=>!isAnswerFile(f));
+  const guess=(applied&&ok.find(f=>f.name===applied))||ok.find(f=>f.role==='admin')||ok.find(f=>SYL_RX.test(f.name+' '+(f.label||'')));
+  if(opts.length) sel.insertAdjacentHTML('afterbegin','<option value="">Choose the syllabus or course guide…</option>');
+  if(keep&&opts.some(f=>f.id===keep)) sel.value=keep;
+  else sel.value=guess?guess.id:'';
   sel.disabled=$('#sylRead').disabled=!opts.length;
   if(!sylProposal) sylApplied(); }
 async function sylApplied(){ try{ const s=await api(`/courses/${cid}/syllabus`);
@@ -494,12 +535,14 @@ const drop=$('#drop'); ['dragenter','dragover'].forEach(ev=>drop.addEventListene
 async function loadTutor(){ if(speakOn) cfWarm();   // the voice is already on: have the course ready before he speaks
   const fs=await api(`/courses/${cid}/files`); const sel=fs.filter(f=>f.selected); $('#tutorSub').textContent=`${C().name} · auto-routing: notes and cards on ${(cfg.cheap_model||'').replace('claude-','')}, drilling on ${(cfg.model||'').replace('claude-','')}`;
   const ranks=authRanks(); const selSorted=sel.slice().sort((a,b)=>authRank(a.role,ranks)-authRank(b.role,ranks));   // the tutor reads strongest authority first
+  ctxFiles={}; fs.forEach(f=>{ ctxFiles[f.name]=f; if(f.label) ctxFiles[f.label]=f; });
   $('#ctxList').innerHTML=selSorted.length?selSorted.map(f=>{ const r=authRank(f.role,ranks); const nm=ROLE_NAMES[f.role]||f.role||'unlabelled';
-    return `<li><span class="authdot a${r}" title="Authority rank ${r} — ${esc(nm)}" aria-hidden="true"></span><span>${esc(f.name)}</span></li>`; }).join(''):'<li class="muted">No files ticked in Files.</li>';
+    return `<li><span class="authdot a${r}" title="${esc(srcTypeTitle(nm,r))}" aria-hidden="true"></span><button type="button" class="srcopen" data-open-src="${esc(f.id)}" title="Open ${esc(f.name)}">${esc(f.label||f.name)}</button></li>`; }).join(''):'<li class="muted">No files ticked in Files.</li>';
+  $('#ctxList').querySelectorAll('[data-open-src]').forEach(b=>b.onclick=()=>openSource(b.dataset.openSrc));
   const chars=sel.reduce((a,f)=>a+(f.chars||0),0); $('#ctxSize').textContent=chars?`≈ ${Math.round(chars/4/1000)}k tokens of text per message${chars>180000?' — over budget, later files will be truncated':''}`:'';
   const ms=await api(`/courses/${cid}/messages`); const ch=$('#chat'); ch.innerHTML=''; ms.forEach(m=>{ if(m.role!=='assistant'){ addMsg(m.role,m.content); return }
     const sm=(m.content||'').match(/^\s*<speech>([\s\S]*?)<\/speech>\s*/), body=sm?m.content.slice(sm[0].length):m.content;
-    const d=addMsg('assistant',body); if(sm) d.dataset.said=sm[1].trim(); render(d,body).then(()=>{ cfSaid(d); cfMark(d) }) }); if(!ms.length) addMsg('assistant',`Tutor for ${C().name}. Tick files in Files, then ask — or say "drill me on ${sel[0]?sel[0].name.replace(/\.\w+$/,''):'this week'}".`); ch.scrollTop=ch.scrollHeight;
+    const d=addMsg('assistant',body); if(sm) d.dataset.said=sm[1].trim(); render(d,body).then(()=>{ cfSaid(d); cfMark(d) }) }); if(!ms.length) addMsg('assistant',`Tutor for ${C().name}. Tick files in Files, then ask — or say "drill me on ${(()=>{ const g=sel.find(f=>!isAnswerFile(f)&&f.role!=='admin'); return g?(g.label||g.name.replace(/\.\w+$/,'')):'this week' })()}".`); ch.scrollTop=ch.scrollHeight;
 }
 let mmTheme=null;   // the scheme mermaid was last initialised for, so a theme switch re-inits rather than latching
 function mmSetup(){
@@ -681,12 +724,14 @@ function showReading(r){
   /* Which of your own materials answered the last question, and what did not fit. */
   const box=$('#ctxAnswer'); if(!box) return;
   const esc=t=>String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-  const used=(r.used||[]).map(esc), trimmed=(r.trimmed||[]).map(esc);
+  const link=n=>{ const f=ctxFiles[n]; return f?`<button type="button" class="srcopen" data-open-src="${esc(f.id)}" title="Open ${esc(n)}">${esc(n)}</button>`:esc(n) };
+  const used=(r.used||[]).map(link), trimmed=(r.trimmed||[]).map(link);
   box.hidden=false;
   box.innerHTML=`<b>Answered from</b> ${used.length} of ${used.length+trimmed.length} ticked files`
     + `<div class="muted" style="margin-top:.2rem">${used.join(' · ')||'—'}</div>`
     + (trimmed.length?`<div class="muted" style="margin-top:.35rem">Not needed for this question: ${trimmed.join(' · ')}</div>`:'')
     + `<div class="muted" style="margin-top:.35rem">${Math.round((r.chars||0)/1000)}k characters sent instead of the whole set</div>`;
+  box.querySelectorAll('[data-open-src]').forEach(b=>b.onclick=()=>openSource(b.dataset.openSrc));
 }
 function showCost(){ const el=$('#costState'); if(el) el.textContent=sessionCost?`$${sessionCost.toFixed(2)} this session`:'' }
 function initVoice(){
