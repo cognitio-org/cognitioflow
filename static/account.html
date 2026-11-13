@@ -36,6 +36,12 @@ a{color:var(--accent)}
 <p id="signin" hidden><a href="/auth/login">Sign in</a> to see your account.</p>
 
 <div id="me" hidden>
+<section id="ackBox" hidden>
+  <h2>Before you start</h2>
+  <p>Please read the <a href="/static/privacy.html" target="_blank" rel="noopener">privacy notice</a>: what CognitioFlow stores about you, which AI services see your questions, and how to download or delete your data. You can use the app once you have confirmed you read it.</p>
+  <div class="row"><button class="primary" id="ack">I have read the privacy notice</button></div>
+  <div class="out" id="ackOut" role="status"></div>
+</section>
 <section>
   <h2>Privacy</h2>
   <p class="muted">Read the <a href="/static/privacy.html">privacy notice</a>. Your study progress is private to you.</p>
@@ -86,7 +92,12 @@ async function load() {
   const u = me.usage_24h, c = me.caps;
   $('#usage').textContent = `${u.calls} calls, $${u.cost.toFixed(2)}` + (c ? ` of your daily limit (${c.daily_calls || '∞'} calls, $${c.daily_usd.toFixed(2)}).` : ' (the owner has no per-user limit).');
   if (me.owner) { $('#deleteBox').hidden = true; $('#admin').hidden = false; loadAdmin() }
+  else if (!me.privacy.privacy_ack) { $('#ackBox').hidden = false; $('#ack').focus() }
 }
+$('#ack').onclick = async () => {
+  try { await api('/api/me/privacy', {method: 'PUT', body: JSON.stringify({privacy_ack: true})}); location.href = '/' }
+  catch (e) { $('#ackOut').textContent = e.message }
+};
 async function loadAdmin() {
   const inv = await api('/api/admin/invites');
   $('#invites').innerHTML = inv.map(i => `<tr><td>${esc(i.email)}</td><td>${i.revoked ? 'revoked' : i.accepted ? 'signed in' : 'invited'}</td><td>${i.revoked ? '' : `<button data-revoke="${esc(i.email)}">Revoke</button>`}</td></tr>`).join('') || '<tr><td colspan=3 class="muted">No invites yet.</td></tr>';

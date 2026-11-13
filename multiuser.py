@@ -17,6 +17,15 @@ widens what one user can read about another. Every /api/me route acts only on th
   POST   /api/admin/invites       owner: {email, note} records an invite. NOTHING is sent; the owner shares the link.
   DELETE /api/admin/invites/{e}   owner: revoke
   GET    /api/admin/users         owner: accounts with their 24h / 30d AI cost (counts only, never content)
+
+Also enforced here, for every user but the owner (PrivacyGate, the innermost middleware):
+  - the privacy notice must be acknowledged (PUT /api/me/privacy {privacy_ack: true}) before any other /api route: 428
+  - a course a STUDENT created is private to that student: its files, notes, versions, recordings, cards and concepts
+    are 404 to every other signed-in user, and it is left out of their course list (run.py patch). Courses the owner
+    created (or unowned seeds) stay read-shared as in #178.
+  - a per-user daily AI cap (CF_USER_DAILY_USD / CF_USER_DAILY_CALLS) on the model lanes (client(), the gateway bulk
+    lane, the local lane) and on metered voice/speech/STT/TTS uses (meter()); a refusal is HTTP 429 everywhere.
+    The cap is check-then-log: concurrent calls can overshoot it by at most the calls already in flight.
 """
 import os
 import re
@@ -44,13 +53,23 @@ _STATE = {"db": None, "call": None}
 
 # ---------------------------------------------------------------- wiring
 def install(app, db, call_ctx: Optional[ContextVar] = None) -> None:
-    """Add the routes and register the per-user cap guard. Idempotent (tests may call it on run.app)."""
+    """Add the routes, the 429 handler, the privacy gate, and register the per-user cap guard. Idempotent (tests may
+    call it on run.app). Call it BEFORE the first request: the gate is appended as the innermost middleware (inside
+    auth, so it sees request.state.user), and Starlette builds its middleware stack once, on the first request."""
     _STATE["db"], _STATE["call"] = db, call_ctx
     if not getattr(app.state, "multiuser_installed", False):
         app.include_router(router)
+        app.add_exception_handler(llm.LimitReached, _limit_reached)
+        if getattr(app, "middleware_stack", None) is None:
+            from starlette.middleware import Middleware
+            app.user_middleware.append(Middleware(PrivacyGate))
         app.state.multiuser_installed = True
     if cap_guard not in llm.GUARDS:
         llm.GUARDS.append(cap_guard)
+
+
+async def _limit_reached(request, exc):
+    return JSONResponse({"detail": str(exc)}, status_code=429)
 
 
 def _db(request: Optional[Request] = None):
@@ -68,6 +87,7 @@ def is_owner(user: dict) -> bool:
 # ---------------------------------------------------------------- invites (read by the auth.py patch)
 _INVITED: dict = {"at": 0.0, "emails": frozenset()}
 INVITE_TTL = float(os.environ.get("CF_INVITE_CACHE_S", "30"))
+INVITE_RETRY_S = 5.0
 
 
 def invited_emails(db=None, fresh: bool = False) -> frozenset:
@@ -79,7 +99,8 @@ def invited_emails(db=None, fresh: bool = False) -> frozenset:
             with (db or _db())() as d:
                 got = frozenset(r["email"] for r in d.execute("SELECT email FROM invites WHERE revoked IS NULL").fetchall())
         except Exception:      # noqa: BLE001 - a DB blip must not lock the owner out; ALLOWED_EMAILS still applies
-            return _INVITED["emails"]
+            _INVITED["at"] = now - INVITE_TTL + INVITE_RETRY_S   # C1: keep the last list, retry in a few seconds,
+            return _INVITED["emails"]                           # not on every request of an outage
         _INVITED.update(at=now, emails=got)
     return _INVITED["emails"]
 
@@ -168,6 +189,36 @@ def over_cap(db, uid: Optional[str], email: str) -> Optional[str]:
     return None
 
 
+def _ctx_user(user: Optional[dict] = None) -> tuple:
+    """(uid, email) of the acting user: the given user dict (a websocket's scope user), else the request context."""
+    ctx = user if user is not None else (_STATE["call"].get() if _STATE["call"] else None)
+    if not ctx or _STATE["db"] is None:
+        return None, ""
+    uid, email = ctx.get("user_id") or ctx.get("id"), (ctx.get("email") or "")
+    if not uid and email:
+        with _STATE["db"]() as d:
+            r = d.execute("SELECT id FROM users WHERE email=?", (email.lower(),)).fetchone()
+        uid = r["id"] if r else None
+    return uid, email
+
+
+def meter(feature: str, user: Optional[dict] = None) -> None:
+    """A metered AI use that never goes through llm.usage() (server TTS, hosted STT, a voice session): refuse it over
+    the cap (LimitReached -> 429), else log one ai_calls row (cost unknown, so it counts toward the CALLS cap)."""
+    uid, email = _ctx_user(user)
+    if not email:
+        return                        # no user (a script): the app-wide ceilings still apply
+    why = over_cap(_STATE["db"], uid, email)
+    if why:
+        raise llm.LimitReached(why)
+    tok = _STATE["call"].set({"email": email, "user_id": uid, "path": feature}) if _STATE["call"] and user is not None else None
+    try:
+        llm._emit({"task": feature, "provider": "voice", "model": feature, "in": 0, "out": 0, "cost": None})
+    finally:
+        if tok is not None:
+            _STATE["call"].reset(tok)
+
+
 def cap_guard() -> None:
     """Registered in llm.GUARDS: runs before every client() is built, i.e. before any main-path model call. Raises
     llm.LimitReached (a ConfigError, so run.client() already turns it into an HTTP error instead of a 500)."""
@@ -182,6 +233,111 @@ def cap_guard() -> None:
     why = over_cap(_STATE["db"], uid, email)
     if why:
         raise llm.LimitReached(why)
+
+
+# ---------------------------------------------------------------- private student courses (default private)
+#: SQL fragment on a `c.course_id` column: the courses this user may READ. TWO args: the caller's uid, then the owner's
+#: email (auth.owner_email()). Owner-created and unowned (seeded) courses are read-shared (#178); a course anyone else
+#: created is private to its creator.
+SEE_COURSE_SQL = ("c.course_id IN (SELECT co.id FROM courses co LEFT JOIN users ou ON ou.id=co.user_id "
+                  "WHERE co.user_id IS NULL OR co.user_id=? OR lower(ou.email)=?)")
+COURSE_ROW_SQL = ("(courses.user_id IS NULL OR courses.user_id=? OR courses.user_id IN "
+                  "(SELECT id FROM users WHERE lower(email)=?))")   # same rule, on a `courses` row; same two args
+
+
+def course_private_to(db, cid: str) -> Optional[str]:
+    """The creator's uid when the course is private (created by someone other than the app owner), else None."""
+    with db() as d:
+        r = d.execute("SELECT co.user_id AS uid, lower(u.email) AS email FROM courses co LEFT JOIN users u ON u.id=co.user_id "
+                      "WHERE co.id=?", (cid,)).fetchone()
+    if not r or not r["uid"] or r["email"] == auth.owner_email():
+        return None
+    return r["uid"]
+
+
+def can_see_course(db, cid: str, uid: Optional[str]) -> bool:
+    owner = course_private_to(db, cid)
+    return owner is None or owner == uid
+
+
+_SUB = (   # by-id routes -> the course the row belongs to
+    (re.compile(r"^/api/courses/([^/]+)"), None),
+    (re.compile(r"^/api/notes/([^/]+)"), "SELECT course_id FROM notes WHERE id=?"),
+    (re.compile(r"^/api/files/([^/]+)"), "SELECT course_id FROM files WHERE id=?"),
+    (re.compile(r"^/api/cards/([^/]+)"), "SELECT course_id FROM cards WHERE id=?"),
+    (re.compile(r"^/api/concepts/([^/]+)"), "SELECT course_id FROM concepts WHERE id=?"),
+    (re.compile(r"^/api/recordings/([^/]+)"), "SELECT n.course_id AS course_id FROM recordings r JOIN notes n ON n.id=r.note_id WHERE r.id=?"),
+    (re.compile(r"^/api/versions/([^/]+)"), "SELECT n.course_id AS course_id FROM note_versions v JOIN notes n ON n.id=v.note_id WHERE v.id=?"),
+)
+#: Reachable before the privacy notice is acknowledged: who am I, the ack itself, and leaving (export / delete).
+ACK_FREE = ("/api/me", "/api/me/privacy", "/api/me/export", "/api/me/delete", "/api/config")
+
+
+def course_of_path(db, path: str) -> Optional[str]:
+    for rx, sql in _SUB:
+        m = rx.match(path)
+        if m:
+            if sql is None:
+                return m.group(1)
+            with db() as d:
+                r = d.execute(sql, (m.group(1),)).fetchone()
+            return r["course_id"] if r else None
+    return None
+
+
+def gate_refusal(db, user: dict, path: str) -> Optional[tuple]:
+    """(status, detail) when this signed-in user may not make this /api request, else None. The owner is never asked
+    for the acknowledgement, but a student's private course is private from the owner too."""
+    if not user:
+        return None
+    owner = is_owner(user)
+    if owner and not any(rx.match(path) for rx, _ in _SUB):
+        return None
+    uid = user.get("id")
+    if not uid:
+        with db() as d:
+            r = d.execute("SELECT id FROM users WHERE email=?", (str(user.get("email", "")).lower(),)).fetchone()
+        uid = r["id"] if r else None
+    if not owner and path not in ACK_FREE and not user.get("scope") and (not uid or not prefs(db, uid)["privacy_ack"]):
+        return 428, "privacy_ack_required: read the privacy notice at /static/privacy.html and acknowledge it on /static/account.html."
+    cid = course_of_path(db, path)
+    if cid and not can_see_course(db, cid, uid):
+        return 404, "Not Found"
+    return None
+
+
+def ws_refusal(db, user: dict, course: str) -> Optional[int]:
+    """A websocket close code for a voice session this user may not open, else None."""
+    if not user:
+        return 4401
+    uid, _ = _ctx_user(user)
+    if course and not can_see_course(db, course, uid):
+        return 4404
+    if is_owner(user):
+        return None
+    if not uid or not prefs(db, uid)["privacy_ack"]:
+        return 4428
+    if over_cap(db, uid, user.get("email", "")):
+        return 4429
+    return None
+
+
+class PrivacyGate:
+    """Innermost ASGI middleware (inside auth): the privacy-ack and private-course checks of gate_refusal for /api/*.
+    The owner skips the acknowledgement; only his requests on a course/by-id path cost a lookup."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not scope["path"].startswith("/api/") or _STATE["db"] is None:
+            return await self.app(scope, receive, send)
+        user = (scope.get("state") or {}).get("user")
+        if user:
+            import asyncio
+            got = await asyncio.to_thread(gate_refusal, _STATE["db"], user, scope["path"])
+            if got:
+                return await JSONResponse({"detail": got[1]}, status_code=got[0])(scope, receive, send)
+        return await self.app(scope, receive, send)
 
 
 # ---------------------------------------------------------------- privacy: settings, export, delete
@@ -260,7 +416,8 @@ def export_user(db, uid: str) -> dict:
         owned = [r["id"] for r in out["tables"].get("courses", [])]
         out["owned_course_content"] = {
             cid: {"notes": d.execute("SELECT id,title,body,updated FROM notes WHERE course_id=?", (cid,)).fetchall(),
-                  "cards": d.execute("SELECT id,front,back,source,week,created FROM cards WHERE course_id=?", (cid,)).fetchall(),
+                  "cards": d.execute("SELECT id,front,back,source,week,created FROM cards WHERE course_id=? AND user_id IS NULL",
+                                     (cid,)).fetchall(),   # another user's private practice cards are theirs, not course content
                   "files": d.execute("SELECT id,name,chars FROM files WHERE course_id=?", (cid,)).fetchall()}
             for cid in owned}
     return out
@@ -290,8 +447,8 @@ def erase_user(db, uid: str) -> dict:
             else:
                 counts[t] = d.execute(f'DELETE FROM "{t}" WHERE user_id=?', (uid,)).rowcount
         email = d.execute("SELECT email FROM users WHERE id=?", (uid,)).fetchone()
-        if email:
-            d.execute("UPDATE invites SET revoked=? WHERE email=? AND revoked IS NULL", (time.time(), email["email"]))
+        if email:   # S11: the invite row holds the address; erasure removes it (re-inviting is the owner's choice)
+            counts["invites"] = d.execute("DELETE FROM invites WHERE email=?", (email["email"].lower(),)).rowcount
         d.execute("DELETE FROM users WHERE id=?", (uid,))
     _INVITED["at"] = 0.0
     return counts
@@ -308,3 +465,19 @@ def delete_me(p: DeleteIn, request: Request):
     request.session.clear()
     return {"ok": True, "erased": counts,
             "note": "Your account and progress are gone. Signing in again would start a fresh account if you are still invited."}
+
+
+@router.post("/api/admin/users/{uid}/delete")
+def admin_delete_user(uid: str, p: DeleteIn, request: Request):
+    """Owner-side erasure (Art. 17 request made to the owner, S5): same erase as /api/me/delete, confirmed by the
+    account's email. Never the owner's own account; refused (409) while that user owns courses."""
+    auth._owner(request)
+    with _db(request)() as d:
+        r = d.execute("SELECT email FROM users WHERE id=?", (uid,)).fetchone()
+    if not r:
+        raise HTTPException(404, "No such account.")
+    if str(r["email"]).lower() == auth.owner_email():
+        raise HTTPException(403, "The owner's account cannot be deleted from the app.")
+    if p.confirm.strip().lower() != str(r["email"]).lower():
+        raise HTTPException(422, "Type that account's email address to confirm.")
+    return {"ok": True, "erased": erase_user(_db(request), uid)}

@@ -2189,7 +2189,12 @@ async function loadProgress(){ loadReadKeys();  loadCaseView(); loadWeakTopics()
   $('#p-next').textContent=s.due?`Clear ${s.due} due cards`:(s.cards<10?'Build the deck to at least 10 cards':(s.recall_accuracy!=null&&s.recall_accuracy<70?'Accuracy under 70% — drill the weak cards with the tutor':'Ask the tutor for an IRAC case question'));}
 
 /* init */
-(async()=>{ cfg=await api('/config'); $('#dot').classList.toggle('off',!cfg.has_key); $('#dot').title=cfg.has_key?`Claude connected · auto ${cfg.cheap_model.replace('claude-','')} / ${cfg.model.replace('claude-','')}`:'No Claude API key on the server — add it to .env.local';
+(async()=>{
+  // multi-user: anyone but the owner reads and acknowledges the privacy notice before first use (the server enforces it
+  // too, with 428 on every other /api route). Before multiuser is installed /api/me is absent and this is a no-op.
+  const me=await api('/me').catch(()=>null);
+  if(me&&!me.owner&&me.privacy&&!me.privacy.privacy_ack){ location.replace('/static/account.html?ack=1'); return; }
+  cfg=await api('/config'); $('#dot').classList.toggle('off',!cfg.has_key); $('#dot').title=cfg.has_key?`Claude connected · auto ${cfg.cheap_model.replace('claude-','')} / ${cfg.model.replace('claude-','')}`:'No Claude API key on the server — add it to .env.local';
   $('#who').textContent=cfg.email||''; $('#who').title=$('#signOut').title=cfg.email?`Signed in as ${cfg.email}`:'';
   $('#modelSel').innerHTML='<option value="auto">Auto model</option>'+cfg.models.map(m=>`<option value="${m}">${m.replace('claude-','')}</option>`).join('');
   window.CFCHEAP=cfg.cheap_model; window.CFMODEL=cfg.model;

@@ -103,11 +103,69 @@ index 0000000..de5c154
 +ALTER TABLE streak_freezes DROP CONSTRAINT IF EXISTS streak_freezes_pkey;
 +CREATE UNIQUE INDEX IF NOT EXISTS streak_freezes_course_user_day ON streak_freezes(course_id, user_id, day) NULLS NOT DISTINCT;
 +CREATE INDEX IF NOT EXISTS idx_streak_freezes_user ON streak_freezes(user_id);
+diff --git a/migrations/037_private_progress_cards.sql b/migrations/037_private_progress_cards.sql
+new file mode 100644
+index 0000000..62275f8
+--- /dev/null
++++ b/migrations/037_private_progress_cards.sql
+@@ -0,0 +1,25 @@
++-- Multi-user: private practice cards, training-capture attribution, per-user case rotation.
++-- Ships WITH the run.py code that writes and filters these columns (docs/multi-user/protected-changes.patch), like 036.
++-- PURELY ADDITIVE: nullable columns, one new table, indexes. Old code ignores all of it. Re-runnable.
++
++-- 1) A card a user's own practice made (a missed case MCQ, a missed bench question) is PRIVATE to that user:
++--    cards.user_id set = only that user sees it, reviews it, or finds it in search/quiz/counts. NULL = shared course
++--    content, exactly as before (every card that exists today stays NULL). Erasing the user deletes their private cards.
++ALTER TABLE cards ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE CASCADE;
++CREATE INDEX IF NOT EXISTS idx_cards_user ON cards(user_id) WHERE user_id IS NOT NULL;
++
++-- 2) Training capture (026/027) gets an owner, so account deletion (Art. 17) and export (Art. 15) reach it. Existing
++--    rows were all made by the single user of the app; they stay NULL (no guess is written into them).
++ALTER TABLE card_gen_samples ADD COLUMN IF NOT EXISTS user_id TEXT;
++ALTER TABLE card_edits ADD COLUMN IF NOT EXISTS user_id TEXT;
++CREATE INDEX IF NOT EXISTS idx_card_gen_samples_user ON card_gen_samples(user_id) WHERE user_id IS NOT NULL;
++CREATE INDEX IF NOT EXISTS idx_card_edits_user ON card_edits(user_id) WHERE user_id IS NOT NULL;
++
++-- 3) Which banked case a user saw last, per user (case_hypos.seen was per course, so one student's practice changed
++--    what the next student was shown).
++CREATE TABLE IF NOT EXISTS case_seen(
++    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
++    case_id TEXT NOT NULL REFERENCES case_hypos(id) ON DELETE CASCADE,
++    seen    DOUBLE PRECISION NOT NULL,
++    PRIMARY KEY (user_id, case_id)
++);
 diff --git a/run.py b/run.py
-index 582e28c..76609d2 100644
+index 582e28c..7af194b 100644
 --- a/run.py
 +++ b/run.py
-@@ -285,6 +285,8 @@ def _log_call(u: dict) -> None:
+@@ -249,7 +249,6 @@ async def canonical_host(request, call_next):
+ # the call is remembered here, so the row can say who asked and from where without passing it down.
+ _CALL = contextvars.ContextVar("cf_call", default=None)
+ _IDS = re.compile(r"/[0-9a-f]{8,}(?=/|$)")
+-_USER_IDS: dict = {}
+ 
+ 
+ @app.middleware("http")
+@@ -263,13 +262,13 @@ async def call_context(request, call_next):
+ 
+ 
+ def _call_user(c: dict):
++    """Resolved FRESH on every call, never cached per process: after a student deletes the account and signs in again
++    their id changes, and a cached email->id would log the new calls against the erased id, so the per-user cap would
++    never see them (and a second Cloud Run instance would keep its own stale copy). One indexed lookup per AI call."""
+     if c.get("user_id") or not c.get("email"):
+         return c.get("user_id")
+-    if c["email"] not in _USER_IDS:
+-        r = rows("SELECT id FROM users WHERE email=?", c["email"])
+-        if not r: return None
+-        _USER_IDS[c["email"]] = r[0]["id"]
+-    return _USER_IDS[c["email"]]
++    r = rows("SELECT id FROM users WHERE email=?", c["email"])
++    return r[0]["id"] if r else None
+ 
+ 
+ def _log_call(u: dict) -> None:
+@@ -285,6 +284,8 @@ def _log_call(u: dict) -> None:
  if _log_call not in llm.SINKS: llm.SINKS.append(_log_call)
  
  auth.install(app, db)  # session middleware + /auth/* routes; everything else needs a signed-in user
@@ -116,7 +174,89 @@ index 582e28c..76609d2 100644
  init()
  
  class CourseIn(BaseModel): name: str; accent: Optional[str] = None; tutor_prompt: str = ""; brief: Optional[dict] = None; slug: Optional[str] = None
-@@ -486,8 +488,12 @@ def _own_recording(rid: str) -> str:  return _own_via("SELECT n.course_id AS cou
+@@ -336,10 +337,24 @@ def healthz():
+ def config(user: dict = Depends(current_user)): return {"email": user["email"], "model": MODEL, "cheap_model": CHEAP_MODEL, "strong_model": STRONG_MODEL, "models": MODELS,
+                       "has_key": llm.has_key(), "voice": {"gemini": voice.available(), "dialog": dialog.available(), **tts.describe()}}
+ 
++async def _ws_admit(websocket: WebSocket, course: str, feature: str) -> bool:
++    """Multi-user gate for a voice socket (the http call_context middleware never runs for websockets): the course must
++    be one this user may read (4404), the privacy notice acknowledged and the daily AI cap not reached (4429). Then one
++    metered ai_calls row per session."""
++    user = websocket.scope.get("state", {}).get("user") or {}
++    why = await asyncio.to_thread(multiuser.ws_refusal, db, user, course)
++    if why:
++        await websocket.close(code=why)
++        return False
++    await asyncio.to_thread(multiuser.meter, feature, user)
++    return True
++
+ @app.websocket("/api/voice/live")
+ async def voice_live(websocket: WebSocket, course: str = ""):
+     """Tutor dictation through Vertex AI (Phase 8). AuthMiddleware has already refused signed-out and cross-origin sockets;
+     only transcript text goes back to the browser."""
++    if not await _ws_admit(websocket, course, "voice-live"):
++        return
+     if not voice.available():
+         return await websocket.close(code=4404)
+     await websocket.accept()
+@@ -361,6 +376,8 @@ async def voice_dialog(websocket: WebSocket, course: str = ""):
+     """The spoken tutor: the whole turn stays inside Gemini Live, so it can be interrupted mid-sentence.
+     AuthMiddleware has already refused signed-out and cross-origin sockets. Only audio and transcript
+     text cross to the browser; the Vertex credentials never leave the server."""
++    if not await _ws_admit(websocket, course, "voice-dialog"):
++        return
+     if not dialog.available():
+         return await websocket.close(code=4404)
+     await websocket.accept()
+@@ -379,7 +396,12 @@ async def voice_dialog(websocket: WebSocket, course: str = ""):
+ 
+ # courses
+ @app.get("/api/courses")
+-def courses(): return rows("SELECT * FROM courses ORDER BY created")
++def courses(user: dict = Depends(current_user)):
++    """Every course this user may read (a student's own course is private to them, multiuser.COURSE_ROW_SQL). The
++    owner's internal user_id is shown only to the app owner; everyone else gets `mine` instead (S8)."""
++    out = rows("SELECT * FROM courses WHERE " + multiuser.COURSE_ROW_SQL + " ORDER BY created", user["id"], auth.owner_email())
++    if multiuser.is_owner(user): return out
++    return [{**{k: v for k, v in c.items() if k != "user_id"}, "mine": c["user_id"] == user["id"]} for c in out]
+ 
+ def _checked(fn, *a):
+     try: return fn(*a)
+@@ -392,6 +414,7 @@ def course_meta(): return {"palette": cb.PALETTE, "fields": [{"key": k, "label":
+ def brief_preview(p: BriefPreviewIn):
+     brief = _checked(cb.normalise_brief, p.brief)
+     if p.cid:
++        if not multiuser.can_see_course(db, p.cid, _uid()): raise HTTPException(404)
+         cur = rows("SELECT tutor_prompt,brief FROM courses WHERE id=?", p.cid)
+         # The dialog has no syllabus fields; the preview has to show the prompt that saving would actually store.
+         if cur: brief = cb.keep_syllabus(brief, cur[0]["brief"])
+@@ -442,7 +465,7 @@ def _course_usage(cid: str) -> dict:
+     with db() as d:
+         n = lambda q: d.execute(q, (cid,)).fetchone()["n"]
+         return {"files": n("SELECT COUNT(*) AS n FROM files WHERE course_id=?"), "notes": n("SELECT COUNT(*) AS n FROM notes WHERE course_id=?"),
+-                "cards": n("SELECT COUNT(*) AS n FROM cards WHERE course_id=?"), "messages": n("SELECT COUNT(*) AS n FROM messages WHERE course_id=?"),
++                "cards": n("SELECT COUNT(*) AS n FROM cards WHERE course_id=? AND user_id IS NULL"), "messages": n("SELECT COUNT(*) AS n FROM messages WHERE course_id=?"),
+                 "sessions": n("SELECT COUNT(*) AS n FROM sessions WHERE course_id=?")}
+ 
+ # ---------------------------------------------------------------- owner-gating (PR #3)
+@@ -479,15 +502,28 @@ def _own_via(sql: str, oid: str) -> str:
+     return cid
+ 
+ def _own_note(nid: str) -> str:       return _own_via("SELECT course_id FROM notes WHERE id=?", nid)
+-def _own_card(kid: str) -> str:       return _own_via("SELECT course_id FROM cards WHERE id=?", kid)
++def _own_card(kid: str) -> str:
++    """Owner-gate a card edit. A private practice card (cards.user_id, 037) belongs to its user, not the course owner:
++    404 to everyone else, editable by that user."""
++    r = rows("SELECT course_id, user_id FROM cards WHERE id=?", kid)
++    if not r: raise HTTPException(404)
++    if r[0]["user_id"]:
++        if r[0]["user_id"] != _uid(): raise HTTPException(404)
++        return r[0]["course_id"]
++    _require_owner(r[0]["course_id"])
++    return r[0]["course_id"]
+ def _own_file(fid: str) -> str:       return _own_via("SELECT course_id FROM files WHERE id=?", fid)
+ def _own_concept(con_id: str) -> str: return _own_via("SELECT course_id FROM concepts WHERE id=?", con_id)
+ def _own_recording(rid: str) -> str:  return _own_via("SELECT n.course_id AS course_id FROM recordings r JOIN notes n ON n.id=r.note_id WHERE r.id=?", rid)
  
  @app.get("/api/courses/{cid}/usage")
  def course_usage(cid: str):
@@ -130,16 +270,119 @@ index 582e28c..76609d2 100644
  
  @app.delete("/api/courses/{cid}")
  def delete_course(cid: str, force: int = 0):
-@@ -1292,6 +1298,8 @@ def client():
+@@ -531,7 +567,8 @@ async def upload(cid: str, file: UploadFile = File(...), week: str = Form("")):
+                    clean_label(file.filename), role_by_name(file.filename)))
+     reindex(cid, "file", fid, file.filename, kind, week, text)
+     if DOCKET_AUTO and week and text.strip():   # new material: the game writers look again once the batch has landed
+-        t = threading.Timer(DOCKET_SETTLE_S, lambda: docket_autodraft(cid)); t.daemon = True; t.start()
++        ctx = contextvars.copy_context()   # the uploader stays the one who is capped and logged for the writer's calls
++        t = threading.Timer(DOCKET_SETTLE_S, lambda: ctx.run(docket_autodraft, cid)); t.daemon = True; t.start()
+     return {"id": fid, "status": status, "chars": len(text)}
+ 
+ @app.post("/api/files/{fid}/toggle")
+@@ -642,6 +679,8 @@ def relabel(cid: str):
+                   f"FILES:\n{docs}")
+         try:
+             got = _model_json(ask_model(CHEAP_MODEL, max_tokens=1500, messages=[{"role": "user", "content": prompt}]))
++        except llm.LimitReached:   # a per-user AI cap is the student's 429, not a model failure
++            raise
+         except Exception as e:
+             got, warning = {}, (e.detail if isinstance(e, HTTPException) else "The model step failed") + " — files named clearly were still labelled."
+         for fid, v in (got.items() if isinstance(got, dict) else []):
+@@ -683,6 +722,8 @@ def infer_weeks(cid: str):
+                   f"FILES ALREADY TAGGED:\n{hint}\n\nUNTAGGED FILES:\n{docs}")
+         try:
+             got = _model_json(ask_model(CHEAP_MODEL, max_tokens=1000, messages=[{"role": "user", "content": prompt}]))
++        except llm.LimitReached:   # a per-user AI cap is the student's 429, not a model failure
++            raise
+         except Exception as e:  # no API key, API error, or a reply that isn't JSON
+             got = {}
+             warning = (e.detail if isinstance(e, HTTPException) else "The model step failed") + " — files named with a week were still sorted."
+@@ -702,7 +743,7 @@ CONCEPT_CHARS = 45000       # one week of one course; the cheap model's window,
+ def list_concepts(cid: str, week: str = ""):
+     """What this course has been taught, as units a question can be asked about."""
+     q = ("SELECT id,name,kind,week,statement,limbs,traps,authority,method_tag,concept_id IS NULL AS unused "
+-         "FROM concepts LEFT JOIN (SELECT DISTINCT concept_id FROM cards WHERE course_id=?) c ON c.concept_id=concepts.id "
++         "FROM concepts LEFT JOIN (SELECT DISTINCT concept_id FROM cards WHERE course_id=? AND user_id IS NULL) c ON c.concept_id=concepts.id "
+          "WHERE course_id=?")
+     args = [cid, cid]
+     if week:
+@@ -773,7 +814,7 @@ def generate_from_concepts(cid: str, body: GenerateIn):
+     thrown away rather than saved — reaching for another authority is reaching past the course."""
+     _require_owner(cid)
+     q = ("SELECT * FROM concepts WHERE course_id=? AND id NOT IN "
+-         "(SELECT DISTINCT concept_id FROM cards WHERE course_id=? AND concept_id IS NOT NULL)")
++         "(SELECT DISTINCT concept_id FROM cards WHERE course_id=? AND user_id IS NULL AND concept_id IS NOT NULL)")
+     args = [cid, cid]
+     if body.concept_id:
+         q, args = "SELECT * FROM concepts WHERE course_id=? AND id=?", [cid, body.concept_id]
+@@ -825,7 +866,7 @@ def generate_from_concepts(cid: str, body: GenerateIn):
+ def _deck_counts(cid: str):
+     """Cards and applied-problems per week for a course — used to attribute a build-all run per week."""
+     cards = {r["w"]: r["n"] for r in rows(
+-        "SELECT COALESCE(week,'') AS w, COUNT(*) AS n FROM cards WHERE course_id=? GROUP BY COALESCE(week,'')", cid)}
++        "SELECT COALESCE(week,'') AS w, COUNT(*) AS n FROM cards WHERE course_id=? AND user_id IS NULL GROUP BY COALESCE(week,'')", cid)}
+     qs = {r["w"]: r["n"] for r in rows(
+         "SELECT COALESCE(week,'') AS w, COUNT(*) AS n FROM essay_questions "
+         "WHERE course_id=? AND kind='problem' GROUP BY COALESCE(week,'')", cid)}
+@@ -1035,7 +1076,7 @@ def blueprint_apply(cid: str, p: BlueprintApplyIn):
+     # wipe them (a re-extract often reproduces the same names) — we just report how many so the UI can
+     # suggest a re-tag. Readiness already treats a stale tag as untagged.
+     used = [x["doctrine"] for x in rows("SELECT DISTINCT COALESCE(doctrine,'') AS doctrine FROM cards "
+-                                         "WHERE course_id=? AND COALESCE(doctrine,'')<>''", cid)]
++                                         "WHERE course_id=? AND user_id IS NULL AND COALESCE(doctrine,'')<>''", cid)]
+     stale = len(ct.stale_tags(used, [t["topic"] for t in blu["topics"]])) if blu["topics"] else len(used)
+     return {"topics": len(blu["topics"]), "applied": bool(blu["topics"]), "tutor_prompt": prompt,
+             "stale_tags": stale}
+@@ -1067,9 +1108,9 @@ def course_readiness(cid: str):
+     cards = rows("SELECT c.id AS id, COALESCE(c.doctrine,'') AS doctrine, "
+                  "LOWER(COALESCE(c.front,'') || ' ' || COALESCE(c.back,'') || ' ' || COALESCE(c.concept,'')) AS hay, "
+                  "CASE WHEN cs.due IS NULL OR cs.due<=? THEN 1 ELSE 0 END AS is_due FROM cards c "
+-                 "LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? WHERE c.course_id=?", today, uid, cid)
++                 "LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? WHERE c.course_id=? AND " + _VIS, today, uid, cid, uid)
+     revs = rows("SELECT card_id, COUNT(*) AS n, SUM(CASE WHEN rating>=2 THEN 1 ELSE 0 END) AS passed "
+-                "FROM reviews WHERE user_id=? AND card_id IN (SELECT id FROM cards WHERE course_id=?) GROUP BY card_id", uid, cid)
++                "FROM reviews WHERE user_id=? AND card_id IN (SELECT id FROM cards c WHERE course_id=? AND " + _VIS + ") GROUP BY card_id", uid, cid, uid)
+     rev = {x["card_id"]: (int(x["n"] or 0), int(x["passed"] or 0)) for x in revs}
+     # A card the model tagged counts only toward its own topic (precise). A card left untagged — or tagged
+     # to a topic the blueprint no longer has — falls back to the old substring match, so readiness still
+@@ -1115,6 +1156,8 @@ def _tag_cards(cid, keys, topics, cards):
+             got = _model_json(ask_model(model, task="summarise", max_tokens=1500, system=ct.RULES,
+                                         messages=[{"role": "user", "content": ct.build_prompt(topics, batch)}]))
+             tagged.update(ct.parse_tags(got, batch, keys))
++        except llm.LimitReached:   # a per-user AI cap is the student's 429, not a model failure
++            raise
+         except Exception:
+             failed += len(batch)   # a bad batch just leaves its cards untagged; readiness still text-matches
+     if tagged:
+@@ -1134,7 +1177,7 @@ def _autotag_untagged(cid, since):
+         topics = bp.examined_topics((r[0]["brief"] if r else None) or {})
+         if not topics:
+             return
+-        cards = rows("SELECT id, front, back FROM cards WHERE course_id=? AND COALESCE(doctrine,'')='' "
++        cards = rows("SELECT id, front, back FROM cards WHERE course_id=? AND user_id IS NULL AND COALESCE(doctrine,'')='' "
+                      "AND created>=?", cid, float(since) - 1.0)
+         if cards:
+             _tag_cards(cid, ct.topic_keys(topics), topics, cards)
+@@ -1160,7 +1203,7 @@ def cards_tag(cid: str, p: CardTagIn):
+     if not topics:
+         raise HTTPException(422, "No exam blueprint applied yet. Build and save a blueprint first, then tag.")
+     keys = ct.topic_keys(topics)
+-    cards = rows("SELECT id, front, back, COALESCE(doctrine,'') AS doctrine FROM cards WHERE course_id=?", cid)
++    cards = rows("SELECT id, front, back, COALESCE(doctrine,'') AS doctrine FROM cards WHERE course_id=? AND user_id IS NULL", cid)
+     if not p.all:
+         # "Untagged" must mean the same here as in readiness: a card whose doctrine is not a live topic —
+         # which covers both the never-tagged ('' ) and the stale-tagged (renamed topic). Filtering in
+@@ -1292,6 +1335,8 @@ def client():
      """
      try:
          return llm.client()
-+    except llm.LimitReached as e:   # a per-user AI cap (multiuser.cap_guard): the student's own daily limit
-+        raise HTTPException(429, str(e))
++    except llm.LimitReached:   # a per-user AI cap (multiuser.cap_guard): passes through every broad handler that re-raises it
++        raise                  # and becomes the student's 429 in multiuser's app exception handler
      except llm.ConfigError as e:
          raise HTTPException(400, str(e))
  
-@@ -1659,13 +1667,16 @@ def chat(cid: str, body: ChatIn):
+@@ -1659,13 +1704,16 @@ def chat(cid: str, body: ChatIn):
  
  # ---------------------------------------------------------------- spend
  @app.get("/api/spend/week")
@@ -161,7 +404,48 @@ index 582e28c..76609d2 100644
      return {"calls": t["calls"], "cost": round(float(t["cost"]), 4), "unpriced": t["unpriced"], "tokens": int(t["tokens"]),
              "features": [{"feature": r["feature"], "calls": r["calls"], "cost": round(float(r["cost"]), 4)} for r in by]}
  
-@@ -1896,7 +1907,13 @@ CARD_MIN_SOURCE_CHARS = int(os.environ.get("CF_CARD_MIN_SOURCE_CHARS", "400"))
+@@ -1753,6 +1801,11 @@ _CS_COLS = ("COALESCE(cs.ease,2.5) AS ease, COALESCE(cs.interval,0) AS interval,
+             "cs.due AS due, cs.stability AS stability, cs.difficulty AS difficulty, cs.state AS state, "
+             "cs.step AS step, cs.last_review AS last_review")
+ 
++#: Multi-user (037): a card with user_id set is that user's PRIVATE practice card (a missed case MCQ or bench question);
++#: NULL is shared course content. Every per-user card read adds `AND _VIS` with ONE extra arg, the caller's uid.
++#: Owner/bulk jobs over course content use `user_id IS NULL` instead, so a student's misses never reach them.
++_VIS = "(c.user_id IS NULL OR c.user_id=?)"
++
+ def _uid() -> Optional[str]:
+     """The current user's id — owner of the per-user scheduling rows. Resolved FRESH every call (no cache: the test
+     suite recycles the users table, so a cached id would dangle and break card_state's FK). Upserts the signed-in
+@@ -1772,8 +1825,8 @@ def _cstate(uid: str, kid: str) -> dict:
+ 
+ def _card_scope(cid: str, uid: str, due: int = 0, week: str = "", weak: int = 0):
+     q = (f"SELECT {_CARD_COLS}, {_CS_COLS} FROM cards c "
+-         "LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? WHERE c.course_id=?")
+-    a = [uid, cid]
++         "LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? WHERE c.course_id=? AND " + _VIS)
++    a = [uid, cid, uid]
+     if due: q += " AND (cs.due IS NULL OR cs.due<=?)"; a.append(date.today().isoformat())
+     if week: q += " AND c.week=?"; a.append(week)
+     if weak: q += " AND COALESCE(cs.ease,2.5)<?"; a.append(WEAK_EASE)
+@@ -1794,7 +1847,7 @@ def _exam_sweep(cid: str) -> int:
+     _SWEPT.add((uid, cid, today, exam))
+     cards_sr = rows("SELECT c.id AS id, cs.due AS due, cs.stability AS stability, cs.difficulty AS difficulty, "
+                     "cs.last_review AS last_review FROM cards c "
+-                    "LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? WHERE c.course_id=?", uid, cid)
++                    "LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? WHERE c.course_id=? AND " + _VIS, uid, cid, uid)
+     moves = schedule.plan_exam_pull(cards_sr, today, exam)
+     with db() as d:
+         for kid, day in moves.items():
+@@ -1850,7 +1903,7 @@ def _review(kid: str, rating: int, uid: str) -> dict:
+     """One rating, for one user. FSRS schedules from THIS user's own history of the card (SCHEDULER=sm2 keeps the
+     original arithmetic). The card text is shared; the schedule it produces lives in card_state(user_id,card_id)."""
+     if not uid: raise HTTPException(401, "Not authenticated")   # guard here so the in-process drill callers are covered too
+-    c = rows("SELECT id, gen_sample_id FROM cards WHERE id=?", kid)
++    c = rows("SELECT id, gen_sample_id FROM cards c WHERE id=? AND " + _VIS, kid, uid)
+     if not c: raise HTTPException(404)
+     card = dict(c[0])
+     out = schedule.next_review(_cstate(uid, kid), rating)
+@@ -1896,7 +1949,13 @@ CARD_MIN_SOURCE_CHARS = int(os.environ.get("CF_CARD_MIN_SOURCE_CHARS", "400"))
  def _capture_on() -> bool:
      """The flywheel can be switched off without a deploy (privacy by default — Art. 25). On by default:
      capturing the de-identified interaction is the whole point of Phase 19 (Matej decision b)."""
@@ -176,7 +460,236 @@ index 582e28c..76609d2 100644
  
  
  def _capture_card_sample(sample_id, cid, m, source_kind, week, requested, made, source_text, cards, thin, grounded):
-@@ -3047,11 +3064,21 @@ _SENTENCE = re.compile(r"(?<=[.!?;])\s+|\n+")
+@@ -1918,9 +1977,10 @@ def _capture_card_sample(sample_id, cid, m, source_kind, week, requested, made,
+         with db() as d:
+             d.execute(
+                 "INSERT INTO card_gen_samples(id,at,course_id,provider,model,source_kind,week,grounded,thin,"
+-                "requested,made,source_chars,source_text,cards_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
++                "requested,made,source_chars,source_text,cards_json,user_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                 (sample_id, time.time(), cid, provider, getattr(m, "model", "") or "", source_kind, week or "",
+-                 bool(grounded), bool(thin), requested, made, len(source_text or ""), clean_source, json.dumps(clean_cards)))
++                 bool(grounded), bool(thin), requested, made, len(source_text or ""), clean_source, json.dumps(clean_cards),
++                 _uid()))
+     except Exception as e:   # noqa: BLE001
+         print("card capture:", type(e).__name__, e)
+ 
+@@ -1936,10 +1996,10 @@ def _capture_card_edit(card_id, gen_sample_id, course_id, front_before, back_bef
+         with db() as d:
+             d.execute(
+                 "INSERT INTO card_edits(id,at,card_id,gen_sample_id,course_id,front_before,back_before,"
+-                "front_after,back_after) VALUES(?,?,?,?,?,?,?,?,?)",
++                "front_after,back_after,user_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                 (uuid.uuid4().hex, time.time(), card_id, gen_sample_id, course_id or "",
+                  gateway.minimise(front_before or ""), gateway.minimise(back_before or ""),
+-                 gateway.minimise(front_after or ""), gateway.minimise(back_after or "")))
++                 gateway.minimise(front_after or ""), gateway.minimise(back_after or ""), _uid()))
+     except Exception as e:   # noqa: BLE001
+         print("card edit capture:", type(e).__name__, e)
+ 
+@@ -2113,6 +2173,8 @@ def hint(cid: str, h: HintIn):
+                       "ON CONFLICT(key) DO UPDATE SET hint=EXCLUDED.hint, model=EXCLUDED.model, created=EXCLUDED.created",
+                       (key, cid, text, CHEAP_MODEL, time.time()))
+         return {"hint": text}
++    except llm.LimitReached:   # a per-user AI cap is the student's 429, not a model failure
++        raise
+     except Exception as e:
+         print("hint:", type(e).__name__, e)
+         return {"hint": HINT_FALLBACK}  # never cached: a transient failure shouldn't haunt this question for 30 days
+@@ -2153,6 +2215,8 @@ def court(cid: str, c: CourtIn):
+     try:
+         m = ask_model(CHEAP_MODEL, max_tokens=1400, messages=[{"role": "user", "content": prompt}])
+         got = _model_json(m)
++    except llm.LimitReached:   # a per-user AI cap is the student's 429, not a model failure
++        raise
+     except Exception as e:
+         print("court:", type(e).__name__, e)
+         raise HTTPException(502, "Could not build the hearing — try again.")
+@@ -2170,6 +2234,16 @@ class CourtReplyIn(BaseModel):
+     answer: str
+ 
+ 
++def _miss_owner(cid: str, uid: Optional[str]) -> Optional[str]:
++    """user_id for a new "what you missed" card: NULL (shared, as before) when the caller is the course's owner - or the
++    app owner on an unowned seeded course - else the caller's own id, so the card is private to them."""
++    r = rows("SELECT user_id FROM courses WHERE id=?", cid)
++    owner = r[0]["user_id"] if r else None
++    if owner and owner == uid: return None
++    if not owner and (_CALL.get() or {}).get("email", "") and multiuser.is_owner(_CALL.get()): return None
++    if not owner and not (_CALL.get() or {}).get("email"): return None   # no request user (scripts): unchanged
++    return uid
++
+ def _remember_miss(cid: str, case: str, question: str, note: str, rating: int) -> str:
+     """A bench question that went badly becomes a card, so the gap comes back on its own.
+ 
+@@ -2180,14 +2254,14 @@ def _remember_miss(cid: str, case: str, question: str, note: str, rating: int) -
+     through the app's existing review path, the one place recurrence is decided. That is also what
+     keeps this bounded — ten hearings on one case leave one card per question, not ten.
+     """
+-    source = f"court:{case}"[:200]
+-    same = rows("SELECT id FROM cards WHERE course_id=? AND front=? AND source=?", cid, question, source)
++    source, uid = f"court:{case}"[:200], _uid()
++    same = rows("SELECT id FROM cards c WHERE course_id=? AND front=? AND source=? AND " + _VIS, cid, question, source, uid)
+     if same:
+-        return _review(same[0]["id"], rating, _uid())["due"]
++        return _review(same[0]["id"], rating, uid)["due"]
+     kid, due = uuid.uuid4().hex[:10], date.today().isoformat()
+-    with db() as d:
+-        d.execute("INSERT INTO cards(id,course_id,front,back,source,concept,created) VALUES(?,?,?,?,?,?,?)",
+-                  (kid, cid, question, note, source, case[:80], time.time()))
++    with db() as d:   # multi-user: anyone but the course's owner gets a PRIVATE card (the grader's note is about them)
++        d.execute("INSERT INTO cards(id,course_id,front,back,source,concept,created,user_id) VALUES(?,?,?,?,?,?,?,?)",
++                  (kid, cid, question, note, source, case[:80], time.time(), _miss_owner(cid, uid)))
+     return due
+ 
+ 
+@@ -2208,6 +2282,8 @@ def court_reply(cid: str, r: CourtReplyIn):
+         m = ask_model(pick_model("drill", None), max_tokens=600, system=sys,
+                                      messages=[{"role": "user", "content": usr}])
+         graded = oral.normalise(_model_json(m))
++    except llm.LimitReached:   # a per-user AI cap is the student's 429, not a model failure
++        raise
+     except Exception as e:
+         print("court reply:", type(e).__name__, e)
+         raise HTTPException(502, "The bench did not respond — say that again.")
+@@ -2225,6 +2301,7 @@ class SpeakIn(BaseModel): text: str; voice: Optional[str] = None   # a name from
+ @app.post("/api/speak")
+ def speak(s: SpeakIn):
+     """One spoken line. 204 means 'no server voice configured' — the page then speaks for itself."""
++    if tts.available(): multiuser.meter("speak")   # per-user cap (429) + one ai_calls row; the browser voice is free
+     out = tts.say(s.text, s.voice)
+     if not out: return Response(status_code=204)
+     audio, media = out
+@@ -2266,7 +2343,7 @@ def oral_grade(cid: str, g: OralGradeIn):
+     is normalised before it is acted on: a grader that returns something unexpected must not be able
+     to mark a wrong answer as solid.
+     """
+-    c = rows("SELECT * FROM cards WHERE id=? AND course_id=?", g.card_id, cid)
++    c = rows("SELECT * FROM cards c WHERE id=? AND course_id=? AND " + _VIS, g.card_id, cid, _uid())
+     if not c: raise HTTPException(404)
+     card = dict(c[0])
+     traps = " ; ".join(x for x in (card.get("traps") or "").split("|") if x) or "(none recorded)"
+@@ -2284,6 +2361,8 @@ def oral_grade(cid: str, g: OralGradeIn):
+             print(f"oral grade cache: write={getattr(u, 'cache_creation_input_tokens', 0)} "
+                   f"read={getattr(u, 'cache_read_input_tokens', 0)} in={getattr(u, 'input_tokens', 0)}")
+         graded = _model_json(m)
++    except llm.LimitReached:   # a per-user AI cap is the student's 429, not a model failure
++        raise
+     except Exception as e:
+         print("oral grade:", type(e).__name__, e)
+         raise HTTPException(502, "Could not reach the grader — say that answer again.")
+@@ -2339,6 +2418,8 @@ def speech_grade(s: SpeechGradeIn):
+             print(f"speech grade cache: write={getattr(u, 'cache_creation_input_tokens', 0)} "
+                   f"read={getattr(u, 'cache_read_input_tokens', 0)} in={getattr(u, 'input_tokens', 0)}")
+         return oral.normalise(_model_json(m))
++    except llm.LimitReached:   # a per-user AI cap is the student's 429, not a model failure
++        raise
+     except HTTPException:
+         raise  # a missing key (400) or a non-JSON reply (502) already says what went wrong
+     except Exception as e:
+@@ -2534,6 +2615,8 @@ def essay_grade(cid: str, g: EssayGradeIn):
+             print(f"essay grade cache: write={getattr(u, 'cache_creation_input_tokens', 0)} "
+                   f"read={getattr(u, 'cache_read_input_tokens', 0)} in={getattr(u, 'input_tokens', 0)}")
+         graded = _model_json(m)
++    except llm.LimitReached:   # a per-user AI cap is the student's 429, not a model failure
++        raise
+     except HTTPException:
+         raise  # a non-JSON reply (502) already says what went wrong
+     except Exception as e:
+@@ -2745,6 +2828,10 @@ def case_next(cid: str, n: CaseNextIn):
+     length = casetrainer.length_of(n.length) if (n.length or "").strip() else ""
+     if length: q += " AND length=?"; a.append(length)
+     cases = [dict(r) for r in rows(q + " ORDER BY created", *a)]
++    uid = _uid()   # multi-user (S9): "least recently seen" is THIS user's; the course owner keeps the old per-course mark
++    mine = {r["case_id"]: r["seen"] for r in rows("SELECT case_id, seen FROM case_seen WHERE user_id=?", uid)} if uid else {}
++    edits = (lambda r: bool(r) and (r[0]["user_id"] in (None, uid)))(rows("SELECT user_id FROM courses WHERE id=?", cid))
++    for c in cases: c["seen"] = mine.get(c["id"], c["seen"] if edits else None)
+     by_case = _case_mcqs([c["id"] for c in cases])
+     bank = []
+     for c in cases:
+@@ -2753,7 +2840,9 @@ def case_next(cid: str, n: CaseNextIn):
+     if not bank: return {"case": None, "left": 0}
+     pick = casetrainer.choose(bank)
+     with db() as d:
+-        d.execute("UPDATE case_hypos SET seen=? WHERE id=?", (time.time(), pick["id"]))
++        if edits: d.execute("UPDATE case_hypos SET seen=? WHERE id=?", (time.time(), pick["id"]))
++        if uid: d.execute("INSERT INTO case_seen(user_id,case_id,seen) VALUES(?,?,?) ON CONFLICT (user_id,case_id) "
++                          "DO UPDATE SET seen=EXCLUDED.seen", (uid, pick["id"], time.time()))
+     mcqs = [{"id": m["id"], "ord": m["ord"], "question": m["question"], "options": _opts(m["options"])}
+             for m in pick["mcqs"]]
+     return {"case": {"id": pick["id"], "facts": pick["facts"], "length": pick["length"],
+@@ -2766,30 +2855,27 @@ class CaseAnswerIn(BaseModel):
+     selected_index: int
+ 
+ 
+-# DEFERRED (multi-user, PR #3 note): case/answer, quiz and oral practice are open to every allowed user (shared
+-# content, private per-user schedule). The Phase-11 "what you missed" path here and in _remember_miss creates a
+-# card in the SHARED `cards` table when a non-owner misses — so a classmate's miss can add to the owner's deck. That
+-# is the miss-deck design (one shared deck), not an IDOR: the schedule the card produces is already per-user
+-# (_review stamps user_id). Making miss-cards per-user is its own change (a per-user miss deck), out of scope for
+-# owner-gating; left as-is until multi-user practice is actually turned on.
++# Multi-user (037): case/answer, quiz and oral practice are open to every allowed user (shared content, private
++# per-user schedule). The "what you missed" card this path and _remember_miss create is shared course content only
++# when the course's own owner missed it; anyone else's miss becomes a PRIVATE card (cards.user_id) - see _miss_owner.
+ def _remember_case_answer(cid: str, case_id: str, question: str, right_text: str, concept: str, correct: bool) -> Optional[str]:
+     """"What you missed", through the app's one review path. A missed MCQ becomes a card rated 'Again',
+     so FSRS brings it back on its own; a later correct answer on the same MCQ rates that same card
+     'Good'. Nothing is created for an MCQ answered right the first time — the deck tracks what you
+     MISSED, not every MCQ you ever saw (Phase 11 / CLAUDE.md: no second scheduler). One card per MCQ:
+     `front`+`source` identify it, so replaying a case never leaves duplicates (as _remember_miss does)."""
+-    source = f"case:{case_id}"[:200]
++    source, uid = f"case:{case_id}"[:200], _uid()
+     rating = casetrainer.rating_for(correct)
+-    same = rows("SELECT id FROM cards WHERE course_id=? AND front=? AND source=?", cid, question, source)
++    same = rows("SELECT id FROM cards c WHERE course_id=? AND front=? AND source=? AND " + _VIS, cid, question, source, uid)
+     if same:
+-        return _review(same[0]["id"], rating, _uid())["due"]
++        return _review(same[0]["id"], rating, uid)["due"]
+     if correct:
+         return None   # right, with no card behind it: there is nothing to schedule
+     kid = uuid.uuid4().hex[:10]
+-    with db() as d:
+-        d.execute("INSERT INTO cards(id,course_id,front,back,source,concept,created) VALUES(?,?,?,?,?,?,?)",
+-                  (kid, cid, question, right_text, source, (concept or "")[:80], time.time()))
+-    return _review(kid, rating, _uid())["due"]   # create, then rate — the Phase-11 "creates one, then rates it"
++    with db() as d:   # multi-user: a classmate's miss is a PRIVATE card (037), never a card in the owner's shared deck
++        d.execute("INSERT INTO cards(id,course_id,front,back,source,concept,created,user_id) VALUES(?,?,?,?,?,?,?,?)",
++                  (kid, cid, question, right_text, source, (concept or "")[:80], time.time(), _miss_owner(cid, uid)))
++    return _review(kid, rating, uid)["due"]   # create, then rate — the Phase-11 "creates one, then rates it"
+ 
+ 
+ @app.post("/api/courses/{cid}/case/answer")
+@@ -2894,6 +2980,8 @@ def mock_grade(cid: str, g: MockGradeIn):
+         try:
+             m = ask_model(pick_model("apply", None), max_tokens=2000, system=system, messages=[{"role": "user", "content": usr}])
+             out = {"kind": "mock", **mockexam.valid_grade(_model_json(m))}
++        except llm.LimitReached:   # a per-user AI cap is the student's 429, not a model failure
++            raise
+         except HTTPException:
+             raise
+         except Exception as e:
+@@ -2952,10 +3040,10 @@ def recall_map(cid: str):
+     uid = _uid()
+     for c in rows("SELECT COALESCE(c.week,'') AS week, COUNT(*) AS n, SUM(CASE WHEN cs.due IS NULL OR cs.due<=? THEN 1 ELSE 0 END) AS due "
+                   "FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+-                  "WHERE c.course_id=? GROUP BY COALESCE(c.week,'')", date.today().isoformat(), uid, cid):
++                  "WHERE c.course_id=? AND " + _VIS + " GROUP BY COALESCE(c.week,'')", date.today().isoformat(), uid, cid, uid):
+         x = w(c["week"]); x["cards"] = c["n"]; x["due"] = int(c["due"] or 0); x["ready"] = c["n"] > 0
+     weak = rows("SELECT COUNT(*) AS n FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+-                "WHERE c.course_id=? AND COALESCE(cs.ease,2.5)<?", uid, cid, WEAK_EASE)[0]["n"]
++                "WHERE c.course_id=? AND " + _VIS + " AND COALESCE(cs.ease,2.5)<?", uid, cid, uid, WEAK_EASE)[0]["n"]
+     order = lambda x: (x["week"] == "", int(x["week"]) if x["week"].isdigit() else 999, x["week"])
+     return {"weeks": sorted(weeks.values(), key=order), "weak": weak}
+ 
+@@ -3005,7 +3093,7 @@ def quiz(cid: str, qz: QuizIn):
+         need.append(c)  # missing, stale (back edited since it was cached), or an invalid stored set
+ 
+     if need:  # only the cards without a valid stored set are sent to the model — zero calls when everything hit
+-        others = [c["back"][:200] for c in rows("SELECT id,back FROM cards WHERE course_id=? ORDER BY RANDOM() LIMIT 60", cid) if c["id"] not in ids]
++        others = [c["back"][:200] for c in rows("SELECT id,back FROM cards WHERE course_id=? AND user_id IS NULL ORDER BY RANDOM() LIMIT 60", cid) if c["id"] not in ids]
+         items = "\n".join(f"{i}. Q: {c['front']}\n   A: {c['back']}" for i, c in enumerate(need))
+         prompt = ("Write multiple-choice distractors for a law exam quiz. For each numbered question, give exactly three wrong answers: "
+                   + DISTRACTOR_GUIDANCE + ". Borrow names, articles and rules from the course's other cards where they fit.\n"
+@@ -3047,11 +3135,21 @@ _SENTENCE = re.compile(r"(?<=[.!?;])\s+|\n+")
  _SLIDE = re.compile(r"^--- slide (\d+) ---$", re.M)
  
  def _own_course(cid: str, user: dict) -> dict:
@@ -199,7 +712,7 @@ index 582e28c..76609d2 100644
  def _card_level(c: dict) -> int:
      """1 easy … 3 hard, from the scheduler's own view of the card. FSRS difficulty runs 1–10; SM-2 ease drops on misses."""
      if c.get("difficulty") is not None:
-@@ -3089,7 +3116,7 @@ def lawyer_pack(cid: str, user: dict = Depends(current_user)):
+@@ -3089,11 +3187,11 @@ def lawyer_pack(cid: str, user: dict = Depends(current_user)):
      and a quote from the card's source file. `card_id` rides along so a miss can rate the card Again, as the 2D ladder does.
      """
      import hashlib
@@ -208,7 +721,12 @@ index 582e28c..76609d2 100644
      made = quiz(cid, QuizIn(count=LAWYER_POOL))[:LAWYER_RUNGS]
      cards_by_id = {c["id"]: c for c in rows(
          f"SELECT {_CARD_COLS}, {_CS_COLS} FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
-@@ -3137,8 +3164,9 @@ def _docket_for(course: dict) -> list:
+-        "WHERE c.course_id=? AND c.id = ANY(?)", _uid(), cid, [m["id"] for m in made])} if made else {}
++        "WHERE c.course_id=? AND " + _VIS + " AND c.id = ANY(?)", _uid(), cid, _uid(), [m["id"] for m in made])} if made else {}
+     names = {c["source"] for c in cards_by_id.values() if c.get("source")}
+     files = {f["name"]: f["text"] or "" for f in rows("SELECT name,text FROM files WHERE course_id=?", cid) if f["name"] in names}
+     questions = []
+@@ -3137,8 +3235,9 @@ def _docket_for(course: dict) -> list:
  @app.get("/api/courses/{cid}/docket")
  def docket(cid: str, draft: str = "", user: dict = Depends(current_user)):
      """The 3D player's library: the hand-made games for this course, then the ones written from his files that he
@@ -220,7 +738,7 @@ index 582e28c..76609d2 100644
      out = []
      for g in _docket_for(course):
          if g.get("mode") == "standalone":
-@@ -3156,8 +3184,9 @@ def docket(cid: str, draft: str = "", user: dict = Depends(current_user)):
+@@ -3156,8 +3255,9 @@ def docket(cid: str, draft: str = "", user: dict = Depends(current_user)):
  
  @app.get("/api/courses/{cid}/docket/{gid}")
  def docket_game(cid: str, gid: str, user: dict = Depends(current_user)):
@@ -232,7 +750,114 @@ index 582e28c..76609d2 100644
      if mine and mine[0]["game"]:
          return Response(content=json.dumps(mine[0]["game"], ensure_ascii=False), media_type="application/json", headers={"Cache-Control": "private, no-cache"})
      g = next((g for g in _docket_for(course) if g["id"] == gid), None)
-@@ -4586,7 +4615,7 @@ def stats(cid: str):
+@@ -3336,7 +3436,7 @@ def _docket_start(cid: str, ids: list):
+                 _docket_write(cid, nxt[0]["id"])
+         finally:
+             with _docket_lock: _docket_writing.discard(cid)
+-    threading.Thread(target=work, daemon=True).start()
++    threading.Thread(target=contextvars.copy_context().run, args=(work,), daemon=True).start()   # per-user cap + log follow the thread
+ 
+ 
+ def docket_autodraft(cid: str):
+@@ -3597,7 +3697,7 @@ def search(cid: str, q: str, limit: int = 20):
+     for m in rows("SELECT id,role,content,created FROM messages WHERE course_id=? AND user_id=? AND content LIKE ? ORDER BY created DESC LIMIT ?", cid, _uid(), like, limit):  # noqa: E501
+         text = re.sub(r"</?speech>", "", m["content"] or "")
+         out.append({"kind": "chat", "id": m["id"], "title": ("You: " if m["role"] == "user" else "Tutor: ") + text[:60].replace("\n", " "), "snippet": snip(text)})
+-    for c in rows("SELECT id,front,back FROM cards WHERE course_id=? AND (front LIKE ? OR back LIKE ?) LIMIT ?", cid, like, like, limit):
++    for c in rows("SELECT id,front,back FROM cards c WHERE course_id=? AND " + _VIS + " AND (front LIKE ? OR back LIKE ?) LIMIT ?", cid, _uid(), like, like, limit):
+         out.append({"kind": "card", "id": c["id"], "title": c["front"], "snippet": snip(c["back"])})
+     exact = {(o["kind"], o["id"]) for o in out}
+     if RETRIEVAL and embed.ready() and len(q) >= 3:
+@@ -3883,6 +3983,7 @@ def transcribe_start(rid: str, lang: str = "en", retry: int = 0):
+     if job and job["status"] != "failed": return _job_view(job)
+     if job and job["attempts"] >= MAX_STT_ATTEMPTS:
+         raise HTTPException(409, f"Transcription failed {job['attempts']} times — last error: {job['error']}")
++    multiuser.meter("transcribe")   # hosted STT: per-user cap (429) + one ai_calls row
+     try: stt.check_ready()
+     except stt.ProviderError as e: raise HTTPException(400, str(e))
+     language = lang if "-" in lang else STT_LANGS.get(lang, "en-GB")
+@@ -4067,6 +4168,7 @@ def note_audio_start(nid: str):
+         raise HTTPException(400, "This note has nothing to read aloud yet.")
+     if not tts.available():
+         raise HTTPException(400, "No server voice is configured — set TTS in the environment (e.g. TTS=edge).")
++    multiuser.meter("note-audio")   # server TTS: per-user cap (429) + one ai_calls row
+     fp, now = _note_fingerprint(n), time.time()
+     job = _audio_job(nid)
+     if job:
+@@ -4083,7 +4185,7 @@ def note_audio_start(nid: str):
+                           (jid, SPOKEN_KIND, nid, "queued", "inline", 1, json.dumps({"fingerprint": fp}), now, now))
+         except pg_errors.UniqueViolation:
+             return _audio_view(nid)   # a second click raced this one: it has the job
+-    threading.Thread(target=_make_note_audio, args=(jid, nid, fp), daemon=True).start()
++    threading.Thread(target=contextvars.copy_context().run, args=(_make_note_audio, jid, nid, fp), daemon=True).start()
+     return _audio_view(nid)
+ 
+ 
+@@ -4359,7 +4461,7 @@ def auto_plan(cid: str, p: PlanIn):
+     by_week = rows("SELECT week, COUNT(*) AS n, string_agg(name, ' | ' ORDER BY name) AS names FROM files WHERE course_id=? GROUP BY week ORDER BY week", cid)
+     notes_ = rows("SELECT title FROM notes WHERE course_id=?", cid)
+     due = rows("SELECT COUNT(*) AS n FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+-               "WHERE c.course_id=? AND (cs.due IS NULL OR cs.due<=?)", uid, cid, date.today().isoformat())[0]["n"]
++               "WHERE c.course_id=? AND " + _VIS + " AND (cs.due IS NULL OR cs.due<=?)", uid, cid, uid, date.today().isoformat())[0]["n"]
+     existing = rows("SELECT day,topic,minutes,done FROM sessions WHERE course_id=? AND day>=? AND user_id=? ORDER BY day", cid, start, uid)
+     ctx = "\n\n".join(f"=== {f['name']} ===\n{f['text'][:6000]}" for f in planning)
+     state = {"today": start, "days_to_plan": p.days, "minutes_per_day": p.minutes_per_day,
+@@ -4491,11 +4593,11 @@ def _local_today() -> date:
+ def _course_weeks(cid: str, sorted_notes: dict, today: date, uid: str):
+     """The weeks a course has (from notes, files and cards) and how many cards are due in each FOR THIS USER."""
+     weeks = set(sorted_notes["weeks"])
+-    for r in rows("SELECT DISTINCT week FROM files WHERE course_id=? UNION SELECT DISTINCT week FROM cards WHERE course_id=?", cid, cid):
++    for r in rows("SELECT DISTINCT week FROM files WHERE course_id=? UNION SELECT DISTINCT week FROM cards c WHERE course_id=? AND " + _VIS, cid, cid, uid):
+         if str(r["week"] or "").strip().isdigit(): weeks.add(int(r["week"]))
+     due = {}
+     for r in rows("SELECT c.week AS week, COUNT(*) AS n FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+-                  "WHERE c.course_id=? AND (cs.due IS NULL OR cs.due<=?) GROUP BY c.week", uid, cid, today.isoformat()):
++                  "WHERE c.course_id=? AND " + _VIS + " AND (cs.due IS NULL OR cs.due<=?) GROUP BY c.week", uid, cid, uid, today.isoformat()):
+         if str(r["week"] or "").strip().isdigit(): due[int(r["week"])] = r["n"]
+     return sorted(weeks), due
+ 
+@@ -4507,14 +4609,15 @@ def due_counts():
+     return {r["course_id"]: r["n"] for r in rows(
+         "SELECT c.course_id AS course_id, COUNT(*) AS n FROM cards c "
+         "LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+-        "WHERE cs.due IS NULL OR cs.due<=? GROUP BY c.course_id", _uid(), today)}
++        "WHERE (cs.due IS NULL OR cs.due<=?) AND " + _VIS + " AND " + multiuser.SEE_COURSE_SQL + " GROUP BY c.course_id",
++        _uid(), today, _uid(), _uid(), auth.owner_email())}
+ 
+ @app.get("/api/today")
+ def today_plan(user: dict = Depends(current_user)):
+     """The home screen: who he is, and for each course the days to its exam, today's share of three hours,
+     the week to focus on and the tasks. Computed on request from the exam dates, notes and cards."""
+     today = _local_today()
+-    cs = rows("SELECT id,name,exam_date FROM courses ORDER BY name")
++    cs = rows("SELECT id,name,exam_date FROM courses WHERE " + multiuser.COURSE_ROW_SQL + " ORDER BY name", user["id"], auth.owner_email())
+     exams = {}
+     for c in cs:
+         try: exams[c["id"]] = date.fromisoformat(str(c["exam_date"])[:10]) if c["exam_date"] else None
+@@ -4529,7 +4632,7 @@ def today_plan(user: dict = Depends(current_user)):
+         minutes = round(countdown.DAILY_MINUTES * share.get(c["id"], 0))
+         week = countdown.focus_week(today, weeks, due)
+         total_due = rows("SELECT COUNT(*) AS n FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+-                         "WHERE c.course_id=? AND (cs.due IS NULL OR cs.due<=?)", user["id"], c["id"], today.isoformat())[0]["n"]
++                         "WHERE c.course_id=? AND " + _VIS + " AND (cs.due IS NULL OR cs.due<=?)", user["id"], c["id"], user["id"], today.isoformat())[0]["n"]
+         focus_notes = [{"id": n["id"], "title": n["title"]} for n in ns["weeks"].get(week, [])] if week else []
+         out.append({"id": c["id"], "name": c["name"], "exam_date": exams[c["id"]].isoformat() if exams[c["id"]] else None,
+                     "days_left": (exams[c["id"]] - today).days if exams[c["id"]] else None,
+@@ -4575,18 +4678,18 @@ def weak_topics(cid: str):
+ def stats(cid: str):
+     day0 = date.today(); today = day0.isoformat(); uid = _uid()
+     with db() as d:
+-        total    = d.execute("SELECT COUNT(*) AS n FROM cards WHERE course_id=?", (cid,)).fetchone()["n"]
++        total    = d.execute("SELECT COUNT(*) AS n FROM cards c WHERE course_id=? AND " + _VIS, (cid, uid)).fetchone()["n"]
+         due      = d.execute("SELECT COUNT(*) AS n FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+-                             "WHERE c.course_id=? AND (cs.due IS NULL OR cs.due<=?)", (uid, cid, today)).fetchone()["n"]
++                             "WHERE c.course_id=? AND " + _VIS + " AND (cs.due IS NULL OR cs.due<=?)", (uid, cid, uid, today)).fetchone()["n"]
+         retained = d.execute("SELECT COUNT(*) AS n FROM cards c LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? "
+-                             "WHERE c.course_id=? AND cs.interval>=6", (uid, cid)).fetchone()["n"]
++                             "WHERE c.course_id=? AND " + _VIS + " AND cs.interval>=6", (uid, cid, uid)).fetchone()["n"]
+         reviews  = d.execute("SELECT r.rating,r.created FROM reviews r JOIN cards c ON c.id=r.card_id WHERE c.course_id=? AND r.user_id=?", (cid, uid)).fetchall()
+         files_n  = d.execute("SELECT COUNT(*) AS n, COALESCE(SUM(chars),0) AS total_chars FROM files WHERE course_id=?", (cid,)).fetchone()
+         minutes  = d.execute("SELECT COALESCE(SUM(minutes),0) AS n FROM sessions WHERE course_id=? AND user_id=? AND done=1", (cid, uid)).fetchone()["n"]
          msgs     = d.execute("SELECT COUNT(*) AS n FROM messages WHERE course_id=? AND user_id=? AND role='user'", (cid, uid)).fetchone()["n"]
          streak, frozen = streak_days({date.fromtimestamp(r["created"]).isoformat() for r in reviews}, day0)
          for iso in frozen:   # the ledger: the missed days this streak was kept alive across, recorded once each
@@ -242,28 +867,24 @@ index 582e28c..76609d2 100644
      return {"cards": total, "due": due, "retained": retained, "reviews": len(reviews), "recall_accuracy": acc,
              "streak": streak, "streak_frozen": frozen,
 diff --git a/tests/test_arena3d.py b/tests/test_arena3d.py
-index 2b02110..b2b8d67 100644
+index 2b02110..1ad2546 100644
 --- a/tests/test_arena3d.py
 +++ b/tests/test_arena3d.py
-@@ -125,14 +125,18 @@ def test_lawyer_pack_without_cards_makes_no_model_call(client, fake):
-     assert pack["questions"] == [] and pack["course"] == "Property Law"
+@@ -126,6 +126,9 @@ def test_lawyer_pack_without_cards_makes_no_model_call(client, fake):
  
  
--def test_lawyer_pack_other_users_course_is_404(client, fake, pg):
-+def test_lawyer_pack_other_users_course_is_readable_unknown_is_404(client, fake, pg):
-+    """Multi-user (#178 + protected-changes.patch): course content is read-shared, so a classmate can open the 3D
-+    show and the games on someone else's course; an unknown course is still 404."""
+ def test_lawyer_pack_other_users_course_is_404(client, fake, pg):
++    """Multi-user (protected-changes.patch): a course a STUDENT created is private to that student, so even the app
++    owner gets 404 on its 3D show and games. (A classmate opening the OWNER's games is covered in
++    tests/test_multiuser_isolation.py.) An unknown course is 404 too."""
      fake()
      other = uuid.uuid4().hex
      pg.execute("INSERT INTO users(id,email,name,created) VALUES(%s,'someone@example.com','',%s)", (other, time.time()))
-     pg.execute("INSERT INTO courses(id,name,accent,tutor_prompt,created,user_id) VALUES('theirs','Their course','#000','',%s,%s)", (time.time(), other))
+@@ -133,6 +136,7 @@ def test_lawyer_pack_other_users_course_is_404(client, fake, pg):
      pg.execute("INSERT INTO cards(id,course_id,front,back,due,created) VALUES('tc1','theirs','Q','A','2020-01-01',%s)", (time.time(),)); pg.commit()
--    assert client.get("/api/courses/theirs/lawyer-pack").status_code == 404
--    assert client.get("/api/courses/theirs/docket").status_code == 404
-+    assert client.get("/api/courses/theirs/docket").status_code == 200
-+    pg.execute("DELETE FROM cards WHERE id='tc1'"); pg.commit()   # no cards -> no distractor model call under `fake`
-+    assert client.get("/api/courses/theirs/lawyer-pack").status_code == 200
-+    assert client.get("/api/courses/theirs/docket-drafts").status_code == 404   # authoring stays owner-only
+     assert client.get("/api/courses/theirs/lawyer-pack").status_code == 404
+     assert client.get("/api/courses/theirs/docket").status_code == 404
++    assert client.get("/api/courses/theirs/docket-drafts").status_code == 404
      assert client.get("/api/courses/nope/lawyer-pack").status_code == 404
      mine = client.post("/api/courses", json={"name": "Mine"}).json()["id"]  # owned by the signed-in user
      assert client.get(f"/api/courses/{mine}/lawyer-pack").status_code == 200

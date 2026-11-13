@@ -94,6 +94,8 @@ def call(task, **kw):
     global _tripped
     if not allows(task):
         return None
+    import llm
+    llm.check_guards()   # the bulk-card lane is capped per user too; outside the try so a refusal is not a fall-back
     import anthropic
     try:
         client = anthropic.Anthropic(base_url=os.environ.get("CF_GATEWAY_BASE", DEFAULT_BASE), auth_token=os.environ[_key_name()], max_retries=1, timeout=120)

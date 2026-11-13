@@ -35,8 +35,13 @@ def mu(client, monkeypatch):
         llm.GUARDS.remove(multiuser.cap_guard)
 
 
-def _act_as(monkeypatch, email):
+def _act_as(monkeypatch, email, ack=True):
+    """Switch the acting user. A non-owner also acknowledges the privacy notice (the patched app refuses every other
+    /api route with 428 until they have), unless ack=False."""
     monkeypatch.setenv("ALLOWED_EMAILS", f"{email},{A}" if email != A else A)
+    if ack and email != A:
+        from fastapi.testclient import TestClient
+        assert TestClient(run.app).put("/api/me/privacy", json={"privacy_ack": True}).status_code == 200
 
 
 def _uid_of(pg, email):
@@ -272,14 +277,14 @@ def test_a_capped_student_gets_429(mu, pg, monkeypatch):
     ub = _uid_of(pg, B)
     monkeypatch.setenv("CF_USER_DAILY_CALLS", "1")
     _spend(pg, ub, 1, None)
-    from fastapi import HTTPException
     tok = run._CALL.set({"email": B, "user_id": ub, "path": "/api/x"})
     try:
-        with pytest.raises(HTTPException) as e:
+        with pytest.raises(llm.LimitReached):   # passes through the broad handlers that re-raise it...
             run.client()
-        assert e.value.status_code == 429
     finally:
         run._CALL.reset(tok)
+    r = client.post("/api/speech", json={"question": "Q?", "answer": "A."})   # ...and is a 429 at the edge
+    assert r.status_code == 429 and "limit" in r.json()["detail"].lower()
 
 
 @needs_patch
@@ -295,3 +300,306 @@ def test_streak_freeze_ledger_is_per_user(mu, pg, monkeypatch):
     pg.execute("INSERT INTO streak_freezes(course_id,user_id,day,created) VALUES(%s,%s,'2026-01-01',%s)", (cid, ub, time.time()))
     pg.commit()   # same course + day, different user: allowed now
     assert pg.execute("SELECT COUNT(*) FROM streak_freezes WHERE course_id=%s", (cid,)).fetchone()[0] == 2
+
+
+# ---------------------------------------------------------------- 2026-11-14 fixes (all need the protected patch)
+import json
+import threading
+from unittest import mock
+
+C = "third@example.com"
+CANARY = "CANARY-grader-note-about-B-7f3a"
+
+
+def _bench(payload):
+    msg = mock.MagicMock()
+    msg.content = [mock.MagicMock(type="text", text=json.dumps(payload))]
+    msg.usage = None
+    fake = mock.MagicMock()
+    fake.messages.create.return_value = msg
+    return fake
+
+
+def _fill(path, ids):
+    import re as _re
+    return _re.sub(r"\{([a-z_]+)\}", lambda m: ids.get(m.group(1), "nope"), path)
+
+
+def _sweep(client, ids):
+    """GET every parameterless-or-fillable GET route as the current user; return the concatenated bodies."""
+    from starlette.routing import Route
+    seen = []
+    quiet = _bench([])
+    with mock.patch.object(run, "client", return_value=quiet):
+        for r in run.app.routes:
+            if not isinstance(r, Route) or "GET" not in (r.methods or ()) or not r.path.startswith("/api/"):
+                continue
+            if any(x in r.path for x in ("/raw", "/audio/file", "/audio", "/export")):
+                continue   # binary/stream bodies; export is covered by its own test
+            try:
+                resp = client.get(_fill(r.path, ids))
+                seen.append(resp.text)
+            except Exception:   # noqa: BLE001 - a route that cannot run here proves nothing either way
+                continue
+    return "\n".join(seen)
+
+
+@needs_patch
+def test_bs_missed_bench_note_is_bs_private_card_never_in_as_deck(mu, pg, monkeypatch):
+    """LEAK (1): B's missed bench question used to add a card with the grader's note on B's answer to A's SHARED deck."""
+    client = mu
+    cid, kid, _ = _setup_a(client, pg)
+    before = len(client.get(f"/api/courses/{cid}/cards").json())
+    _act_as(monkeypatch, B)
+    with mock.patch.object(run, "client", return_value=_bench(
+            {"mastery": "missed", "verdict": "No", "spoken": "Not yet.", "note": CANARY})):
+        r = client.post(f"/api/courses/{cid}/court/reply", json={"case": "Dassonville", "question": "Q-court?", "answer": "x"})
+    assert r.status_code == 200, r.text
+    ub = _uid_of(pg, B)
+    row = pg.execute("SELECT id, user_id FROM cards WHERE back=%s", (CANARY,)).fetchone()
+    assert row and row[1] == ub                                           # a PRIVATE card, B's
+    assert CANARY in client.get(f"/api/courses/{cid}/cards").text         # B practises it
+    assert client.get(f"/api/courses/{cid}/stats").json()["cards"] == before + 1
+
+    _act_as(monkeypatch, A)
+    assert len(client.get(f"/api/courses/{cid}/cards").json()) == before  # A's deck did not grow
+    assert client.get(f"/api/courses/{cid}/usage").json()["cards"] == before
+    assert client.put(f"/api/cards/{row[0]}", json={"front": "x"}).status_code == 404
+    body = _sweep(client, {"cid": cid, "kid": row[0], "nid": "nope"})
+    assert CANARY not in body                                             # nowhere A can read
+    assert CANARY not in json.dumps(client.get("/api/me/export").json())
+
+    _act_as(monkeypatch, C)
+    assert CANARY not in _sweep(client, {"cid": cid, "kid": row[0]})      # nor a third student
+
+    _act_as(monkeypatch, B)
+    assert client.post("/api/me/delete", json={"confirm": B}).status_code == 200
+    assert pg.execute("SELECT COUNT(*) FROM cards WHERE back=%s", (CANARY,)).fetchone()[0] == 0   # erased with B
+
+
+@needs_patch
+def test_bs_missed_case_mcq_is_private_and_dedupes_per_user(mu, pg, monkeypatch):
+    client = mu
+    cid, _, _ = _setup_a(client, pg)
+    pg.execute("INSERT INTO case_hypos(id,course_id,week,length,facts,source,thin,created) VALUES('h1',%s,'','short','F',"
+               "'s',0,%s)", (cid, time.time()))
+    pg.execute("INSERT INTO case_hypo_mcqs(id,case_id,course_id,ord,question,options,correct_index,explanation,concept,created) "
+               "VALUES('m1','h1',%s,0,'Which?','[\"a\",\"b\"]'::jsonb,0,'because','c',%s)", (cid, time.time()))
+    pg.commit()
+    a_before = len(client.get(f"/api/courses/{cid}/cards").json())
+    _act_as(monkeypatch, B)
+    for _ in range(2):
+        assert client.post(f"/api/courses/{cid}/case/answer", json={"qid": "m1", "selected_index": 1}).status_code == 200
+    ub = _uid_of(pg, B)
+    assert pg.execute("SELECT COUNT(*) FROM cards WHERE source='case:h1' AND user_id=%s", (ub,)).fetchone()[0] == 1
+    _act_as(monkeypatch, A)
+    assert len(client.get(f"/api/courses/{cid}/cards").json()) == a_before
+    client.post(f"/api/courses/{cid}/case/answer", json={"qid": "m1", "selected_index": 1})   # A's own miss: shared
+    assert pg.execute("SELECT COUNT(*) FROM cards WHERE source='case:h1' AND user_id IS NULL").fetchone()[0] == 1
+
+
+@needs_patch
+def test_case_rotation_is_per_user(mu, pg, monkeypatch):
+    client = mu
+    cid, _, _ = _setup_a(client, pg)
+    for i, h in enumerate(("h1", "h2")):
+        pg.execute("INSERT INTO case_hypos(id,course_id,week,length,facts,source,thin,created) VALUES(%s,%s,'','short','F',"
+                   "'s',0,%s)", (h, cid, time.time() + i))
+        pg.execute("INSERT INTO case_hypo_mcqs(id,case_id,course_id,ord,question,options,correct_index,explanation,concept,created) "
+                   "VALUES(%s,%s,%s,0,'Which?','[\"a\",\"b\"]'::jsonb,0,'because','c',%s)", ("m" + h, h, cid, time.time()))
+    pg.commit()
+    first = client.post(f"/api/courses/{cid}/case/next", json={}).json()["case"]["id"]
+    _act_as(monkeypatch, B)
+    assert client.post(f"/api/courses/{cid}/case/next", json={}).json()["case"]["id"] == first   # A's practice is not B's
+
+
+@needs_patch
+def test_delete_then_sign_in_again_is_capped_and_logged_to_the_new_id(mu, pg, monkeypatch):
+    """LEAK (2): the email->id cache kept the erased id, so the re-created account was never capped."""
+    client = mu
+    _act_as(monkeypatch, B)
+    old = _uid_of(pg, B)
+    tok = run._CALL.set({"email": B, "user_id": None, "path": "/api/x"})   # what call_context sets under a session
+    try:
+        llm._emit({"task": "chat", "provider": "t", "model": "m", "in": 1, "out": 1, "cost": None})
+    finally:
+        run._CALL.reset(tok)
+    assert client.post("/api/me/delete", json={"confirm": B}).status_code == 200
+    _act_as(monkeypatch, B)                                               # signs in again: a fresh account
+    new = _uid_of(pg, B)
+    assert new and new != old
+    monkeypatch.setenv("CF_USER_DAILY_CALLS", "1")
+    tok = run._CALL.set({"email": B, "user_id": None, "path": "/api/x"})
+    try:
+        llm._emit({"task": "chat", "provider": "t", "model": "m", "in": 1, "out": 1, "cost": None})
+    finally:
+        run._CALL.reset(tok)
+    assert pg.execute("SELECT COUNT(*) FROM ai_calls WHERE user_id=%s", (new,)).fetchone()[0] == 1
+    assert client.post("/api/speech", json={"question": "Q?", "answer": "A."}).status_code == 429
+
+
+@needs_patch
+def test_privacy_ack_is_enforced_before_first_use(mu, pg, monkeypatch):
+    client = mu
+    cid, _, _ = _setup_a(client, pg)
+    _act_as(monkeypatch, B, ack=False)
+    assert client.get("/api/me").json()["privacy"]["privacy_ack"] is None
+    r = client.get(f"/api/courses/{cid}/cards")
+    assert r.status_code == 428 and "privacy" in r.json()["detail"]
+    assert client.get("/api/courses").status_code == 428
+    assert client.get("/api/me/export").status_code == 200                # leaving is always possible
+    assert client.put("/api/me/privacy", json={"privacy_ack": True}).status_code == 200
+    assert client.get(f"/api/courses/{cid}/cards").status_code == 200
+    _act_as(monkeypatch, A)
+    assert client.get(f"/api/courses/{cid}/cards").status_code == 200     # the owner is never asked
+
+
+def test_main_ui_links_account_and_privacy_and_gates_on_ack():
+    from pathlib import Path
+    root = Path(run.__file__).parent / "static"
+    html, js = (root / "index.html").read_text(), (root / "app.js").read_text()
+    assert 'href="/static/account.html"' in html and 'href="/static/privacy.html"' in html
+    assert "privacy_ack" in js and "/static/account.html?ack=1" in js
+    acct = (root / "account.html").read_text()
+    assert 'id="ack"' in acct and "privacy_ack: true" in acct
+
+
+@needs_patch
+def test_a_students_own_course_is_private_to_them(mu, pg, monkeypatch):
+    """(7) Files, notes and versions in a course a STUDENT creates are no longer readable by every signed-in user."""
+    client = mu
+    _setup_a(client, pg)
+    _act_as(monkeypatch, B)
+    bcid = client.post("/api/courses", json={"name": "B private"}).json()["id"]
+    nid = client.post(f"/api/courses/{bcid}/notes", json={"title": "B note", "body": "B-SECRET-BODY"}).json()["id"]
+    fid = client.post(f"/api/courses/{bcid}/files", files={"file": ("b.txt", b"B-SECRET-FILE " * 50, "text/plain")}).json()["id"]
+    assert "B-SECRET-BODY" in client.get(f"/api/notes/{nid}").text
+    assert any(c["id"] == bcid and c["mine"] and "user_id" not in c for c in client.get("/api/courses").json())   # S8
+
+    for who in (C, A):
+        _act_as(monkeypatch, who)
+        assert all(c["id"] != bcid for c in client.get("/api/courses").json()), who
+        for path in (f"/api/courses/{bcid}/files", f"/api/courses/{bcid}/notes", f"/api/notes/{nid}",
+                     f"/api/notes/{nid}/versions", f"/api/files/{fid}/text", f"/api/files/{fid}/raw",
+                     f"/api/courses/{bcid}/cards", f"/api/courses/{bcid}/search?q=SECRET"):
+            assert client.get(path).status_code == 404, (who, path)
+        assert bcid not in client.get("/api/due").json()
+        assert all(c["id"] != bcid for c in client.get("/api/today").json().get("courses", []))
+        with pytest.raises(Exception):
+            with client.websocket_connect(f"/api/voice/dialog?course={bcid}") as ws:
+                ws.receive_text()
+
+    _act_as(monkeypatch, B)
+    assert client.get(f"/api/courses/{bcid}/files").status_code == 200
+
+
+@needs_patch
+def test_capture_rows_carry_the_user_and_are_erased_with_them(mu, pg, monkeypatch):
+    """(6) card_gen_samples / card_edits had no user_id, so they survived account deletion and were not exported."""
+    client = mu
+    _setup_a(client, pg)
+    _act_as(monkeypatch, B)
+    client.put("/api/me/privacy", json={"capture_consent": True})
+    ub = _uid_of(pg, B)
+    tok = run._CALL.set({"email": B, "user_id": ub, "path": "/api/x"})
+    try:
+        run._capture_card_sample("gs-b", "c", __import__("types").SimpleNamespace(model="m", usage=None), "file", "1", 1, 1, "src", [{"front": "f", "back": "b"}], False, False)
+        run._capture_card_edit("k", "gs-b", "c", "f", "b", "f2", "b2")
+    finally:
+        run._CALL.reset(tok)
+    assert pg.execute("SELECT user_id FROM card_gen_samples WHERE id='gs-b'").fetchone()[0] == ub
+    assert pg.execute("SELECT COUNT(*) FROM card_edits WHERE user_id=%s", (ub,)).fetchone()[0] == 1
+    exp = client.get("/api/me/export").json()["tables"]
+    assert [r["id"] for r in exp["card_gen_samples"]] == ["gs-b"] and len(exp["card_edits"]) == 1
+    erased = client.post("/api/me/delete", json={"confirm": B}).json()["erased"]
+    assert erased["card_gen_samples"] == 1 and erased["card_edits"] == 1
+    for t in ("card_gen_samples", "card_edits"):
+        assert pg.execute(f"SELECT COUNT(*) FROM {t} WHERE user_id=%s", (ub,)).fetchone()[0] == 0
+
+
+@needs_patch
+def test_bulk_card_and_local_lanes_are_capped(mu, pg, monkeypatch):
+    """(5) gateway.call and llm.local_call never reached client(), so the cheap bulk lane ignored the per-user cap."""
+    import gateway
+    client = mu
+    _act_as(monkeypatch, B)
+    ub = _uid_of(pg, B)
+    monkeypatch.setenv("CF_USER_DAILY_CALLS", "1")
+    _spend(pg, ub, 1, None)
+    monkeypatch.setattr(gateway, "allows", lambda task: True)
+    monkeypatch.setattr(llm, "local_allows", lambda task: True)
+    tok = run._CALL.set({"email": B, "user_id": ub, "path": "/api/x"})
+    try:
+        with pytest.raises(llm.LimitReached):
+            gateway.call("cards", max_tokens=10, messages=[{"role": "user", "content": "x"}])
+        with pytest.raises(llm.LimitReached):
+            llm.local_call("cards", max_tokens=10, messages=[{"role": "user", "content": "x"}])
+        with pytest.raises(llm.LimitReached):
+            run.ask_model(run.CHEAP_MODEL, task="cards", max_tokens=10, messages=[{"role": "user", "content": "x"}])
+    finally:
+        run._CALL.reset(tok)
+
+
+@needs_patch
+def test_background_jobs_keep_the_requesting_user(mu, pg, monkeypatch):
+    """(5) a thread started by a request used to lose the call context: uncapped, and logged with user_id NULL."""
+    client = mu
+    _act_as(monkeypatch, B)
+    bcid = client.post("/api/courses", json={"name": "B course"}).json()["id"]
+    nid = client.post(f"/api/courses/{bcid}/notes", json={"title": "N", "body": "Some text to read aloud."}).json()["id"]
+    got, done = {}, threading.Event()
+    def fake_make(jid, nid_, fp):
+        got.update(run._CALL.get() or {}); done.set()
+    monkeypatch.setattr(run, "_make_note_audio", fake_make)
+    monkeypatch.setattr(run.tts, "available", lambda: True)
+    assert client.post(f"/api/notes/{nid}/audio").status_code == 200
+    assert done.wait(10) and got.get("email") == B
+    assert pg.execute("SELECT COUNT(*) FROM ai_calls WHERE feature='note-audio' AND user_id=%s", (_uid_of(pg, B),)).fetchone()[0] == 1
+
+
+@needs_patch
+def test_server_voice_is_metered_and_capped(mu, pg, monkeypatch):
+    client = mu
+    _act_as(monkeypatch, B)
+    ub = _uid_of(pg, B)
+    monkeypatch.setattr(run.tts, "available", lambda: True)
+    monkeypatch.setattr(run.tts, "say", lambda text, voice=None: (b"ID3", "audio/mpeg"))
+    assert client.post("/api/speak", json={"text": "hello"}).status_code == 200
+    assert pg.execute("SELECT COUNT(*) FROM ai_calls WHERE feature='speak' AND user_id=%s", (ub,)).fetchone()[0] == 1
+    monkeypatch.setenv("CF_USER_DAILY_CALLS", "1")
+    assert client.post("/api/speak", json={"text": "hello"}).status_code == 429
+    with pytest.raises(Exception):   # the voice socket closes before accepting (4429)
+        with client.websocket_connect("/api/voice/dialog") as ws:
+            ws.receive_text()
+    _act_as(monkeypatch, A)
+    assert client.post("/api/speak", json={"text": "hello"}).status_code == 200   # the owner is never capped
+
+
+@needs_patch
+def test_erase_drops_the_invite_and_the_owner_can_erase_an_account(mu, pg, monkeypatch):
+    client = mu
+    _setup_a(client, pg)
+    client.post("/api/admin/invites", json={"email": B})
+    _act_as(monkeypatch, B)
+    ub = _uid_of(pg, B)
+    _act_as(monkeypatch, A)
+    assert client.post(f"/api/admin/users/{ub}/delete", json={"confirm": "wrong@x.com"}).status_code == 422
+    assert client.post(f"/api/admin/users/{_uid_of(pg, A)}/delete", json={"confirm": A}).status_code == 403
+    r = client.post(f"/api/admin/users/{ub}/delete", json={"confirm": B})
+    assert r.status_code == 200 and r.json()["erased"]["invites"] == 1
+    assert pg.execute("SELECT COUNT(*) FROM invites WHERE email=%s", (B,)).fetchone()[0] == 0   # S11
+    assert pg.execute("SELECT COUNT(*) FROM users WHERE id=%s", (ub,)).fetchone()[0] == 0
+    _act_as(monkeypatch, B, ack=False)
+    assert client.post(f"/api/admin/users/{_uid_of(pg, A)}/delete", json={"confirm": A}).status_code in (403, 428)
+
+
+def test_invite_lookup_does_not_retry_every_request_during_an_outage(monkeypatch):
+    """C1: a DB outage used to re-query on every request (auth checks admission on every request)."""
+    calls = []
+    def broken():
+        calls.append(1); raise RuntimeError("db down")
+    multiuser._INVITED.update(at=0.0, emails=frozenset({"kept@example.com"}))
+    assert multiuser.invited_emails(broken) == frozenset({"kept@example.com"})
+    assert multiuser.invited_emails(broken) == frozenset({"kept@example.com"})
+    assert len(calls) == 1
+    multiuser._INVITED.update(at=0.0, emails=frozenset())
