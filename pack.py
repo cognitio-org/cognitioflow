@@ -471,25 +471,24 @@ def _from_notes(cases: list, bodies: dict) -> list:
         cite, name = str(c.get("cite") or "").strip(), str(c.get("name") or "").strip()
         c = dict(c)
         if cite and name and len(cite) <= 16:
+            hit = None                         # the first mention whose own tail carries the number
             for note in c.get("notes") or []:
-                body = bodies.get(note.get("id")) or ""
-                m = re.search(r"(?i)(?<![\w])\*?" + re.escape(name) + r"\*?", body)
-                if not m: continue
-                tail = body[m.end():m.end() + 90].split("\n", 1)[0]
-                tail = tail[:tail.find(")") + 1] if ")" in tail else tail      # this case's bracket, not the next one's
-                at = re.search(r"(?<![\w/-])" + re.escape(cite) + r"(?![\d/])", tail)
-                if not at: continue
+                for m in re.finditer(r"(?i)(?<![\w])\*?" + re.escape(name) + r"\*?", bodies.get(note.get("id")) or ""):
+                    tail = m.string[m.end():m.end() + 90].split("\n", 1)[0]
+                    tail = re.split(r"[*;]", tail, maxsplit=1)[0]                # up to the next case named
+                    tail = tail[:tail.find(")") + 1] if ")" in tail else tail      # this case's bracket, not the next one's
+                    at = re.search(r"(?<![\w/-])" + re.escape(cite) + r"(?![\d/])", tail)
+                    if at: hit = (tail, at); break
+                if hit: break
+            if hit:
+                tail, at = hit
                 other = next((o for o in _OTHER_NUMBER.finditer(tail) if o.end() == at.end()), None)
                 if other and not re.match(r"[CTF]-", cite):
                     c["cite"], c["year"] = other.group(0).strip(), None      # another court's number, verbatim; no year off it
-                    y = _explicit_year(tail[at.end():])
-                    if y: c["written_year"] = y                              # ...but a date the note writes stands
-                    break
-                if re.match(r"\s+P\b", tail[at.end():]) and not cite.endswith(" P"):
+                elif re.match(r"\s+P\b", tail[at.end():]) and not cite.endswith(" P"):
                     c["cite"] = cite + " P"
                 y = _explicit_year(tail[at.end():])
-                if y: c["written_year"] = y
-                break
+                if y: c["written_year"] = y                                  # a year the note writes for this case stands
         out.append(c)
     return out
 

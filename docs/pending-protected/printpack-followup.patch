@@ -1,5 +1,5 @@
 diff --git a/run.py b/run.py
-index 582e28c..1f7dc86 100644
+index 582e28c..c417d25 100644
 --- a/run.py
 +++ b/run.py
 @@ -3617,23 +3617,36 @@ def search(cid: str, q: str, limit: int = 20):
@@ -46,7 +46,7 @@ index 582e28c..1f7dc86 100644
          m = _DOCKET_YEAR.search(t)
          if m:
              yy = int(m.group(1))
-@@ -3684,14 +3697,18 @@ def _cases_in_notes(cid: str):
+@@ -3684,14 +3697,21 @@ def _cases_in_notes(cid: str):
                  row = [c.strip() for c in lines[j].strip().strip("|").split("|")]; j += 1
                  if len(row) != len(head) or not row[ci]: continue
                  cite = row[cc] if cc is not None else ""
@@ -61,18 +61,21 @@ index 582e28c..1f7dc86 100644
 -            add(m.group(1), cite, n, _year_in(cite) or _year_beside(tail))
 +            # a judgment year written in this case's own bracket ('(C-6/90, judgment of 19 November 1991)') beats
 +            # the year in its number
-+            own = tail[:tail.find(")") + 1] if ")" in tail else tail
-+            written = _year_in(own[cm.end():]) if cm else None
++            own = re.split(r"[*;]", tail, maxsplit=1)[0]                    # up to the next case named
++            own = own[:own.find(")") + 1] if ")" in own else own
++            after = own[cm.end():] if cm and cm.end() <= len(own) else ""
++            wm = _ECLI_YEAR.search(after) or _YEAR_BRACKET.search(after) or _YEAR_WRITTEN.search(after)   # written forms only
++            written = int(wm.group(1)) if wm else None
 +            add(m.group(1), cite, n, written or _year_in(cite) or _year_beside(tail))
      # A shorter name that opens a longer one is the same case written in a hurry: "Keck" for
      # "Keck and Mithouard", "Cassis" for "Cassis de Dijon". Merge into the fuller name.
      keys = sorted(found, key=len)
 diff --git a/tests/test_case_index_years.py b/tests/test_case_index_years.py
 new file mode 100644
-index 0000000..91d95e9
+index 0000000..9862321
 --- /dev/null
 +++ b/tests/test_case_index_years.py
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,42 @@
 +"""The Progress screen's case index (run.py) reads a judgment year the notes write and never reads one off an
 +Opinion's, an ECtHR or another court's number (printpack follow-up, wave 3; ships with the run.py patch)."""
 +import run
@@ -105,3 +108,13 @@ index 0000000..91d95e9
 +    got = {c["name"]: (c["cite"], c["year"]) for c in client.get(f"/api/courses/{cid}/cases").json()}
 +    assert got["Francovich"][1] == 1991 and got["Solange II"][1] is None
 +    assert got["Lisbon"] == ("2 BvE 2/08", None) and got["Brasserie"][1] == 1996
++
++
++def test_a_year_is_never_borrowed_from_the_next_case_in_the_sentence(client, pg):
++    cid = client.post("/api/courses", json={"name": "Index Borrow"}).json()["id"]
++    client.post(f"/api/courses/{cid}/notes", json={"title": "Week 1", "body":
++        "*Van Gend en Loos*, Case 26/62, and *Costa v ENEL*, Case 6/64, on the new legal order. "
++        "*Dassonville* 8/74 and *Cassis de Dijon* 120/78 (1979) on goods."})
++    got = {c["name"]: c["year"] for c in client.get(f"/api/courses/{cid}/cases").json()}
++    assert got["Van Gend en Loos"] == 1962 and got["Costa v ENEL"] == 1964
++    assert got["Dassonville"] == 1974 and got["Cassis de Dijon"] == 1979

@@ -351,3 +351,14 @@ def test_years_and_other_courts_numbers_survive_the_real_route(client, pg):
     assert got["Kadi"] == ("Case C-402/05 P", 2005, True)
     assert got["Brasserie"] == ("Case C-46/93", 1996, False)
     assert t["cases_heading"] == "Leading cases, oldest first" and [c["name"] for c in t["cases"]][-2:] == ["Lisbon", "Solange II"]
+
+
+def test_the_note_is_read_at_the_mention_that_carries_the_number_and_only_up_to_the_next_case():
+    w = {"id": "w1", "title": "Week 1 — Supremacy", "body": "> **In one glance** (*Lisbon*) and the Treaty of Lisbon.\n\n"
+         "## Identity\n*Lisbon* (2 BvE 2/08) on identity.\n\n*Dassonville* 8/74 and *Cassis de Dijon* 120/78 (1979) on goods."}
+    t = pack.build({1: [w]}, [], [_n("Lisbon", "2/08", 2008, "w1"), _n("Dassonville", "8/74", 1974, "w1"),
+                                  _n("Cassis de Dijon", "120/78", 1979, "w1")])["topics"][0]
+    got = {c["name"]: (c["cite"], c["year"], c["numbered"]) for c in t["cases"]}
+    assert got["Lisbon"] == ("2 BvE 2/08", None, False)                 # not the first mention, the one with the number
+    assert got["Dassonville"] == ("Case 8/74", 1974, True)              # Cassis's (1979) is not Dassonville's year
+    assert got["Cassis de Dijon"][1:] == (1979, False)
