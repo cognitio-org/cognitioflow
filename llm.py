@@ -22,7 +22,8 @@ PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic").strip().lower()
 PROVIDERS = ("anthropic", "openrouter", "gateway", "kernal")
 
 OPENROUTER_BASE = "https://openrouter.ai/api"
-#: `LLM_PROVIDER=kernal` (Phase 19): Matej's own LiteLLM router, OpenAI-compatible at router.kernal.one/v1.
+#: `LLM_PROVIDER=kernal` (Phase 19): a LiteLLM router run by a family member of CF's developer (not by CF; see
+#: docs/privacy-gateway.md, "Who operates Kernal"), OpenAI-compatible at router.kernal.one/v1.
 #: The direct OPENROUTER_KEY is dead; the whole cloud tier routes through Kernal, reusing the Phase-18
 #: OpenAI bridge (non-streaming create + a small SSE reader for the one streaming call). The key is
 #: KERNAL_API_KEY (read from os.environ; .env.local loads it from ~/.config/swarm/kernal_router_key).
@@ -78,7 +79,7 @@ DEFAULT_MAIN = "claude-sonnet-5-5"
 DEFAULT_CHEAP = {"anthropic": "claude-haiku-4-5", "openrouter": "deepseek/deepseek-v4.1-flash",
                  "gateway": GATEWAY_MODEL, "kernal": "gemini-2.5-flash"}
 DEFAULT_MAIN_BY = {"gateway": GATEWAY_MODEL,   # the gateway serves no Claude on this key's budget
-                   "kernal": "claude-sonnet-5"}   # Matej's router does serve Sonnet for the main tier
+                   "kernal": "claude-sonnet-5"}   # the Kernal router does serve Sonnet for the main tier
 
 
 class ConfigError(RuntimeError):

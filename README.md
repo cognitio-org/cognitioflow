@@ -95,7 +95,7 @@ automatically.
 
 | Feature | Route and model |
 |---|---|
-| Tutor chat (drill, explain, apply), grading, reconcile, Case Docket writer and reviewer | Kernal (a third-party LiteLLM router, `router.kernal.one`) → Anthropic API, `claude-sonnet-5` |
+| Tutor chat (drill, explain, apply), grading, reconcile, Case Docket writer and reviewer | Kernal (a LiteLLM router at `router.kernal.one`, operated by a family member of CognitioFlow's developer on that person's own GCP project, not by CognitioFlow) → Anthropic API, `claude-sonnet-5` |
 | Summaries, notes, case extraction, chunked passes (cheap tier) | Kernal → Google Vertex AI `gemini-2.5-flash`, served in **us-central1 (USA)** |
 | Flashcards, concepts, syllabus reading, viva questions (`cards`, `concepts`, `syllabus`, `oral`) | Tried first on the gateway lane: OpenRouter, free model `nvidia/nemotron-3-super-120b-a12b:free` (redacted text, one note or file). That model currently lists no endpoints, so these calls most likely fail and fall back to the cheap tier above (unverified). The lane is being switched off with `CF_GATEWAY=off` (see `docs/privacy-gateway.md`) |
 | Per-message model picker | `claude-sonnet-5`, `gemini-2.5-flash`, `gpt-5-nano` (OpenAI API), all through Kernal |
@@ -107,7 +107,8 @@ automatically.
 | Read aloud | Google Cloud Text-to-Speech, Chirp 3 HD (`TTS=google`) for short replies; longer replies use the browser's voice |
 
 No zero-retention or EU-only guarantee applies to the tutor or the cheap tier today. Anthropic and Vertex do not train
-on API data by default; whether Kernal itself logs prompts is not yet confirmed with its operator.
+on API data by default; whether Kernal itself logs prompts is not yet confirmed with its operator, and no processing agreement with the
+operator is on file.
 
 Tier defaults come from `llm.py` and depend on `LLM_PROVIDER`; set an env var only to override (Cloud Run, or `.env.local`):
 

@@ -1,4 +1,4 @@
-"""The gateway lane: a few named bulk jobs on a cheap model, privacy-first, falling back to Anthropic.
+"""The gateway lane: a few named bulk jobs on a cheap model, falling back to the configured provider.
 
 The tutor never comes here. Only the tasks in CF_GATEWAY_TASKS do (flashcards, concept extraction and
 cards, syllabus reading, viva questions): each sends one note or one file's text and gets a JSON list
@@ -12,7 +12,9 @@ How each GDPR principle is met here (details and open items in docs/privacy-gate
 - Storage limitation, Art. 5(1)(e): every request asks the gateway not to log it ("no-log").
 - Integrity and confidentiality, Art. 5(1)(f) and Art. 32: TLS only; the key lives in Secret Manager.
 - Privacy by design and by default, Art. 25: off unless the key AND a spend ceiling are configured;
-  CF_GATEWAY=off switches it off without a deploy; any failure falls back to Anthropic.
+  CF_GATEWAY=off switches it off without a deploy; any failure returns None and the caller falls back to
+  the configured provider's cheap tier (in production, LLM_PROVIDER=kernal: Vertex gemini-2.5-flash via
+  Kernal, us-central1), not to Anthropic directly.
 - Accountability, Art. 5(2): every call is labelled with its provider and model in the usage record.
 """
 import logging
@@ -22,7 +24,7 @@ import re
 log = logging.getLogger("cognitioflow.gateway")
 
 DEFAULT_BASE = "https://litellm.augment-code.support"
-DEFAULT_MODEL = "gpt-6-luna"
+DEFAULT_MODEL = "gpt-6-luna"   # code default only; production overrides it (CF_GATEWAY_MODEL in deploy.yml)
 DEFAULT_TASKS = "cards,concepts,syllabus,oral"
 KEY_NAME = "LITELLM_API_KEY"   # default; CF_GATEWAY_KEY_ENV names another (e.g. OPENROUTER_KEY)
 

@@ -8,6 +8,25 @@ The record of processing for CognitioFlow's model calls, and in particular for t
 configuration (env names and values, no secret values). Items marked **UNVERIFIED** or **UNKNOWN** have not
 been confirmed and must not be relied on.
 
+**In short (2026-11-13):**
+- **What leaves:** the tutor prompt, the files or passages the student ticks, the conversation, and for bulk
+  jobs one note or file at a time. Embeddings stay inside the container.
+- **To whom:** the Kernal router, which passes it to Anthropic (`claude-sonnet-5`) or Google Vertex AI
+  (`gemini-2.5-flash`); speech goes to Google Cloud under CF's own project.
+- **Which region:** the cheap tier runs in **us-central1 (USA)**; Anthropic is not region-pinned; live dictation and
+  read-aloud use Google's global endpoints; transcription and the spoken tutor run in europe-west4.
+- **Not yet covered:** no processing agreement with the Kernal operator, no recorded transfer basis for the US
+  routes, Kernal's prompt logging unknown, and the OpenRouter free lane still **on** until `CF_GATEWAY=off` is applied.
+- **Being done:** the `CF_GATEWAY=off` change is written and waits for the owner's approval; the open items
+  below list the rest.
+
+### Who operates Kernal
+
+Kernal (`router.kernal.one`) is a LiteLLM router operated by a family member of CognitioFlow's developer on that person's own GCP project, not by CognitioFlow. CognitioFlow has an API key on it and no
+control over its configuration or logs. For this record its operator is treated as a processor (Art. 28) with
+**no processing agreement on file** (open item 2). The cheap tier runs on the operator's GCP project
+(`outfitter-509211`), not CF's.
+
 ## Where data goes today (production)
 
 Production runs `LLM_PROVIDER=kernal`. Every non-streaming call goes: local tier (off in production) →
@@ -15,7 +34,7 @@ gateway lane (bulk tasks only) → Kernal. The tutor's streaming chat goes strai
 
 | Feature | What is sent | Route and model | Region |
 |---|---|---|---|
-| Tutor chat (drill, explain, apply), grading, reconcile, Case Docket writer/reviewer | Tutor prompt, ticked course files or retrieved passages, the conversation, the question | Kernal (third-party LiteLLM router) → Anthropic API, `claude-sonnet-5` | Not pinned (Anthropic default) |
+| Tutor chat (drill, explain, apply), grading, reconcile, Case Docket writer/reviewer | Tutor prompt, ticked course files or retrieved passages, the conversation, the question | Kernal (LiteLLM router, see "Who operates Kernal") → Anthropic API, `claude-sonnet-5` | Not pinned (Anthropic default) |
 | Cheap tier: summaries, notes, case extraction, chunked passes; also the bulk tasks' fallback | Course text, notes, transcripts | Kernal → Google Vertex AI `gemini-2.5-flash` (the router operator's GCP project) | **us-central1 (USA)** |
 | Picker alternatives, only when chosen per message | As the tutor chat | Kernal → `gemini-2.5-flash` (as above) or `gpt-5-nano` (OpenAI API) | Not pinned |
 | Gateway lane: `cards`, `concepts`, `syllabus`, `oral` | One note or file (≤60,000 characters), redacted (below) | **Attempted first** on OpenRouter, `nvidia/nemotron-3-super-120b-a12b:free`; on failure, the cheap tier | Unknown free-tier provider |
@@ -44,7 +63,11 @@ ElevenLabs and Kokoro speech backends exist in code but are not active.
   tier (Vertex `gemini-2.5-flash`, us-central1). The env sits in `.github/workflows/deploy.yml`, a protected
   file, so the change waits as `docs/pending-protected/cf-gateway-off.patch` for the owner's approval. Until
   that patch is applied (or the env is set on the service and the patch merged so a deploy does not revert
-  it), the lane is still **on** in production.
+  it), the lane is still **on** in production, so the honest answer to "is course text still sent to a free-tier
+  provider?" is: it is still attempted. If the patch stops applying (the line it replaces changed first), the
+  equivalent is to append `,CF_GATEWAY=off` to the `--set-env-vars` line by hand, or to run
+  `gcloud run services update <service> --update-env-vars CF_GATEWAY=off` and then also merge the deploy.yml change
+  so the next deploy does not revert it.
 
 ## How each GDPR principle is met
 
