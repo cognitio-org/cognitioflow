@@ -130,8 +130,9 @@ def test_bad_cookies_are_rejected(web, auth_on):
     assert web.get("/api/courses").status_code == 401
 
 
-def test_removing_email_from_allow_list_revokes_session(web, auth_on, monkeypatch):
+def test_removing_email_from_allow_list_revokes_session(web, auth_on, monkeypatch, ack_privacy):
     web.cookies.set("cf_session", _cookie_for(auth_on, "second@example.com"))
+    ack_privacy(web)
     assert web.get("/api/courses").status_code == 200
     monkeypatch.setenv("ALLOWED_EMAILS", "matej@mgms.eu")
     assert web.get("/api/courses").status_code == 401
@@ -228,8 +229,9 @@ def test_auth_off_signs_in_as_matej(client, pg, monkeypatch):
     assert pg.execute("SELECT user_id FROM courses WHERE id=%s", (cid,)).fetchone()[0] == uid
 
 
-def test_new_course_gets_signed_in_user(web, auth_on, pg):
+def test_new_course_gets_signed_in_user(web, auth_on, pg, ack_privacy):
     web.cookies.set("cf_session", _cookie_for(auth_on, "second@example.com"))
+    ack_privacy(web)
     cid = web.post("/api/courses", json={"name": "Contract"}).json()["id"]
     row = pg.execute("SELECT u.email FROM courses c JOIN users u ON u.id=c.user_id WHERE c.id=%s", (cid,)).fetchone()
     assert row == ("second@example.com",)

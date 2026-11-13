@@ -62,8 +62,9 @@ def test_a_key_sets_no_cookie(client, key):
     assert "set-cookie" not in {k.lower() for k in r.headers}
 
 
-def test_only_the_owner_can_make_keys(client, monkeypatch):
+def test_only_the_owner_can_make_keys(client, monkeypatch, ack_privacy):
     monkeypatch.setenv("OWNER_EMAIL", "someone.else@example.com")
+    ack_privacy(client)   # past the privacy gate (428), so the owner check itself is what refuses
     assert client.post("/api/tokens").status_code == 403 and client.get("/api/tokens").status_code == 403
 
 

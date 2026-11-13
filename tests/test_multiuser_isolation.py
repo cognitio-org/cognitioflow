@@ -33,6 +33,9 @@ def mu(client, monkeypatch):
     yield client
     if multiuser.cap_guard in llm.GUARDS:
         llm.GUARDS.remove(multiuser.cap_guard)
+    if not PATCHED:   # unpatched run.py never installs the gate: leave the app as later test files expect it
+        run.app.user_middleware[:] = [m for m in run.app.user_middleware if m.cls is not multiuser.PrivacyGate]
+        run.app.middleware_stack = None
 
 
 def _act_as(monkeypatch, email, ack=True):
@@ -452,6 +455,37 @@ def test_privacy_ack_is_enforced_before_first_use(mu, pg, monkeypatch):
     assert client.get(f"/api/courses/{cid}/cards").status_code == 200
     _act_as(monkeypatch, A)
     assert client.get(f"/api/courses/{cid}/cards").status_code == 200     # the owner is never asked
+
+
+def test_speech_alias_outside_api_is_gated_before_ack(mu, pg, monkeypatch):
+    """POST /speech (the non-/api alias of /api/speech) sends the student's answer to the grader, so it must be
+    refused with 428 before the notice is acknowledged, exactly like /api/speech."""
+    client = mu
+    _setup_a(client, pg)
+    _act_as(monkeypatch, B, ack=False)
+    body = {"question": "What is direct effect?", "answer": "B-SPOKEN-ANSWER"}
+    for path in ("/speech", "/api/speech"):
+        r = client.post(path, json=body)
+        assert r.status_code == 428 and "privacy" in r.json()["detail"], (path, r.status_code)
+    uid = _uid_of(pg, B)
+    assert multiuser.gate_refusal(run.db, {"email": B, "id": uid}, "/speech")[0] == 428
+    assert client.put("/api/me/privacy", json={"privacy_ack": True}).status_code == 200
+    assert multiuser.gate_refusal(run.db, {"email": B, "id": uid}, "/speech") is None
+
+
+def test_every_signed_in_route_outside_api_is_gated_or_known_harmless():
+    """Audit: a route outside /api/ skips the acknowledgement only if it is the app shell, static, sign-in or health.
+    A new non-/api route is gated by default; this list must grow only for paths that do no per-user work."""
+    harmless = {"/", "/sw.js", "/health", "/healthz", "/auth/login", "/auth/callback", "/auth/logout",
+                "/auth/signed-out", "/static", "/play/player", "/play/arcade"}
+    for route in run.app.routes:
+        path = getattr(route, "path", "")
+        if path.startswith("/api/") or path.startswith("/docs") or path.startswith("/openapi") or path.startswith("/redoc"):
+            continue
+        probe = path + "/x" if path in ("/static", "/play/player", "/play/arcade") else path
+        if not multiuser.gated_path(probe):
+            assert path in harmless, f"{path} is signed-in, outside /api/ and skips the privacy gate"
+    assert multiuser.gated_path("/speech") and multiuser.gated_path("/api/courses")
 
 
 def test_main_ui_links_account_and_privacy_and_gates_on_ack():

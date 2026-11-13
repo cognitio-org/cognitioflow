@@ -5,10 +5,28 @@ in as the FIRST ALLOWED_EMAILS address, so monkeypatching that env switches the 
 import time
 import uuid
 
+import pytest
+
+OWNER = "matej@mgms.eu"
+
+
+@pytest.fixture(autouse=True)
+def _pin_owner(monkeypatch):
+    """Pin the owner to A. Without this, owner_email() falls back to the FIRST ALLOWED_EMAILS address, so _act_as
+    would silently make B the owner and A's course a student's private course (404 instead of 403 with the patch)."""
+    monkeypatch.setenv("OWNER_EMAIL", OWNER)
+
 
 def _act_as(monkeypatch, email):
-    """Make `email` the signed-in user for subsequent requests (keep matej allow-listed for A's own setup calls)."""
-    monkeypatch.setenv("ALLOWED_EMAILS", f"{email},matej@mgms.eu")
+    """Make `email` the signed-in user for subsequent requests (keep matej allow-listed for A's own setup calls).
+    B also acknowledges the privacy notice, which the multi-user app requires before any other /api call (428);
+    on an app without the multi-user routes the acknowledgement route does not exist and is skipped."""
+    monkeypatch.setenv("ALLOWED_EMAILS", f"{email},{OWNER}")
+    if email != OWNER:
+        from fastapi.testclient import TestClient
+        import run
+        r = TestClient(run.app).put("/api/me/privacy", json={"privacy_ack": True})
+        assert r.status_code in (200, 404, 405), r.status_code
 
 
 def _owned_course(client):

@@ -59,11 +59,17 @@ def install(app, db, call_ctx: Optional[ContextVar] = None) -> None:
     _STATE["db"], _STATE["call"] = db, call_ctx
     if not getattr(app.state, "multiuser_installed", False):
         app.include_router(router)
-        app.add_exception_handler(llm.LimitReached, _limit_reached)
-        if getattr(app, "middleware_stack", None) is None:
-            from starlette.middleware import Middleware
-            app.user_middleware.append(Middleware(PrivacyGate))
         app.state.multiuser_installed = True
+    rebuild = False
+    if llm.LimitReached not in app.exception_handlers:   # also after a test reloads llm (a new LimitReached class)
+        app.add_exception_handler(llm.LimitReached, _limit_reached)
+        rebuild = True
+    if not any(m.cls is PrivacyGate for m in app.user_middleware):
+        from starlette.middleware import Middleware
+        app.user_middleware.append(Middleware(PrivacyGate))
+        rebuild = True
+    if rebuild and getattr(app, "middleware_stack", None) is not None:
+        app.middleware_stack = None   # already served a request (tests only): Starlette rebuilds it on the next call
     if cap_guard not in llm.GUARDS:
         llm.GUARDS.append(cap_guard)
 
@@ -273,6 +279,18 @@ _SUB = (   # by-id routes -> the course the row belongs to
 ACK_FREE = ("/api/me", "/api/me/privacy", "/api/me/export", "/api/me/delete", "/api/config")
 
 
+# Signed-in paths outside /api/ that do no per-user work, so the acknowledgement gate lets them through: the app
+# shell (it redirects an unacknowledged student to the notice itself), static files, sign-in, health. Every other
+# path is gated, so a new non-/api alias (like POST /speech for /api/speech) cannot slip past the notice.
+UNGATED_EXACT = ("/", "/sw.js", "/health", "/healthz", "/favicon.ico", "/manifest.json", "/robots.txt")
+UNGATED_PREFIX = ("/static/", "/play/", "/auth/")
+
+
+def gated_path(path: str) -> bool:
+    """Does PrivacyGate check this path? Default yes: only the listed shell/static/sign-in/health paths are exempt."""
+    return path not in UNGATED_EXACT and not path.startswith(UNGATED_PREFIX)
+
+
 def course_of_path(db, path: str) -> Optional[str]:
     for rx, sql in _SUB:
         m = rx.match(path)
@@ -323,13 +341,14 @@ def ws_refusal(db, user: dict, course: str) -> Optional[int]:
 
 
 class PrivacyGate:
-    """Innermost ASGI middleware (inside auth): the privacy-ack and private-course checks of gate_refusal for /api/*.
+    """Innermost ASGI middleware (inside auth): the privacy-ack and private-course checks of gate_refusal for /api/*
+    and every other path gated_path() does not exempt.
     The owner skips the acknowledgement; only his requests on a course/by-id path cost a lookup."""
     def __init__(self, app):
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or not scope["path"].startswith("/api/") or _STATE["db"] is None:
+        if scope["type"] != "http" or not gated_path(scope["path"]) or _STATE["db"] is None:
             return await self.app(scope, receive, send)
         user = (scope.get("state") or {}).get("user")
         if user:
@@ -414,10 +433,13 @@ def export_user(db, uid: str) -> dict:
             rs = d.execute(f'SELECT * FROM "{t}" WHERE user_id=?', (uid,)).fetchall()
             out["tables"][t] = [{k: v for k, v in r.items() if k not in _NEVER_EXPORT_COLS} for r in rs]
         owned = [r["id"] for r in out["tables"].get("courses", [])]
+        # Another user's private practice cards (cards.user_id, migration 037) are theirs, not course content. Before
+        # 037 is applied there is no such column and every card is course content.
+        shared = " AND user_id IS NULL" if "cards" in out["tables"] else ""
         out["owned_course_content"] = {
             cid: {"notes": d.execute("SELECT id,title,body,updated FROM notes WHERE course_id=?", (cid,)).fetchall(),
-                  "cards": d.execute("SELECT id,front,back,source,week,created FROM cards WHERE course_id=? AND user_id IS NULL",
-                                     (cid,)).fetchall(),   # another user's private practice cards are theirs, not course content
+                  "cards": d.execute("SELECT id,front,back,source,week,created FROM cards WHERE course_id=?" + shared,
+                                     (cid,)).fetchall(),
                   "files": d.execute("SELECT id,name,chars FROM files WHERE course_id=?", (cid,)).fetchall()}
             for cid in owned}
     return out
