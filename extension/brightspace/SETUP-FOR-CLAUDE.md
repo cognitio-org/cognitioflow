@@ -45,8 +45,8 @@ All tests should pass. Report any failure verbatim.
 1. Open Brightspace in one tab and CognitioFlow in another, both signed in (I sign in, not you).
 2. Extension → **Options** (or `chrome://extensions` → Details → Extension options).
 3. **CognitioFlow address**: `https://app.cognitioflow.ai`
-4. Click **Grant** and accept the host permission prompt. Without it, uploads fail.
-5. Click **Detect** — it reads my enrolled courses from the Brightspace tab and my course list from the
+4. Click **Allow access to that address** and accept the host permission prompt. Without it, uploads fail.
+5. Click **Read from open tabs** — it reads my enrolled courses from the Brightspace tab and my course list from the
    CognitioFlow tab, so nothing has to be typed twice.
 6. Pair each Brightspace course with the matching CognitioFlow course (`eu` = European Law,
    `prop` = Property Law). A course with no pairing is skipped with an error at upload time.
