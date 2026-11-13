@@ -536,7 +536,7 @@ const drop=$('#drop'); ['dragenter','dragover'].forEach(ev=>drop.addEventListene
 const cfTok=chars=>chars<4000?'under 1k':'≈ '+Math.round(chars/4000)+'k';
 /* What the dots in the Reading strip mean: the course's preferred kinds of file first. */
 function cfLegend(n){ let lg=$('#ctxLegend'); if(!lg){ lg=document.createElement('div'); lg.id='ctxLegend'; lg.className='small muted ctxlegend'; $('#ctxList').after(lg) }
-  lg.hidden=!n; lg.innerHTML='<span class="authdot a1" aria-hidden="true"></span> preferred kind of file <span class="authdot a2" aria-hidden="true"></span><span class="authdot a3" aria-hidden="true"></span> next <span class="authdot a4" aria-hidden="true"></span> later — the kind of material, not legal authority';
+  lg.hidden=!n; lg.innerHTML='<span>Dots:</span>'+[['a1','preferred'],['a3','next'],['a4','later']].map(([c,t])=>`<span class="lgi"><span class="authdot ${c}" aria-hidden="true"></span>${t}</span>`).join('')+'<span>kind of file, not legal weight</span>';
   lg.title='Dots follow this course\'s source-type order (Course settings → authority order). They rank the kind of file, not the legal weight of what it cites.'; }
 /* Save as note, under live answers and reloaded ones alike. */
 function cfSaveBtn(act,raw,q){ const sv=document.createElement('button'); sv.className='btn small ghost'; sv.textContent='Save as note';
@@ -730,10 +730,12 @@ function cfExcerpt(text,term){ text=String(text||''); let m=cfTermRe(term).exec(
    meaning match: with RETRIEVAL=on /search adds files that are only about the same topic), and only when the
    file's own text names the term. Case numbers and ECLIs are read from that passage, never from the tutor's
    sentence, so an invented C-999/97 is never printed under a real file. Pure, so a test can run it. */
+/* The file the tutor's tag names comes first. The tag carries the upload name, the strip may show a label. */
+const cfHinted=(h,hint)=>hint&&[h.title,h.name].some(t=>t&&(t.includes(hint)||hint.includes(String(t).replace(/\.\w+$/,''))))?1:0;
 function cfSourceItems(hits,ids,texts,term,hint){
   return hits.filter(h=>h.kind==='file'&&ids.has(h.id)&&h.match!=='meaning')
     .map(h=>({h,ex:cfExcerpt(texts[h.id],term)})).filter(x=>x.ex)
-    .sort((x,y)=>(hint&&y.h.title.includes(hint)?1:0)-(hint&&x.h.title.includes(hint)?1:0)).slice(0,2)
+    .sort((x,y)=>cfHinted(y.h,hint)-cfHinted(x.h,hint)).slice(0,2)
     .map(x=>({h:x.h,ex:x.ex,cites:cfCites(x.ex.pre+x.ex.hit+x.ex.post)})); }
 /* The terms one line is looked up by: its case numbers and ECLIs, its italic names, its articles. */
 function cfLineTerms(line,italics){ return [...new Set([...cfCites(line),...(italics||[]).map(t=>t.trim()).filter(t=>t.length>2&&t.length<60),...(line.match(CF_ART)||[]).map(s=>s.trim())])].slice(0,8); }
@@ -745,7 +747,7 @@ const cfReportable=t=>cfCites(t).length>0||(t.match(CF_ART)||[]).length>0||/\S\s
    Now: missed = citations and names no ticked file names, said first; shown = up to three passages, each with the
    terms it is for (two numbers in one passage are one item); also = found, but past the three. Pure, for the tests. */
 function cfPanelPlan(terms,files,texts,hint){ const ids=new Set(files.map(f=>f.id));
-  const hits=files.map(f=>({kind:'file',id:f.id,title:f.label||f.name,week:f.week||''}));
+  const hits=files.map(f=>({kind:'file',id:f.id,title:f.label||f.name,name:f.name,week:f.week||''}));
   const missed=[], shown=[], also=[];
   for(const t of terms){ const items=cfSourceItems(hits,ids,texts,t,hint);
     if(!items.length){ if(cfReportable(t)) missed.push(t); continue }

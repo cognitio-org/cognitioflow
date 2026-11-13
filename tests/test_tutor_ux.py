@@ -86,7 +86,7 @@ def _decl(name):
     return m.group(0)
 
 
-_PURE = ["cfEsc", "cfTermRe", "cfExcerpt", "CF_ECLI", "CF_CASE", "cfCites", "cfSourceItems",
+_PURE = ["cfEsc", "cfTermRe", "cfExcerpt", "CF_ECLI", "CF_CASE", "cfCites", "cfHinted", "cfSourceItems",
          "CC_ECLI", "ccFind", "ccSame", "ccUnverified", "ccBare", "CF_TAG_ANY", "cfTagNorm", "cfLiveTidy"]
 
 
