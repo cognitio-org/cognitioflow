@@ -134,9 +134,30 @@ def test_tabs_drop_articles_that_do_not_exist_and_name_the_ones_that_do():
     assert tabs["Art 34 TFEU"] == "Imports" and tabs["Art 2 TEU"] == "Values" and tabs["Art 47 Charter"] == "Remedy"
 
 
-def test_the_print_page_carries_the_ai_label_outside_the_screen_bar():
+def test_the_print_page_carries_the_ai_label_on_every_printed_section():
     import os
     page = open(os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "pack.html")).read()
-    assert 'id="aiNote"' in page and "AI-generated" in page
-    bar_end = page.index('<div id="pack">')
-    assert page.index('id="aiNote"') > bar_end      # .bar is hidden in print; the label must not live in it
+    assert "data-ai-label>AI-generated" in page and page.count("${ai}") == 2   # end of each week page and of the tab sheet
+    assert "position:fixed" not in page          # in flow, so it never masks a row on a full A4 page
+
+
+def test_wg_answers_stay_out_even_inside_a_lecture_note_and_a_wg_only_week_still_prints():
+    body = "## Free movement\n# WG 2 answers\n## Next Gen Pharmacy v German Association\n## IRAC structure\n# Lecture 4\n## Services"
+    t = pack.build({2: [{"id": "x", "title": "Week 2 — Goods", "body": body}]}, [], [])["topics"][0]
+    assert t["outline"] == ["Free movement", "Services"]
+    only = pack.build({5: [{"id": "g", "title": "WG 5 — answers", "body": "> **In one glance** Set question.\n## Damages"}]}, [], [])["topics"][0]
+    assert only["rule"] and only["outline"] == ["Damages"]
+
+
+def test_titles_keep_a_capital_and_years_do_not_depend_on_row_order():
+    assert pack._tidy_title("Week 1 — Lecture notes: principles and general concepts") == "Principles and general concepts"
+    a, b = _n("Van Gend & Loos", "C-26/62", 1962), _n("Van Gend en Loos", "", 1963, "b")   # 1963 from a Year column
+    assert pack.normalise_cases([a, b])[0]["year"] == 1963 and pack.normalise_cases([b, a])[0]["year"] == 1963
+
+
+def test_a_case_named_by_its_short_form_is_still_worked_in_a_later_week():
+    w1 = {"id": "w1", "title": "Week 1 — Goods", "body": "*Keck and Mithouard*"}
+    w2 = {"id": "w2", "title": "Week 2 — Selling", "body": "*Keck and Mithouard* again. Keck narrows it; after Keck, selling arrangements."}
+    c = _n("Keck and Mithouard", "C-267/91", 1993, "w1"); c["notes"].append({"id": "w2", "title": w2["title"]})
+    t = {x["week"]: x for x in pack.build({1: [w1], 2: [w2]}, [], [c])["topics"]}
+    assert [x["name"] for x in t["2"]["cases"]] == ["Keck and Mithouard"] and t["2"]["recalled"] == []

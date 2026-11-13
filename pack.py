@@ -130,11 +130,12 @@ def build(weeks: dict, reference: list, cases: list, method: bool = True) -> dic
             if any(x["id"] in wids for x in c.get("notes", [])): home.setdefault(id(c), str(week))
     for week in order:
         notes = sorted(weeks[week], key=lambda n: (_is_wg(n.get("title")), n["title"]))
+        doctrine = [n for n in notes if not _is_wg(n.get("title"))] or notes   # a WG-only week still prints
         ids = {n["id"] for n in notes}
         body = "\n\n".join(n.get("body") or "" for n in notes)
-        title = _title(notes) if notes else f"Week {week}"
-        rule = next((r for r in (_rule(n.get("body")) for n in notes if not _is_wg(n.get("title"))) if r), "")
-        outline = _outline(notes)
+        title = _title(doctrine) if notes else f"Week {week}"
+        rule = next((r for r in (_rule(n.get("body")) for n in doctrine) if r), "")
+        outline = _outline(doctrine)
         own = [c for c in cases if any(x["id"] in ids for x in c.get("notes", []))]
         # A case first met in an earlier week is printed again only where this week works it: a passing "as in
         # Van Gend" (named once, in prose) is listed by name under the table, not as another row.
@@ -151,8 +152,9 @@ def build(weeks: dict, reference: list, cases: list, method: bool = True) -> dic
             "method": [label for _, label in essay.LIMBS] if method and len(moves) >= METHOD_HITS else [],
         })
         words[str(week)] = _week_word(title) or next((w for w in map(_week_word, outline) if w), "")
-    # Each tab's word comes from his own article index where it has the article; otherwise from the title of the
-    # week that cites it most; otherwise none - a blank tab is better than a wrong one.
+    # Each tab's word comes from his own article index where it has the article; otherwise the article's own
+    # subject for the common EU articles (_HEADINGS, added for the pitch: a fixed fact, not a guess); otherwise
+    # from the title of the week that cites it most and has a word; otherwise none - a blank tab beats a wrong one.
     index = _article_index(list(reference) + [n for ns in weeks.values() for n in ns])
     found = defaultdict(Counter)
     for week, notes in list(weeks.items()) + [(None, reference)]:
@@ -233,7 +235,9 @@ def _tidy_title(title: str) -> str:
     """'WEEK 2 EU LAW COMPLETE LECTURE NOTES' -> 'EU law' (and then _title looks further); 'Week 1 — X' -> 'X'."""
     t = re.sub(r"(?i)^\s*(?:week|wk)\s*0?\d+\b\s*[—–:\-]?\s*", "", title or "")
     t = re.sub(r"(?i)\b(?:complete|full|final)?\s*lecture\s+notes\b|\bcomplete\s+notes\b", "", t)
-    return _deshout(re.sub(r"\s{2,}", " ", t).strip(" —–:-·"))
+    t = _deshout(re.sub(r"\s{2,}", " ", t).strip(" —–:-·"))
+    t = re.sub(r"(?i)^lecture\s+notes\s*[:—–-]\s*", "", t)
+    return t[:1].upper() + t[1:]
 
 
 def _meaningful(text: str) -> bool:
@@ -245,11 +249,9 @@ def _title(notes) -> str:
     gone, else the first real heading in its notes ('Lecture 3A:' dropped), else the note title as tidied."""
     lecture = r"(?i)^\s*lecture\s+\d+[a-z]?\s*[:—–-]\s*"
     for n in notes:
-        if _is_wg(n.get("title")): continue
         t = _tidy_title(n["title"])
         if _meaningful(t): return t
     for n in notes:
-        if _is_wg(n.get("title")): continue
         for h in _H1.findall(n.get("body") or "") + _H2.findall(n.get("body") or ""):
             h = re.sub(lecture, "", _deshout(re.sub(r"^\d+[.)]?\s+", "", h.strip(" #*"))))
             if _meaningful(h) and not _is_wg(h) and _outline_key(h) not in _SECTION_ONLY:
@@ -272,9 +274,12 @@ def _outline(notes) -> list:
     heading once, WG answers and the pack's own boxes left out."""
     out, seen = [], set()
     for n in notes:
-        if _is_wg(n.get("title")): continue
-        for h in _H2.findall(n.get("body") or ""):
-            h = _deshout(re.sub(r"^\d+[.)]?\s+", "", h.strip(" #*")).strip())
+        in_wg = False                      # an H2 under a "# WG 2 answers" H1 is an answer, until the next H1
+        for m in re.finditer(r"^(#{1,2})\s+(.+)$", n.get("body") or "", re.M):
+            if m.group(1) == "#":
+                in_wg = _is_wg(m.group(2)); continue
+            if in_wg: continue
+            h = _deshout(re.sub(r"^\d+[.)]?\s+", "", m.group(2).strip(" #*")).strip())
             key = _outline_key(h)
             if not key or key in seen or key in _SECTION_ONLY or _is_wg(h): continue
             seen.add(key); out.append(h)
@@ -288,9 +293,9 @@ def _passing(name: str, body: str) -> bool:
 
 
 def _mentions(name: str, body: str) -> int:
-    """How often a week's notes name a case, by its most distinctive word ('Cassis', 'Gend', 'Costa')."""
+    """How often a week's notes name a case, by its first distinctive word ('Cassis', 'Gend', 'Keck')."""
     words = [w for w in re.findall(r"[A-Za-zÀ-ÿ]+", name) if len(w) > 3 and w.lower() not in _CASE_FILLER]
-    word = max(words, key=len) if words else name
+    word = words[0] if words else name        # "Keck" in "Keck and Mithouard": notes shorten to the first word
     return len(re.findall(r"(?i)(?<![A-Za-zÀ-ÿ])" + re.escape(word) + r"(?![A-Za-zÀ-ÿ])", body or ""))
 
 
@@ -366,9 +371,13 @@ def normalise_cases(cases: list) -> list:
             dockets, rest = _cite_parts(cite)
             if _YEAR_ONLY.match(rest or ""): year_in_name, rest = year_in_name or int(_FOUR.search(rest).group(1)), ""
             explicit = _explicit_year(rest, cite if not dockets else "") or year_in_name
-            year = explicit or (c.get("year") if len(names) == 1 else None)
-            if year is None and dockets:
-                yy = int(dockets[0].rsplit("/", 1)[1]); year = 1900 + yy if yy >= 50 else 2000 + yy
+            lodged = None
+            if dockets:
+                yy = int(dockets[0].rsplit("/", 1)[1]); lodged = 1900 + yy if yy >= 50 else 2000 + yy
+            given = c.get("year") if len(names) == 1 else None
+            if not explicit and given and given != lodged:
+                explicit = given                     # a Year column or a bracketed (1979) beside the name
+            year = explicit or given or lodged
             rows.append({"name": name, "dockets": dockets, "rest": rest, "year": year, "explicit": explicit is not None,
                          "notes": list(c.get("notes") or [])})
     # merge: same docket, or same name key where the dockets do not disagree
