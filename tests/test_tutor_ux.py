@@ -66,7 +66,9 @@ def test_every_answer_carries_the_ai_label_and_the_flag_is_a_callout():
 
 def test_source_panel_reads_only_ticked_files_and_never_invents_an_ecli():
     panel = _fn("cfSourcePanel")
-    assert "h.kind==='file'&&ids.has(h.id)&&h.match!=='meaning'" in panel, "unticked files, notes or meaning matches would pass"
+    # wave 3: the panel reads the full text of the ticked files (the text the citation check reads), not /search
+    assert "/search" not in panel and "await cfTicked()" in panel and "cfPanelPlan(" in panel
+    assert "h.kind==='file'&&ids.has(h.id)&&h.match!=='meaning'" in _fn("cfSourceItems"), "unticked files, notes or meaning matches would pass"
     assert "textContent" in panel and "innerHTML" not in panel, "file text must not be parsed as HTML"
     assert "does not prove" in panel
     assert "h.snippet" not in panel, "a hit whose text does not name the term must not be shown at all"
@@ -85,7 +87,7 @@ def _decl(name):
 
 
 _PURE = ["cfEsc", "cfTermRe", "cfExcerpt", "CF_ECLI", "CF_CASE", "cfCites", "cfSourceItems",
-         "CC_ECLI", "ccFind", "ccSame", "ccUnverified", "CF_TAG_ANY", "cfTagNorm", "cfLiveTidy"]
+         "CC_ECLI", "ccFind", "ccSame", "ccUnverified", "ccBare", "CF_TAG_ANY", "cfTagNorm", "cfLiveTidy"]
 
 
 def _node(body, data, names=None):
@@ -312,3 +314,17 @@ def test_the_reading_strip_never_clips_a_pill_at_1190():
     """Judge (should fix, dark 1190): the third Reading pill was cut off by max-height:7.5rem on the strip."""
     assert "aside.col{max-height:7.5rem" not in CSS
     assert "#ctxLegend" in JS, "the gold/dark/grey dots need a legend in the tutor"
+
+
+@_needs_node
+def test_eurlex_dash_numbering_of_old_cases_counts_as_the_same_case():
+    """Public-source demo course: EUR-Lex prints Dassonville as 'Case 8-74' and Van Gend as 'Case 26-62'. The panel said
+    'No passage names Case 8/74' and the server flagged C-8/74 with the judgment itself ticked."""
+    import citecheck
+    src = ["Judgment of the Court of 11 July 1974. Procureur du Roi v Benoît and Gustave Dassonville. Case 8-74."]
+    cases = [("Dassonville (C-8/74) and Van Gend (C-26/62).", src), ("pages 8-74 only; C-8/74.", ["see pages 8-74"])]
+    got = _node3("console.log(JSON.stringify({b:D.c.map(([a,s])=>ccUnverified(a,s).map(c=>c.raw)),"
+                 "p:cfExcerpt(D.c[0][1][0],'Case 8/74')?.hit, p2:cfExcerpt(D.c[0][1][0],'C-8/74')?.hit}));", {"c": cases})
+    assert got["b"] == [[c["raw"] for c in citecheck.unverified(a, s)] for a, s in cases]
+    assert got["b"] == [["C-26/62"], ["C-8/74"]], "a page range is not a case"
+    assert got["p"] == "Case 8-74" and got["p2"] == "Case 8-74"

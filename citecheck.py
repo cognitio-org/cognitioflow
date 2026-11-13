@@ -36,7 +36,12 @@ def _same(cited: dict, known: dict) -> bool:
 
 def _bare_case(norm: str, text: str) -> bool:
     """Cases before 1989 have no C- prefix: a reader cites Simmenthal as "Case 106/77", the tutor as "C-106/77"."""
-    return re.search(r"(?<![\d/])" + re.escape(norm[2:]) + r"(?![\d/])", text) is not None
+    if re.search(r"(?<![\d/])" + re.escape(norm[2:]) + r"(?![\d/])", text):
+        return True
+    # EUR-Lex prints the oldest cases with a dash: "Case 8-74" (Dassonville), "Case 26-62" (Van Gend en Loos).
+    # Only after the word "Case", so a page range "8-74" is not taken for one.
+    num, year = norm[2:].split("/")
+    return re.search(r"(?i)\bcases?\s+" + num + "-" + year + r"(?![\d/-])", text) is not None
 
 
 def unverified(answer: str, sources: list[str]) -> list[dict]:

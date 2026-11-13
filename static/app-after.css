@@ -70,8 +70,8 @@
     .g4{grid-template-columns:repeat(4,1fr);gap:.5rem} .stat{padding:.5rem .7rem;display:flex;align-items:baseline;gap:.4rem} .stat .n{font-size:var(--fs-lg)} .stat .l{margin:0;font-size:var(--fs-xs)}
     .hero{padding:var(--s4) var(--s5);gap:var(--s4)} .hero h2{font-size:1.35rem} .hero .k{font-size:2.1rem}
     .g2{grid-template-columns:1fr} .panel{padding:.75rem .9rem}
-    .screen>.tutor,.screen>.notes{grid-template-columns:minmax(0,1fr);height:calc(100vh - 9.25rem)} .screen>.tutor{grid-template-rows:auto 1fr} .screen>.tutor aside.col{max-height:7.5rem;overflow:auto;padding:.45rem .7rem;flex-direction:row;align-items:baseline;gap:.5rem;flex-wrap:wrap;flex:0 0 auto} .screen>.tutor aside.col h3{font-size:var(--fs-sm);margin:0;color:var(--graphite);white-space:nowrap}
-    .screen>.tutor .ctx{display:flex;flex-wrap:wrap;gap:.3rem;flex:1} .screen>.tutor .ctx li{border:1px solid var(--rule);border-radius:999px;padding:.05rem .55rem;font-size:var(--fs-xs);color:var(--graphite)} .screen>.tutor .ctx li:last-child{border:1px solid var(--rule)} .screen>.tutor #ctxSize{margin:0!important;white-space:nowrap}
+    .screen>.tutor,.screen>.notes{grid-template-columns:minmax(0,1fr);height:calc(100vh - 9.25rem)} .screen>.tutor{grid-template-rows:auto 1fr} .screen>.tutor aside.col{overflow:visible;padding:.45rem .7rem;flex-direction:row;align-items:baseline;gap:.4rem .8rem;flex-wrap:wrap;flex:0 0 auto} .screen>.tutor aside.col h3{font-size:var(--fs-sm);margin:0;color:var(--graphite);white-space:nowrap}
+    .screen>.tutor .ctx{display:flex;flex-wrap:wrap;gap:.3rem;flex:1 1 26rem;min-width:0} .screen>.tutor .ctx li{max-width:19rem;min-width:0} .screen>.tutor .ctx li .srcopen{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0} .screen>.tutor #ctxAnswer{flex:1 1 22rem;margin:0!important;padding:0 0 0 .8rem!important;border-top:none!important;border-left:1px solid var(--rule)} .screen>.tutor .ctxlegend{flex-basis:100%;order:5} .screen>.tutor .ctx li{border:1px solid var(--rule);border-radius:999px;padding:.05rem .55rem;font-size:var(--fs-xs);color:var(--graphite)} .screen>.tutor .ctx li:last-child{border:1px solid var(--rule)} .screen>.tutor #ctxSize{margin:0!important;white-space:nowrap}
     .modes{flex-wrap:wrap;row-gap:.3rem} .msg{max-width:94%}
   }
   /* focus mode: current screen only, nothing else */
@@ -270,3 +270,11 @@
 .screen>.emptystate,#mockBody>.emptystate,.mock .emptystate{max-width:34rem;margin:var(--s6) auto;padding:var(--s5) var(--s5);background:var(--faint);border:1px solid var(--rule);border-radius:var(--r-md)}
 @media(max-width:600px){.g4{grid-template-columns:repeat(2,minmax(0,1fr))} .tbar{margin-left:0} .tmore-panel{min-width:min(15rem,calc(100vw - 2rem))}
   select{max-width:100%} .head{flex-wrap:wrap;row-gap:var(--s2)} .col.editor>div:first-child{flex-wrap:wrap} #noteTitle{min-width:0;flex-basis:100%} .screen>.tutor aside.col,.screen>.notes aside.col{min-width:0;max-width:100%;overflow:auto}}
+
+/* Tutor, wave 3: the source panel names what it could not find before what it did; a chip on a line that cites
+   something flagged carries the warning colour; the reloaded flag says what it was checked against. */
+.srcpanel .srcmiss{color:var(--warn);font-weight:600;margin-bottom:.3rem}
+.srcpanel .srcterm{font-size:var(--fs-xs);color:var(--graphite);text-transform:none;letter-spacing:0}
+.src.warnline{border-color:var(--warn);color:var(--warn);background:color-mix(in oklab,var(--warn),transparent 90%)}
+.cf-flag .cf-flag-note{margin-top:.35rem;font-size:var(--fs-xs);color:var(--graphite)}
+.ctxlegend{display:flex;align-items:center;flex-wrap:wrap;gap:.3rem;margin-top:.4rem;font-size:var(--fs-xs)} .ctxlegend .authdot{margin-left:.35rem}
