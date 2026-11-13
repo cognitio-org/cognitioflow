@@ -328,3 +328,19 @@ def test_eurlex_dash_numbering_of_old_cases_counts_as_the_same_case():
     assert got["b"] == [[c["raw"] for c in citecheck.unverified(a, s)] for a, s in cases]
     assert got["b"] == [["C-26/62"], ["C-8/74"]], "a page range is not a case"
     assert got["p"] == "Case 8-74" and got["p2"] == "Case 8-74"
+
+
+@_needs_node
+def test_a_treaty_text_that_prints_article_34_without_tfeu_answers_art_34_tfeu():
+    """Public-source demo course: the consolidated TFEU prints 'Article 34' with no instrument after it, so with the
+    Treaty ticked 'Art 34 TFEU' was flagged 'Not in your materials' and the panel said no passage names it. A wrong
+    instrument against a file that names another one is still flagged."""
+    import citecheck
+    treaty = "CHAPTER 3\n Article 34\n (ex Article 28 TEC)\n Quantitative restrictions on imports ... shall be prohibited."
+    cases = [("Under Art 34 TFEU and Article 36 TFEU.", [treaty]), ("Art. 267 TEU", ["Article 267 TFEU"])]
+    got = _node3("console.log(JSON.stringify({b:D.c.map(([a,s])=>ccUnverified(a,s).map(c=>c.raw)),"
+                 "p:cfExcerpt(D.t,'Art 34 TFEU')?.hit, wrong:cfExcerpt('Article 267 TFEU','Art 267 TEU')}));", {"c": cases, "t": treaty})
+    assert got["b"] == [[c["raw"] for c in citecheck.unverified(a, s)] for a, s in cases]
+    assert got["b"] == [["Article 36 TFEU"], ["Art. 267 TEU"]]
+    assert got["p"] == "Article 34"
+    assert got["wrong"] is None

@@ -672,7 +672,9 @@ function ccFind(text){ text=String(text||''); const f=[];
   for(const m of text.matchAll(CC_ART)) f.push([m.index,'article',m[0],`art ${m[1].toLowerCase()}${m[2]||''}`+(m[3]?' '+m[3].toLowerCase():'')]);
   f.sort((a,b)=>a[0]-b[0]||(a[1]<b[1]?-1:a[1]>b[1]?1:0)); const seen=new Set(), out=[];
   for(const [,kind,raw,norm] of f) if(!seen.has(norm)){ seen.add(norm); out.push({kind,raw,norm}) } return out; }
-function ccSame(c,k){ if(c.kind==='article'&&k.kind==='article'&&c.norm.split(' ').length===2) return c.norm===k.norm.split(' ').slice(0,2).join(' '); return c.norm===k.norm; }
+function ccSame(c,k){ if(c.kind==='article'&&k.kind==='article'){ const a=c.norm.split(' '), b=k.norm.split(' ');   // citecheck._same
+    if(a.length===2) return a.join(' ')===b.slice(0,2).join(' '); if(b.length===2) return a.slice(0,2).join(' ')===b.join(' '); }
+  return c.norm===k.norm; }
 function ccUnverified(answer,sources){ const known=sources.flatMap(ccFind), text=sources.join('\n');
   return ccFind(answer).filter(c=>!known.some(k=>ccSame(c,k))&&!(c.kind==='case'&&ccBare(c.norm.slice(2),text))); }
 /* Cases before 1989 are cited without C-, and EUR-Lex prints the oldest with a dash ("Case 8-74"): citecheck._bare_case. */
@@ -717,6 +719,9 @@ function cfExcerpt(text,term){ text=String(text||''); let m=cfTermRe(term).exec(
   if(!m){ const bare=term.replace(/^(?:[CT][-‑–]|Cases?\s+)/i,''); if(bare!==term) m=cfTermRe(bare,true).exec(text);
     const old=!m&&bare.match(/^(\d{1,4})\/(\d{2,4})$/);   // EUR-Lex's "Case 8-74" for Case 8/74
     if(old) m=new RegExp('(?<![\\p{L}\\p{N}_])cases?\\s+'+old[1]+'-'+old[2]+'(?![\\p{N}/-])','iu').exec(text); }
+  if(!m){ const inst=term.match(/^(Art(?:icle)?\.?\s*\d+[a-z]?(?:\(\d+\))?)\s+(?:TFEU|TEU)$/i);   // the Treaty prints "Article 34", not "Article 34 TFEU"
+    if(inst){ const r=cfTermRe(inst[1]); let x; const g=new RegExp(r.source,'giu');
+      while((x=g.exec(text))){ if(!/^\s+(?:TFEU|TEU|BW|Charter)(?![\p{L}\p{N}_])/iu.test(text.slice(x.index+x[0].length))){ m=x; break } } } }
   if(!m) return null; const i=m.index, len=m[0].length;
   let a=Math.max(0,i-170), b=Math.min(text.length,i+len+230);
   if(a>0){ const sp=text.indexOf(' ',a); if(sp>0&&sp<i) a=sp+1 } if(b<text.length){ const sp=text.lastIndexOf(' ',b); if(sp>i+len) b=sp }

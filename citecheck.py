@@ -28,9 +28,15 @@ def find_citations(text: str) -> list[dict]:
 
 
 def _same(cited: dict, known: dict) -> bool:
-    """An article cited without an instrument ("art 267") matches that article in any instrument."""
-    if cited["kind"] == known["kind"] == "article" and len(cited["norm"].split()) == 2:
-        return cited["norm"] == " ".join(known["norm"].split()[:2])
+    """An article cited without an instrument ("art 267") matches that article in any instrument. And a file that
+    names the article without one matches it cited with one: the Treaty itself prints "Article 34", never
+    "Article 34 TFEU". Two different instruments still never match."""
+    if cited["kind"] == known["kind"] == "article":
+        c, k = cited["norm"].split(), known["norm"].split()
+        if len(c) == 2:
+            return c == k[:2]
+        if len(k) == 2:
+            return c[:2] == k
     return cited["norm"] == known["norm"]
 
 
