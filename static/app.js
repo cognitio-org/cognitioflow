@@ -754,7 +754,11 @@ function cfPanelPlan(terms,files,texts,hint){ const ids=new Set(files.map(f=>f.i
     const cover=shown.find(s=>items.some(x=>x.h.id===s.h.id)&&cfExcerpt(s.ex.pre+s.ex.hit+s.ex.post,t));
     if(cover){ cover.terms.push(t); continue }
     if(shown.length<3) shown.push({terms:[t],...items[0]}); else also.push(t); }
-  return {missed,shown,also}; }
+  /* A party name is printed many ways ("Procureur du Roi v Benoît and Gustave Dassonville"): a missed name is a
+     warning only when a citation on the line is missing too, or the line cites nothing; else it is said quietly. */
+  const isName=t=>!cfCites(t).length&&!(t.match(CF_ART)||[]).length, cites=terms.filter(t=>!isName(t));
+  const loud=missed.some(t=>!isName(t))||!cites.length;
+  return {missed:loud?missed:missed.filter(t=>!isName(t)),quiet:loud?[]:missed.filter(isName),shown,also}; }
 async function cfSourcePanel(chip){ const d=chip.closest('.msg,.st-msg'); const block=chip.closest('p,li,blockquote,td')||d;
   const open=block.nextElementSibling?.classList.contains('srcpanel')?block.nextElementSibling:null;
   if(open){ open.remove(); chip.setAttribute('aria-expanded','false'); return }
@@ -773,8 +777,9 @@ async function cfSourcePanel(chip){ const d=chip.closest('.msg,.st-msg'); const 
     if(got.some(t=>t===null)){ wait.textContent='Could not read all of your ticked files just now — try again in a moment.'; return }
     const texts={}; files.forEach((f,i)=>{ texts[f.id]=got[i] }); plan=cfPanelPlan(terms,files,texts,hint); }
   catch(e){ wait.textContent='Could not search your files just now.'; return }
-  wait.remove(); const {missed,shown,also}=plan;
+  wait.remove(); const {missed,quiet,shown,also}=plan;
   if(missed.length) say('srcmiss',`No passage in your ticked files names ${missed.join(', ')}.`);
+  if(quiet.length) say('small muted',`Not printed in this exact form in your files: ${quiet.join(', ')} — go by the case number.`);
   if(!shown.length) say('muted',(terms.length?'':'This line names no case or article to look up. ')+`The tutor tagged it ${kind}${hint?' · '+hint:''} — open that file to check.`);
   else if(missed.length) say('muted',`Showing where ${shown.flatMap(x=>x.terms).join(', ')} ${shown.flatMap(x=>x.terms).length===1?'appears':'appear'}:`);
   for(const {terms:ts,h,ex,cites} of shown){ const item=document.createElement('div'); item.className='srcitem';

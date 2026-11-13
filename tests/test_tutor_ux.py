@@ -344,3 +344,17 @@ def test_a_treaty_text_that_prints_article_34_without_tfeu_answers_art_34_tfeu()
     assert got["b"] == [["Article 36 TFEU"], ["Art. 267 TEU"]]
     assert got["p"] == "Article 34"
     assert got["wrong"] is None
+
+
+@_needs_node
+def test_a_party_name_in_another_form_beside_a_found_case_is_not_a_warning():
+    """EUR-Lex prints 'Procureur du Roi v Benoît and Gustave Dassonville'. '*Procureur du Roi v Dassonville* (Case 8/74)'
+    put a warning-coloured 'not found' beside a real case. A name is only a warning when a citation on the line is
+    missing too, or the line has none; otherwise it is said quietly."""
+    got = _node3("const l='Procureur du Roi v Dassonville (Case 8/74) set the test.';"
+                 "const p=cfPanelPlan(cfLineTerms(l,['Procureur du Roi v Dassonville']),[{id:'d',name:'D'}],{d:D.t},'');"
+                 "const q=cfPanelPlan(cfLineTerms('Only Bianchi v Commission said so.',['Bianchi v Commission']),[{id:'d',name:'D'}],{d:D.t},'');"
+                 "console.log(JSON.stringify({p:[p.missed,p.quiet],q:[q.missed,q.quiet]}));",
+                 {"t": "Procureur du Roi v Benoît and Gustave Dassonville. - Case 8-74."})
+    assert got["p"] == [[], ["Procureur du Roi v Dassonville"]]
+    assert got["q"] == [["Bianchi v Commission"], []], "a line with no citation still warns about a name"
