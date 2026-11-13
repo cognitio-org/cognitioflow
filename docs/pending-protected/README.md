@@ -19,8 +19,8 @@ becomes `off` with the date, and the "In short" and "The OpenRouter lane" sectio
 ## `claude-md-gateway-wording.patch` (`CLAUDE.md`)
 
 Brings the gateway bullet in line with the privacy record: the OpenRouter free model is "probably dead
-(unverified)" rather than stated as dead, and the Kernal router is named as run by a family member of CF's
-developer, not by CF, with no processing agreement on file.
+(unverified)" rather than stated as dead, and the Kernal router is named as run by a family member of the
+account holder, not by CF, with no processing agreement on file.
 
 ## `badges-readinglist.patch` (`run.py`)
 

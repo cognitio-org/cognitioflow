@@ -2,7 +2,7 @@
 
 The tutor never comes here. Only the tasks in CF_GATEWAY_TASKS do (flashcards, concept extraction and
 cards, syllabus reading, viva questions): each sends one note or one file's text and gets a JSON list
-back. The chat, "notes" mode included, stays on Anthropic, because it carries whole conversations and
+back. The chat, "notes" mode included, stays on the configured provider (LLM_PROVIDER), because it carries whole conversations and
 every ticked file.
 
 How each GDPR principle is met here (details and open items in docs/privacy-gateway.md):
@@ -39,7 +39,7 @@ _REDACT = [
     (re.compile(r"\b[sSpP]\d{7}\b"), "[student number]"),
 ]
 
-_tripped = False   # set once the key's spend passes the ceiling; this process then stays on Anthropic
+_tripped = False   # set once the key's spend passes the ceiling; this process then stays on the configured provider
 
 
 def _tasks() -> set:
@@ -92,7 +92,7 @@ def _minimise_messages(messages):
 
 
 def call(task, **kw):
-    """One gateway call for an allowed task, or None to tell the caller to use Anthropic."""
+    """One gateway call for an allowed task, or None to tell the caller to use the configured provider."""
     global _tripped
     if not allows(task):
         return None

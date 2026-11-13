@@ -11,8 +11,10 @@ been confirmed and must not be relied on.
 **In short (2026-11-13):**
 - **What leaves:** the tutor prompt, the files or passages the student ticks, the conversation, and for bulk
   jobs one note or file at a time. Embeddings stay inside the container.
-- **To whom:** the Kernal router, which passes it to Anthropic (`claude-sonnet-5`) or Google Vertex AI
-  (`gemini-2.5-flash`); speech goes to Google Cloud under CF's own project.
+- **To whom:** the Kernal router, which passes it to Anthropic (`claude-sonnet-5`), Google Vertex AI
+  (`gemini-2.5-flash`) or, only when picked per message, OpenAI (`gpt-5-nano`); bulk jobs are first tried on an
+  OpenRouter free model (probably failing, unverified); speech goes to Google Cloud under CF's own project, and
+  Chrome's built-in dictation sends audio to Google's speech service.
 - **Which region:** the cheap tier runs in **us-central1 (USA)**; Anthropic is not region-pinned; live dictation and
   read-aloud use Google's global endpoints; transcription and the spoken tutor run in europe-west4.
 - **Not yet covered:** no processing agreement with the Kernal operator, no recorded transfer basis for the US
@@ -22,10 +24,10 @@ been confirmed and must not be relied on.
 
 ### Who operates Kernal
 
-Kernal (`router.kernal.one`) is a LiteLLM router operated by a family member of CognitioFlow's developer on that person's own GCP project, not by CognitioFlow. CognitioFlow has an API key on it and no
+Kernal (`router.kernal.one`) is a LiteLLM router operated by a family member of the account holder, not by CognitioFlow. CognitioFlow has an API key on it and no
 control over its configuration or logs. For this record its operator is treated as a processor (Art. 28) with
-**no processing agreement on file** (open item 2). The cheap tier runs on the operator's GCP project
-(`outfitter-509211`), not CF's.
+**no processing agreement on file** (open item 2). Where the router itself is hosted is not recorded here;
+the cheap tier's Vertex calls run on the operator's GCP project (`outfitter-509211`), not CF's.
 
 ## Where data goes today (production)
 
@@ -49,7 +51,7 @@ gateway lane (bulk tasks only) → Kernal. The tutor's streaming chat goes strai
 There is no CF-owned Anthropic API key in production; Anthropic is reached only through Kernal. Edge,
 ElevenLabs and Kokoro speech backends exist in code but are not active.
 
-### The OpenRouter lane is dead, and is being switched off
+### The OpenRouter lane is probably dead (unverified), and is being switched off
 
 - The free model above currently lists **0 endpoints** on OpenRouter's public API (checked 2026-11-13), and
   `llm.py` records that the direct OpenRouter key is dead. These calls therefore most likely fail and fall

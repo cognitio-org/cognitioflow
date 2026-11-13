@@ -22,7 +22,7 @@ PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic").strip().lower()
 PROVIDERS = ("anthropic", "openrouter", "gateway", "kernal")
 
 OPENROUTER_BASE = "https://openrouter.ai/api"
-#: `LLM_PROVIDER=kernal` (Phase 19): a LiteLLM router run by a family member of CF's developer (not by CF; see
+#: `LLM_PROVIDER=kernal` (Phase 19): a LiteLLM router run by a family member of the account holder (not by CF; see
 #: docs/privacy-gateway.md, "Who operates Kernal"), OpenAI-compatible at router.kernal.one/v1.
 #: The direct OPENROUTER_KEY is dead; the whole cloud tier routes through Kernal, reusing the Phase-18
 #: OpenAI bridge (non-streaming create + a small SSE reader for the one streaming call). The key is
@@ -425,7 +425,7 @@ def local_call(task, **kw):
 
 
 # ---------------------------------------------------------------- the Kernal cloud tier (Phase 19)
-# LLM_PROVIDER=kernal points the WHOLE cloud tier at Matej's OpenAI-compatible LiteLLM router, reusing
+# LLM_PROVIDER=kernal points the WHOLE cloud tier at the OpenAI-compatible Kernal LiteLLM router, reusing
 # the Phase-18 bridge (`_to_openai_messages`, `_flatten_content`, `_LocalMessage`, `_LocalUsage`). It
 # speaks the same slice of the Anthropic SDK run.py uses — client().messages.create(...) and
 # client().messages.stream(...) — so run.py needs no change. Default OFF: unless LLM_PROVIDER=kernal,
@@ -542,7 +542,7 @@ class _KernalMessages:
 
 
 class _KernalClient:
-    """The cloud tier on Matej's OpenAI-compatible Kernal router, exposing only `.messages.create` and
+    """The cloud tier on the OpenAI-compatible Kernal router, exposing only `.messages.create` and
     `.messages.stream` — the slice of the anthropic SDK run.py and `hedged_stream` call."""
 
     def __init__(self, base_url, key):
