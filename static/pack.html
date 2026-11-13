@@ -31,13 +31,16 @@
   .lab{border-right:.4pt dashed #999;border-bottom:.4pt dashed #999;padding:3mm 2.5mm;min-height:11mm;display:flex;flex-direction:column;justify-content:center;page-break-inside:avoid}
   .lab b{font-family:var(--sans);font-size:11pt;font-weight:600;font-variant-numeric:tabular-nums} .lab span{font-family:var(--sans);font-size:9pt;color:var(--ink)}
   .empty{font-family:var(--sans);color:var(--soft);padding:2rem 0}
-  @media print{ .bar{display:none} main{padding:0;max-width:none} @page{size:A4;margin:14mm 14mm 14mm 16mm} }
+  .ai{font-family:var(--sans);font-size:7.5pt;color:var(--soft);border-top:.4pt solid var(--rule);padding-top:1.5mm;margin-top:6mm}
+  @media print{ .bar{display:none} main{padding:0 0 8mm;max-width:none} @page{size:A4;margin:14mm 14mm 16mm 16mm}
+    .ai{position:fixed;left:0;right:0;bottom:0;margin:0;background:#fff} }
 </style>
 </head>
 <body>
 <main>
   <div class="bar"><span id="what">Loading the pack…</span><button type="button" id="printBtn">Print</button></div>
   <div id="pack"></div>
+  <footer class="ai" id="aiNote">AI-generated from your course notes. Verify every case, article and year against your own materials.</footer>
 </main>
 <script>
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -56,6 +59,7 @@ document.getElementById('printBtn').onclick=()=>window.print();
     ${t.cases.length?`<h2>Leading cases, in the order they were decided</h2><table><thead><tr><th>Year</th><th>Case</th><th>From</th></tr></thead><tbody>${
       t.cases.map(c=>`<tr><td class="yr">${c.year||'—'}</td><td><i>${esc(c.name)}</i>${c.cite?` <span class="src">${esc(c.cite)}</span>`:''}</td><td class="src">${esc(c.note)}</td></tr>`).join('')}</tbody></table>${
       t.more_cases?`<div class="more">and ${t.more_cases} more in the case index</div>`:''}`:''}
+    ${(t.recalled||[]).length?`<div class="more">Also recalled from earlier weeks: ${t.recalled.map(n=>`<i>${esc(n)}</i>`).join(', ')}</div>`:''}
   </section>`;
   const tabs=p.tabs.length?`<section class="tabs"><h1>Tab labels · ${esc(p.course)}</h1><p>Cut along the dashed lines. An article number and one word only: nothing here counts as an annotation.</p><div class="grid">${
     p.tabs.map(t=>`<div class="lab"><b>${esc(t.label)}</b>${t.heading?`<span>${esc(t.heading)}</span>`:''}</div>`).join('')}</div></section>`:'';

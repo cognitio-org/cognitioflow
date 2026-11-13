@@ -70,3 +70,73 @@ def test_the_print_page_ships_and_says_it_is_not_for_the_exam():
     import os
     page = open(os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "pack.html")).read()
     assert "never for the exam" in page and "page-break-after:always" in page and 'content="light"' in page
+
+
+# ---------------------------------------------------------------- the table normaliser and tidying (pitch freeze)
+def _n(name, cite="", year=None, note="a"):
+    return {"name": name, "cite": cite, "year": year, "notes": [{"id": note, "title": note}]}
+
+
+def test_the_same_case_under_two_spellings_is_one_row_with_the_written_year():
+    out = pack.normalise_cases([_n("Van Gend & Loos", "C-26/62", 1962), _n("Van Gend en Loos", "[1963] ECR 1", 1963, "b"),
+                                _n("Costa v ENEL", "[1964] ECR 585", 1964), _n("Costa/ENEL", "6/64", 1964, "b")])
+    assert [(c["name"], c["cite"], c["year"]) for c in out] == [("Van Gend en Loos", "Case 26/62", 1963), ("Costa v ENEL", "Case 6/64", 1964)]
+    assert {x["id"] for x in out[0]["notes"]} == {"a", "b"}
+
+
+def test_case_numbers_take_one_style_and_reports_are_left_alone():
+    out = pack.normalise_cases([_n("Dassonville", "8/74"), _n("Francovich", "C-6/90"), _n("Keck and Mithouard", "C-267/91 & C-268/91"),
+                                _n("Sison", "T-47/03"), _n("Gerson v Wilkinson", "[2001] QB 514", 2001), _n("Kadi", "ECLI:EU:C:2008:461")])
+    assert [c["cite"] for c in out] == ["Case 8/74", "Case C-6/90", "Joined Cases C-267/91 & C-268/91", "Case T-47/03", "[2001] QB 514", "ECLI:EU:C:2008:461"]
+    assert out[-1]["year"] == 2008 and out[0]["year"] == 1974
+
+
+def test_doctrines_and_doubled_years_and_merged_rows():
+    out = pack.normalise_cases([_n("Direct effect", "93/71", 1971), _n("Proportionality"), _n("United Brands [1978]", "[1978]", 1978),
+                                _n("Francovich; Brasserie du Pecheur", "C-6/90; C-46/93", 1990)])
+    assert [(c["name"], c["cite"], c["year"]) for c in out] == [("United Brands", "", 1978), ("Francovich", "Case C-6/90", 1990),
+                                                                 ("Brasserie du Pecheur", "Case C-46/93", 1993)]
+
+
+def test_the_normaliser_does_not_over_merge_or_over_split():
+    out = pack.normalise_cases([_n("Simmenthal", "106/77"), _n("Simmenthal II", "92/78"), _n("Costa/ENEL", "6/64"),
+                                _n("Berg/De Bary"), _n("Keck", "C-267/91"), _n("Keck and Mithouard", "C-267/91 & C-268/91"),
+                                _n("A; B; C", "C-1/90; C-2/90"), _n("Direct effect of directives")])
+    names = [c["name"] for c in out]
+    assert names == ["Simmenthal", "Simmenthal II", "Costa/ENEL", "Berg/De Bary", "Keck and Mithouard", "A; B; C", "Direct effect of directives"]
+    assert [c for c in out if c["name"] == "A; B; C"][0]["cite"] == "Joined Cases C-1/90 & C-2/90"   # counts differ: not split, cite kept
+
+
+def test_a_case_from_an_earlier_week_reprints_only_where_the_week_works_it():
+    w1 = {"id": "w1", "title": "Week 1 — Direct effect", "body": "*Van Gend en Loos* and *Cassis de Dijon*."}
+    w2 = {"id": "w2", "title": "Week 2 — Goods", "body": "As in *Van Gend en Loos*, rights arise. *Cassis de Dijon* again; Cassis is the test."}
+    cases = [_n("Van Gend en Loos", "26/62", 1963, "w1"), _n("Cassis de Dijon", "120/78", 1979, "w1")]
+    for c in cases: c["notes"].append({"id": "w2", "title": w2["title"]})
+    t = {x["week"]: x for x in pack.build({1: [w1], 2: [w2]}, [], cases)["topics"]}
+    assert [c["name"] for c in t["1"]["cases"]] == ["Van Gend en Loos", "Cassis de Dijon"]
+    assert [c["name"] for c in t["2"]["cases"]] == ["Cassis de Dijon"] and t["2"]["recalled"] == ["Van Gend en Loos"]
+
+
+def test_titles_and_outlines_are_calm_deduped_and_free_of_wg_answers():
+    body = ("## LECTURE 3A: FREE MOVEMENT OF GOODS — NEGATIVE INTEGRATION\n## IRAC STRUCTURE\n## WG 2 answers — Q1\n## Q2\n"
+            "## In one glance\n## Case map\n## 1 Treaty Framework\n## IRAC structure\n## Scope\n## Scope (Lecture 1 & 2, 31 Aug)\n")
+    wg = {"id": "g", "title": "WG 2 — answers", "body": "## Next Gen Pharmacy v German Association\n## PRELIMINARY QUESTION"}
+    t = pack.build({2: [{"id": "x", "title": "WEEK 2 EU LAW COMPLETE LECTURE NOTES", "body": body}, wg]}, [], [])["topics"][0]
+    assert t["title"] == "Free movement of goods — negative integration"
+    assert t["outline"] == ["Lecture 3A: free movement of goods — negative integration", "IRAC structure", "Treaty Framework", "Scope"]
+    assert pack._tidy_title("Week 1 — Foundations: the EU legal order") == "Foundations: the EU legal order"
+
+
+def test_tabs_drop_articles_that_do_not_exist_and_name_the_ones_that_do():
+    tabs = {t["label"]: t["heading"] for t in pack.build({1: [{"id": "x", "title": "Week 1 — Basics",
+            "body": "Art 168 TEU; Art 34 TFEU; Art 2 TEU; Art 400 TFEU; Art 60 Charter; Art 47 Charter"}]}, [], [])["tabs"]}
+    assert "Art 168 TEU" not in tabs and "Art 400 TFEU" not in tabs and "Art 60 Charter" not in tabs
+    assert tabs["Art 34 TFEU"] == "Imports" and tabs["Art 2 TEU"] == "Values" and tabs["Art 47 Charter"] == "Remedy"
+
+
+def test_the_print_page_carries_the_ai_label_outside_the_screen_bar():
+    import os
+    page = open(os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "pack.html")).read()
+    assert 'id="aiNote"' in page and "AI-generated" in page
+    bar_end = page.index('<div id="pack">')
+    assert page.index('id="aiNote"') > bar_end      # .bar is hidden in print; the label must not live in it
