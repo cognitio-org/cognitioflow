@@ -9,7 +9,8 @@ How each GDPR principle is met here (details and open items in docs/privacy-gate
 - Purpose limitation, Art. 5(1)(b): a closed allow-list of tasks; anything else is refused.
 - Data minimisation, Art. 5(1)(c): only the text the task needs is sent, with e-mail addresses, phone
   numbers, IBANs and student numbers replaced by placeholders first (pseudonymisation, Art. 4(5)).
-- Storage limitation, Art. 5(1)(e): every request asks the gateway not to log it ("no-log").
+- Storage limitation, Art. 5(1)(e): every request sends a "no-log" flag, but only a LiteLLM gateway honours
+  it; the OpenRouter lane configured in production does not (see docs/privacy-gateway.md).
 - Integrity and confidentiality, Art. 5(1)(f) and Art. 32: TLS only; the key lives in Secret Manager.
 - Privacy by design and by default, Art. 25: off unless the key AND a spend ceiling are configured;
   CF_GATEWAY=off switches it off without a deploy; any failure returns None and the caller falls back to
@@ -102,8 +103,8 @@ def call(task, **kw):
         kw = {**kw, "messages": _minimise_messages(kw.get("messages", []))}
         raw = client.messages.with_raw_response.create(model=os.environ.get("CF_GATEWAY_MODEL", DEFAULT_MODEL), extra_body={"no-log": True}, **kw)
         m = raw.parse()
-    except Exception as e:   # any gateway trouble: the job still gets done, on Anthropic
-        log.warning("gateway %s failed (%s); falling back to Anthropic", task, type(e).__name__)
+    except Exception as e:   # any gateway trouble: the job still gets done, on the configured cheap tier
+        log.warning("gateway %s failed (%s); falling back to the configured cheap tier", task, type(e).__name__)
         return None
     if not "".join(getattr(b, "text", "") for b in (getattr(m, "content", None) or []) if getattr(b, "type", "") == "text").strip():
         # free models may spend the whole budget thinking, or a busy provider may answer 200 with nothing
@@ -117,5 +118,5 @@ def call(task, **kw):
     spend = raw.headers.get("x-litellm-key-spend")
     if spend and _ceiling() is not None and float(spend) >= _ceiling():
         _tripped = True
-        log.warning("gateway key spend %.2f reached the ceiling %.2f; staying on Anthropic", float(spend), _ceiling())
+        log.warning("gateway key spend %.2f reached the ceiling %.2f; staying on the configured cheap tier", float(spend), _ceiling())
     return m

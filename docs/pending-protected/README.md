@@ -16,12 +16,6 @@ the line changes first. The equivalent by hand:
 Once it is live, update `docs/privacy-gateway.md`: the `CF_GATEWAY` row under "Gateway lane configuration"
 becomes `off` with the date, and the "In short" and "The OpenRouter lane" sections drop "still on".
 
-## `claude-md-gateway-wording.patch` (`CLAUDE.md`)
-
-Brings the gateway bullet in line with the privacy record: the OpenRouter free model is "probably dead
-(unverified)" rather than stated as dead, and the Kernal router is named as run by a family member of the
-account holder, not by CF, with no processing agreement on file.
-
 ## `badges-readinglist.patch` (`run.py`)
 
 See PR #226.

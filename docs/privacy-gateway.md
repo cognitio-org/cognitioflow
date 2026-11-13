@@ -4,7 +4,7 @@ The record of processing for CognitioFlow's model calls, and in particular for t
 (`gateway.py`). It is kept under GDPR Art. 30 (records of processing activities) and Art. 5(2)
 (accountability), and should be updated whenever a route, model, provider or gateway changes.
 
-**State of this record: 2026-11-13.** Checked against the code at `f068e36` and the live Cloud Run
+**State of this record: 2026-11-13.** Checked against the code on `main` at `d23f941` and the live Cloud Run
 configuration (env names and values, no secret values). Items marked **UNVERIFIED** or **UNKNOWN** have not
 been confirmed and must not be relied on.
 
@@ -44,6 +44,7 @@ gateway lane (bulk tasks only) → Kernal. The tutor's streaming chat goes strai
 | Uploaded files | Text extracted locally; the file stored in GCS `cognitioflow-user-content` | CF's own GCP project; database on Neon | GCS bucket per project config; Neon `aws-eu-central-1` (Frankfurt) |
 | Embeddings and retrieval | Course text | Local, inside the container (`BAAI/bge-small-en-v1.5`) | Stays in the container |
 | Lecture transcription | Audio from the bucket | Google Speech-to-Text v2 `chirp_2`, CF's own project | europe-west4 |
+| Browser dictation (default mic mode where the browser offers it, e.g. Chrome) | Microphone audio | The browser's built-in Web Speech service (in Chrome, Google's speech service), not CF's project; CF only receives the text | Unknown (set by the browser vendor) |
 | Live dictation (Gemini mic mode) | Microphone audio | Vertex AI Live `gemini-3.5-transcribe-live-preview`, CF's own project | **global** endpoint (may be served from any region) |
 | Spoken tutor (voice dialog) | Microphone audio, tutor prompt, ticked excerpts | Vertex AI Live `gemini-live-2.5-flash-native-audio`, CF's own project | europe-west4 |
 | Read aloud | Reply text or one note (≤30,000 characters) | Google Cloud Text-to-Speech, Chirp 3 HD, CF's own project | Global API, no location pinned |
@@ -68,7 +69,7 @@ ElevenLabs and Kokoro speech backends exist in code but are not active.
   it), the lane is still **on** in production, so the honest answer to "is course text still sent to a free-tier
   provider?" is: it is still attempted. If the patch stops applying (the line it replaces changed first), the
   equivalent is to append `,CF_GATEWAY=off` to the `--set-env-vars` line by hand, or to run
-  `gcloud run services update <service> --update-env-vars CF_GATEWAY=off` and then also merge the deploy.yml change
+  `gcloud run services update <service> --region <region> --update-env-vars CF_GATEWAY=off` and then also merge the deploy.yml change
   so the next deploy does not revert it.
 
 ## How each GDPR principle is met
