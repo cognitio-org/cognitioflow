@@ -1,5 +1,11 @@
+Pending protected change (run.py) for the blueprint-build fix — needs Matej's named yes.
+Apply: git apply docs/pending-protected/blueprint-build.patch
+1) blueprint extract: max_tokens 4000 -> 8000 and an explicit 'cut off' 502 (the llm.py retry already fixes the prod failure; this is belt and braces).
+2) 422 copy names the syllabus first, matching the relabel (the UI already overrides it client-side).
+3) card-tagging 422: 'exam blueprint' -> 'coverage map'.
+
 diff --git a/run.py b/run.py
-index 582e28c..a4c27bb 100644
+index 582e28c..31adfdd 100644
 --- a/run.py
 +++ b/run.py
 @@ -996,14 +996,17 @@ def blueprint_extract(cid: str):
@@ -24,3 +30,12 @@ index 582e28c..a4c27bb 100644
      try:
          blu = bp.normalise_blueprint(got, source_papers=[p["name"] for p in papers])
      except bp.BlueprintError as e:
+@@ -1158,7 +1161,7 @@ def cards_tag(cid: str, p: CardTagIn):
+         raise HTTPException(404)
+     topics = bp.examined_topics(r[0]["brief"] or {})
+     if not topics:
+-        raise HTTPException(422, "No exam blueprint applied yet. Build and save a blueprint first, then tag.")
++        raise HTTPException(422, "No coverage map saved yet. Build it from the syllabus and save it first, then tag.")
+     keys = ct.topic_keys(topics)
+     cards = rows("SELECT id, front, back, COALESCE(doctrine,'') AS doctrine FROM cards WHERE course_id=?", cid)
+     if not p.all:

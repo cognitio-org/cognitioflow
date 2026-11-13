@@ -110,7 +110,7 @@ Return ONE JSON object, no prose around it:
       "weight": integer 0-100, this topic's share of the stated objectives (all weights should roughly sum to 100),
       "formats": ["how it is assessed, if stated or seen — e.g. IRAC case, essay, short answer, compare"],
       "doctrines": ["the articles, tests or cases it turns on"],
-      "seen_in": ["where you saw it: 'learning objectives', 'syllabus', or a paper by name"],
+      "seen_in": ["where you saw it: a syllabus week (e.g. 'Week 4'), or a paper by name"],
       "confidence": "high | medium | low",
       "note": "one sentence on what the objective asks the student to be able to do"
     }
@@ -123,7 +123,7 @@ Return ONE JSON object, no prose around it:
 Rules:
 - Start from the syllabus: every stated objective and every syllabus week should land in a topic. Weight by how prominent each is in the objectives and syllabus (how many objectives and weeks it spans).
 - Papers, when given, only confirm a topic, show its format, or raise confidence; they never add weight on their own or replace the objectives.
-- Confidence: "high" when an objective states the topic explicitly and other material confirms it; "medium" when an objective states it; "low" when it is only implied.
+- Confidence: "medium" when a syllabus week, topic or stated objective names it; "high" only when a paper also shows it being assessed; "low" when it is only implied.
 - If there are no learning objectives or syllabus, derive provisional topics from the papers, mark every confidence "low", and say so in note.
 - Prefer 6-12 real topics over a long thin list. Merge near-duplicates.
 - Name doctrines concretely (e.g. "Art 34 TFEU", "Cassis mandatory requirements"), never vaguely.
@@ -212,6 +212,13 @@ def normalise_blueprint(raw, source_papers=None):
         if len(order) >= MAX_TOPICS:
             break
     topics = [merged[k] for k in order]
+    papers = _items(source_papers if source_papers is not None else raw.get("source_papers"), 30)
+    if source_papers is not None and not papers:
+        # Read from the course itself (extract passes the papers it read) and without a paper nothing shows a topic being assessed, so the syllabus alone is "medium" at most —
+        # the model rates week titles "high" too readily, and the chip would overclaim on a demo course.
+        for t in topics:
+            if t["confidence"] == "high":
+                t["confidence"] = "medium"
 
     total = sum(t["weight"] for t in topics)
     if total > 0:
@@ -227,5 +234,5 @@ def normalise_blueprint(raw, source_papers=None):
         "exam_format": _line(raw.get("exam_format"), 600),
         "method": _line(raw.get("method"), 600),
         "note": _line(raw.get("note"), 400),
-        "source_papers": _items(source_papers if source_papers is not None else raw.get("source_papers"), 30),
+        "source_papers": papers,
     }

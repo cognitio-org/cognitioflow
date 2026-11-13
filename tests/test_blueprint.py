@@ -149,3 +149,12 @@ def test_rules_frame_coverage_of_stated_objectives_not_exam_prediction():
     assert "STATED LEARNING OBJECTIVES" in bp.RULES
     assert "never a prediction" in bp.RULES
     assert "never add weight on their own" in bp.RULES
+
+
+def test_syllabus_only_caps_confidence_at_medium():
+    raw = {"topics": [{"topic": "Free movement of goods", "weight": 60, "confidence": "high"},
+                      {"topic": "Direct effect", "weight": 40, "confidence": "low"}]}
+    out = bp.normalise_blueprint(raw, source_papers=[])
+    assert [t["confidence"] for t in out["topics"]] == ["medium", "low"]
+    out = bp.normalise_blueprint(raw, source_papers=["Exam 2024.pdf"])   # a paper can confirm "high"
+    assert out["topics"][0]["confidence"] == "high"

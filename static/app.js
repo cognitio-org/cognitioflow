@@ -2137,7 +2137,7 @@ function bpRender(b,proposed){ const topics=(b&&b.topics)||[];
   const bits=[]; if(b&&b.exam_format) bits.push(esc(b.exam_format)); if(b&&b.method) bits.push('Method: '+esc(b.method));
   if(b&&b.note) bits.push(esc(b.note));
   if(proposed){ const src=b.source||{}, n=src.papers||0, pp=n?`${n} paper${n===1?'':'s'} marked ‘Past exam’`:'';
-    bits.unshift(src.syllabus?`<b>Proposed</b> from the syllabus and its stated learning objectives${pp?' + '+pp+' (secondary)':''} — not saved`
+    bits.unshift(src.syllabus?`<b>Proposed</b> from the syllabus (weeks, topics, stated objectives)${pp?' + '+pp+' (secondary)':''} — not saved`
       :`<b>Proposed</b> from ${pp||'no syllabus'} only — no syllabus read, so this is provisional. Read the syllabus under Files for learning-objective coverage — not saved`); }
   else if(topics.length){ bits.unshift('<b>In use</b> — your tutor and practice questions lean on these topics'); }
   $('#bpMeta').innerHTML=bits.join(' · ');
@@ -2145,7 +2145,8 @@ function bpRender(b,proposed){ const topics=(b&&b.topics)||[];
   $('#bpBuild').textContent=topics.length&&!proposed?'Rebuild from syllabus':'Build from syllabus'; }
 /* A failed build stays on the panel with what to do next — a toast alone vanished and read as "nothing happened". */
 function bpError(e){ const st=e&&e.status, msg=(e&&e.message)||'';
-  const why=st===422||st===400||st===403||st===404?esc(msg||'The request was refused.')+' Nothing was saved.'
+  const why=st===422?'There is nothing to map yet. Read the course syllabus under Files first; papers you label ‘Past exam’ are optional, secondary evidence.'
+    :st===400||st===403||st===404?esc(msg||'The request was refused.')+' Nothing was saved.'
     :'The model’s reply came back incomplete or late, so nothing was built or saved. Build again — a retry usually works; if it keeps failing, check the syllabus is read under Files.';
   $('#bpMeta').innerHTML=`<div class="bperr" role="alert"><b>Could not build the coverage map.</b> ${why}</div>`; }
 async function loadBlueprint(){ if(!$('#blueprintPanel')) return; bpProposal=null;
