@@ -74,6 +74,15 @@ def _line(v, n=200):
     return " ".join(str(v if v is not None else "").split())[:n]
 
 
+def _clip(v, n):
+    """A one-line string cut at a word boundary with an ellipsis, never mid-word ("... state liability, and e")."""
+    s = _line(v, 100000)
+    if len(s) <= n:
+        return s
+    cut = s[:n - 1].rsplit(" ", 1)[0].rstrip(" ,;:-—")
+    return cut + "…"
+
+
 def _items(v, n=MAX_LIST):
     """A clean, de-duplicated, capped list of short strings from a string or a list."""
     if isinstance(v, str):
@@ -113,7 +122,7 @@ Return ONE JSON object, no prose around it:
       "weeks": [the syllabus week numbers this topic covers, as integers, e.g. [3, 4]],
       "objectives": [the numbers of the stated learning objectives this topic serves, as integers; [] if none are stated or none fit],
       "doctrines": ["the Treaty articles, tests or leading cases it turns on — at least one"],
-      "note": "one sentence on what the course asks the student to be able to do on this topic"
+      "note": "one short sentence (at most 30 words) on what the course asks the student to be able to do on this topic"
     }
   ],
   "note": "one line on anything the map cannot capture (e.g. no learning objectives were stated, so only weeks were mapped)"
@@ -249,7 +258,7 @@ def normalise_blueprint(raw, source_papers=None):
             "doctrines": _items(t.get("doctrines") if t.get("doctrines") is not None else t.get("authorities")),
             "seen_in": seen,
             "confidence": _conf(t.get("confidence")),
-            "note": _line(t.get("note"), 240),
+            "note": _clip(t.get("note"), 240),
         }
         if key in merged:
             m = merged[key]
@@ -300,6 +309,6 @@ def normalise_blueprint(raw, source_papers=None):
         "objectives_stated": any(t["objectives"] for t in topics),
         "exam_format": "",
         "method": "",
-        "note": _line(raw.get("note"), 400),
+        "note": _clip(raw.get("note"), 400),
         "source_papers": papers,
     }

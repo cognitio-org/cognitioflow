@@ -222,3 +222,10 @@ def test_saving_course_settings_keeps_a_saved_coverage_map():
            **APPLIED}
     kept = cb.keep_syllabus({"lecturer": "Y", "learning_objectives": "Explain goods"}, old)
     assert kept[bp.BLUEPRINT_KEY] == APPLIED[bp.BLUEPRINT_KEY] and kept[cb.SYLLABUS_KEY]["weeks"]
+
+
+def test_long_notes_are_cut_at_a_word_with_an_ellipsis():
+    long = "national-level enforcement including direct effect, state liability, and effective judicial protection " * 4
+    note = bp.normalise_blueprint({"topics": [{"topic": "A", "weeks": [1], "note": long}]})["topics"][0]["note"]
+    assert len(note) <= 240 and note.endswith("…") and not note.endswith(" …")
+    assert long.startswith(note[:-1])
