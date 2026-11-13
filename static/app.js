@@ -7,7 +7,7 @@ const $=s=>document.querySelector(s); const esc=s=>String(s??'').replace(/[&<>"]
 const todayISO=(d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const addDays=(iso,n)=>{const d=new Date(iso+'T00:00:00'); d.setDate(d.getDate()+n); return todayISO(d)};
 const mondayOf=iso=>{const d=new Date(iso+'T00:00:00'); return addDays(iso, -((d.getDay()+6)%7))};
-const api=async(p,o={})=>{const r=await fetch('/api'+p,o); if(!r.ok){let m=r.statusText; try{m=(await r.json()).detail||m}catch{} throw new Error(m)} return r.json()};
+const api=async(p,o={})=>{const r=await fetch('/api'+p,o); if(!r.ok){let m=r.statusText; try{m=(await r.json()).detail||m}catch{} const e=new Error(m); e.status=r.status; throw e} return r.json()};
 const post=(p,b)=>api(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});
 const put=(p,b)=>api(p,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
 const del=p=>api(p,{method:'DELETE'});
@@ -2116,7 +2116,8 @@ async function loadReadKeys(){ const ul=$('#readKeyList'); if(!ul) return; let k
   ul.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{ await del(`/tokens/${b.dataset.revoke}`); toast('Key revoked'); loadReadKeys() }); }
 $('#readKeyMake').onclick=async()=>{ const k=await post('/tokens',{}); $('#readKeyValue').value=k.token; $('#readKeyOnce').hidden=false; $('#readKeyValue').select(); loadReadKeys(); };
 $('#readKeyCopy').onclick=async()=>{ try{ await navigator.clipboard.writeText($('#readKeyValue').value); toast('Copied — it will not be shown again') }catch(_){ $('#readKeyValue').select() } };
-/* Exam blueprint — what the course examines, weighted from past papers + syllabus.
+/* Exam blueprint — coverage of the course's stated learning objectives: the syllabus first, any papers
+   marked 'Past exam' only as secondary evidence. Coverage, never a prediction of the exam.
    Read-only: Build proposes (writes nothing), Save persists it onto the course. */
 let bpProposal=null;        // an unsaved extract; null when we are showing what is applied
 const BP_CONF={high:'well-evidenced',medium:'some evidence',low:'thin evidence'};
@@ -2131,27 +2132,35 @@ function bpTopicRow(t){ const w=Math.max(0,Math.min(100,+t.weight||0));
     `</div>`; }
 function bpRender(b,proposed){ const topics=(b&&b.topics)||[];
   $('#bpTopics').innerHTML=topics.length?topics.map(bpTopicRow).join(''):
-    (proposed?'<div class="emptystate"><b>No examined topics found</b><span>The papers and syllabus did not yield a clear pattern yet.</span></div>':
-      '<div class="emptystate"><b>No blueprint yet</b><span>Press “Build from papers” to read what this course examines.</span></div>');
+    (proposed?'<div class="emptystate"><b>No objective topics found</b><span>The syllabus did not yield clear learning objectives yet. Read the course syllabus under Files, then build again.</span></div>':
+      '<div class="emptystate"><b>No coverage map yet</b><span>Press “Build from syllabus” to map the course’s stated learning objectives.</span></div>');
   const bits=[]; if(b&&b.exam_format) bits.push(esc(b.exam_format)); if(b&&b.method) bits.push('Method: '+esc(b.method));
   if(b&&b.note) bits.push(esc(b.note));
-  if(proposed){ const src=b.source||{}; bits.unshift(`<b>Proposed</b> from ${src.papers||0} paper${src.papers===1?'':'s'}${src.syllabus?' + syllabus':''} — not saved`); }
-  else if(topics.length){ bits.unshift('<b>In use</b> — your tutor and practice questions focus on these'); }
+  if(proposed){ const src=b.source||{}, n=src.papers||0, pp=n?`${n} paper${n===1?'':'s'} marked ‘Past exam’`:'';
+    bits.unshift(src.syllabus?`<b>Proposed</b> from the syllabus and its stated learning objectives${pp?' + '+pp+' (secondary)':''} — not saved`
+      :`<b>Proposed</b> from ${pp||'no syllabus'} only — no syllabus read, so this is provisional. Read the syllabus under Files for learning-objective coverage — not saved`); }
+  else if(topics.length){ bits.unshift('<b>In use</b> — your tutor and practice questions lean on these topics'); }
   $('#bpMeta').innerHTML=bits.join(' · ');
   $('#bpSave').hidden=$('#bpDiscard').hidden=!proposed;
-  $('#bpBuild').textContent=topics.length&&!proposed?'Rebuild from papers':'Build from papers'; }
+  $('#bpBuild').textContent=topics.length&&!proposed?'Rebuild from syllabus':'Build from syllabus'; }
+/* A failed build stays on the panel with what to do next — a toast alone vanished and read as "nothing happened". */
+function bpError(e){ const st=e&&e.status, msg=(e&&e.message)||'';
+  const why=st===422||st===400||st===403||st===404?esc(msg||'The request was refused.')+' Nothing was saved.'
+    :'The model’s reply came back incomplete or late, so nothing was built or saved. Build again — a retry usually works; if it keeps failing, check the syllabus is read under Files.';
+  $('#bpMeta').innerHTML=`<div class="bperr" role="alert"><b>Could not build the coverage map.</b> ${why}</div>`; }
 async function loadBlueprint(){ if(!$('#blueprintPanel')) return; bpProposal=null;
   try{ bpRender(await api(`/courses/${cid}/blueprint`),false); }
   catch(e){ $('#bpTopics').innerHTML=''; $('#bpMeta').textContent=''; } }
-$('#bpBuild')&&($('#bpBuild').onclick=async()=>{ const b=$('#bpBuild'); const was=b.textContent; b.disabled=true; b.textContent='Reading your papers…'; $('#bpMeta').textContent='';
+$('#bpBuild')&&($('#bpBuild').onclick=async()=>{ const b=$('#bpBuild'); const was=b.textContent; b.disabled=true; b.textContent='Mapping the objectives…';
+  $('#bpMeta').textContent='Reading the syllabus and any marked papers — this can take up to a minute.';
   try{ bpProposal=await post(`/courses/${cid}/blueprint/extract`); bpRender(bpProposal,true); }
-  catch(e){ toast(e.message||'Could not build the blueprint'); b.textContent=was; }
+  catch(e){ bpError(e); toast('Could not build the coverage map'); b.textContent=was; }
   b.disabled=false; });
 $('#bpSave')&&($('#bpSave').onclick=async()=>{ if(!bpProposal) return; const b=$('#bpSave'); b.disabled=true;
-  try{ const r=await post(`/courses/${cid}/blueprint/apply`,bpProposal); toast(r.topics?`Blueprint saved · ${r.topics} topic${r.topics===1?'':'s'}`:'Blueprint cleared'); await loadBlueprint(); loadReadiness(); }
+  try{ const r=await post(`/courses/${cid}/blueprint/apply`,bpProposal); toast(r.topics?`Coverage map saved · ${r.topics} topic${r.topics===1?'':'s'}`:'Coverage map cleared'); await loadBlueprint(); loadReadiness(); }
   catch(e){ toast(e.message||'Could not save'); } b.disabled=false; });
 $('#bpDiscard')&&($('#bpDiscard').onclick=()=>loadBlueprint());
-/* Exam readiness — per examined doctrine, from the blueprint + your cards. Read-only. */
+/* Readiness — per objective topic, from the saved coverage map + your cards. Read-only. */
 async function loadReadiness(){ const panel=$('#readinessPanel'); if(!panel) return;
   let d; try{ d=await api(`/courses/${cid}/readiness`); }catch(e){ panel.hidden=true; return; }
   if(!d||!d.blueprint){ panel.hidden=true; return; }     // only meaningful once a blueprint is saved
@@ -2168,9 +2177,9 @@ async function loadReadiness(){ const panel=$('#readinessPanel'); if(!panel) ret
       `<div class="rdline"><span class="rddot" aria-hidden="true"></span><span class="rdname">${esc(t.topic)}</span>`+
       `<span class="rdstatus">${esc(t.status)}</span></div>`+
       `<div class="rdbar"><i style="width:${pct}%"></i></div>`+
-      `<div class="rdsub small muted">${t.weight}% of exam · ${sub.join(' · ')}</div></div>`; };
+      `<div class="rdsub small muted">${t.weight}% of objectives · ${sub.join(' · ')}</div></div>`; };
   $('#rdTopics').innerHTML=d.topics.length?d.topics.map(row).join(''):
-    '<div class="emptystate"><b>No examined topics</b><span>Save an exam blueprint first.</span></div>';
+    '<div class="emptystate"><b>No objective topics</b><span>Save a coverage map of the stated learning objectives first.</span></div>';
   const tg=d.tagging||{},foot=$('#rdFoot');
   if(foot){ if(tg.total){ foot.hidden=false;
       $('#rdCoverage').textContent=tg.untagged
@@ -2178,7 +2187,7 @@ async function loadReadiness(){ const panel=$('#readinessPanel'); if(!panel) ret
         : `all ${tg.total} cards tagged to a doctrine`;
       const b=$('#rdTag'); b.hidden=!tg.untagged; b.textContent=tg.tagged?'Tag remaining cards':'Tag cards to doctrines';
     } else foot.hidden=true; } }
-/* Tag cards to the examined doctrines so readiness counts the right cards. One model pass over untagged cards. */
+/* Tag cards to the objective topics so readiness counts the right cards. One model pass over untagged cards. */
 $('#rdTag')&&($('#rdTag').onclick=async()=>{ const b=$('#rdTag'),was=b.textContent; b.disabled=true; b.textContent='Tagging…';
   try{ const r=await post(`/courses/${cid}/cards/tag`,{all:false});
     toast(r.tagged?`Tagged ${r.tagged} card${r.tagged===1?'':'s'}`+(r.failed?` · ${r.failed} skipped`:''):'Nothing to tag');

@@ -100,3 +100,5 @@
 .rdbar i{display:block;height:100%;border-radius:999px;background:var(--rule-strong);transition:width .5s var(--ease,ease)}
 .s-ready .rdbar i{background:var(--ok)} .s-shaky .rdbar i{background:var(--gilt)} .s-weak .rdbar i{background:var(--bad)}
 @media(prefers-reduced-motion:reduce){.rdbar i{transition:none}}
+.bperr{margin:.2rem 0;padding:.55rem .75rem;border:1px solid var(--rule);border-left:3px solid var(--warn);border-radius:var(--r);color:var(--ink)}
+.bperr b{font-weight:600}

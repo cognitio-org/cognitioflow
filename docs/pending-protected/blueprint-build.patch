@@ -1,0 +1,26 @@
+diff --git a/run.py b/run.py
+index 582e28c..a4c27bb 100644
+--- a/run.py
++++ b/run.py
+@@ -996,14 +996,17 @@ def blueprint_extract(cid: str):
+               and not (f["text"] or "").startswith("[extraction failed")]
+     syl = cb.syllabus_block(brief)
+     if not papers and not syl:
+-        raise HTTPException(422, "Nothing to read a blueprint from yet. Upload a past exam (label it ‘Past exam’), "
+-                                 "or read a syllabus under Files first.")
++        raise HTTPException(422, "Nothing to map yet. Read the course syllabus (its learning objectives) under Files "
++                                 "first; papers you label ‘Past exam’ are optional, secondary evidence.")
+     ctx = bp.build_context(papers, syllabus_block=syl,
+                            exam_format=(brief.get("exam_format") or ""),
+                            method=(brief.get("method") or ""))
+     model = pick_model("summarise", None)   # cheap tier; the strong model is unreachable here, as in syllabus
+-    got = _model_json(ask_model(model, task="summarise", max_tokens=4000, system=bp.RULES,
+-                                messages=[{"role": "user", "content": ctx}]))
++    m = ask_model(model, task="summarise", max_tokens=8000, system=bp.RULES,
++                  messages=[{"role": "user", "content": ctx}])   # 4000 left a thinking model ~150 tokens of answer
++    if getattr(m, "stop_reason", "") == "max_tokens":
++        raise HTTPException(502, "The model's reply was cut off before the map was complete. Nothing was saved — build again.")
++    got = _model_json(m)
+     try:
+         blu = bp.normalise_blueprint(got, source_papers=[p["name"] for p in papers])
+     except bp.BlueprintError as e:

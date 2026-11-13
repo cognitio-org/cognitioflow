@@ -85,12 +85,13 @@ def test_normalise_rejects_nonsense():
             pass
 
 
-def test_build_context_leads_with_brief_then_papers_and_caps_total():
+def test_build_context_leads_with_objectives_then_brief_then_papers_and_caps_total():
     papers = [{"name": "Practice exam 1", "text": "Q1 free movement " * 4000},
               {"name": "Resit 2024", "text": "Q1 direct effect " * 4000}]
     ctx = bp.build_context(papers, syllabus_block="Week 1 — Foundations",
                            exam_format="Two IRAC cases", method="Applicability -> justification")
-    assert ctx.index("EXAM FORMAT") < ctx.index("SYLLABUS") < ctx.index("PAST PAPERS")
+    # the stated learning objectives / syllabus are the primary input, so they come first (pitch plan row 1)
+    assert ctx.index("SYLLABUS") < ctx.index("EXAM FORMAT") < ctx.index("PAST PAPERS")
     assert '<paper name="Practice exam 1">' in ctx
     assert len(ctx) <= bp.TOTAL_CHARS + 2000   # per/total caps hold, allowing for the framing text
 
@@ -141,3 +142,10 @@ def test_blueprint_rides_a_hand_written_prompt_without_stacking():
     assert once.count(bp.BLUEPRINT_HEADER) == 1 and once.startswith("Hand-written prompt.")
     twice = cb.course_prompt(APPLIED, "EU", once)      # recompiling must not stack a second block
     assert twice.count(bp.BLUEPRINT_HEADER) == 1 and twice == once
+
+
+def test_rules_frame_coverage_of_stated_objectives_not_exam_prediction():
+    # pitch plan row 1 / B5: the blueprint is coverage of stated learning objectives, never "what the exam tests"
+    assert "STATED LEARNING OBJECTIVES" in bp.RULES
+    assert "never a prediction" in bp.RULES
+    assert "never add weight on their own" in bp.RULES

@@ -1,4 +1,4 @@
-"""Exam Blueprint — what a course actually examines, derived from its past papers + syllabus.
+"""Exam Blueprint — coverage of a course's stated learning objectives (syllabus first; papers secondary).
 
 Pure analysis helpers: no database, no network. run.py gathers the course's past-exam/mock
 files and its applied syllabus, calls the model with RULES, and normalises the reply here. A
@@ -15,7 +15,7 @@ PAPER_CHARS = 24000      # per paper: a paper is a few pages; the cap guards aga
 TOTAL_CHARS = 90000      # across all papers fed to the model in one pass
 MAX_TOPICS = 20          # a course examines a handful of doctrines, not fifty; the cap keeps the map readable
 MAX_LIST = 6             # formats / doctrines / seen_in kept per topic
-SYLLABUS_CHARS = 8000    # the syllabus is context, not the main signal — past papers lead
+SYLLABUS_CHARS = 16000   # the stated learning objectives / syllabus lead; papers are secondary evidence
 
 BLUEPRINT_KEY = "blueprint"   # where an applied blueprint lives inside courses.brief
 # Appended to the compiled course prompt, so the tutor AND every generator that seeds from it
@@ -98,50 +98,53 @@ def _conf(v):
     return s if s in ("high", "medium", "low") else "medium"
 
 
-RULES = """You are an exam analyst for a single university course. You are given the course's past exam papers and mock exams (the strongest signal), and possibly its syllabus, exam format and marking method.
+RULES = """You map how a single university course's STATED LEARNING OBJECTIVES are covered. You are given, first, the course's syllabus — its weekly topics and any learning objectives it states (the primary input), and possibly its exam format, its marking method and some past or practice papers (secondary evidence of how a topic is asked).
 
-Report, as JSON, what this course actually EXAMINES — not everything it teaches. Weight by what recurs in the papers; the syllabus only fills in topics the papers have not yet shown, at lower confidence.
+Report, as JSON, the topics the stated learning objectives commit the course to, and how much of the course each one carries. This is coverage of what the course says it assesses — never a prediction of what an exam will ask.
 
 Return ONE JSON object, no prose around it:
 {
   "topics": [
     {
-      "topic": "short name of an examined doctrine or theme",
-      "weight": integer 0-100, this topic's share of the exam (all weights should roughly sum to 100),
-      "formats": ["how it is tested — e.g. IRAC case, essay, short answer, compare"],
+      "topic": "short name of a doctrine or theme a learning objective covers",
+      "weight": integer 0-100, this topic's share of the stated objectives (all weights should roughly sum to 100),
+      "formats": ["how it is assessed, if stated or seen — e.g. IRAC case, essay, short answer, compare"],
       "doctrines": ["the articles, tests or cases it turns on"],
-      "seen_in": ["which papers you saw it in, by name"],
+      "seen_in": ["where you saw it: 'learning objectives', 'syllabus', or a paper by name"],
       "confidence": "high | medium | low",
-      "note": "one sentence on how it tends to be asked"
+      "note": "one sentence on what the objective asks the student to be able to do"
     }
   ],
-  "exam_format": "one line on the paper's shape (number and kind of questions, time, word limits)",
+  "exam_format": "one line on the assessment's shape, if stated (number and kind of questions, time, word limits)",
   "method": "one line on the answer method the course rewards, if evident",
-  "note": "one line on anything the weighting cannot capture (e.g. only one paper available)"
+  "note": "one line on anything the weighting cannot capture (e.g. objectives stated only in outline)"
 }
 
 Rules:
-- Base weight on frequency and prominence across the papers. A topic in every paper outranks one seen once.
-- Prefer 6–12 real topics over a long thin list. Merge near-duplicates.
-- If you have no papers, derive provisional topics from the syllabus and mark every confidence "low".
+- Start from the syllabus: every stated objective and every syllabus week should land in a topic. Weight by how prominent each is in the objectives and syllabus (how many objectives and weeks it spans).
+- Papers, when given, only confirm a topic, show its format, or raise confidence; they never add weight on their own or replace the objectives.
+- Confidence: "high" when an objective states the topic explicitly and other material confirms it; "medium" when an objective states it; "low" when it is only implied.
+- If there are no learning objectives or syllabus, derive provisional topics from the papers, mark every confidence "low", and say so in note.
+- Prefer 6-12 real topics over a long thin list. Merge near-duplicates.
 - Name doctrines concretely (e.g. "Art 34 TFEU", "Cassis mandatory requirements"), never vaguely.
 - Invent nothing that is not in the material. An empty topics list is a valid answer."""
 
 
 def build_context(papers, syllabus_block="", exam_format="", method=""):
-    """Assemble the user message: brief context first, then the papers (the signal), capped.
+    """Assemble the user message: the stated learning objectives / syllabus first (the primary input),
+    then the brief's format and method, then any papers (secondary evidence), capped.
 
     `papers` is a list of {"name", "text"}. Papers are truncated per-paper and in total so a large
     course cannot blow the token budget; the earliest papers in the list win the remaining room.
     """
     parts = []
+    if syllabus_block:
+        parts.append("SYLLABUS — WEEKLY TOPICS AND STATED LEARNING OBJECTIVES (the primary input — map these first):\n"
+                     + syllabus_block[:SYLLABUS_CHARS])
     if exam_format:
         parts.append("EXAM FORMAT (from the course brief):\n" + _line(exam_format, 600))
     if method:
         parts.append("METHOD the course marks by:\n" + _line(method, 600))
-    if syllabus_block:
-        parts.append("SYLLABUS (what the course teaches — context, weaker signal than the papers):\n"
-                     + syllabus_block[:SYLLABUS_CHARS])
     used = 0
     body = []
     for p in papers or []:
@@ -155,7 +158,7 @@ def build_context(papers, syllabus_block="", exam_format="", method=""):
         used += len(chunk)
         body.append('<paper name="%s">\n%s\n</paper>' % (_line(p.get("name"), 120), chunk))
     if body:
-        parts.append("PAST PAPERS / MOCKS (weight by what recurs here):\n" + "\n\n".join(body))
+        parts.append("PAST PAPERS / MOCKS (secondary — how topics are asked; they do not set the weights):\n" + "\n\n".join(body))
     return "\n\n".join(parts)
 
 
