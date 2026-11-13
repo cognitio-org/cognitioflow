@@ -226,11 +226,11 @@ def _deshout(text: str) -> str:
     return "".join(out)
 
 
-_WG = re.compile(r"(?i)\b(?:wg|working\s+group)\b|\[WG\]|\bmodel\s+answer|^\s*(?:q\s*\d+|question\s+\d+|answers?)\b")
+_WG = re.compile(r"(?i)\b(?:wg|working\s+group)\b|\bmodel\s+answer|^\s*(?:q\s*\d+|question\s+\d+|answers?)\b")
 # An answer to a set question that nobody labelled: its scaffolding ("IRAC structure", "Preliminary question",
 # "Advice to ...", "Quick reference card") or a problem's parties as a heading ("Next Gen Pharmacy v German
 # Association of Pharmacists") where no case of that name is in the case index.
-_ANSWER_HEAD = re.compile(r"(?i)^\s*(?:irac\b|preliminary\s+question|advice\s+to\b|(?:the\s+)?facts\b|problem\s+question|"
+_ANSWER_HEAD = re.compile(r"(?i)^\s*(?:irac\b|preliminary\s+question\b(?!s).*\?\s*$|advice\s+to\b|(?:the\s+)?facts\b|problem\s+question|"
                           r"quick\s+reference(?:\s+card)?\b|question\b|answer\b|conclusion\s+for\s+the\s+client)")
 
 
@@ -289,17 +289,16 @@ def _outline_key(h: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", h.casefold())).strip()
 
 
-def _is_answer_heading(h: str, case_keys=frozenset()) -> bool:
-    """A heading that belongs to an answer to a set question, labelled or not (see _ANSWER_HEAD)."""
+def _is_answer_heading(h: str, case_keys=frozenset(), section: str = "") -> bool:
+    """A heading that belongs to an answer to a set question, labelled or not (see _ANSWER_HEAD). A party-name
+    heading counts only when both sides are proper names, no case of that name is in the index, and its
+    section cites nothing (a real case written up carries a number, an ECLI or a year)."""
     if _is_wg(h) or _ANSWER_HEAD.match(h): return True
-    parties = re.match(r"^(.{2,60}?)\s+v\.?\s+(.{2,80})$", h.strip())
-    return bool(parties) and _name_key(h) not in case_keys and not any(k and k in _name_key(h) for k in case_keys)
-
-
-def _wg_section(text: str) -> bool:
-    """A section whose provenance tags are all [WG]: the working group's answer, not the doctrine."""
-    tags = re.findall(r"\[(LECTURE|WG|SLIDES|READER|SCHUTZE|ADDED)\]", text or "")
-    return bool(tags) and all(t == "WG" for t in tags)
+    parties = re.match(r"^([A-ZÀ-Ý].{1,59}?)\s+v\.?\s+([A-ZÀ-Ý].{1,79})$", h.strip())
+    if not parties: return False
+    key = _name_key(h)
+    if key in case_keys or any(k and re.search(r"(?<!\w)" + re.escape(k) + r"(?!\w)", key) for k in case_keys): return False
+    return not (_dockets(section) or re.search(r"ECLI:|[\[(](?:1[5-9]|20)\d\d[\])]", section))
 
 
 def _outline(notes, case_keys=frozenset(), title: str = "") -> list:
@@ -320,7 +319,7 @@ def _outline(notes, case_keys=frozenset(), title: str = "") -> list:
             key = _outline_key(h)
             if not key or key in seen or key in _SECTION_ONLY: continue
             if _outline_key(re.sub(_LECTURE, "", h)) in seen: continue
-            if _is_answer_heading(h, case_keys) or _wg_section(m.group(2) + section): continue
+            if _is_answer_heading(h, case_keys, section): continue
             seen.add(key); out.append(h)
     return out[:OUTLINE]
 
@@ -450,8 +449,9 @@ def normalise_cases(cases: list) -> list:
             given = c.get("year") if not split else None
             # The index's year may itself be read off a number (run.py's fallback): 2013 from "Opinion 2/13",
             # 1972 from "5856/72". Only a year that no number in the row explains counts as written.
-            if not written and given and given not in _yy_years(name, cite, raw_name, raw_cite):
-                written = given
+            bare = {int(y) for y in _FOUR.findall(_BRACKET_YEAR.sub("", re.sub(r"ECLI:\S+", "", raw_cite)))}
+            if not written and given and given not in _yy_years(name, cite, raw_name, raw_cite) and given not in bare:
+                written = given                  # ...and a bare figure in the cite ("ECR 1585") is a page
             lodged = None
             if dockets:
                 yy = int(re.search(r"/(\d{2})", dockets[0]).group(1)); lodged = 1900 + yy if yy >= 50 else 2000 + yy

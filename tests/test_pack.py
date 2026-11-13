@@ -230,7 +230,21 @@ def test_a_tutorial_titled_doctrine_note_is_not_demoted_and_unlabelled_answers_s
             "## IRAC structure\n## Quick reference card\n## Advice to the client\n## Recovery\n[WG] answer\n## Commission v Italy\nThe case.")
     cases = [_n("Commission v Italy", "C-576/18", note="x")]
     t = pack.build({5: [{"id": "x", "title": "Week 5 — State aid", "body": body}]}, [], cases)["topics"][0]
-    assert t["outline"] == ["Selectivity", "Commission v Italy"]       # a heading naming a real indexed case stays
+    assert t["outline"] == ["Selectivity", "Recovery", "Commission v Italy"]   # an indexed case heading stays; [WG] doctrine stays
+
+
+def test_doctrine_headings_that_look_like_answers_are_kept():
+    body = ("## Vertical v horizontal direct effect\n## Preliminary questions: Art 267 TFEU\n## Preliminary question: validity or interpretation\n"
+            "## Commission v Germany\nCase 178/84, the beer case.\n## Francovich v Italy\nState liability [1991].\n## Supremacy\n[WG] Costa.")
+    t = pack.build({3: [{"id": "x", "title": "Week 3 — Remedies", "body": body}]}, [], [_n("ERT", note="x")])["topics"][0]
+    assert t["outline"] == ["Vertical v horizontal direct effect", "Preliminary questions: Art 267 TFEU",
+                            "Preliminary question: validity or interpretation", "Commission v Germany", "Francovich v Italy", "Supremacy"]
+    assert pack._is_answer_heading("Next Gen Pharmacy v German Association of Pharmacists", {"ert"})   # 'ert' is not a whole word in it
+
+
+def test_a_page_number_in_the_cite_never_becomes_the_year_through_the_index():
+    out = pack.normalise_cases([_n("Costa v ENEL", "Case 6/64, ECR 1585", 1585)])   # what run.py's index hands over today
+    assert out[0]["year"] == 1964 and out[0]["numbered"]
 
 
 def test_the_from_column_names_a_week_once():
