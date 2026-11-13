@@ -127,7 +127,7 @@ footer a{color:var(--cyan);text-decoration:none}
 .rise{opacity:0;transform:translateY(12px);transition:opacity .6s var(--ease),transform .6s var(--ease)}
 .rise.in{opacity:1;transform:none}
 .d1{transition-delay:.04s}.d2{transition-delay:.12s}.d3{transition-delay:.2s}
-@media (max-width:820px){.hero{grid-template-columns:1fr;gap:32px}.bento{grid-template-columns:1fr}.hero-card{grid-row:auto;min-height:200px}.method{grid-template-columns:1fr}.quote{grid-template-columns:1fr}.nav{display:none}}
+@media (max-width:820px){.hero{grid-template-columns:1fr;gap:32px}.bento{grid-template-columns:1fr}.hero-card{grid-row:auto;min-height:200px}.hero-card .viz{flex:none;min-height:84px}.method{grid-template-columns:1fr}.quote{grid-template-columns:1fr}.nav{display:none}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.rise{opacity:1;transform:none}}
 </style>
 
@@ -138,7 +138,7 @@ footer a{color:var(--cyan);text-decoration:none}
   <header>
     <div class="bar">
       <div class="brand"><span class="glyph"></span>CognitioFlow</div>
-      <nav class="nav"><a href="#engine">engine</a><a href="#method">method</a><a href="#court">courtroom</a></nav>
+      <nav class="nav"><a href="#engine">engine</a><a href="#method">method</a><a href="#data">your data</a></nav>
     </div>
   </header>
 
@@ -146,19 +146,19 @@ footer a{color:var(--cyan);text-decoration:none}
     <div>
       <div class="eyebrow rise d1"><span class="pulse"></span>AI study engine &middot; for law students</div>
       <h1 class="rise d1">Study law from<br>your own sources.</h1>
-      <p class="lede rise d2">CognitioFlow drills, explains and quizzes you &mdash; reasoning <em>only</em> from the lectures, working-group notes and readers you actually tick. It shows its sources, and it never guesses.</p>
+      <p class="lede rise d2">CognitioFlow drills, explains and quizzes you &mdash; working from the lectures, working-group notes and readers you tick. When you tick files, it shows the excerpts it used. In tutor chat with files ticked, it flags EU case numbers (C-/T-), ECLIs and article references it cannot find in those files. Cases cited by name only, and national-law citations, are not checked.</p>
       <div class="cta rise d2">
         <a class="btn pri" href="/auth/login">Launch the app</a>
         <a class="btn sec" href="#engine">How it works</a>
-        <span class="kbd">reasons from <b>your files</b> only</span>
+        <span class="kbd">grounded in <b>the files you tick</b></span>
       </div>
     </div>
     <div class="panel spec rise d3">
       <div class="top"><span class="dot"></span>TUTOR<span class="sp">EU LAW &middot; WEEK 6</span></div>
       <div class="body">
         <p class="q">Can a Member State justify a quantitative restriction on imports?</p>
-        <p class="a">Only within the exhaustive grounds of <span class="tag">WG</span> Art. 36 TFEU, and the measure must be proportionate <span class="tag n">LECTURE</span>. Mandatory requirements extend this for indistinctly-applicable measures.</p>
-        <div class="verify">&#10003; Art. 34 TFEU &middot; verified against your files</div>
+        <p class="a">Only within the exhaustive grounds of <span class="tag">WG</span> Art. 36 TFEU, and the measure must be proportionate <span class="tag n">LECTURE</span>. Mandatory requirements extend this for indistinctly-applicable measures (see C-999/97).</p>
+        <div class="verify">Not in your materials: C-999/97 &mdash; check before you rely on it.</div>
         <div class="spark"><i style="height:30%"></i><i style="height:45%"></i><i style="height:40%"></i><i class="on" style="height:62%"></i><i class="on" style="height:70%"></i><i class="on" style="height:88%"></i></div>
       </div>
     </div>
@@ -166,24 +166,24 @@ footer a{color:var(--cyan);text-decoration:none}
 
   <section id="engine">
     <p class="kick rise">01 &mdash; the engine</p>
-    <h2 class="rise">A tutor that stays inside your syllabus.</h2>
-    <p class="sub rise">Most study tools invent. CognitioFlow reasons from the files you tick, tags where every claim comes from, and marks anything beyond them plainly.</p>
+    <h2 class="rise">A tutor that works from your syllabus &mdash; and says when it steps outside it.</h2>
+    <p class="sub rise">A general chatbot answers from anywhere. When you tick files, CognitioFlow retrieves from them, shows what it drew on, and flags some cited authorities it can&rsquo;t find in them. It is still AI-generated: check it against your materials.</p>
     <div class="bento">
       <div class="card hero-card spec rise d1">
-        <span class="lab">Walkable 3D courtroom</span>
-        <h3>Stand inside the Court of Justice.</h3>
-        <p>Study procedure where it happens &mdash; walk the gallery into the Grand Chamber, bench and bar in place, so the shape of a hearing is somewhere you've stood.</p>
-        <div class="viz"><span>GRAND CHAMBER &middot; WALKABLE</span></div>
+        <span class="lab">Citation check</span>
+        <h3>Flags what it can&rsquo;t find in your materials.</h3>
+        <p>In tutor chat with files ticked, it flags EU case numbers (C-/T-), ECLIs and article references it cannot find in those files. Cases cited by name only, and national-law citations, are not checked. It checks that the reference appears in your files &mdash; not that the holding or the paragraph is right. That part is still yours to check.</p>
+        <div class="viz"><span>EXISTS IN SOURCES &middot; NOT A HOLDING CHECK</span></div>
       </div>
       <div class="card spec rise d2">
         <span class="lab">Provenance</span>
-        <h3>Cited, source-tagged answers.</h3>
-        <p>Every claim is tagged &mdash; lecture, working group, slides, reader &mdash; so you always know its authority.</p>
+        <h3>Answers that show their sources.</h3>
+        <p>When you tick files, answers come with the excerpts they drew on, and your files carry their type &mdash; lecture, working group, slides, reader &mdash; so you can weigh the authority yourself.</p>
       </div>
       <div class="card spec rise d3">
         <span class="lab">Adaptive</span>
         <h3>Revision that tracks your gaps.</h3>
-        <p>Drills built from your own content, getting harder exactly where you haven't mastered it yet.</p>
+        <p>Drills built from your own content, bringing back the cards and topics you got wrong, more often.</p>
       </div>
     </div>
   </section>
@@ -192,27 +192,33 @@ footer a{color:var(--cyan);text-decoration:none}
     <p class="kick rise">02 &mdash; the method</p>
     <div class="method">
       <div class="stick">
-        <h2 class="rise">Built around how exams are marked.</h2>
-        <p class="sub rise">It drills the structure examiners reward, not just the facts.</p>
+        <h2 class="rise">Built around the structure of a legal answer.</h2>
+        <p class="sub rise">Explanations and print packs walk through the steps a free-movement answer takes, not just the facts.</p>
       </div>
       <div class="steps">
         <div class="row rise d1"><span class="n">01</span><div><b>Applicability</b> &mdash; <span>does the rule reach these facts at all?</span></div></div>
         <div class="row rise d1"><span class="n">02</span><div><b>Restriction &amp; scope</b> &mdash; <span>how far does it extend, and where does it stop?</span></div></div>
         <div class="row rise d2"><span class="n">03</span><div><b>Justification &amp; proportionality</b> &mdash; <span>is the interference justified, and proportionate?</span></div></div>
-        <div class="row rise d2"><span class="n">04</span><div><b>IRAC throughout</b> &mdash; <span>issue, rule, application, conclusion, in your own words.</span></div></div>
+        <div class="row rise d2"><span class="n">04</span><div><b>Conclusion</b> &mdash; <span>answer the question asked, in your own words.</span></div></div>
       </div>
     </div>
   </section>
 
-  <section id="court">
+  <section id="data">
+    <p class="kick rise">03 &mdash; where your data goes</p>
+    <h2 class="rise">Plainly, today.</h2>
+    <p class="sub rise">Course material and questions you send to the tutor are processed by Anthropic (Claude) by default; if you pick another model in the tutor, the same material goes to OpenAI or Google (USA). Requests reach these providers via a router operated by a third party; its own log retention is not yet confirmed. For bulk tasks such as flashcards and summaries, material is processed by Google Vertex AI in the USA, and some bulk tasks may first be tried on a free-tier model through OpenRouter. By default, Anthropic, OpenAI and Google do not train on this data; Anthropic deletes it within 30 days and OpenAI keeps it for up to 30 days. The free-tier lane carries no such assurance. Lecture transcription and the spoken tutor run on Google Cloud in the EU (europe-west4). Live dictation and read-aloud use Google endpoints that are not region-pinned and may be processed outside the EU. Embeddings are computed inside the app. No zero-retention or EU-only guarantee applies today.</p>
+  </section>
+
+  <section id="about">
     <div class="quote">
-      <blockquote class="rise">&ldquo;I built the study tool I wanted for my own law degree &mdash; one that never guesses, and shows its sources.&rdquo;</blockquote>
-      <div class="who rise d1"><b>Made by a law student (LLB)</b><br>University of Groningen.<br>Privacy-first &mdash; your materials stay yours.</div>
+      <blockquote class="rise">&ldquo;I built the study tool I wanted for my own law degree &mdash; one that works from my own course materials and shows its sources.&rdquo;</blockquote>
+      <div class="who rise d1"><b>Made by an LLB student</b><br>at the University of Groningen.<br>Independent student project &mdash; not affiliated with or endorsed by the University of Groningen.</div>
     </div>
   </section>
 
   <footer>
-    <div>COGNITIOFLOW &mdash; justice, drilled</div>
+    <div>COGNITIOFLOW &mdash; independent student project, not affiliated with or endorsed by the University of Groningen</div>
     <div><a href="https://cognitioflow.ai">cognitioflow.ai</a></div>
   </footer>
 </div>

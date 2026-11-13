@@ -31,10 +31,12 @@ Google Speech-to-Text when it is transcribed.
 4. **Recall:** generate cards from a file, review with Again/Hard/Good/Easy (keys 1–4; SM-2 scheduling), or switch to Quiz.
 5. **Planner and Progress:** the week's sessions, the study timer, recall accuracy and a case index across your notes.
 
-### Voice (Chrome or Safari, no API cost)
-On the Tutor screen: **Talk** dictates your answer using the browser's own speech recognition and sends it when you stop
-speaking; **Read aloud** has the reply spoken back. Both use the browser's built-in speech engine, so they cost nothing.
-This is turn-taking dictation, not a continuous voice conversation.
+### Voice (Chrome or Safari)
+On the Tutor screen: **Talk** dictates your answer and sends it when you stop speaking, using the browser's own speech
+recognition (or, in the Gemini mic mode, Vertex AI live dictation); **Read aloud** speaks the reply back, using Google
+Cloud Text-to-Speech for short replies when `TTS=google` (as in production) and the browser's voice otherwise. The
+spoken tutor (voice dialog) is a separate, continuous conversation on Vertex AI Live. Where each one sends audio is
+listed under Model routing below.
 
 ### Find anything: ⌘K
 ⌘K (or the Search button) opens a palette: type a screen name to jump, or two letters or more to search this course's notes, files, chats and cards with a snippet. Arrows and Enter.
@@ -84,17 +86,39 @@ from today and starts again.
 Replies render as Markdown. When the tutor draws a flowchart or case map it sends a Mermaid block, which the app renders inline (libraries are bundled, no internet needed). Ask for one directly: "draw the Art 34 test as a flowchart" or "table Dassonville vs Cassis vs Keck".
 
 ### Model routing
-Automatic by task: note-building and card generation run on the cheap model, drilling and explaining on the main one. A
-cheap task escalates automatically if the request looks analytical (compare, contrast, IRAC, why, critique, argue). Override
-per message with the dropdown next to the mode buttons, which lists Haiku 4.5, Sonnet 4.6, Sonnet 5, Opus 5 and Fable 5.1.
-Opus and Fable are never chosen automatically — only when you pick them for one message.
+Automatic by task: note-building, summaries and card generation run on the cheap tier; drilling, explaining, grading
+and reconcile run on the main tier. A cheap task escalates to the main tier if the request looks analytical (compare,
+contrast, IRAC, why, critique, argue). Fable, Opus and anything priced above the main tier are never chosen
+automatically.
 
-Defaults (environment variables on Cloud Run, or in `.env.local` locally):
-```
-CF_MODEL=claude-sonnet-4-6        # drilling, explaining
-CF_CHEAP_MODEL=claude-haiku-4-5   # notes, cards, quiz distractors, garble cleaning
-CF_STRONG_MODEL=claude-sonnet-4-6 # reconcile with lecture only
-```
+**What production does today** (`LLM_PROVIDER=kernal`; checked against the live Cloud Run config on 2026-11-13):
+
+| Feature | Route and model |
+|---|---|
+| Tutor chat (drill, explain, apply), grading, reconcile, Case Docket writer and reviewer | Kernal (a third-party LiteLLM router, `router.kernal.one`) → Anthropic API, `claude-sonnet-5` |
+| Summaries, notes, case extraction, chunked passes (cheap tier) | Kernal → Google Vertex AI `gemini-2.5-flash`, served in **us-central1 (USA)** |
+| Flashcards, concepts, syllabus reading, viva questions (`cards`, `concepts`, `syllabus`, `oral`) | Tried first on the gateway lane: OpenRouter, free model `nvidia/nemotron-3-super-120b-a12b:free` (redacted text, one note or file). That model currently lists no endpoints, so these calls most likely fail and fall back to the cheap tier above (unverified). The lane is being switched off with `CF_GATEWAY=off` (see `docs/privacy-gateway.md`) |
+| Per-message model picker | `claude-sonnet-5`, `gemini-2.5-flash`, `gpt-5-nano` (OpenAI API), all through Kernal |
+| Images ticked or uploaded in chat | Not sent at all on this provider: the Kernal bridge drops non-text blocks (known bug) |
+| Embeddings and retrieval | Local, inside the container (`BAAI/bge-small-en-v1.5`); nothing leaves |
+| Lecture transcription | Google Speech-to-Text v2 `chirp_2`, europe-west4, CF's own GCP project |
+| Talk (dictation) | The browser's own speech recognition where it exists (in Chrome, the browser sends audio to Google's speech service); the Gemini mic mode uses Vertex AI Live `gemini-3.5-transcribe-live-preview` on the **global** endpoint |
+| Spoken tutor (voice dialog) | Vertex AI Live `gemini-live-2.5-flash-native-audio`, europe-west4, CF's own project; it carries the tutor prompt and ticked excerpts |
+| Read aloud | Google Cloud Text-to-Speech, Chirp 3 HD (`TTS=google`) for short replies; longer replies use the browser's voice |
+
+No zero-retention or EU-only guarantee applies to the tutor or the cheap tier today. Anthropic and Vertex do not train
+on API data by default; whether Kernal itself logs prompts is not yet confirmed with its operator.
+
+Tier defaults come from `llm.py` and depend on `LLM_PROVIDER`; set an env var only to override (Cloud Run, or `.env.local`):
+
+| Variable | Role | `kernal` (prod) | `anthropic` | `openrouter` | `gateway` |
+|---|---|---|---|---|---|
+| `CF_MODEL` | main: drilling, explaining | `claude-sonnet-5` | `claude-sonnet-5-5` | `claude-sonnet-5-5` | `gpt-6-luna` |
+| `CF_CHEAP_MODEL` | notes, cards, quiz distractors, garble cleaning | `gemini-2.5-flash` | `claude-haiku-4-5` | `deepseek/deepseek-v4.1-flash` | `gpt-6-luna` |
+| `CF_STRONG_MODEL` | reconcile | = main | = main | = main | = main |
+
+`CF_GATEWAY=off` disables the OpenRouter bulk lane; `CF_LOCAL_BASE_URL` (unset in prod) enables a local-model tier
+for non-streaming tasks.
 
 ### Courses
 **+ Add course** creates a course by name. Each course keeps its own files, notes, cards, planner and tutor prompt; the
@@ -111,7 +135,8 @@ the export carries them, in `claude-project-docs/`). Drag them onto the Files sc
 ### Limits worth knowing
 - About 180,000 characters of ticked file text per tutor message (≈45k tokens). Over that, later files are truncated —
   the Tutor screen warns you; untick what you don't need.
-- Up to 6 ticked images are sent with each message. Keep photographed notes ticked only while reconciling them.
+- Up to 6 ticked images are sent with each message on the `anthropic` provider. On `kernal` (production today) images
+  are dropped before sending (known bug), so the tutor does not see them.
 - For a plain-files copy you can open without the app, run `scripts/export_all.py`.
 
 ## Operations
