@@ -481,7 +481,9 @@ def _from_notes(cases: list, bodies: dict) -> list:
                 if not at: continue
                 other = next((o for o in _OTHER_NUMBER.finditer(tail) if o.end() == at.end()), None)
                 if other and not re.match(r"[CTF]-", cite):
-                    c["cite"], c["year"] = other.group(0).strip(), None      # another court's number, verbatim, undated
+                    c["cite"], c["year"] = other.group(0).strip(), None      # another court's number, verbatim; no year off it
+                    y = _explicit_year(tail[at.end():])
+                    if y: c["written_year"] = y                              # ...but a date the note writes stands
                     break
                 if re.match(r"\s+P\b", tail[at.end():]) and not cite.endswith(" P"):
                     c["cite"] = cite + " P"

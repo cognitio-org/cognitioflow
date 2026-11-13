@@ -291,6 +291,9 @@ def test_a_german_number_in_prose_is_restored_from_the_note():
     t = pack.build({1: [w]}, [], [_n("Lisbon", "2/08", 2008, "w1"), _n("Kadi", "C-402/05", 2005, "w1")])["topics"][0]
     got = {c["name"]: (c["cite"], c["year"]) for c in t["cases"]}
     assert got["Lisbon"] == ("2 BvE 2/08", None) and got["Kadi"] == ("Case C-402/05 P", 2005)
+    dated = {"id": "w2", "title": "Week 1 — Supremacy", "body": "*Lisbon* (2 BvE 2/08, judgment of 30 June 2009) on identity."}
+    c = pack.build({1: [dated]}, [], [_n("Lisbon", "2/08", 2008, "w2")])["topics"][0]["cases"][0]
+    assert (c["cite"], c["year"], c["numbered"]) == ("2 BvE 2/08", 2009, False)   # the date the note writes, not '08' 
 
 
 def test_a_c_the_notes_wrote_is_never_removed():
