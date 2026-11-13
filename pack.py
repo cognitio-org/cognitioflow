@@ -2,7 +2,7 @@
 
 Decided with Matej (Phase 18 brief, decision 7, signed off 2026-09-30): the pack is for revising at home and never
 goes into the exam. A page per syllabus week - the rule (the note's opening box), the outline, the leading cases
-in the order they were decided with the note each came from, and the exam method's steps where the week's notes
+in the order they were decided with the note each came from (printed "oldest first", since a year read off a case number is not the judgment year: see normalise_cases), and the exam method's steps where the week's notes
 work through them - and a sheet of tab labels: an article number and a one-word heading, nothing that would count
 as an annotation in the statute book.
 """
@@ -135,7 +135,7 @@ def build(weeks: dict, reference: list, cases: list, method: bool = True) -> dic
         body = "\n\n".join(n.get("body") or "" for n in notes)
         title = _title(doctrine) if notes else f"Week {week}"
         rule = next((r for r in (_rule(n.get("body")) for n in doctrine) if r), "")
-        outline = _outline(doctrine)
+        outline = _outline(doctrine, {_name_key(c["name"]) for c in cases}, title)
         own = [c for c in cases if any(x["id"] in ids for x in c.get("notes", []))]
         # A case first met in an earlier week is printed again only where this week works it: a passing "as in
         # Van Gend" (named once, in prose) is listed by name under the table, not as another row.
@@ -146,15 +146,16 @@ def build(weeks: dict, reference: list, cases: list, method: bool = True) -> dic
         topics.append({
             "week": str(week), "title": title, "rule": rule, "outline": outline,
             "cases": [{"name": c["name"], "cite": c.get("cite") or "", "year": c.get("year"),
-                       "note": _deshout(next(x["title"] for x in c["notes"] if x["id"] in ids))} for c in own[:CASES]],
+                       "numbered": bool(c.get("numbered")),
+                       "note": _source(next(x["title"] for x in c["notes"] if x["id"] in ids), week, title)} for c in own[:CASES]],
             "more_cases": max(0, len(own) - CASES),
             "recalled": sorted({c["name"] for c in recalled}, key=str.casefold),
             "method": [label for _, label in essay.LIMBS] if method and len(moves) >= METHOD_HITS else [],
         })
-        words[str(week)] = _week_word(title) or next((w for w in map(_week_word, outline) if w), "")
-    # Each tab's word comes from his own article index where it has the article; otherwise the article's own
-    # subject for the common EU articles (_HEADINGS, added for the pitch: a fixed fact, not a guess); otherwise
-    # from the title of the week that cites it most and has a word; otherwise none - a blank tab beats a wrong one.
+        words[str(week)] = _week_word(title)
+    # Each tab's word comes from his own article index where it has the article; otherwise from the title of the
+    # week that cites it most and has a word; otherwise none - a blank tab beats a wrong one (signed off). _HEADINGS
+    # is empty until Matej says yes to the proposed article subjects (_HEADINGS_PROPOSED).
     index = _article_index(list(reference) + [n for ns in weeks.values() for n in ns])
     found = defaultdict(Counter)
     for week, notes in list(weeks.items()) + [(None, reference)]:
@@ -181,24 +182,27 @@ def build(weeks: dict, reference: list, cases: list, method: bool = True) -> dic
 # ---------------------------------------------------------------- tidying (pitch freeze, 2026-11-14)
 # Day-1 judge: the case table printed one case twice under two spellings, doctrines as cases, a year twice, two
 # cases in one row; headings shouted; outlines repeated themselves and carried WG answers; some tabs were blank
-# or named an article that does not exist. Everything below only reformats what the notes say: no case, year or
-# citation is added that the notes do not carry.
+# or named an article that does not exist. Everything below only reformats what the notes say: no case, case
+# number, court letter, year or citation is added that the notes do not carry (follow-up to #224).
 
 _ARTICLE_MAX = {"TEU": 55, "TFEU": 358, "Charter": 54, "ECHR": 59}
-# The article's own subject, one word, for the articles a first-year EU law course cites. His own index wins.
-_HEADINGS = {("TEU", n): w for n, w in {
+# PROPOSED, NOT LIVE: the article's own subject, one word, for the articles a first-year EU law course cites.
+# It loosens the signed-off rule "a blank tab is better than a wrong one", so it stays off (_HEADINGS empty) until
+# Matej gives his named yes; then set _HEADINGS = _HEADINGS_PROPOSED. His own index would still win.
+_HEADINGS_PROPOSED = {("TEU", n): w for n, w in {
     "2": "Values", "3": "Objectives", "4": "Cooperation", "5": "Conferral", "6": "Rights", "7": "Sanctions",
     "13": "Institutions", "14": "Parliament", "16": "Council", "17": "Commission", "19": "Court", "48": "Revision",
     "49": "Accession", "50": "Withdrawal"}.items()}
-_HEADINGS.update({("TFEU", n): w for n, w in {
+_HEADINGS_PROPOSED.update({("TFEU", n): w for n, w in {
     "2": "Competences", "3": "Exclusive", "4": "Shared", "6": "Supporting", "18": "Nationality", "20": "Citizenship",
     "21": "Residence", "26": "Market", "28": "Customs", "30": "Duties", "34": "Imports", "35": "Exports",
     "36": "Derogations", "45": "Workers", "49": "Establishment", "56": "Services", "57": "Services", "63": "Capital",
-    "101": "Cartels", "102": "Dominance", "107": "State-aid", "110": "Taxation", "114": "Harmonisation",
-    "157": "Equal-pay", "258": "Infringement", "259": "Infringement", "260": "Penalties", "263": "Annulment",
+    "101": "Cartels", "102": "Dominance", "107": "Aid", "110": "Taxation", "114": "Harmonisation",
+    "157": "Pay", "258": "Infringement", "259": "Infringement", "260": "Penalties", "263": "Annulment",
     "265": "Inaction", "267": "Reference", "268": "Damages", "277": "Illegality", "288": "Instruments",
     "340": "Liability"}.items()})
-_HEADINGS.update({("Charter", n): w for n, w in {"47": "Remedy", "51": "Scope", "52": "Limits", "53": "Level"}.items()})
+_HEADINGS_PROPOSED.update({("Charter", n): w for n, w in {"47": "Remedy", "51": "Scope", "52": "Limits", "53": "Level"}.items()})
+_HEADINGS: dict = {}
 
 _ACRONYMS = {"EU", "EC", "EEC", "TFEU", "TEU", "CJEU", "ECJ", "ECHR", "ECTHR", "IRAC", "WG", "BW", "DCFR", "AG", "ECR",
              "UK", "US", "NL", "CFI", "GC", "QMV", "EP", "ECB", "II", "III", "IV", "MEQR", "MEQRS"}
@@ -222,7 +226,12 @@ def _deshout(text: str) -> str:
     return "".join(out)
 
 
-_WG = re.compile(r"(?i)\b(?:wg|working\s+group|tutorial)\b|\bmodel\s+answer|^\s*(?:q\s*\d+|question\s+\d+|answers?)\b")
+_WG = re.compile(r"(?i)\b(?:wg|working\s+group)\b|\[WG\]|\bmodel\s+answer|^\s*(?:q\s*\d+|question\s+\d+|answers?)\b")
+# An answer to a set question that nobody labelled: its scaffolding ("IRAC structure", "Preliminary question",
+# "Advice to ...", "Quick reference card") or a problem's parties as a heading ("Next Gen Pharmacy v German
+# Association of Pharmacists") where no case of that name is in the case index.
+_ANSWER_HEAD = re.compile(r"(?i)^\s*(?:irac\b|preliminary\s+question|advice\s+to\b|(?:the\s+)?facts\b|problem\s+question|"
+                          r"quick\s+reference(?:\s+card)?\b|question\b|answer\b|conclusion\s+for\s+the\s+client)")
 
 
 def _is_wg(text) -> bool:
@@ -240,21 +249,32 @@ def _tidy_title(title: str) -> str:
     return t[:1].upper() + t[1:]
 
 
+def _source(note_title: str, week, title: str) -> str:
+    """The note a case came from, as the From column prints it. A title that says nothing once 'Week N' and
+    'complete lecture notes' are gone ('WEEK 2 EU LAW COMPLETE LECTURE NOTES') is named by the week's own title,
+    so the page does not carry two names for one week."""
+    if _meaningful(_tidy_title(note_title)): return _deshout(note_title)
+    return f"Week {week} lecture notes — {title}" if title and not title.startswith("Week ") else _deshout(note_title)
+
+
 def _meaningful(text: str) -> bool:
     return any(w.lower() not in _HEAD_STOP and len(w) > 2 for w in re.findall(r"[A-Za-zÀ-ÿ]+", text or ""))
+
+
+_LECTURE = r"(?i)^\s*lecture\s+\d+[a-z]?\s*[:—–-]\s*"
 
 
 def _title(notes) -> str:
     """The week's title: the first note title that says something once 'Week N' and 'complete lecture notes' are
     gone, else the first real heading in its notes ('Lecture 3A:' dropped), else the note title as tidied."""
-    lecture = r"(?i)^\s*lecture\s+\d+[a-z]?\s*[:—–-]\s*"
+    lecture = _LECTURE
     for n in notes:
         t = _tidy_title(n["title"])
         if _meaningful(t): return t
     for n in notes:
         for h in _H1.findall(n.get("body") or "") + _H2.findall(n.get("body") or ""):
             h = re.sub(lecture, "", _deshout(re.sub(r"^\d+[.)]?\s+", "", h.strip(" #*"))))
-            if _meaningful(h) and not _is_wg(h) and _outline_key(h) not in _SECTION_ONLY:
+            if _meaningful(h) and not _is_answer_heading(h) and _outline_key(h) not in _SECTION_ONLY:
                 return h[:1].upper() + h[1:]
     return _tidy_title(notes[0]["title"]) or notes[0]["title"]
 
@@ -269,19 +289,38 @@ def _outline_key(h: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", h.casefold())).strip()
 
 
-def _outline(notes) -> list:
+def _is_answer_heading(h: str, case_keys=frozenset()) -> bool:
+    """A heading that belongs to an answer to a set question, labelled or not (see _ANSWER_HEAD)."""
+    if _is_wg(h) or _ANSWER_HEAD.match(h): return True
+    parties = re.match(r"^(.{2,60}?)\s+v\.?\s+(.{2,80})$", h.strip())
+    return bool(parties) and _name_key(h) not in case_keys and not any(k and k in _name_key(h) for k in case_keys)
+
+
+def _wg_section(text: str) -> bool:
+    """A section whose provenance tags are all [WG]: the working group's answer, not the doctrine."""
+    tags = re.findall(r"\[(LECTURE|WG|SLIDES|READER|SCHUTZE|ADDED)\]", text or "")
+    return bool(tags) and all(t == "WG" for t in tags)
+
+
+def _outline(notes, case_keys=frozenset(), title: str = "") -> list:
     """Section headings, numbering stripped ('1 Treaty Framework' as well as '1. ...'), all-caps calmed, each
-    heading once, WG answers and the pack's own boxes left out."""
-    out, seen = [], set()
+    heading once, WG answers (labelled or not) and the pack's own boxes left out, and a heading that only
+    repeats the week's title ('Lecture 3A: <title>') dropped."""
+    out, seen = [], {_outline_key(re.sub(_LECTURE, "", title))} if title else set()
     for n in notes:
+        body = n.get("body") or ""
+        heads = list(re.finditer(r"^(#{1,2})\s+(.+)$", body, re.M))
         in_wg = False                      # an H2 under a "# WG 2 answers" H1 is an answer, until the next H1
-        for m in re.finditer(r"^(#{1,2})\s+(.+)$", n.get("body") or "", re.M):
+        for i, m in enumerate(heads):
             if m.group(1) == "#":
                 in_wg = _is_wg(m.group(2)); continue
             if in_wg: continue
+            section = body[m.end():heads[i + 1].start() if i + 1 < len(heads) else len(body)]
             h = _deshout(re.sub(r"^\d+[.)]?\s+", "", m.group(2).strip(" #*")).strip())
             key = _outline_key(h)
-            if not key or key in seen or key in _SECTION_ONLY or _is_wg(h): continue
+            if not key or key in seen or key in _SECTION_ONLY: continue
+            if _outline_key(re.sub(_LECTURE, "", h)) in seen: continue
+            if _is_answer_heading(h, case_keys) or _wg_section(m.group(2) + section): continue
             seen.add(key); out.append(h)
     return out[:OUTLINE]
 
@@ -309,25 +348,52 @@ _DOCTRINES = {"direct effect", "indirect effect", "vertical direct effect", "hor
               "numerus clausus", "nemo dat", "nemo plus", "good faith", "res judicata", "ratio decidendi", "obiter dicta",
               "obiter dictum", "ultra vires", "pre-emption", "general principles", "fundamental rights", "internal market"}
 _CASE_FILLER = {"case", "cases", "and", "the", "van", "von", "der", "den", "des", "del", "nv", "bv", "sa", "spa", "gmbh", "ltd", "plc"}
-_DOCKET = re.compile(r"(?<![\w/])(?:(?:Case|Joined\s+Cases)\s+)?([CTF])?[-‑]?(\d{1,4})/(\d{2})(?!\d)")
+_DOCKET = re.compile(r"(?<![\w/])(?:(?:Case|Joined\s+Cases)\s+)?([CTF])?[-‑]?(\d{1,4})/(\d{2})(?![\d/])(\s+P\b)?")
 _YEAR_ONLY = re.compile(r"^\s*[\[(]?(1[5-9]\d\d|20\d\d)[\])]?\s*$")
 _YEAR_TAIL = re.compile(r"\s*[\[(](1[5-9]\d\d|20\d\d)[\])]\s*$")
 _FOUR = re.compile(r"(?<!\d)(1[5-9]\d\d|20\d\d)(?!\d)")
+_BRACKET_YEAR = re.compile(r"[\[(](1[5-9]\d\d|20\d\d)[\])]")
+_NUMBER = re.compile(r"(?<![\w/])\d{1,5}/(\d{2})(?![\d/])")
 
 
-def _docket(court, num, yy) -> str:
-    """One style for case numbers: 'Case 26/62' before the 1989 split, 'Case C-6/90' after, 'Case T-…' kept."""
-    y = int(yy)
-    if court in ("T", "F"):
-        return f"Case {court}-{int(num)}/{yy}"
-    return f"Case {int(num)}/{yy}" if 53 <= y <= 88 else f"Case C-{int(num)}/{yy}"
+def _dockets(text: str):
+    """The CJEU / General Court case numbers in a text, as match objects. Not one: an Opinion's number
+    ('Opinion 2/13' is an Opinion, never 'Case C-2/13'), an ECtHR application number (four or more figures with
+    no court letter: 'Tyrer v UK, 5856/72'), or anything after 'no.' / 'Application'."""
+    out = []
+    for m in _DOCKET.finditer(text or ""):
+        before = (text or "")[:m.start()]
+        if re.search(r"(?i)\bopinions?\s*$|\b(?:no\.?|nos\.?|application|appl?\.)\s*$", before): continue
+        if not m.group(1) and len(m.group(2)) >= 4: continue
+        out.append(m)
+    return out
+
+
+def _docket(m) -> str:
+    """One style for a case number: 'Case 26/62' (a C- written before the 1989 split dropped, since there was no
+    General Court then), 'Case C-6/90', 'Case T-47/03', the appeal suffix ' P' kept. No letter is ever added: a
+    bare '6/90' stays 'Case 6/90'."""
+    court, num, yy, suffix = m.group(1), int(m.group(2)), m.group(3), " P" if m.group(4) else ""
+    if court == "C" and 53 <= int(yy) <= 88: court = None
+    return f"Case {court + '-' if court else ''}{num}/{yy}{suffix}"
+
+
+def _docket_key(d: str) -> str:
+    """'Case C-6/90', 'Case 6/90' and 'Case C-6/90 P' compare equal when merging rows (one docket, three spellings)."""
+    m = re.search(r"([CTF]-)?(\d+)/(\d{2})", d)
+    return f"{'T' if m.group(1) == 'T-' else 'F' if m.group(1) == 'F-' else ''}{int(m.group(2))}/{m.group(3)}"
 
 
 def _cite_parts(cite: str):
-    """(dockets, rest): every case number in a citation in house style, and what is left (an ECLI, a report)."""
-    dockets = [_docket(m.group(1), m.group(2), m.group(3)) for m in _DOCKET.finditer(cite or "")]
-    rest = _DOCKET.sub("", cite or "")
-    rest = re.sub(r"^[\s,;&+()]+|[\s,;&+()]+$", "", re.sub(r"\s*(?:&|and|\+)\s*(?=$|[,;])", "", rest))
+    """(dockets, rest): every case number in a citation in house style, and what is left (an ECLI, a report, an
+    ECtHR application number, an Opinion), verbatim."""
+    ms = _dockets(cite)
+    dockets = [_docket(m) for m in ms]
+    rest, last = "", 0
+    for m in ms:
+        rest += (cite or "")[last:m.start()]; last = m.end()
+    rest += (cite or "")[last:]
+    rest = re.sub(r"^[\s,;&+()]+|[\s,;&+()]+$", "", re.sub(r"\s*(?:&|\band\b|\+)\s*(?=$|[,;])", "", rest))
     if re.fullmatch(r"(?i)(?:joined\s+)?cases?|", rest.strip()): rest = ""
     return dockets, rest
 
@@ -341,54 +407,70 @@ def _name_key(name: str) -> str:
 
 
 def _explicit_year(*texts):
-    """A four-figure year written down ([1963] ECR 1, ECLI:EU:C:1963:1), which beats a docket's lodging year."""
+    """A year the notes write as a year: the year field of an ECLI, or a bracketed [1963] / (1979). A loose
+    four-figure number is not one: in 'ECR 1585' it is a page."""
     for t in texts:
-        m = re.search(r"ECLI:[A-Z]{2}:[A-Z]+:(\d{4}):", t or "") or _FOUR.search(re.sub(r"ECLI:\S+", "", t or ""))
+        m = re.search(r"ECLI:[A-Z]{2}:[A-Z]+:(\d{4}):", t or "") or _BRACKET_YEAR.search(re.sub(r"ECLI:\S+", "", t or ""))
         if m: return int(m.group(1))
     return None
 
 
+def _yy_years(*texts) -> set:
+    """Every year a 'N/YY' number in the texts could stand for (26/62 -> 1962, 2/13 -> 2013)."""
+    return {(1900 if int(m.group(1)) >= 50 else 2000) + int(m.group(1)) for t in texts for m in _NUMBER.finditer(t or "")}
+
+
 def normalise_cases(cases: list) -> list:
-    """The case index as the pack prints it: rows naming two cases split, a year written into the name dropped,
-    doctrines dropped, case numbers in one style, and the same case under two spellings or two cites merged.
-    Pure; the input is not changed."""
+    """The case index as the pack prints it: rows naming two cases split only when each name has its own cite,
+    a year written into the name moved to the year column, doctrines dropped, CJEU case numbers in one style, and
+    the same case under two spellings or two cites merged. Nothing is added: no case number, letter, year or
+    citation the notes do not carry. A row's year is the year the notes write (a Year column, [1963] ECR, an
+    ECLI), else the year in its case number, flagged 'numbered' because that is when the case reached the Court,
+    not when it was decided. Pure; the input is not changed."""
     rows = []
     for c in cases or []:
-        names = [x.strip() for x in str(c.get("name") or "").split(";")]
-        cites = [x.strip() for x in str(c.get("cite") or "").split(";")]
-        if len(names) > 1 and len(cites) not in (1, len(names)) or not all(names):
-            names, cites = [str(c.get("name") or "").strip()], [str(c.get("cite") or "")]
-        for i, name in enumerate(names):
-            cite = cites[i] if len(cites) == len(names) else (cites[0] if len(names) == 1 else "")
+        raw_name, raw_cite = str(c.get("name") or ""), str(c.get("cite") or "")
+        names = [x.strip() for x in raw_name.split(";")]
+        cites = [x.strip() for x in raw_cite.split(";")]
+        split = len(names) > 1 and len(cites) == len(names) and all(names)
+        if not split:                     # one cite for several names: one row, cite and year kept as written
+            names, cites = [raw_name.strip()], [raw_cite.strip()]
+        for name, cite in zip(names, cites):
             name = re.sub(r"\*|,\s*(?:CJEU|ECJ|ECtHR)$|,?\s*at\s*\[?paras?\b.*$", "", name).strip(" ,")
             year_in_name = None
             m = _YEAR_TAIL.search(name)
             if m: year_in_name, name = int(m.group(1)), name[:m.start()].strip(" ,")
-            dk = _DOCKET.search(name)                          # "Walrave 36/74" written into the name
-            if dk and dk.end() == len(name.rstrip()):
-                cite = cite or dk.group(0); name = name[:dk.start()].strip(" ,(")
+            dk = _dockets(name)                                 # "Walrave 36/74" written into the name
+            if dk and dk[-1].end() == len(name.rstrip()):
+                cite = cite or dk[-1].group(0); name = name[:dk[-1].start()].strip(" ,(")
             if not name or name.casefold().strip(" .") in _DOCTRINES: continue
             dockets, rest = _cite_parts(cite)
             if _YEAR_ONLY.match(rest or ""): year_in_name, rest = year_in_name or int(_FOUR.search(rest).group(1)), ""
-            explicit = _explicit_year(rest, cite if not dockets else "") or year_in_name
+            written = _explicit_year(rest, cite) or year_in_name
+            given = c.get("year") if not split else None
+            # The index's year may itself be read off a number (run.py's fallback): 2013 from "Opinion 2/13",
+            # 1972 from "5856/72". Only a year that no number in the row explains counts as written.
+            if not written and given and given not in _yy_years(name, cite, raw_name, raw_cite):
+                written = given
             lodged = None
             if dockets:
-                yy = int(dockets[0].rsplit("/", 1)[1]); lodged = 1900 + yy if yy >= 50 else 2000 + yy
-            given = c.get("year") if len(names) == 1 else None
-            if not explicit and given and given != lodged:
-                explicit = given                     # a Year column or a bracketed (1979) beside the name
-            year = explicit or given or lodged
-            rows.append({"name": name, "dockets": dockets, "rest": rest, "year": year, "explicit": explicit is not None,
-                         "notes": list(c.get("notes") or [])})
+                yy = int(re.search(r"/(\d{2})", dockets[0]).group(1)); lodged = 1900 + yy if yy >= 50 else 2000 + yy
+            rows.append({"name": name, "dockets": dockets, "rest": rest, "year": written or lodged,
+                         "explicit": written is not None, "notes": list(c.get("notes") or [])})
     # merge: same docket, or same name key where the dockets do not disagree
     groups = []
     for r in rows:
-        g = next((g for g in groups if set(r["dockets"]) & set(g["dockets"])
-                  or (_name_key(r["name"]) == _name_key(g["name"]) and not (r["dockets"] and g["dockets"] and set(r["dockets"]).isdisjoint(g["dockets"])))), None)
+        keys = {_docket_key(d) for d in r["dockets"]}
+        g = next((g for g in groups if keys & g["keys"]
+                  or (_name_key(r["name"]) == _name_key(g["name"]) and not (keys and g["keys"] and keys.isdisjoint(g["keys"])))), None)
         if g is None:
-            groups.append({**r, "names": [r["name"]], "dockets": list(r["dockets"]), "notes": list(r["notes"])}); continue
+            groups.append({**r, "names": [r["name"]], "dockets": list(r["dockets"]), "keys": set(keys), "notes": list(r["notes"])}); continue
         g["names"].append(r["name"])
-        g["dockets"] += [d for d in r["dockets"] if d not in g["dockets"]]
+        for d in r["dockets"]:
+            k = _docket_key(d)
+            if k not in g["keys"]: g["dockets"].append(d); g["keys"].add(k)
+            elif d.endswith(" P"):          # the fuller spelling of the same docket wins: keep its suffix
+                g["dockets"] = [d if _docket_key(x) == k else x for x in g["dockets"]]
         g["rest"] = g["rest"] or r["rest"]
         if r["explicit"] and not g["explicit"] or g["year"] is None:
             g["year"], g["explicit"] = r["year"], r["explicit"]
@@ -399,5 +481,7 @@ def normalise_cases(cases: list) -> list:
         name = max(g["names"], key=lambda n: (g["names"].count(n), len(n)))
         cite = " & ".join(g["dockets"]) if g["dockets"] else g["rest"]
         if cite and len(g["dockets"]) > 1: cite = "Joined " + cite.replace(" & Case ", " & ").replace("Case ", "Cases ", 1)
-        out.append({"name": name, "cite": cite, "year": g["year"], "notes": g["notes"]})
+        if g["dockets"] and g["rest"]: cite += ", " + g["rest"]          # the report the notes give stays with it
+        out.append({"name": name, "cite": cite, "year": g["year"], "numbered": bool(g["year"]) and not g["explicit"],
+                    "notes": g["notes"]})
     return out

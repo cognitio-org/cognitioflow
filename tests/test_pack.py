@@ -80,7 +80,8 @@ def _n(name, cite="", year=None, note="a"):
 def test_the_same_case_under_two_spellings_is_one_row_with_the_written_year():
     out = pack.normalise_cases([_n("Van Gend & Loos", "C-26/62", 1962), _n("Van Gend en Loos", "[1963] ECR 1", 1963, "b"),
                                 _n("Costa v ENEL", "[1964] ECR 585", 1964), _n("Costa/ENEL", "6/64", 1964, "b")])
-    assert [(c["name"], c["cite"], c["year"]) for c in out] == [("Van Gend en Loos", "Case 26/62", 1963), ("Costa v ENEL", "Case 6/64", 1964)]
+    assert [(c["name"], c["cite"], c["year"]) for c in out] == [("Van Gend en Loos", "Case 26/62, [1963] ECR 1", 1963),
+                                                                 ("Costa v ENEL", "Case 6/64, [1964] ECR 585", 1964)]
     assert {x["id"] for x in out[0]["notes"]} == {"a", "b"}
 
 
@@ -123,7 +124,8 @@ def test_titles_and_outlines_are_calm_deduped_and_free_of_wg_answers():
     wg = {"id": "g", "title": "WG 2 — answers", "body": "## Next Gen Pharmacy v German Association\n## PRELIMINARY QUESTION"}
     t = pack.build({2: [{"id": "x", "title": "WEEK 2 EU LAW COMPLETE LECTURE NOTES", "body": body}, wg]}, [], [])["topics"][0]
     assert t["title"] == "Free movement of goods — negative integration"
-    assert t["outline"] == ["Lecture 3A: free movement of goods — negative integration", "IRAC structure", "Treaty Framework", "Scope"]
+    # the Lecture 3A line only repeats the title, and "IRAC structure" is an answer's scaffolding
+    assert t["outline"] == ["Treaty Framework", "Scope"]
     assert pack._tidy_title("Week 1 — Foundations: the EU legal order") == "Foundations: the EU legal order"
 
 
@@ -131,7 +133,8 @@ def test_tabs_drop_articles_that_do_not_exist_and_name_the_ones_that_do():
     tabs = {t["label"]: t["heading"] for t in pack.build({1: [{"id": "x", "title": "Week 1 — Basics",
             "body": "Art 168 TEU; Art 34 TFEU; Art 2 TEU; Art 400 TFEU; Art 60 Charter; Art 47 Charter"}]}, [], [])["tabs"]}
     assert "Art 168 TEU" not in tabs and "Art 400 TFEU" not in tabs and "Art 60 Charter" not in tabs
-    assert tabs["Art 34 TFEU"] == "Imports" and tabs["Art 2 TEU"] == "Values" and tabs["Art 47 Charter"] == "Remedy"
+    # the proposed article subjects stay off until Matej says yes: the week's title word, as signed off
+    assert tabs["Art 34 TFEU"] == tabs["Art 2 TEU"] == tabs["Art 47 Charter"] == "Basics"
 
 
 def test_the_print_page_carries_the_ai_label_on_every_printed_section():
@@ -161,3 +164,77 @@ def test_a_case_named_by_its_short_form_is_still_worked_in_a_later_week():
     c = _n("Keck and Mithouard", "C-267/91", 1993, "w1"); c["notes"].append({"id": "w2", "title": w2["title"]})
     t = {x["week"]: x for x in pack.build({1: [w1], 2: [w2]}, [], [c])["topics"]}
     assert [x["name"] for x in t["2"]["cases"]] == ["Keck and Mithouard"] and t["2"]["recalled"] == []
+
+
+# ---------------------------------------------------------------- follow-up to #224 (skeptic + judge findings)
+def test_an_opinion_is_never_turned_into_a_case_number():
+    for name in ("*Opinion 2/13*", "Opinion 2/13", "Opinion 1/09", "Opinion 2/94"):
+        out = pack.normalise_cases([_n(name, "", 2000 + int(name.strip("*")[-2:]) if name.strip("*")[-2:] < "50" else 1994)])
+        assert [(c["name"], c["cite"], c["year"]) for c in out] == [(name.strip("*"), "", None)]   # no 'Case C-2/13', no year read off it
+    out = pack.normalise_cases([_n("Opinion 2/13", "Opinion 2/13, EU:C:2014:2454")])
+    assert out[0]["name"] == "Opinion 2/13" and "Case" not in out[0]["cite"]
+
+
+def test_one_cite_for_several_names_keeps_one_row_with_its_cite_and_year():
+    out = pack.normalise_cases([_n("Brasserie du Pêcheur; Factortame III", "C-46/93 & C-48/93", 1996)])
+    assert [(c["name"], c["cite"], c["year"]) for c in out] == [("Brasserie du Pêcheur; Factortame III", "Joined Cases C-46/93 & C-48/93", 1996)]
+    out = pack.normalise_cases([_n("Brasserie du Pêcheur; Factortame III", "C-46/93 & C-48/93", 1993)])
+    assert out[0]["cite"] and out[0]["year"] == 1993 and out[0]["numbered"]     # 1993 is the number's year, flagged
+
+
+def test_a_page_number_is_never_a_year():
+    out = pack.normalise_cases([_n("Costa v ENEL", "Case 6/64, ECR 1585", 1964)])
+    assert out[0]["year"] == 1964 and out[0]["cite"] == "Case 6/64, ECR 1585"
+    assert pack.normalise_cases([_n("Costa v ENEL", "Case 6/64, [1964] ECR 585")])[0]["year"] == 1964
+
+
+def test_only_cjeu_numbers_are_restyled_and_suffixes_and_letters_are_kept_as_written():
+    out = pack.normalise_cases([_n("Tyrer v UK", "5856/72", 1972), _n("Kadi", "C-402/05 P"), _n("Francovich", "6/90"),
+                                _n("Commission v World Duty Free Group", "Joined Cases C-20/15 P and C-21/15 P"),
+                                _n("Ireland and Others v Commission (Apple)", "Joined Cases T-778/16 and T-892/16"), _n("Lorenz", "Case 120/73")])
+    got = {c["name"]: (c["cite"], c["year"]) for c in out}
+    assert got["Tyrer v UK"] == ("5856/72", None)                      # an ECtHR application number, left alone and undated
+    assert got["Kadi"] == ("Case C-402/05 P", 2005)
+    assert got["Francovich"] == ("Case 6/90", 1990)                   # no 'C-' added to a number written without one
+    assert got["Commission v World Duty Free Group"][0] == "Joined Cases C-20/15 P & C-21/15 P"
+    assert got["Ireland and Others v Commission (Apple)"][0] == "Joined Cases T-778/16 & T-892/16"
+    assert got["Lorenz"] == ("Case 120/73", 1973)
+    assert pack.normalise_cases([_n("Kadi", "C-402/05"), _n("Kadi", "C-402/05 P", note="b")])[0]["cite"] == "Case C-402/05 P"
+
+
+def test_the_year_column_says_which_years_are_read_off_a_case_number():
+    out = {c["name"]: c for c in pack.normalise_cases([_n("Cassis de Dijon", "120/78", 1978), _n("Van Gend en Loos", "[1963] ECR 1", 1962),
+                                                       _n("Gerson v Wilkinson", "[2001] QB 514", 2001), _n("Francovich (1991)", "C-6/90")])}
+    assert out["Cassis de Dijon"]["numbered"] and out["Cassis de Dijon"]["year"] == 1978
+    assert not out["Van Gend en Loos"]["numbered"] and out["Van Gend en Loos"]["year"] == 1963
+    assert not out["Gerson v Wilkinson"]["numbered"]
+    assert out["Francovich"]["year"] == 1991 and not out["Francovich"]["numbered"]   # a year the notes wrote beside the name
+    import os
+    page = open(os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "pack.html")).read()
+    assert "in the order they were decided" not in page and "numbered" in page
+
+
+def test_proposed_tab_words_are_off_and_single_words():
+    assert pack._HEADINGS == {}
+    assert all(re.fullmatch(r"[A-Z][a-z]+", w) for w in pack._HEADINGS_PROPOSED.values())
+    tabs = pack.build({1: [{"id": "x", "title": "Week 1 — Lecture notes", "body": "Art 34 TFEU"}]}, [], [])["tabs"]
+    assert tabs[0]["heading"] == ""                                     # no word to be had: blank, not a guess
+
+
+def test_a_tutorial_titled_doctrine_note_is_not_demoted_and_unlabelled_answers_stay_out():
+    doc = {"id": "d", "title": "Tutorial notes — state aid", "body": "> **In one glance** Art 107(1) TFEU, four criteria.\n## Selectivity\n## Recovery"}
+    other = {"id": "o", "title": "Week 5 — Competition", "body": "## Undertakings"}
+    t = pack.build({5: [doc, other]}, [], [])["topics"][0]
+    assert "Selectivity" in t["outline"] and t["rule"].startswith("**In one glance** Art 107")
+    body = ("## Selectivity\n## Next Gen Pharmacy v German Association of Pharmacists\nFacts.\n## Preliminary question — goods or services?\n"
+            "## IRAC structure\n## Quick reference card\n## Advice to the client\n## Recovery\n[WG] answer\n## Commission v Italy\nThe case.")
+    cases = [_n("Commission v Italy", "C-576/18", note="x")]
+    t = pack.build({5: [{"id": "x", "title": "Week 5 — State aid", "body": body}]}, [], cases)["topics"][0]
+    assert t["outline"] == ["Selectivity", "Commission v Italy"]       # a heading naming a real indexed case stays
+
+
+def test_the_from_column_names_a_week_once():
+    t = pack.build({2: [{"id": "x", "title": "WEEK 2 EU LAW COMPLETE LECTURE NOTES",
+                         "body": "## Lecture 3A: Free movement of goods\n*Dassonville* 8/74"}]}, [], [_n("Dassonville", "8/74", 1974, "x")])["topics"][0]
+    assert t["title"] == "Free movement of goods" and t["outline"] == []
+    assert t["cases"][0]["note"] == "Week 2 lecture notes — Free movement of goods"
