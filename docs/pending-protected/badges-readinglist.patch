@@ -1,7 +1,7 @@
 # PROTECTED (run.py) — needs Matej's named yes. Apply with: git apply docs/pending-protected/badges-readinglist.patch
-# Upload default: model answers / worked answers arrive unticked server-side (covers the extension and every other ingest path; the UI already does this client-side).
+# Upload default: model answers to a past/practice exam and answer keys arrive unticked server-side (covers the extension and every other upload path; the Files drop zone already does this client-side). Worked WG answers stay ticked. Narrowed in the #226 follow-up to match static/app.js isAnswerFile().
 diff --git a/run.py b/run.py
-index 582e28c..390ffeb 100644
+index 582e28c..eea3586 100644
 --- a/run.py
 +++ b/run.py
 @@ -527,7 +527,7 @@ async def upload(cid: str, file: UploadFile = File(...), week: str = Form("")):
@@ -13,16 +13,20 @@ index 582e28c..390ffeb 100644
                     clean_label(file.filename), role_by_name(file.filename)))
      reindex(cid, "file", fid, file.filename, kind, week, text)
      if DOCKET_AUTO and week and text.strip():   # new material: the game writers look again once the batch has landed
-@@ -568,6 +568,13 @@ _ROLE_BY_NAME = [                       # cheap, certain, and free — the model
+@@ -568,6 +568,17 @@ _ROLE_BY_NAME = [                       # cheap, certain, and free — the model
      ("note",       re.compile(r"(?i)^note:|\b(summary|super summary|revision|rev \d|my notes)\b")),
  ]
  
-+# Practice-exam model answers and worked WG/assignment answers: uploaded unticked, so the tutor doesn't read the answers
-+# before he has tried the paper. Same pattern as isAnswerFile() in static/app.js; the role can't tell these apart.
-+_ANSWER_FILE = re.compile(r"(?i)(^|[^a-z])(model[\s_-]*answers?|answers?[\s_-]*(key|sheet|model)s?|answers|solutions?|uitwerkingen?|antwoorden|antwoordmodel)([^a-z]|$)")
++# Model answers to a past or practice exam, and answer keys: uploaded unticked, so the tutor doesn't read the answers
++# before he has tried the paper. Same rule as isAnswerFile() in static/app.js. Worked WG answers are NOT included: the
++# course ranks them first, so they stay ticked; nor is a name that only says "answers" ("Questions and answers on ...").
++_MODEL_ANSWER = re.compile(r"(?i)(^|[^a-z])(model[\s-]*answers?|answers?[\s-]*(key|sheet)s?|antwoordmodel|modelantwoord(en)?)([^a-z]|$)")
++_EXAM_NAME = re.compile(r"(?i)(^|[^a-z])(practice[\s-]*exam|past[\s-]*(exam|paper)|mock[\s-]*exam|resit|tentamen|exam[\s-]*\d)")
++_ANSWER_WORD = re.compile(r"(?i)(^|[^a-z])(answers?|solutions?|uitwerkingen?|antwoorden)([^a-z]|$)")
 +
 +def is_answer_file(name: str) -> bool:
-+    return bool(_ANSWER_FILE.search(name or ""))
++    s = re.sub(r"_+", " ", name or "")
++    return bool(_MODEL_ANSWER.search(s) or (_EXAM_NAME.search(s) and _ANSWER_WORD.search(s)))
 +
  def role_by_name(name: str) -> str:
      probe = re.sub(r"[_]+", " ", name or "")   # an underscore is a word character, so "W2_WG" hid the \bwg\b it contains

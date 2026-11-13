@@ -368,7 +368,7 @@ async function loadFiles(){
   const fs=await api(`/courses/${cid}/files`);
   const syl=(C()&&C().brief&&C().brief.syllabus&&C().brief.syllabus.weeks)||[];
   sylTitles={}; syl.forEach(w=>{ if(w&&w.week) sylTitles[String(w.week)]=w.title||'' });
-  fs.forEach(f=>{ ctxFiles[f.name]=f; if(f.label) ctxFiles[f.label]=f; });
+  ctxIndex(fs);
   sylFill(fs);
   if(!fs.length){ $('#fileRows').innerHTML='<tr><td colspan="7"><div class="emptystate"><b>No files yet</b><span>Drop the Week 2 slides and a transcript in to start.</span><button class="btn small" type="button" onclick="document.getElementById(\'fileInput\').click()">Choose files</button></div></td></tr>'; }
   else {
@@ -380,7 +380,7 @@ async function loadFiles(){
       `${f.label&&f.label!==f.name?`<span class="small muted fileorig">${esc(f.name)}</span>`:''}</td>`+
       `<td>${authChip(f,ranks)}</td>`+
       `<td><span class="wkedit" data-week="${f.id}" title="Click to change the week">${esc(f.week)||'<span class=muted>—</span>'}</span></td>`+
-      `<td class="small muted">${f.chars?Math.round(f.chars/1000)+'k':'–'}</td>`+
+      `<td class="small muted">${f.chars?fmtChars(f.chars):'–'}</td>`+
       `<td><span class="tag ${f.status==='indexed'?'ok':(f.status==='no text'?'warn':'')}">${f.status}</span></td>`+
       `<td><button class="btn small ghost" data-view="${f.id}" ${f.kind==='image'?'disabled':''}>Text</button> <button class="btn small ghost" data-del="${f.id}">Remove</button></td></tr>`;
     $('#fileRows').innerHTML=order.map(k=>{ const g=groups[k]; const on=g.filter(f=>f.selected).length; const ids=g.map(f=>f.id).join(',');
@@ -404,22 +404,43 @@ async function loadFiles(){
     loadFiles(); });
 }
 
-/* Open a source in a new tab: its text with a link to the original upload. Images (no text) open the original.
+/* The current course's files, for opening a source by id or by the name the tutor reports back.
+   Rebuilt on every load, so a file from another course can never answer a lookup. The server's "Answered from" list
+   carries names only, so a name links only when exactly one file has it (a ticked file wins a tie with unticked ones);
+   an ambiguous name stays plain text rather than opening the wrong file. Note titles are in that list too: they never
+   match a file, so they stay plain text. */
+let ctxById={}, ctxByName={};
+function ctxIndex(fs){ ctxById={}; ctxByName={};
+  (fs||[]).forEach(f=>{ ctxById[f.id]=f; [...new Set([f.name,f.label].filter(Boolean))].forEach(n=>{ (ctxByName[n]=ctxByName[n]||[]).push(f) }) }); }
+function ctxLookup(n){ const c=ctxByName[n]||[]; if(c.length===1) return c[0]; const on=c.filter(f=>f.selected); return on.length===1?on[0]:null; }
+/* One name under "Answered from": a button that opens its source, or plain text when no single file matches. */
+function srcLink(n,f){ return f?`<button type="button" class="srcopen" data-open-src="${esc(f.id)}" title="Open ${esc(n)}">${esc(f.label||n)}</button>`:esc(n); }
+/* "12.4k" / "380 chars": small files no longer read as an empty "0k". */
+function fmtChars(n){ n=+n||0; return n<1000?`${n} chars`:`${(n/1000).toFixed(n<10000?1:0)}k`; }
+
+/* Open a source in a new tab: a reading page in the app's own look — CognitioFlow bar, a way back, the file's title,
+   its source-type badge and its text, with the original upload one click away. Images (no text) open the original.
    The tab is opened before any await so the browser counts it as part of the click and doesn't block it. */
-let ctxFiles={};        // the tutor's Reading list: file name/label -> file, so "Answered from" names can open too
+function srcPage(f,t,raw){ const name=t.name||(f&&f.name)||'Source', title=(f&&f.label)||name;
+  const meta=[f?authChip(f,authRanks()):'', f&&f.week?`<span class="small muted">Week ${esc(f.week)}</span>`:'',
+    title!==name?`<span class="small muted">${esc(name)}</span>`:'', f&&f.chars?`<span class="small muted">${fmtChars(f.chars)} of text</span>`:''].filter(Boolean).join(' ');
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">`+
+    `<title>${esc(title)} · CognitioFlow</title><link rel="stylesheet" href="/static/app.css"><link rel="stylesheet" href="/static/app-after.css"><link rel="stylesheet" href="/static/polish.css"></head>`+
+    `<body class="srcview"><header class="srcbar"><span class="srcbrand">CognitioFlow</span><span class="small muted srccrumb">${esc((C()&&C().name)||'')} · Source</span>`+
+    `<button type="button" class="btn small" id="srcBack">← Back to the tutor</button></header>`+
+    `<main class="srcmain"><h1>${esc(title)}</h1><div class="srcmeta">${meta}</div>`+
+    `<p class="srcactions"><a class="btn small" href="${raw}">Download original</a><span class="small muted">The text below is what CognitioFlow extracted from the upload; the original is the authority.</span></p>`+
+    `<article class="srctext">${esc(t.text||'No text was extracted from this file.')}</article></main></body></html>`; }
 function openSource(fid){ if(!fid) return; const raw=`/api/files/${encodeURIComponent(fid)}/raw`;
   const w=window.open('','_blank'); if(!w){ location.href=raw; return }
-  const f=Object.values(ctxFiles).find(x=>x.id===fid);
+  const f=ctxById[fid];
   if(f&&(f.kind==='image'||!f.chars)){ w.location.href=raw; return }
   w.document.title='Opening…';
   api(`/files/${encodeURIComponent(fid)}/text`).then(t=>{
-    w.document.open();
-    w.document.write(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(t.name)}</title>`+
-      `<style>:root{color-scheme:light dark}body{margin:0;background:Canvas;color:CanvasText;font:16px/1.55 Georgia,serif}`+
-      `header{position:sticky;top:0;background:Canvas;border-bottom:1px solid color-mix(in srgb,CanvasText 18%,Canvas);padding:.8rem 1rem;display:flex;gap:1rem;align-items:baseline;flex-wrap:wrap;font:14px/1.4 system-ui,sans-serif}`+
-      `header b{flex:1;min-width:12rem}a{color:LinkText}pre{white-space:pre-wrap;font:inherit;max-width:80ch;margin:1.5rem auto;padding:0 1rem}</style>`+
-      `<header><b>${esc(t.name)}</b><a href="${raw}">Download original</a></header><pre>${esc(t.text||'No text was extracted from this file.')}</pre>`);
-    w.document.close(); })
+    w.document.open(); w.document.write(srcPage(f,t,raw)); w.document.close();
+    /* back: close this tab (the app opened it) and return to the tutor; if the browser won't close it, go to the app */
+    const back=w.document.getElementById('srcBack'), home=location.href;
+    if(back) back.onclick=()=>{ w.close(); setTimeout(()=>{ if(!w.closed) w.location.href=home },150); window.focus(); }; })
    .catch(()=>{ w.location.href=raw }); }
 
 const ROLE_NAMES={exam:'Past exam',wg:'WG notes',lecture:'Lecture',slides:'Slides',reader:'Reader',cases:'Case law',assignment:'Assignment',admin:'Course info',note:'Note'};
@@ -445,14 +466,23 @@ function authRank(role,ranks){ return (ranks||authRanks())[role]||AUTH_MAX; }
 const SRC_TYPE_HINT='Source type: what kind of material this file is. The number is the order this course prefers source types in '+
   '(1 = preferred; set it under Course settings → authority order). It ranks the kind of file, not the legal authority of what the file cites.';
 function srcTypeTitle(name,r){ return `Source type: ${name} · course preference ${r} of ${AUTH_MAX}. Ranks the kind of file, not legal authority — a Treaty article or CJEU judgment outranks any study material.`; }
-function authChip(f,ranks){ if(!f.role) return `<span class="authchip unranked" title="Source type not labelled yet — use “Label files”">${esc(f.kind||'file')}</span>`;
-  const r=authRank(f.role,ranks), name=ROLE_NAMES[f.role]||f.role;
-  return `<span class="authchip a${r}" title="${esc(srcTypeTitle(name,r))}"><i>${r}</i>${esc(name)}</span>`; }
-/* Answer material — practice-exam model answers, worked WG/assignment answers, answer keys. The role can't tell these
-   apart (role "exam" covers the question paper too, role "wg" the annotated WG notes the tutor must read), so the
-   name decides. They stay out of the default tick and the syllabus picker: reading the answers first defeats the practice. */
-const ANSWER_RX=/(^|[^a-z])(model[\s_-]*answers?|answers?[\s_-]*(key|sheet|model)s?|answers|solutions?|uitwerkingen?|antwoorden|antwoordmodel)([^a-z]|$)/i;
-function isAnswerFile(f){ return ANSWER_RX.test(String((f&&(f.name||''))+' '+(f&&f.label||''))); }
+/* The name on the badge. Model answers to a past or practice exam get their own: they are filed under the exam's role
+   (the server can't tell the paper from its answers), but on screen they must not read as the exam itself. */
+function srcTypeName(f){ return isAnswerFile(f)?'Model answers':(ROLE_NAMES[f.role]||f.role); }
+function authChip(f,ranks){ if(!f.role&&!isAnswerFile(f)) return `<span class="authchip unranked" title="Source type not labelled yet — use “Label files”">${esc(f.kind||'file')}</span>`;
+  const r=authRank(f.role||'exam',ranks), name=srcTypeName(f), ans=isAnswerFile(f);
+  const tip=srcTypeTitle(name,r)+(ans?' Model answers start unticked when dropped into Files, so the tutor does not read the answers before you have tried the paper.':'');
+  return `<span class="authchip a${r}${ans?' ans':''}" title="${esc(tip)}"><i>${r}</i>${esc(name)}</span>`; }
+/* Model answers — the answer sheet to a past or practice exam, or an answer key. Reading them first defeats the
+   practice, so they keep out of the default tick (on the drop zone below) and the syllabus picker. Worked WG answers are
+   NOT in this class: the course ranks them first (AUTH_DEFAULT) because they are what the examiner rewards, so they stay
+   ticked and badged "WG notes". Nor is any name that merely says "answers" ("Questions and answers on free movement"):
+   the name must say model answer / answer key, or name an exam AND its answers. */
+const MODEL_ANSWER_RX=/(^|[^a-z])(model[\s-]*answers?|answers?[\s-]*(key|sheet)s?|antwoordmodel|modelantwoord(en)?)([^a-z]|$)/i;
+const EXAM_NAME_RX=/(^|[^a-z])(practice[\s-]*exam|past[\s-]*(exam|paper)|mock[\s-]*exam|resit|tentamen|exam[\s-]*\d)/i;
+const ANSWER_WORD_RX=/(^|[^a-z])(answers?|solutions?|uitwerkingen?|antwoorden)([^a-z]|$)/i;
+function isAnswerFile(f){ const s=String((f&&f.name||'')+' '+(f&&f.label||'')).replace(/_+/g,' ');
+  return MODEL_ANSWER_RX.test(s)||(EXAM_NAME_RX.test(s)&&ANSWER_WORD_RX.test(s)); }
 let sylTitles={};       // week number -> the title the syllabus gives it
 $('#relabelBtn')&&($('#relabelBtn').onclick=async()=>{ const b=$('#relabelBtn'); b.disabled=true; toast('Labelling…');
   try{ const r=await post(`/courses/${cid}/relabel`,{}); toast(r.warning||`${r.labelled} file(s) labelled`); loadFiles(); }
@@ -461,8 +491,9 @@ $('#relabelBtn')&&($('#relabelBtn').onclick=async()=>{ const b=$('#relabelBtn');
 async function upload(files){ for(const f of files){ const fd=new FormData(); fd.append('file',f); fd.append('week',$('#week').value); toast('Indexing '+f.name+'…'); try{ const r=await api(`/courses/${cid}/files`,{method:'POST',body:fd});
     /* Model answers and worked answers arrive unticked: the tutor shouldn't read the answers before he has tried the paper.
        (The server still ticks every upload — docs/pending-protected/badges-readinglist.patch moves this rule there.) */
-    const off=isAnswerFile({name:f.name})&&r.id; if(off){ try{ await post(`/files/${r.id}/toggle-to`,{on:false}) }catch{} }
-    toast(`${f.name}: ${r.status}${r.chars?' · '+Math.round(r.chars/1000)+'k chars':''}${off?' · left unticked (answer file — tick it when you want the tutor to read it)':''}`);}catch(e){toast('Failed: '+e.message)} } loadFiles(); }
+    let note=''; if(isAnswerFile({name:f.name})&&r.id){ let ok=false; try{ const t=await post(`/files/${r.id}/toggle-to`,{on:false}); ok=!!t&&t.selected===0 }catch{}
+      note=ok?' · left unticked (model answers — tick it when you want the tutor to read it)':' · model answers, but could not untick it — untick it in the list'; }
+    toast(`${f.name}: ${r.status}${r.chars?' · '+fmtChars(r.chars):''}${note}`);}catch(e){toast('Failed: '+e.message)} } loadFiles(); }
 (function(){ if($('#relabelBtn')||!$('#inferBtn')) return;      // sits beside Detect weeks
   const b=document.createElement('button'); b.className='btn small ghost'; b.id='relabelBtn'; b.type='button';
   b.title='Give every file a readable title and say what kind of material it is'; b.textContent='Label files';
@@ -532,14 +563,16 @@ $('#fileInput').addEventListener('change',e=>upload([...e.target.files]));
 const drop=$('#drop'); ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')})); ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')})); drop.addEventListener('drop',e=>upload([...e.dataTransfer.files])); drop.querySelector('label').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#fileInput').click()}});
 
 /* tutor */
+/* One Reading-list row: the same source-type badge as Files (so the kind is named, not just a coloured dot), then the
+   file's title, which opens it. */
+function ctxItem(f,ranks){ return `<li>${authChip(f,ranks)}<button type="button" class="srcopen" data-open-src="${esc(f.id)}" title="Open ${esc(f.name)}">${esc(f.label||f.name)}</button></li>`; }
 async function loadTutor(){ if(speakOn) cfWarm();   // the voice is already on: have the course ready before he speaks
   const fs=await api(`/courses/${cid}/files`); const sel=fs.filter(f=>f.selected); $('#tutorSub').textContent=`${C().name} · auto-routing: notes and cards on ${(cfg.cheap_model||'').replace('claude-','')}, drilling on ${(cfg.model||'').replace('claude-','')}`;
   const ranks=authRanks(); const selSorted=sel.slice().sort((a,b)=>authRank(a.role,ranks)-authRank(b.role,ranks));   // the tutor reads strongest authority first
-  ctxFiles={}; fs.forEach(f=>{ ctxFiles[f.name]=f; if(f.label) ctxFiles[f.label]=f; });
-  $('#ctxList').innerHTML=selSorted.length?selSorted.map(f=>{ const r=authRank(f.role,ranks); const nm=ROLE_NAMES[f.role]||f.role||'unlabelled';
-    return `<li><span class="authdot a${r}" title="${esc(srcTypeTitle(nm,r))}" aria-hidden="true"></span><button type="button" class="srcopen" data-open-src="${esc(f.id)}" title="Open ${esc(f.name)}">${esc(f.label||f.name)}</button></li>`; }).join(''):'<li class="muted">No files ticked in Files.</li>';
+  ctxIndex(fs);
+  $('#ctxList').innerHTML=selSorted.length?selSorted.map(f=>ctxItem(f,ranks)).join(''):'<li class="muted">No files ticked in Files.</li>';
   $('#ctxList').querySelectorAll('[data-open-src]').forEach(b=>b.onclick=()=>openSource(b.dataset.openSrc));
-  const chars=sel.reduce((a,f)=>a+(f.chars||0),0); $('#ctxSize').textContent=chars?`≈ ${Math.round(chars/4/1000)}k tokens of text per message${chars>180000?' — over budget, later files will be truncated':''}`:'';
+  const chars=sel.reduce((a,f)=>a+(f.chars||0),0), tok=Math.round(chars/4); $('#ctxSize').textContent=chars?`≈ ${tok<1000?tok:Math.round(tok/1000)+'k'} tokens of text per message${chars>180000?' — over budget, later files will be truncated':''}`:'';
   const ms=await api(`/courses/${cid}/messages`); const ch=$('#chat'); ch.innerHTML=''; ms.forEach(m=>{ if(m.role!=='assistant'){ addMsg(m.role,m.content); return }
     const sm=(m.content||'').match(/^\s*<speech>([\s\S]*?)<\/speech>\s*/), body=sm?m.content.slice(sm[0].length):m.content;
     const d=addMsg('assistant',body); if(sm) d.dataset.said=sm[1].trim(); render(d,body).then(()=>{ cfSaid(d); cfMark(d) }) }); if(!ms.length) addMsg('assistant',`Tutor for ${C().name}. Tick files in Files, then ask — or say "drill me on ${(()=>{ const g=sel.find(f=>!isAnswerFile(f)&&f.role!=='admin'); return g?(g.label||g.name.replace(/\.\w+$/,'')):'this week' })()}".`); ch.scrollTop=ch.scrollHeight;
@@ -723,14 +756,13 @@ function cfWarm(){ const now=Date.now();
 function showReading(r){
   /* Which of your own materials answered the last question, and what did not fit. */
   const box=$('#ctxAnswer'); if(!box) return;
-  const esc=t=>String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-  const link=n=>{ const f=ctxFiles[n]; return f?`<button type="button" class="srcopen" data-open-src="${esc(f.id)}" title="Open ${esc(n)}">${esc(n)}</button>`:esc(n) };
+  const link=n=>srcLink(n,ctxLookup(n));   // the global esc: it escapes the quote too, so a file name can't break out of title="…"
   const used=(r.used||[]).map(link), trimmed=(r.trimmed||[]).map(link);
   box.hidden=false;
   box.innerHTML=`<b>Answered from</b> ${used.length} of ${used.length+trimmed.length} ticked files`
     + `<div class="muted" style="margin-top:.2rem">${used.join(' · ')||'—'}</div>`
     + (trimmed.length?`<div class="muted" style="margin-top:.35rem">Not needed for this question: ${trimmed.join(' · ')}</div>`:'')
-    + `<div class="muted" style="margin-top:.35rem">${Math.round((r.chars||0)/1000)}k characters sent instead of the whole set</div>`;
+    + `<div class="muted" style="margin-top:.35rem">${fmtChars(r.chars||0).replace(' chars','')} characters sent instead of the whole set</div>`;
   box.querySelectorAll('[data-open-src]').forEach(b=>b.onclick=()=>openSource(b.dataset.openSrc));
 }
 function showCost(){ const el=$('#costState'); if(el) el.textContent=sessionCost?`$${sessionCost.toFixed(2)} this session`:'' }

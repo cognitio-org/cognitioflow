@@ -1,0 +1,21 @@
+# PROTECTED (run.py) — needs Matej's named yes. Apply with: git apply docs/pending-protected/file-text-raw-owner-gate.patch
+# /api/files/{fid}/text and /raw had no owner check (every other by-id file route calls _own_file). The Reading list and the source viewer now link to both, so gate them the same way. 404 for a missing row is unchanged (_own_via raises it).
+diff --git a/run.py b/run.py
+index 582e28c..17da1c9 100644
+--- a/run.py
++++ b/run.py
+@@ -1185,12 +1185,14 @@ def delete_file(fid: str):
+ 
+ @app.get("/api/files/{fid}/text")
+ def file_text(fid: str):
++    _own_file(fid)   # owner-gate like toggle/meta/delete: the Reading list and Files now link here
+     r = rows("SELECT name,text FROM files WHERE id=?", fid)
+     if not r: raise HTTPException(404)
+     return r[0]
+ 
+ @app.get("/api/files/{fid}/raw")
+ def file_raw(fid: str, request: Request):
++    _own_file(fid)
+     r = rows("SELECT key,name FROM files WHERE id=?", fid)
+     if not r: raise HTTPException(404)
+     return serve_object(r[0]["key"], request, mimetypes.guess_type(r[0]["key"] or "")[0] or "application/octet-stream", filename=r[0]["name"])
