@@ -228,6 +228,42 @@
 .tfoot{display:flex;gap:var(--s3);justify-content:flex-end;margin-top:var(--s1);min-height:1.2em}
 /* source tags as chips: the kind and the first source; the whole tag on hover */
 .src{display:inline-block;margin:0 .15em;padding:0 .45em;border:1px solid var(--rule);border-radius:999px;font-family:var(--sans);font-size:var(--fs-xs);font-style:normal;font-weight:500;line-height:1.55;color:var(--graphite);white-space:nowrap;vertical-align:.08em;cursor:help}
+/* a source tag opens the passage behind it; an outside-files tag reads as a warning */
+.src[role=button]{cursor:pointer;min-height:1.55em}
+.src[role=button]:hover{border-color:var(--rule-strong);color:var(--ink)}
+.src[aria-expanded=true]{border-color:var(--accent);color:var(--ink)}
+.src.flag{border-color:var(--warn);color:var(--warn)}
+.srcpanel{margin:.1rem 0 .7rem;padding:.55rem .75rem;border:1px solid var(--rule);border-radius:var(--r);background:var(--paper);font-family:var(--sans);font-size:var(--fs-sm);line-height:1.45}
+.srcpanel .srch{font-weight:600;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.04em;color:var(--graphite);margin-bottom:.3rem}
+.srcpanel .srcitem+.srcitem{margin-top:.5rem;padding-top:.5rem;border-top:1px solid var(--rule)}
+.srcpanel .srcfile{font-weight:600;color:var(--ink)}
+.srcpanel blockquote{margin:.25rem 0;padding:0 0 0 .6rem;border-left:2px solid var(--rule-strong);font-family:var(--serif,inherit);color:var(--ink)}
+.srcpanel mark{background:color-mix(in oklab,var(--accent),transparent 78%);color:inherit;padding:0 .1em;border-radius:2px}
+.srcpanel .srccites{color:var(--graphite);font-size:var(--fs-xs)}
+.srcpanel .srccites code,.cf-flag code{font-size:.92em}
+/* the tutor at work: three steps from the stream's own events, and the seconds so far */
+.tstatus{display:flex;align-items:center;flex-wrap:wrap;gap:.3rem .9rem;margin:0 0 .5rem;font-family:var(--sans);font-size:var(--fs-sm);color:var(--graphite)}
+.msg.waiting .tstatus{margin:0}
+.tsteps{display:flex;flex-wrap:wrap;gap:.3rem .9rem;margin:0;padding:0;list-style:none}
+.tsteps li{display:flex;align-items:center;gap:.35rem;opacity:.55}
+.tsteps li.now{opacity:1;color:var(--ink);font-weight:500}
+.tsteps li.done{opacity:.8}
+.tdot{width:.55rem;height:.55rem;border-radius:50%;border:1.5px solid currentColor;flex:none}
+.tsteps li.done .tdot{background:currentColor}
+.tsteps li.now .tdot{border-color:var(--accent);background:var(--accent)}
+.ttime{font-variant-numeric:tabular-nums;margin-left:auto}
+@media(prefers-reduced-motion:no-preference){.tsteps li.now .tdot{animation:tpulse 1.4s ease-in-out infinite}}
+@keyframes tpulse{50%{opacity:.35}}
+/* every tutor answer says what it is */
+.tact{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem .8rem;margin-top:.5rem}
+.aigen{font-family:var(--sans);font-size:var(--fs-xs);color:var(--graphite);padding:.1rem .5rem;border:1px dashed var(--rule-strong);border-radius:999px;cursor:help}
+.tact .btn{margin-left:auto}
+/* cited by the tutor, in none of his ticked files: at the top of the answer, where it cannot be missed */
+.cf-flag{margin:0 0 .7rem;padding:.6rem .8rem;border:1px solid var(--warn);border-left-width:4px;border-radius:var(--r);background:color-mix(in oklab,var(--warn),transparent 90%);font-family:var(--sans);font-size:var(--fs-sm);color:var(--ink);line-height:1.45}
+.cf-flag-h{font-weight:700;color:var(--warn);margin-bottom:.15rem}
+.cf-flag-h::before{content:"⚠";margin-right:.4rem}
+.cf-flag-list{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.35rem}
+.cf-flag-list code{padding:.05rem .4rem;border:1px solid var(--warn);border-radius:var(--r);background:var(--paper);color:var(--ink)}
 /* the way out of Focus mode has to be findable */
 #focusBtn{opacity:.85;border-color:var(--rule)}
 /* an empty screen says what to do, on a surface rather than floating on the page */
