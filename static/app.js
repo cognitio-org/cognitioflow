@@ -2165,40 +2165,84 @@ $('#readKeyCopy').onclick=async()=>{ try{ await navigator.clipboard.writeText($(
    spread across topics. Coverage, never a prediction of the exam: no exam format, no question types, no
    answer method on this card. Build proposes (writes nothing), Save persists it onto the course. */
 let bpProposal=null;        // an unsaved extract; null when we are showing what is applied
-const BP_CONF={high:'named in a stated learning objective',medium:'named in a syllabus week',low:'only implied by the material'};
+let bpSaved=null;           // the saved map, so readiness can name the unit of each topic's %
+// The model assigned the number; the objective does not literally name the topic — so "mapped to", not "named in".
+const BP_CONF={high:'mapped to a stated learning objective',medium:'mapped to a syllabus week',low:'not tied to a syllabus week or a stated objective'};
 const BP_CONF_LABEL={high:'objective',medium:'syllabus week',low:'implied'};
 const bpWeeks=ws=>{ ws=(ws||[]).map(Number).filter(n=>n>0).sort((a,b)=>a-b); if(!ws.length) return '';
   const runs=[]; for(const n of ws){ const r=runs[runs.length-1]; if(r&&n===r[1]+1) r[1]=n; else runs.push([n,n]); }
   return (ws.length===1?'Week ':'Weeks ')+runs.map(r=>r[0]===r[1]?r[0]:`${r[0]}–${r[1]}`).join(', '); };
-function bpTopicRow(t,b){ const w=Math.max(0,Math.min(100,+t.weight||0)), byWeeks=(b&&b.basis)==='weeks';
+/* The course's own syllabus weeks and stated objectives (as course_brief.learning_objectives cleans them), so the
+   panel's counts and the objective chips are checked against what the course says — not against the model. */
+function bpCourse(){ const br=(C()&&C().brief)||{};
+  const weeks=[...new Set(((br.syllabus&&br.syllabus.weeks)||[]).map(w=>parseInt(w.week,10)).filter(n=>n>0))].sort((a,b)=>a-b);
+  const objs=String(br.learning_objectives||'').split('\n')
+    .map(l=>l.replace(/^\s*(?:[-*•–]|\(?\d{1,2}[.)]|LO\s*\d{1,2}[.:)]?)\s*/,'').trim()).filter(Boolean);
+  return {weeks,objs}; }
+const bpNum=x=>{ x=Math.round((+x||0)*100)/100; return String(x).replace(/\.?0+$/,'')||'0'; };
+function bpTopicRow(t,b,co){ const w=Math.max(0,Math.min(100,+t.weight||0)), basis=(b&&b.basis)||'none';
   const chip=(cls,arr,tip)=>arr&&arr.length?arr.map(x=>`<span class="bpc ${cls}"${tip?` title="${esc(tip)}"`:''}>${esc(x)}</span>`).join(''):'';
-  const wk=bpWeeks(t.weeks), objs=(t.objectives||[]).map(n=>'Objective '+n);
-  const conf=t.confidence||'medium';
+  const wk=bpWeeks(t.weeks);
+  const objChips=(t.objectives||[]).map(n=>{ const txt=co.objs[n-1];
+    return `<span class="bpc obj" tabindex="0" title="${esc(txt?`Objective ${n}: ${txt}`:`Objective ${n} (the course states no objective ${n} now)`)}">Objective ${n}</span>`; }).join('');
+  const conf=t.confidence||'medium', unit=t.share_unit||(basis==='objectives'?'objectives':'weeks');
+  let pct, tip, of='';
+  if((basis==='weeks'||basis==='objectives')&&!('share' in t)){ pct=`${w}%`; tip='Saved before shares were counted — rebuild to show the weeks behind each %'; }
+  else if(basis==='weeks'||basis==='objectives'){
+    if(+t.share>0){ const nm=unit==='objectives'?'stated objectives':'syllabus weeks';
+      pct=`${w}%`; of=`${bpNum(t.share)} of ${t.share_of} ${unit==='objectives'?'objectives':'weeks'}`;
+      tip=`${of}: the ${nm} this topic covers, out of all ${t.share_of} ${nm} (one shared with another topic counts half)`; }
+    else { pct='—'; tip=unit==='objectives'?'Not tied to a stated objective, so it has no share':'Not tied to a syllabus week, so it has no share of the syllabus'; }
+  } else if(basis==='model'){ pct=`${w}%`; tip='Saved by an older version from the model’s own estimate — rebuild to compute it from the syllabus weeks'; }
+  else { pct='—'; tip='No syllabus week or stated objective to compute a share from'; }
   return `<div class="bptopic">`+
     `<div class="bptop"><span class="bpname">${esc(t.topic)}</span>`+
-      `<span class="bpwt" title="${byWeeks?'Share of the syllabus weeks this topic spans (a week shared by two topics counts half to each)':'The model’s estimate of this topic’s share — no week numbers to compute it from'}">${w}%</span>`+
+      `<span class="bpwt" title="${esc(tip)}">${pct}${of?`<span class="bpof small muted"> · ${esc(of)}</span>`:''}</span>`+
       `<span class="bpconf c-${esc(conf)}" title="Evidence: ${esc(BP_CONF[conf]||'')}">${esc(BP_CONF_LABEL[conf]||conf)}</span></div>`+
-    `<div class="bpbar"><i style="width:${w}%"></i></div>`+
+    `<div class="bpbar"><i style="width:${pct==='—'?0:w}%"></i></div>`+
     (t.note?`<div class="bpnote small muted">${esc(t.note)}</div>`:'')+
-    `<div class="bpchips">${chip('doc',t.doctrines,'Doctrine this topic turns on')}${wk?chip('seen',[wk],'Syllabus weeks it covers'):''}${chip('obj',objs,'Stated learning objective it serves')}</div>`+
+    (pct==='—'&&(basis==='weeks'||basis==='objectives')?`<div class="bpnote small muted">${unit==='objectives'?'Not tied to a stated objective':'Not tied to a syllabus week'} — no share shown.</div>`:'')+
+    `<div class="bpchips">${chip('doc',t.doctrines,'Doctrine this topic turns on')}${wk?chip('seen',[wk],'Syllabus weeks it covers'):''}${objChips}</div>`+
     `</div>`; }
-function bpHead(b){ const topics=(b&&b.topics)||[], objs=b&&(b.objectives_stated||topics.some(t=>(t.objectives||[]).length));
+/* "12 of 12 syllabus weeks · 6 of 6 stated objectives mapped" — counted here from the course and the topics,
+   never the model's own claim that everything was mapped. Names what is left out. */
+function bpCoverage(b,co){ const topics=(b&&b.topics)||[], out=[];
+  const mw=new Set(topics.flatMap(t=>(t.weeks||[]).map(Number))), mo=new Set(topics.flatMap(t=>(t.objectives||[]).map(Number)));
+  if(co.weeks.length){ const miss=co.weeks.filter(n=>!mw.has(n));
+    out.push(`${co.weeks.length-miss.length} of ${co.weeks.length} syllabus weeks mapped`+(miss.length?` (not in any topic: ${bpWeeks(miss).toLowerCase()})`:'')); }
+  if(co.objs.length){ const miss=co.objs.map((_,i)=>i+1).filter(n=>!mo.has(n));
+    out.push(`${co.objs.length-miss.length} of ${co.objs.length} stated objectives mapped`+(miss.length?` (not in any topic: ${miss.map(n=>'objective '+n).join(', ')})`:'')); }
+  return out.join(' · '); }
+function bpHead(b,co){ const topics=(b&&b.topics)||[], objs=co.objs.length>0;
   const h=$('#blueprintPanel h3'), sub=$('#bpSub');
   if(!topics.length||objs){ h.textContent='Coverage of stated learning objectives';
-    sub.textContent='Mapped from the course’s stated learning objectives (Course settings) and the syllabus weeks you read under Files. Coverage, not a prediction of any exam.'; }
+    sub.textContent=objs&&!co.weeks.length
+      ?'Mapped from the course’s stated learning objectives (Course settings); no syllabus has been read under Files yet. Coverage, not a prediction of any exam.'
+      :'Mapped from the course’s stated learning objectives (Course settings) and the syllabus weeks you read under Files. Coverage, not a prediction of any exam.'; }
   else { h.textContent='Coverage of the syllabus weeks';
     sub.textContent='No stated learning objectives were read, so this maps the syllabus weeks only. Add the course’s published learning objectives in Course settings, then rebuild.'; }
-  if(topics.length) sub.textContent+=(b.basis==='weeks'
-    ?` Each % is the topic’s share of the ${b.weeks_total||''} syllabus weeks it spans; a week two topics share counts half to each.`
-    :' The % is the model’s estimate of each topic’s share (the topics name no weeks to compute it from).'); }
-function bpRender(b,proposed){ const topics=(b&&b.topics)||[];
-  bpHead(b);
-  $('#bpTopics').innerHTML=topics.length?topics.map(t=>bpTopicRow(t,b)).join(''):
+  if(!topics.length) return;
+  const basis=b.basis||'none', n=basis==='objectives'?(b.objectives_total||co.objs.length):(b.weeks_total||co.weeks.length);
+  sub.textContent+=basis==='weeks'
+    ?` Each % is the topic’s share of all ${n} syllabus weeks (a week two topics share counts half to each), so it can be counted from the schedule.`
+    :basis==='objectives'
+    ?` No topic names a syllabus week, so each % is the topic’s share of the ${n} stated objectives (one shared by two topics counts half to each).`
+    :basis==='model'
+    ?' These % were the model’s own estimate in an older version — rebuild to compute them from the syllabus weeks.'
+    :' No topic names a syllabus week or a stated objective, so no % is shown.'; }
+function bpRender(b,proposed){ const topics=(b&&b.topics)||[], co=bpCourse();
+  if(!proposed) bpSaved=b;
+  bpHead(b,co);
+  $('#bpTopics').innerHTML=topics.length?topics.map(t=>bpTopicRow(t,b,co)).join(''):
     (proposed?'<div class="emptystate"><b>No topics found</b><span>Nothing in the syllabus or the stated objectives read as a topic. Read the course syllabus under Files and add the learning objectives in Course settings, then build again.</span></div>':
       '<div class="emptystate"><b>No coverage map yet</b><span>Press “Build coverage map” to map the course’s stated learning objectives and syllabus weeks.</span></div>');
-  const bits=[]; if(b&&b.note) bits.push(esc(b.note));
-  if(proposed){ bits.unshift('<b>Proposed</b> from the stated learning objectives and syllabus — not saved yet'); }
-  else if(topics.length){ bits.unshift('<b>Saved</b> — the tutor and practice questions see these topics and their share of the syllabus, as coverage, never as an exam prediction'); }
+  const bits=[], src=co.objs.length&&co.weeks.length?'the stated learning objectives and the syllabus weeks'
+    :co.objs.length?'the stated learning objectives':'the syllabus weeks';
+  if(proposed) bits.push(`<b>Proposed</b> from ${src} — not saved yet`);
+  else if(topics.length) bits.push('<b>Saved</b> — the tutor and practice questions see these topics and their share of the syllabus, as coverage, never as an exam prediction');
+  const cov=topics.length?bpCoverage(b,co):'';
+  if(cov) bits.push(esc(cov));
+  if(!topics.length&&b&&b.note) bits.push(esc(b.note));   // the model's own note only explains an empty map
   $('#bpMeta').innerHTML=bits.join(' · ');
   $('#bpSave').hidden=$('#bpDiscard').hidden=!proposed;
   $('#bpBuild').textContent=topics.length&&!proposed?'Rebuild coverage map':'Build coverage map'; }
@@ -2226,8 +2270,12 @@ $('#bpSave')&&($('#bpSave').onclick=async()=>{ if(!bpProposal) return; const b=$
   catch(e){ toast(e.message||'Could not save'); } b.disabled=false; });
 $('#bpDiscard')&&($('#bpDiscard').onclick=()=>loadBlueprint());
 /* Readiness — per objective topic, from the saved coverage map + your cards. Read-only. */
+function rdShare(t){ const m=((bpSaved&&bpSaved.topics)||[]).find(x=>x.topic===t.topic)||{}, basis=(bpSaved&&bpSaved.basis)||'';
+  if((basis==='weeks'||basis==='objectives')&&('share' in m)&&!(+m.share>0)) return m.share_unit==='objectives'?'not tied to a stated objective':'not tied to a syllabus week';
+  if(basis==='none'||!t.weight) return 'no share computed';
+  return `${t.weight}% of ${m.share_unit==='objectives'?'the stated objectives':'the syllabus'}`; }
 async function loadReadiness(){ const panel=$('#readinessPanel'); if(!panel) return;
-  let d; try{ d=await api(`/courses/${cid}/readiness`); }catch(e){ panel.hidden=true; return; }
+  let d; try{ [d,bpSaved]=await Promise.all([api(`/courses/${cid}/readiness`),api(`/courses/${cid}/blueprint`).catch(()=>null)]); }catch(e){ panel.hidden=true; return; }
   if(!d||!d.blueprint){ panel.hidden=true; return; }     // only meaningful once a blueprint is saved
   panel.hidden=false;
   const bs=(d.overall||{}).by_status||{};
@@ -2242,7 +2290,7 @@ async function loadReadiness(){ const panel=$('#readinessPanel'); if(!panel) ret
       `<div class="rdline"><span class="rddot" aria-hidden="true"></span><span class="rdname">${esc(t.topic)}</span>`+
       `<span class="rdstatus">${esc(t.status)}</span></div>`+
       `<div class="rdbar"><i style="width:${pct}%"></i></div>`+
-      `<div class="rdsub small muted">${t.weight}% of the syllabus · ${sub.join(' · ')}</div></div>`; };
+      `<div class="rdsub small muted">${rdShare(t)} · ${sub.join(' · ')}</div></div>`; };
   $('#rdTopics').innerHTML=d.topics.length?d.topics.map(row).join(''):
     '<div class="emptystate"><b>No objective topics</b><span>Save a coverage map of the stated learning objectives first.</span></div>';
   const tg=d.tagging||{},foot=$('#rdFoot');

@@ -3,12 +3,16 @@ Apply: git apply docs/pending-protected/blueprint-build.patch
 1) blueprint extract: max_tokens 4000 -> 8000 and an explicit 'cut off' 502 (the llm.py retry already fixes the prod failure; this is belt and braces).
 2) 422 copy names the syllabus and the learning objectives, no past exams (the UI already overrides it client-side).
 3) card-tagging 422: 'exam blueprint' -> 'coverage map'.
+4) (w3) extract and apply pass the course's own syllabus weeks and stated objectives to normalise_blueprint
+   explicitly, and extract stops listing past-paper names. Without this patch the same check already runs on
+   extract (blueprint.build_context leaves the scope for the normalise call that follows); this makes it explicit
+   and also checks a Save against the course.
 
 diff --git a/run.py b/run.py
-index 582e28c..31adfdd 100644
+index 582e28c..319aa14 100644
 --- a/run.py
 +++ b/run.py
-@@ -996,14 +996,17 @@ def blueprint_extract(cid: str):
+@@ -996,16 +996,20 @@ def blueprint_extract(cid: str):
                and not (f["text"] or "").startswith("[extraction failed")]
      syl = cb.syllabus_block(brief)
      if not papers and not syl:
@@ -28,9 +32,26 @@ index 582e28c..31adfdd 100644
 +        raise HTTPException(502, "The model's reply was cut off before the map was complete. Nothing was saved — build again.")
 +    got = _model_json(m)
      try:
-         blu = bp.normalise_blueprint(got, source_papers=[p["name"] for p in papers])
+-        blu = bp.normalise_blueprint(got, source_papers=[p["name"] for p in papers])
++        weeks, objectives = bp.scope_from_block(syl)   # checked against the course's own weeks and objectives
++        blu = bp.normalise_blueprint(got, source_papers=[], syllabus_weeks=weeks, objectives=objectives)
      except bp.BlueprintError as e:
-@@ -1158,7 +1161,7 @@ def cards_tag(cid: str, p: CardTagIn):
+         raise HTTPException(502, f"The model's reply was not a blueprint ({e}). Try again.")
+     if not blu["topics"] and not blu["note"]:
+@@ -1019,7 +1023,11 @@ def blueprint_apply(cid: str, p: BlueprintApplyIn):
+     no schema change — so a later slice can point the tutor and the generators at it. An empty topics
+     list removes an applied blueprint again. Idempotent via normalise_blueprint."""
+     _require_owner(cid)
+-    blu = _checked(bp.normalise_blueprint, p.model_dump())
++    c = rows("SELECT brief FROM courses WHERE id=?", cid)
++    weeks, objectives = bp.scope_from_block(cb.syllabus_block((c[0]["brief"] or {}) if c else {}))
++    known = weeks or objectives    # a course with neither: a re-save of a checked proposal, left as posted
++    blu = _checked(lambda raw: bp.normalise_blueprint(raw, syllabus_weeks=weeks if known else None,
++                                                      objectives=objectives if known else None), p.model_dump())
+     with db() as d:
+         cur = d.execute("SELECT name,tutor_prompt,brief FROM courses WHERE id=?", (cid,)).fetchone()
+         if not cur:
+@@ -1158,7 +1166,7 @@ def cards_tag(cid: str, p: CardTagIn):
          raise HTTPException(404)
      topics = bp.examined_topics(r[0]["brief"] or {})
      if not topics:
