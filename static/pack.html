@@ -32,6 +32,7 @@
   .lab b{font-family:var(--sans);font-size:11pt;font-weight:600;font-variant-numeric:tabular-nums} .lab span{font-family:var(--sans);font-size:9pt;color:var(--ink)}
   .empty{font-family:var(--sans);color:var(--soft);padding:2rem 0}
   .ai{font-family:var(--sans);font-size:7.5pt;color:var(--soft);border-top:.4pt solid var(--rule);padding-top:1.5mm;margin-top:6mm}
+  @media screen{ .topic,.tabs{padding-bottom:12mm;margin-bottom:12mm;border-bottom:1.2pt solid var(--ink)} .topic:last-child,.tabs{border-bottom:0} }
   @media print{ .bar{display:none} main{padding:0;max-width:none} @page{size:A4;margin:14mm 14mm 14mm 16mm} }
 </style>
 </head>
@@ -55,9 +56,11 @@ document.getElementById('printBtn').onclick=()=>window.print();
     ${t.rule?`<div class="rule">${md(t.rule)}</div>`:''}
     ${t.method.length?`<h2>The method</h2><div class="method">${t.method.map((m,i)=>`<span>${i+1}. ${esc(m)}</span>`).join('')}</div>`:''}
     ${t.outline.length?`<h2>Outline</h2><ol class="outline">${t.outline.map(h=>`<li>${esc(h)}</li>`).join('')}</ol>`:''}
-    ${t.cases.length?`<h2>Leading cases, oldest first</h2><table><thead><tr><th>Year</th><th>Case</th><th>From</th></tr></thead><tbody>${
+    ${t.cases.length?`<h2>${esc(t.cases_heading||'Leading cases')}</h2><table><thead><tr><th>Year</th><th>Case</th><th>From</th></tr></thead><tbody>${
       t.cases.map(c=>`<tr><td class="yr">${c.year?esc(c.year)+(c.numbered?'<sup data-numbered>†</sup>':''):'—'}</td><td><i>${esc(c.name)}</i>${c.cite?` <span class="src">${esc(c.cite).replace(/-/g,'&#8209;')}</span>`:''}</td><td class="src">${esc(c.note)}</td></tr>`).join('')}</tbody></table>${
-      t.cases.some(c=>c.numbered)?`<div class="more">† The year in the case number, when the case reached the Court; the judgment came that year or later, often a year or more. Other years are as your notes write them; — means they give none.</div>`:''}${
+      t.cases.some(c=>c.numbered)?`<div class="more">† The year in the case number, when the case reached the Court; the judgment came that year or later, often a year or more. Other years are as your notes write them; — means they give none, and those cases follow the dated ones, A–Z.</div>`:''}${
+      !t.cases.some(c=>c.numbered)&&t.cases.some(c=>c.year)&&t.cases.some(c=>!c.year)?`<div class="more">— Your notes give no year; those cases follow the dated ones, A–Z.</div>`:''}${
+      !t.cases.some(c=>c.year)?`<div class="more">Your notes give no year for these cases, so they are listed A–Z, not by date.</div>`:''}${
       t.more_cases?`<div class="more">and ${t.more_cases} more in the case index</div>`:''}`:''}
     ${(t.recalled||[]).length?`<div class="more">Also recalled from earlier weeks: ${t.recalled.map(n=>`<i>${esc(n)}</i>`).join(', ')}</div>`:''}
     ${ai}

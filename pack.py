@@ -121,7 +121,7 @@ def build(weeks: dict, reference: list, cases: list, method: bool = True) -> dic
     """weeks: {week: [note, ...]} (as countdown.sort_notes gives them); reference: course-wide notes;
     cases: the case index (name, cite, year, notes [{id, title}]). Returns {"topics": [...], "tabs": [...]}."""
     topics, words = [], {}
-    cases = normalise_cases(cases)
+    cases = normalise_cases(_from_notes(cases, {n["id"]: n.get("body") or "" for ns in weeks.values() for n in ns}))
     order = sorted(weeks, key=lambda w: (not str(w).isdigit(), int(w) if str(w).isdigit() else 0, str(w)))
     home = {}                                   # a case belongs to the first week whose notes name it
     for week in order:
@@ -149,13 +149,17 @@ def build(weeks: dict, reference: list, cases: list, method: bool = True) -> dic
                        "numbered": bool(c.get("numbered")),
                        "note": _source(next(x["title"] for x in c["notes"] if x["id"] in ids), week, title)} for c in own[:CASES]],
             "more_cases": max(0, len(own) - CASES),
+            # an order is claimed only when there is one: a week whose rows carry no year is just 'Leading cases', A-Z
+            "cases_heading": "Leading cases, oldest first" if any(c.get("year") for c in own[:CASES]) else "Leading cases",
             "recalled": sorted({c["name"] for c in recalled}, key=str.casefold),
             "method": [label for _, label in essay.LIMBS] if method and len(moves) >= METHOD_HITS else [],
         })
         words[str(week)] = _week_word(title)
-    # Each tab's word comes from his own article index where it has the article; otherwise from the title of the
-    # week that cites it most and has a word; otherwise none - a blank tab beats a wrong one (signed off). _HEADINGS
-    # is empty until Matej says yes to the proposed article subjects (_HEADINGS_PROPOSED).
+    # Each tab's word comes from his own article index where it has the article; otherwise none - a blank tab
+    # beats a wrong one (signed off). _HEADINGS is empty until Matej says yes to the proposed article subjects
+    # (_HEADINGS_PROPOSED). The older fallback to the first word of the week that cites the article most (18d,
+    # 2026-10-01) gave 'Art 107 TFEU - State' and 'Art 34 TFEU - Direct'; it is off (_WEEK_TITLE_TABS) until he
+    # decides whether to keep it.
     index = _article_index(list(reference) + [n for ns in weeks.values() for n in ns])
     found = defaultdict(Counter)
     for week, notes in list(weeks.items()) + [(None, reference)]:
@@ -170,7 +174,7 @@ def build(weeks: dict, reference: list, cases: list, method: bool = True) -> dic
         if top and not 1 <= int(re.match(r"\d+", number).group(0)) <= top: continue   # "Art 168 TEU" does not exist
         weekly = sorted(((c, w) for w, c in by_week.items() if w), reverse=True)
         heading = (index.get(number) or _HEADINGS.get((instrument, number))
-                   or next((words[w] for _, w in weekly if words.get(w)), ""))
+                   or (next((words[w] for _, w in weekly if words.get(w)), "") if _WEEK_TITLE_TABS else ""))
         tabs.append({"instrument": instrument, "number": number,
                      "label": f"{number} {instrument}" if instrument in ("BW", "DCFR") else f"Art {number} {instrument}",
                      "heading": heading})
@@ -203,6 +207,7 @@ _HEADINGS_PROPOSED.update({("TFEU", n): w for n, w in {
     "340": "Liability"}.items()})
 _HEADINGS_PROPOSED.update({("Charter", n): w for n, w in {"47": "Remedy", "51": "Scope", "52": "Limits", "53": "Level"}.items()})
 _HEADINGS: dict = {}
+_WEEK_TITLE_TABS = False
 
 _ACRONYMS = {"EU", "EC", "EEC", "TFEU", "TEU", "CJEU", "ECJ", "ECHR", "ECTHR", "IRAC", "WG", "BW", "DCFR", "AG", "ECR",
              "UK", "US", "NL", "CFI", "GC", "QMV", "EP", "ECB", "II", "III", "IV", "MEQR", "MEQRS"}
@@ -230,8 +235,17 @@ _WG = re.compile(r"(?i)\b(?:wg|working\s+group)\b|\bmodel\s+answer|^\s*(?:q\s*\d
 # An answer to a set question that nobody labelled: its scaffolding ("IRAC structure", "Preliminary question",
 # "Advice to ...", "Quick reference card") or a problem's parties as a heading ("Next Gen Pharmacy v German
 # Association of Pharmacists") where no case of that name is in the case index.
-_ANSWER_HEAD = re.compile(r"(?i)^\s*(?:irac\b|preliminary\s+question\b(?!s).*\?\s*$|advice\s+to\b|(?:the\s+)?facts\b|problem\s+question|"
-                          r"quick\s+reference(?:\s+card)?\b|question\b|answer\b|conclusion\s+for\s+the\s+client)")
+# 'Facts', 'Question', 'Answer' count only as the whole heading (or before a colon / dash): 'Facts and procedure in
+# Art 267' and 'Questions of admissibility' are lecture topics.
+_ANSWER_HEAD = re.compile(r"(?i)^\s*(?:irac\b|preliminary\s+question\b(?!s).*\?\s*$|advice\s+to\b|problem\s+question|"
+                          r"(?:the\s+)?facts(?:\s+of\s+the\s+(?:problem|question|scenario))?\s*(?:[:—–-]|$)|"
+                          r"quick\s+reference(?:\s+card)?\b|(?:question|answer)\s*(?:[:—–-]|$)|conclusion\s+for\s+the\s+client)")
+# A party that only a real case has: an EU institution or a Member State ('Commission v Germany'). A problem
+# question's parties are invented ('Next Gen Pharmacy v German Association of Pharmacists').
+_REAL_PARTY = re.compile(r"(?i)^(?:european\s+)?(?:commission|council|parliament|central\s+bank|ecb|court\s+of\s+auditors|"
+                         r"austria|belgium|bulgaria|croatia|cyprus|czech\s+republic|czechia|denmark|estonia|finland|france|"
+                         r"germany|greece|hellenic\s+republic|hungary|ireland|italy|latvia|lithuania|luxembourg|malta|"
+                         r"netherlands|the\s+netherlands|poland|portugal|romania|slovakia|slovenia|spain|sweden|united\s+kingdom|uk)\b")
 
 
 def _is_wg(text) -> bool:
@@ -296,6 +310,9 @@ def _is_answer_heading(h: str, case_keys=frozenset(), section: str = "") -> bool
     if _is_wg(h) or _ANSWER_HEAD.match(h): return True
     parties = re.match(r"^([A-ZÀ-Ý].{1,59}?)\s+v\.?\s+([A-ZÀ-Ý].{1,79})$", h.strip())
     if not parties: return False
+    if any(_REAL_PARTY.match(p.strip()) for p in parties.groups()): return False      # 'Commission v Germany (beer)'
+    if re.search(r"\([a-z][^)]{0,30}\)\s*$", h): return False      # a case's nickname, '(beer)', '(Apple)'
+
     key = _name_key(h)
     if key in case_keys or any(k and re.search(r"(?<!\w)" + re.escape(k) + r"(?!\w)", key) for k in case_keys): return False
     return not (_dockets(section) or re.search(r"ECLI:|[\[(](?:1[5-9]|20)\d\d[\])]", section))
@@ -353,27 +370,42 @@ _YEAR_TAIL = re.compile(r"\s*[\[(](1[5-9]\d\d|20\d\d)[\])]\s*$")
 _FOUR = re.compile(r"(?<!\d)(1[5-9]\d\d|20\d\d)(?!\d)")
 _BRACKET_YEAR = re.compile(r"[\[(](1[5-9]\d\d|20\d\d)[\])]")
 _NUMBER = re.compile(r"(?<![\w/])\d{1,5}/(\d{2})(?![\d/])")
+# Another court's register mark right before an N/YY number: the German Federal Constitutional Court's '2 BvR
+# 197/83', '2 BvE 2/08', '1 BvL 1/97', the Federal Court of Justice's 'IX ZR 123/04' / '1 StR 12/05', and any
+# mark of that shape (capital, small letter, capitals). Such a number is that court's, never a CJEU docket. An
+# all-capitals word is not such a mark: 'ERT 260/89' is the CJEU's ERT.
+_OTHER_COURT = re.compile(r"(?:\b[A-Z][a-z][A-Z]{1,2}|\b[IVX]{1,5}\s+Z[A-Z]{1,2})\s*$")
+_OTHER_NUMBER = re.compile(r"(?:\b\d\s+)?(?:\b[A-Z][a-z][A-Z]{1,2}|\b[IVX]{1,5}\s+Z[A-Z]{1,2})\s+\d{1,5}/\d{2}(?![\d/])")
+# A year the notes write as a year without brackets: in a date ('19 November 1991'), after 'judgment' / 'decided' /
+# 'delivered' ('judgment of 1963'), or standing alone at the end of a cite ('106/77, 1978'). A loose four-figure
+# number anywhere else is not one: in 'ECR 1585' it is a page.
+_MONTHS = r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+_WRITTEN_YEAR = re.compile(r"(?i)(?:\b\d{1,2}(?:st|nd|rd|th)?\s+" + _MONTHS + r"\.?,?\s+"
+                           r"|\b(?:judg(?:e)?ment|decided|delivered|ruling|ruled)\s+(?:of\s+|on\s+|in\s+)?(?:\d{1,2}\s+" + _MONTHS + r"\.?\s+)?"
+                           r"|(?:^|,\s*))(1[5-9]\d\d|20\d\d)(?![\d/])(?=\s*(?:[,;)\]]|$|ECR\b))")
 
 
 def _dockets(text: str):
     """The CJEU / General Court case numbers in a text, as match objects. Not one: an Opinion's number
     ('Opinion 2/13' is an Opinion, never 'Case C-2/13'), an ECtHR application number (four or more figures with
-    no court letter: 'Tyrer v UK, 5856/72'), or anything after 'no.' / 'Application'."""
+    no court letter: 'Tyrer v UK, 5856/72'), anything after 'no.' / 'Application', or another court's number
+    ('2 BvR 197/83', see _OTHER_COURT)."""
     out = []
     for m in _DOCKET.finditer(text or ""):
         before = (text or "")[:m.start()]
         if re.search(r"(?i)\bopinions?\s*$|\b(?:no\.?|nos\.?|application|appl?\.)\s*$", before): continue
+        if not m.group(1) and not re.match(r"(?i)(?:joined\s+)?cases?\b", m.group(0)) and _OTHER_COURT.search(before): continue
         if not m.group(1) and len(m.group(2)) >= 4: continue
         out.append(m)
     return out
 
 
 def _docket(m) -> str:
-    """One style for a case number: 'Case 26/62' (a C- written before the 1989 split dropped, since there was no
-    General Court then), 'Case C-6/90', 'Case T-47/03', the appeal suffix ' P' kept. No letter is ever added: a
-    bare '6/90' stays 'Case 6/90'."""
+    """One style for a case number: 'Case 26/62', 'Case C-6/90', 'Case T-47/03', the appeal suffix ' P' kept. The
+    court letter is printed exactly as the notes write it: none is added (a bare '6/90' stays 'Case 6/90') and none
+    is removed (cases still pending when the General Court opened in 1989 carry 'C-' officially, e.g. Barber
+    C-262/88, so a 'C-' on an older number is not an error the pack may correct)."""
     court, num, yy, suffix = m.group(1), int(m.group(2)), m.group(3), " P" if m.group(4) else ""
-    if court == "C" and 53 <= int(yy) <= 88: court = None
     return f"Case {court + '-' if court else ''}{num}/{yy}{suffix}"
 
 
@@ -381,6 +413,12 @@ def _docket_key(d: str) -> str:
     """'Case C-6/90', 'Case 6/90' and 'Case C-6/90 P' compare equal when merging rows (one docket, three spellings)."""
     m = re.search(r"([CTF]-)?(\d+)/(\d{2})", d)
     return f"{'T' if m.group(1) == 'T-' else 'F' if m.group(1) == 'F-' else ''}{int(m.group(2))}/{m.group(3)}"
+
+
+def _fuller(a: str, b: str) -> str:
+    """Of two spellings of one docket, the one that carries more of what the notes wrote ('C-', ' P')."""
+    score = lambda d: ("C-" in d) + d.endswith(" P")
+    return b if score(b) > score(a) else a
 
 
 def _cite_parts(cite: str):
@@ -406,10 +444,13 @@ def _name_key(name: str) -> str:
 
 
 def _explicit_year(*texts):
-    """A year the notes write as a year: the year field of an ECLI, or a bracketed [1963] / (1979). A loose
-    four-figure number is not one: in 'ECR 1585' it is a page."""
+    """A year the notes write as a year: the year field of an ECLI, a bracketed [1963] / (1979), or an unbracketed
+    year in a date or after 'judgment' / 'decided' (see _WRITTEN_YEAR). A loose four-figure number is not one:
+    in 'ECR 1585' it is a page."""
     for t in texts:
-        m = re.search(r"ECLI:[A-Z]{2}:[A-Z]+:(\d{4}):", t or "") or _BRACKET_YEAR.search(re.sub(r"ECLI:\S+", "", t or ""))
+        bare = re.sub(r"ECLI:\S+", "", t or "")
+        m = (re.search(r"ECLI:[A-Z]{2}:[A-Z]+:(\d{4}):", t or "") or _BRACKET_YEAR.search(bare)
+             or _WRITTEN_YEAR.search(bare))
         if m: return int(m.group(1))
     return None
 
@@ -417,6 +458,38 @@ def _explicit_year(*texts):
 def _yy_years(*texts) -> set:
     """Every year a 'N/YY' number in the texts could stand for (26/62 -> 1962, 2/13 -> 2013)."""
     return {(1900 if int(m.group(1)) >= 50 else 2000) + int(m.group(1)) for t in texts for m in _NUMBER.finditer(t or "")}
+
+
+def _from_notes(cases: list, bodies: dict) -> list:
+    """What the case index lost on the way from the note, read back from the note itself. run.py's prose reader
+    keeps only the bare number after an *italic* name: '2/08' out of '*Lisbon* (2 BvE 2/08)', 'C-402/05' out of
+    '(C-402/05 P)', and 'C-6/90' with the number's year out of '(C-6/90, judgment of 19 November 1991)'. Where the
+    note writes the name with that number right after it, the court's own number, the ' P' and the written year are
+    taken from the note. Nothing the note does not say is added. Pure; the input is not changed."""
+    out = []
+    for c in cases or []:
+        cite, name = str(c.get("cite") or "").strip(), str(c.get("name") or "").strip()
+        c = dict(c)
+        if cite and name and len(cite) <= 16:
+            for note in c.get("notes") or []:
+                body = bodies.get(note.get("id")) or ""
+                m = re.search(r"(?i)(?<![\w])\*?" + re.escape(name) + r"\*?", body)
+                if not m: continue
+                tail = body[m.end():m.end() + 90].split("\n", 1)[0]
+                tail = tail[:tail.find(")") + 1] if ")" in tail else tail      # this case's bracket, not the next one's
+                at = re.search(r"(?<![\w/-])" + re.escape(cite) + r"(?![\d/])", tail)
+                if not at: continue
+                other = next((o for o in _OTHER_NUMBER.finditer(tail) if o.end() == at.end()), None)
+                if other and not re.match(r"[CTF]-", cite):
+                    c["cite"], c["year"] = other.group(0).strip(), None      # another court's number, verbatim, undated
+                    break
+                if re.match(r"\s+P\b", tail[at.end():]) and not cite.endswith(" P"):
+                    c["cite"] = cite + " P"
+                y = _explicit_year(tail[at.end():])
+                if y: c["written_year"] = y
+                break
+        out.append(c)
+    return out
 
 
 def normalise_cases(cases: list) -> list:
@@ -445,7 +518,7 @@ def normalise_cases(cases: list) -> list:
             if not name or name.casefold().strip(" .") in _DOCTRINES: continue
             dockets, rest = _cite_parts(cite)
             if _YEAR_ONLY.match(rest or ""): year_in_name, rest = year_in_name or int(_FOUR.search(rest).group(1)), ""
-            written = _explicit_year(rest, cite) or year_in_name
+            written = _explicit_year(rest, cite) or year_in_name or (c.get("written_year") if not split else None)
             given = c.get("year") if not split else None
             # The index's year may itself be read off a number (run.py's fallback): 2013 from "Opinion 2/13",
             # 1972 from "5856/72". Only a year that no number in the row explains counts as written.
@@ -469,8 +542,8 @@ def normalise_cases(cases: list) -> list:
         for d in r["dockets"]:
             k = _docket_key(d)
             if k not in g["keys"]: g["dockets"].append(d); g["keys"].add(k)
-            elif d.endswith(" P"):          # the fuller spelling of the same docket wins: keep its suffix
-                g["dockets"] = [d if _docket_key(x) == k else x for x in g["dockets"]]
+            else:                           # the fuller spelling of the same docket wins: its 'C-' and its ' P'
+                g["dockets"] = [_fuller(x, d) if _docket_key(x) == k else x for x in g["dockets"]]
         g["rest"] = g["rest"] or r["rest"]
         if r["explicit"] and not g["explicit"] or g["year"] is None:
             g["year"], g["explicit"] = r["year"], r["explicit"]
