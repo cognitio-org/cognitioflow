@@ -418,29 +418,47 @@ function srcLink(n,f){ return f?`<button type="button" class="srcopen" data-open
 /* "12.4k" / "380 chars": small files no longer read as an empty "0k". */
 function fmtChars(n){ n=+n||0; return n<1000?`${n} chars`:`${(n/1000).toFixed(n<10000?1:0)}k`; }
 
-/* Open a source in a new tab: a reading page in the app's own look — CognitioFlow bar, a way back, the file's title,
+/* A Markdown source read as a document, not a debug dump: headings, bullet and numbered lists, **bold**, paragraphs.
+   Every line is escaped FIRST and only these few markers are turned into tags, so an uploaded file can never inject
+   markup (marked would pass raw HTML through). The page's own <h1> is the title, so "#" starts at <h2>. */
+function mdLite(src){ const out=[]; let list=null, para=[];
+  const inl=t=>esc(t).replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/(^|[^*])\*([^*\s][^*]*)\*/g,'$1<i>$2</i>');
+  const flushP=()=>{ if(para.length){ out.push(`<p>${para.map(inl).join('<br>')}</p>`); para=[] } };
+  const flushL=()=>{ if(list){ out.push(`<${list.t}>${list.items.map(i=>`<li>${inl(i)}</li>`).join('')}</${list.t}>`); list=null } };
+  String(src||'').replace(/\r\n?/g,'\n').split('\n').forEach(line=>{ let m;
+    if(!line.trim()){ flushP(); flushL(); return }
+    if((m=line.match(/^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/))){ flushP(); flushL(); const n=Math.min(m[1].length+1,4); out.push(`<h${n}>${inl(m[2])}</h${n}>`); return }
+    if((m=line.match(/^\s*[-*+]\s+(.*)$/))||(m=line.match(/^\s*\d+[.)]\s+(.*)$/))){ const t=/^\s*\d/.test(line)?'ol':'ul';
+      flushP(); if(list&&list.t!==t) flushL(); list=list||{t,items:[]}; list.items.push(m[1]); return }
+    flushL(); para.push(line.trim()); });
+  flushP(); flushL(); return out.join('\n'); }
+function isMarkdown(f,name){ return /\.(md|markdown)$/i.test(name||'')||((f&&f.kind)==='md'); }
+
+/* Open a source in a new tab: a reading page in the app's own look — CognitioFlow bar, a Close button, the file's title,
    its source-type badge and its text, with the original upload one click away. Images (no text) open the original.
-   The tab is opened before any await so the browser counts it as part of the click and doesn't block it. */
+   The tab is opened before any await so the browser counts it as part of the click and doesn't block it.
+   The Close button carries its own script: it must keep working after the tab that opened it has moved on. It closes
+   this tab (the app opened it, so the browser allows that); if the browser refuses, it goes to the app's home. */
 function srcPage(f,t,raw){ const name=t.name||(f&&f.name)||'Source', title=(f&&f.label)||name;
   const meta=[f?authChip(f,authRanks()):'', f&&f.week?`<span class="small muted">Week ${esc(f.week)}</span>`:'',
     title!==name?`<span class="small muted">${esc(name)}</span>`:'', f&&f.chars?`<span class="small muted">${fmtChars(f.chars)} of text</span>`:''].filter(Boolean).join(' ');
+  const md=isMarkdown(f,name)&&t.text;
+  const body=md?mdLite(t.text):esc(t.text||'No text was extracted from this file.');
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">`+
     `<title>${esc(title)} · CognitioFlow</title><link rel="stylesheet" href="/static/app.css"><link rel="stylesheet" href="/static/app-after.css"><link rel="stylesheet" href="/static/polish.css"></head>`+
     `<body class="srcview"><header class="srcbar"><span class="srcbrand">CognitioFlow</span><span class="small muted srccrumb">${esc((C()&&C().name)||'')} · Source</span>`+
-    `<button type="button" class="btn small" id="srcBack">← Back to the tutor</button></header>`+
+    `<a class="btn small" id="srcBack" href="/" title="Close this tab">Close ✕</a></header>`+
     `<main class="srcmain"><h1>${esc(title)}</h1><div class="srcmeta">${meta}</div>`+
     `<p class="srcactions"><a class="btn small" href="${raw}">Download original</a><span class="small muted">The text below is what CognitioFlow extracted from the upload; the original is the authority.</span></p>`+
-    `<article class="srctext">${esc(t.text||'No text was extracted from this file.')}</article></main></body></html>`; }
+    `<article class="srctext${md?' srcmd':''}">${body}</article></main>`+
+    `<script>document.getElementById('srcBack').addEventListener('click',function(e){e.preventDefault();window.close();`+
+    `setTimeout(function(){if(!window.closed)location.href='/'},150)})</script></body></html>`; }
 function openSource(fid){ if(!fid) return; const raw=`/api/files/${encodeURIComponent(fid)}/raw`;
   const w=window.open('','_blank'); if(!w){ location.href=raw; return }
   const f=ctxById[fid];
   if(f&&(f.kind==='image'||!f.chars)){ w.location.href=raw; return }
   w.document.title='Opening…';
-  api(`/files/${encodeURIComponent(fid)}/text`).then(t=>{
-    w.document.open(); w.document.write(srcPage(f,t,raw)); w.document.close();
-    /* back: close this tab (the app opened it) and return to the tutor; if the browser won't close it, go to the app */
-    const back=w.document.getElementById('srcBack'), home=location.href;
-    if(back) back.onclick=()=>{ w.close(); setTimeout(()=>{ if(!w.closed) w.location.href=home },150); window.focus(); }; })
+  api(`/files/${encodeURIComponent(fid)}/text`).then(t=>{ w.document.open(); w.document.write(srcPage(f,t,raw)); w.document.close(); })
    .catch(()=>{ w.location.href=raw }); }
 
 const ROLE_NAMES={exam:'Past exam',wg:'WG notes',lecture:'Lecture',slides:'Slides',reader:'Reader',cases:'Case law',assignment:'Assignment',admin:'Course info',note:'Note'};
@@ -461,11 +479,11 @@ function authRanks(){ const m={...AUTH_DEFAULT}; const ord=(C()&&C().brief&&C().
   ord.forEach((t,i)=>{ const r=authTagRole(t); if(r) m[r]=Math.min(i+1,AUTH_MAX); }); return m; }
 function authRank(role,ranks){ return (ranks||authRanks())[role]||AUTH_MAX; }
 /* Source-type badge: what KIND of material a file is (WG notes, lecture, past exam…), with the order this course
-   prefers the kinds in. It is not a ranking of legal authority — a Treaty article or a CJEU judgment cited inside a
-   rank-3 slide still outranks anything the badge says. The tooltip says so, so nobody reads it as legal weight. */
+   prefers the kinds in: a study order of file kinds, not a ranking of legal authority. There is no legislation source
+   type yet, so Treaty text is filed as Reader; the tooltip makes no claim about which kind of law outranks which. */
 const SRC_TYPE_HINT='Source type: what kind of material this file is. The number is the order this course prefers source types in '+
   '(1 = preferred; set it under Course settings → authority order). It ranks the kind of file, not the legal authority of what the file cites.';
-function srcTypeTitle(name,r){ return `Source type: ${name} · course preference ${r} of ${AUTH_MAX}. Ranks the kind of file, not legal authority — a Treaty article or CJEU judgment outranks any study material.`; }
+function srcTypeTitle(name,r){ return `Source type: ${name} · course preference ${r} of ${AUTH_MAX}. This is the course's study order of file kinds, not legal authority.`; }
 /* The name on the badge. Model answers to a past or practice exam get their own: they are filed under the exam's role
    (the server can't tell the paper from its answers), but on screen they must not read as the exam itself. */
 function srcTypeName(f){ return isAnswerFile(f)?'Model answers':(ROLE_NAMES[f.role]||f.role); }
@@ -474,14 +492,20 @@ function authChip(f,ranks){ if(!f.role&&!isAnswerFile(f)) return `<span class="a
   const tip=srcTypeTitle(name,r)+(ans?' Model answers start unticked when dropped into Files, so the tutor does not read the answers before you have tried the paper.':'');
   return `<span class="authchip a${r}${ans?' ans':''}" title="${esc(tip)}"><i>${r}</i>${esc(name)}</span>`; }
 /* Model answers — the answer sheet to a past or practice exam, or an answer key. Reading them first defeats the
-   practice, so they keep out of the default tick (on the drop zone below) and the syllabus picker. Worked WG answers are
-   NOT in this class: the course ranks them first (AUTH_DEFAULT) because they are what the examiner rewards, so they stay
-   ticked and badged "WG notes". Nor is any name that merely says "answers" ("Questions and answers on free movement"):
-   the name must say model answer / answer key, or name an exam AND its answers. */
+   practice, so they keep out of the default tick (on the drop zone below) and the syllabus picker, and get their own badge.
+   NOT in this class, and badged by their role instead:
+   - worked WG answers, even to an exam ("WG7 answers to the 2022 resit"): the course ranks WG material first
+     (AUTH_DEFAULT) because it is what the examiner rewards, so it stays ticked and badged "WG notes";
+   - guidance on answering ("Exam 2 - how to answer problem questions", "Model answer guidance essay writing");
+   - a name that merely says "answers" ("Questions and answers on free movement").
+   The name must say model answer / answer key, or name an exam AND its answers (plural noun: "answer" alone is a verb).
+   docs/pending-protected/badges-readinglist.patch carries the same rule to the server; a test keeps the two in step. */
 const MODEL_ANSWER_RX=/(^|[^a-z])(model[\s-]*answers?|answers?[\s-]*(key|sheet)s?|antwoordmodel|modelantwoord(en)?)([^a-z]|$)/i;
 const EXAM_NAME_RX=/(^|[^a-z])(practice[\s-]*exam|past[\s-]*(exam|paper)|mock[\s-]*exam|resit|tentamen|exam[\s-]*\d)/i;
-const ANSWER_WORD_RX=/(^|[^a-z])(answers?|solutions?|uitwerkingen?|antwoorden)([^a-z]|$)/i;
+const ANSWER_WORD_RX=/(^|[^a-z])(answers|solutions|uitwerkingen?|antwoorden)([^a-z]|$)/i;
+const NOT_ANSWER_RX=/(^|[^a-z])(wg\s*\d*|working[\s-]*groups?|werkgroep(en)?|how[\s-]+to|guidance|guide|tips|technique)([^a-z]|$)/i;
 function isAnswerFile(f){ const s=String((f&&f.name||'')+' '+(f&&f.label||'')).replace(/_+/g,' ');
+  if(NOT_ANSWER_RX.test(s)) return false;
   return MODEL_ANSWER_RX.test(s)||(EXAM_NAME_RX.test(s)&&ANSWER_WORD_RX.test(s)); }
 let sylTitles={};       // week number -> the title the syllabus gives it
 $('#relabelBtn')&&($('#relabelBtn').onclick=async()=>{ const b=$('#relabelBtn'); b.disabled=true; toast('Labelling…');
@@ -753,16 +777,22 @@ function cfWarm(){ const now=Date.now();
   fetch(`/api/courses/${cid}/warm`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,model})})
     .then(r=>r.ok?r.json():null).then(j=>{ if(j&&j.usage&&j.usage.cost){ sessionCost+=j.usage.cost; localStorage.setItem('cf.cost',sessionCost); showCost(); } })
     .catch(()=>{}); }
-function showReading(r){
-  /* Which of your own materials answered the last question, and what did not fit. */
-  const box=$('#ctxAnswer'); if(!box) return;
+/* "Answered from": which of the ticked files answered the last question, and which were not needed. The server's
+   lists name note titles as well as files, so the count covers files only (matching the Files screen) and notes are
+   named apart, as plain text: a note is not a file and has no source to open. */
+function readingSummary(r){
+  const isFile=n=>!!(ctxByName[n]&&ctxByName[n].length);
+  const used=(r.used||[]).filter(isFile), trimmed=(r.trimmed||[]).filter(isFile);
+  const notes=(r.used||[]).filter(n=>!isFile(n));
   const link=n=>srcLink(n,ctxLookup(n));   // the global esc: it escapes the quote too, so a file name can't break out of title="…"
-  const used=(r.used||[]).map(link), trimmed=(r.trimmed||[]).map(link);
-  box.hidden=false;
-  box.innerHTML=`<b>Answered from</b> ${used.length} of ${used.length+trimmed.length} ticked files`
-    + `<div class="muted" style="margin-top:.2rem">${used.join(' · ')||'—'}</div>`
-    + (trimmed.length?`<div class="muted" style="margin-top:.35rem">Not needed for this question: ${trimmed.join(' · ')}</div>`:'')
-    + `<div class="muted" style="margin-top:.35rem">${fmtChars(r.chars||0).replace(' chars','')} characters sent instead of the whole set</div>`;
+  return `<b>Answered from</b> ${used.length} of ${used.length+trimmed.length} ticked files`
+    + `<div class="muted" style="margin-top:.2rem">${used.map(link).join(' · ')||'—'}</div>`
+    + (notes.length?`<div class="muted" style="margin-top:.35rem">Also your notes: ${notes.map(esc).join(' · ')}</div>`:'')
+    + (trimmed.length?`<div class="muted" style="margin-top:.35rem">Not needed for this question: ${trimmed.map(link).join(' · ')}</div>`:'')
+    + `<div class="muted" style="margin-top:.35rem">${fmtChars(r.chars||0).replace(' chars','')} characters sent instead of the whole set</div>`; }
+function showReading(r){
+  const box=$('#ctxAnswer'); if(!box) return;
+  box.hidden=false; box.innerHTML=readingSummary(r);
   box.querySelectorAll('[data-open-src]').forEach(b=>b.onclick=()=>openSource(b.dataset.openSrc));
 }
 function showCost(){ const el=$('#costState'); if(el) el.textContent=sessionCost?`$${sessionCost.toFixed(2)} this session`:'' }

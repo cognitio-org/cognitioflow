@@ -1,5 +1,5 @@
 # PROTECTED (run.py) — needs Matej's named yes. Apply with: git apply docs/pending-protected/badges-readinglist.patch
-# Upload default: model answers to a past/practice exam and answer keys arrive unticked server-side (covers the extension and every other upload path; the Files drop zone already does this client-side). Worked WG answers stay ticked. Narrowed in the #226 follow-up to match static/app.js isAnswerFile().
+# Upload default: model answers to a past/practice exam and answer keys arrive unticked server-side (covers the extension and every other upload path; the Files drop zone already does this client-side). Worked WG answers and guidance on answering stay ticked. Same rule as static/app.js isAnswerFile() (wave 3 of the #226 follow-up).
 diff --git a/run.py b/run.py
 index 582e28c..eea3586 100644
 --- a/run.py
@@ -13,19 +13,23 @@ index 582e28c..eea3586 100644
                     clean_label(file.filename), role_by_name(file.filename)))
      reindex(cid, "file", fid, file.filename, kind, week, text)
      if DOCKET_AUTO and week and text.strip():   # new material: the game writers look again once the batch has landed
-@@ -568,6 +568,17 @@ _ROLE_BY_NAME = [                       # cheap, certain, and free — the model
+@@ -568,6 +568,21 @@ _ROLE_BY_NAME = [                       # cheap, certain, and free — the model
      ("note",       re.compile(r"(?i)^note:|\b(summary|super summary|revision|rev \d|my notes)\b")),
  ]
  
 +# Model answers to a past or practice exam, and answer keys: uploaded unticked, so the tutor doesn't read the answers
-+# before he has tried the paper. Same rule as isAnswerFile() in static/app.js. Worked WG answers are NOT included: the
-+# course ranks them first, so they stay ticked; nor is a name that only says "answers" ("Questions and answers on ...").
++# before he has tried the paper. Same rule as isAnswerFile() in static/app.js (tests/test_source_badges_w3.py keeps them
++# in step). Not included: worked WG answers, even to an exam (the course ranks them first, so they stay ticked), guidance
++# on answering ("how to answer ..."), and a name that only says "answers" ("Questions and answers on ...").
 +_MODEL_ANSWER = re.compile(r"(?i)(^|[^a-z])(model[\s-]*answers?|answers?[\s-]*(key|sheet)s?|antwoordmodel|modelantwoord(en)?)([^a-z]|$)")
 +_EXAM_NAME = re.compile(r"(?i)(^|[^a-z])(practice[\s-]*exam|past[\s-]*(exam|paper)|mock[\s-]*exam|resit|tentamen|exam[\s-]*\d)")
-+_ANSWER_WORD = re.compile(r"(?i)(^|[^a-z])(answers?|solutions?|uitwerkingen?|antwoorden)([^a-z]|$)")
++_ANSWER_WORD = re.compile(r"(?i)(^|[^a-z])(answers|solutions|uitwerkingen?|antwoorden)([^a-z]|$)")
++_NOT_ANSWER = re.compile(r"(?i)(^|[^a-z])(wg\s*\d*|working[\s-]*groups?|werkgroep(en)?|how[\s-]+to|guidance|guide|tips|technique)([^a-z]|$)")
 +
 +def is_answer_file(name: str) -> bool:
 +    s = re.sub(r"_+", " ", name or "")
++    if _NOT_ANSWER.search(s):
++        return False
 +    return bool(_MODEL_ANSWER.search(s) or (_EXAM_NAME.search(s) and _ANSWER_WORD.search(s)))
 +
  def role_by_name(name: str) -> str:

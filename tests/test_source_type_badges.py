@@ -41,8 +41,8 @@ def test_drop_zone_note_claims_nothing_the_server_does_not_do():
 
 def test_show_reading_has_no_private_escaper():
     """#226 gave showReading its own esc() that skipped the double quote, and put file names in title="…"."""
-    body = JS[JS.index("function showReading("):]
-    body = body[:body.index("\n}\n")]
+    body = JS[JS.index("function readingSummary("):JS.index("function showCost(")]   # showReading renders readingSummary
+    assert "function showReading(" in body and "readingSummary(r)" in body
     assert "const esc=" not in body and "srcLink(" in body
 
 
@@ -70,9 +70,9 @@ HELPERS = "\n".join([
     re.search(r"const esc=s=>[^\n]*?\}\[c\]\)\);", JS).group(0),
     "let ctxById={}, ctxByName={};", "function C(){ return null }",
     _const("ROLE_NAMES"), _const("AUTH_DEFAULT"), _const("AUTH_MAX"),
-    _const("MODEL_ANSWER_RX"), _const("EXAM_NAME_RX"), _const("ANSWER_WORD_RX"),
+    _const("MODEL_ANSWER_RX"), _const("EXAM_NAME_RX"), _const("ANSWER_WORD_RX"), _const("NOT_ANSWER_RX"),
 ] + [_fn(n) for n in ("isAnswerFile", "authTagRole", "authRanks", "authRank", "srcTypeTitle", "srcTypeName", "authChip",
-                      "ctxIndex", "ctxLookup", "srcLink", "fmtChars", "ctxItem", "srcPage")])
+                      "ctxIndex", "ctxLookup", "srcLink", "fmtChars", "ctxItem", "mdLite", "isMarkdown", "srcPage")])
 
 
 def _node(script: str):

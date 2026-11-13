@@ -1,5 +1,13 @@
-# PROTECTED (run.py) — needs Matej's named yes. Apply with: git apply docs/pending-protected/file-text-raw-owner-gate.patch
-# /api/files/{fid}/text and /raw had no owner check (every other by-id file route calls _own_file). The Reading list and the source viewer now link to both, so gate them the same way. 404 for a missing row is unchanged (_own_via raises it).
+# PROTECTED (run.py). A POLICY DECISION for Matej, not a bug fix. Apply only with his named yes: git apply docs/pending-protected/file-text-raw-owner-gate.patch
+# Today's policy (run.py, above _require_owner): course content is read-shared to every allowed user and edited only by its
+# owner. _own_file guards the write routes only (toggle, toggle-to, meta, delete); GET /api/courses/{cid}/files and the
+# by-id reads GET /api/files/{fid}/text and /raw are open to every allowed user on purpose. Nothing is broken today.
+# The question: should reading a file's text or original also be owner-only?
+# If applied: an allowed user who is not the course owner (or a caller with no user id) still sees the Files table and the
+# tutor's Reading list (GET /api/courses/{cid}/files stays open), but every "Text" button, every Reading-list and
+# "Answered from" link, and the source viewer return 403. To make reads owner-only consistently, the file list would have
+# to be gated too; that is a wider change than this patch. With one user (Matej) today, either answer changes nothing visible.
+# 404 for a missing row is unchanged (_own_via raises it).
 diff --git a/run.py b/run.py
 index 582e28c..17da1c9 100644
 --- a/run.py
@@ -8,7 +16,7 @@ index 582e28c..17da1c9 100644
  
  @app.get("/api/files/{fid}/text")
  def file_text(fid: str):
-+    _own_file(fid)   # owner-gate like toggle/meta/delete: the Reading list and Files now link here
++    _own_file(fid)   # policy change: reads become owner-only (see the header of this patch)
      r = rows("SELECT name,text FROM files WHERE id=?", fid)
      if not r: raise HTTPException(404)
      return r[0]
