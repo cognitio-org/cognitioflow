@@ -22,6 +22,9 @@ BRIEF_FIELDS = [
     ("lecturer", "Lecturer", "text"),
     ("wg_tutor", "WG tutor", "text"),
     ("textbook", "Textbook", "text"),
+    # The course's own published learning objectives (e.g. the public course description), one per line.
+    # The coverage map is built from these and the syllabus weeks; the tutor sees them with the schedule.
+    ("learning_objectives", "Learning objectives", "long"),
     ("exam_format", "Exam format", "long"),
     ("exam_date", "Exam date", "date"),
     ("assessment_weighting", "Assessment weighting", "text"),
@@ -38,6 +41,7 @@ LIST_FIELDS = {k for k, _, kind in BRIEF_FIELDS if kind == "list"}
 # the same brief, under this key, so one JSONB column stays the whole structured description of a course.
 SYLLABUS_KEY = "syllabus"
 SYLLABUS_HEADER = "COURSE SCHEDULE (from the syllabus):"
+OBJECTIVES_HEADER = "STATED LEARNING OBJECTIVES (from the course description):"
 MAX_WEEKS = 40          # a teaching block is 6-10; 40 is a wall against a runaway reply, not a real limit
 MAX_ITEMS = 20          # topics or readings per week
 MAX_LINE = 240          # characters per topic or reading
@@ -203,13 +207,28 @@ def normalise_syllabus(raw) -> dict:
     return {"weeks": weeks, "source": _line(raw.get("source"))}
 
 
+def learning_objectives(brief) -> list:
+    """The stated learning objectives, one per line, with any pasted numbering or bullets removed."""
+    raw = _text((brief or {}).get("learning_objectives")) if isinstance(brief, dict) else ""
+    out = []
+    for ln in raw.splitlines():
+        ln = re.sub(r"^\s*(?:[-*•–]|\(?\d{1,2}[.)]|LO\s*\d{1,2}[.:)]?)\s*", "", ln).strip()
+        if ln:
+            out.append(ln[:MAX_LINE])
+    return out[:MAX_ITEMS * 2]
+
+
 def syllabus_block(brief) -> str:
-    """The schedule as the tutor sees it. Facts only: what each week covers and what it reads."""
+    """The schedule as the tutor (and the coverage map) sees it. Facts only: what each week covers and what it
+    reads, then the course's stated learning objectives, numbered so the coverage map can cite them."""
     syl = (brief or {}).get(SYLLABUS_KEY) if isinstance(brief, dict) else None
     weeks = (syl or {}).get("weeks") or []
-    if not weeks:
+    objectives = learning_objectives(brief)
+    if not weeks and not objectives:
         return ""
-    lines = [SYLLABUS_HEADER]
+    lines = []
+    if weeks:
+        lines.append(SYLLABUS_HEADER)
     for w in weeks:
         line = f"Week {w['week']}"
         if w.get("title"):
@@ -219,6 +238,9 @@ def syllabus_block(brief) -> str:
         if w.get("readings"):
             line += ". Reading: " + "; ".join(w["readings"])
         lines.append(_sentence(line))
+    if objectives:
+        lines.append(OBJECTIVES_HEADER)
+        lines += [f"Objective {i}: {_sentence(o)}" for i, o in enumerate(objectives, 1)]
     return "\n".join(lines)
 
 
@@ -230,14 +252,19 @@ def strip_syllabus(text: str) -> str:
 
 
 def keep_syllabus(new_brief, old_brief):
-    """The course dialog has no syllabus fields, so a brief posted from it carries none. Saving course settings
-    must not silently throw away an applied syllabus; only /syllabus/apply changes it."""
-    if not isinstance(new_brief, dict) or (new_brief.get(SYLLABUS_KEY) or {}).get("weeks"):
+    """The course dialog has no syllabus or coverage-map fields, so a brief posted from it carries neither. Saving
+    course settings must not silently throw away an applied syllabus or a saved coverage map; only
+    /syllabus/apply and /blueprint/apply change those."""
+    if not isinstance(new_brief, dict) or not isinstance(old_brief, dict):
         return new_brief
-    keep = (old_brief or {}).get(SYLLABUS_KEY) if isinstance(old_brief, dict) else None
-    if isinstance(keep, dict) and keep.get("weeks"):
-        return dict(new_brief, **{SYLLABUS_KEY: keep})
-    return new_brief
+    out = new_brief
+    keep = old_brief.get(SYLLABUS_KEY)
+    if not (new_brief.get(SYLLABUS_KEY) or {}).get("weeks") and isinstance(keep, dict) and keep.get("weeks"):
+        out = dict(out, **{SYLLABUS_KEY: keep})
+    blu = old_brief.get(bp.BLUEPRINT_KEY)
+    if bp.BLUEPRINT_KEY not in new_brief and isinstance(blu, dict) and blu.get("topics"):
+        out = dict(out, **{bp.BLUEPRINT_KEY: blu})
+    return out
 
 
 def compile_prompt(brief: dict, name: str = "") -> str:

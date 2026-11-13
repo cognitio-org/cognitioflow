@@ -85,21 +85,22 @@ def test_normalise_rejects_nonsense():
             pass
 
 
-def test_build_context_leads_with_objectives_then_brief_then_papers_and_caps_total():
+def test_build_context_leads_with_objectives_then_papers_and_caps_total():
     papers = [{"name": "Practice exam 1", "text": "Q1 free movement " * 4000},
               {"name": "Resit 2024", "text": "Q1 direct effect " * 4000}]
     ctx = bp.build_context(papers, syllabus_block="Week 1 — Foundations",
                            exam_format="Two IRAC cases", method="Applicability -> justification")
     # the stated learning objectives / syllabus are the primary input, so they come first (pitch plan row 1)
-    assert ctx.index("SYLLABUS") < ctx.index("EXAM FORMAT") < ctx.index("PAST PAPERS")
+    assert ctx.index("STATED LEARNING OBJECTIVES AND SYLLABUS") < ctx.index("STUDY PAPERS")
+    # the exam format and the marking method are no longer sent: the model described the exam on screen
+    assert "IRAC" not in ctx and "Applicability" not in ctx and "EXAM FORMAT" not in ctx
     assert '<paper name="Practice exam 1">' in ctx
     assert len(ctx) <= bp.TOTAL_CHARS + 2000   # per/total caps hold, allowing for the framing text
 
 
 def test_build_context_skips_empty_papers_and_handles_none():
     assert bp.build_context(None) == ""
-    ctx = bp.build_context([{"name": "x", "text": "   "}], exam_format="One essay")
-    assert "PAST PAPERS" not in ctx and "EXAM FORMAT" in ctx
+    assert bp.build_context([{"name": "x", "text": "   "}], exam_format="One essay") == ""
 
 
 # ---- the block that focuses the tutor + generators -------------------------
@@ -109,12 +110,22 @@ def test_examined_topics_reads_the_applied_blueprint():
     assert bp.examined_topics({}) == [] and bp.examined_topics(None) == []
 
 
-def test_blueprint_block_names_weight_format_and_capped_doctrines():
+def test_blueprint_block_names_share_and_capped_doctrines_but_no_exam_talk():
     blk = bp.blueprint_block(APPLIED)
     assert blk.startswith(bp.BLUEPRINT_HEADER)
-    assert "- Free movement of goods — 60% · IRAC case/essay · Art 34 TFEU; Cassis; Keck" in blk
+    assert "- Free movement of goods — 60% of the syllabus · Art 34 TFEU; Cassis; Keck" in blk
     assert "Dassonville" not in blk                         # 4th doctrine dropped by the cap
-    assert "Answer method the exam rewards: Applicability" in blk
+    # B5: no question formats, no answer method, no "what this course examines"
+    assert "IRAC" not in blk and "method" not in blk.lower() and "EXAM FOCUS" not in blk
+    assert "not a prediction" in bp.BLUEPRINT_HEADER
+
+
+def test_strip_blueprint_removes_the_legacy_exam_focus_header_too():
+    legacy = bp.LEGACY_HEADERS[0] + "\n- Free movement of goods — 60% · IRAC case"
+    assert bp.strip_blueprint("Hand-written prompt.\n" + legacy) == "Hand-written prompt."
+    # a prompt stored before the relabel recompiles to exactly one block, in the new wording
+    once = cb.course_prompt(APPLIED, "EU", "Hand-written prompt.\n" + legacy)
+    assert "EXAM FOCUS" not in once and once.count(bp.BLUEPRINT_HEADER) == 1
 
 
 def test_blueprint_block_empty_without_a_blueprint():
@@ -148,13 +159,66 @@ def test_rules_frame_coverage_of_stated_objectives_not_exam_prediction():
     # pitch plan row 1 / B5: the blueprint is coverage of stated learning objectives, never "what the exam tests"
     assert "STATED LEARNING OBJECTIVES" in bp.RULES
     assert "never a prediction" in bp.RULES
-    assert "never add weight on their own" in bp.RULES
+    assert "Do not describe any exam" in bp.RULES
+    assert '"formats"' not in bp.RULES and '"exam_format"' not in bp.RULES and '"method"' not in bp.RULES
+    assert "at least one" in bp.RULES          # every topic carries a doctrine tag (plan row 1)
 
 
-def test_syllabus_only_caps_confidence_at_medium():
-    raw = {"topics": [{"topic": "Free movement of goods", "weight": 60, "confidence": "high"},
-                      {"topic": "Direct effect", "weight": 40, "confidence": "low"}]}
+def test_weights_are_the_share_of_syllabus_weeks_and_stable():
+    raw = {"topics": [
+        {"topic": "Free movement of goods", "weeks": [3, 4], "objectives": [2], "weight": 5},
+        {"topic": "Keck selling arrangements", "weeks": [4], "weight": 90},
+        {"topic": "Direct effect", "seen_in": ["Week 1", "Weeks 2-3"], "weight": 5},
+    ]}
     out = bp.normalise_blueprint(raw, source_papers=[])
-    assert [t["confidence"] for t in out["topics"]] == ["medium", "low"]
-    out = bp.normalise_blueprint(raw, source_papers=["Exam 2024.pdf"])   # a paper can confirm "high"
-    assert out["topics"][0]["confidence"] == "high"
+    w = {t["topic"]: t["weight"] for t in out["topics"]}
+    # 4 weeks; week 3 shared by goods + direct effect, week 4 by goods + Keck -> each counts half
+    assert w == {"Direct effect": 63, "Free movement of goods": 25, "Keck selling arrangements": 12}
+    assert out["basis"] == "weeks" and out["weeks_total"] == 4
+    assert out["exam_format"] == "" and out["method"] == ""
+    # the model's own weights are ignored when weeks are known, so a rebuild with the same weeks gives the same %
+    again = bp.normalise_blueprint(out)
+    assert [(t["topic"], t["weight"]) for t in again["topics"]] == [(t["topic"], t["weight"]) for t in out["topics"]]
+
+
+def test_model_weights_only_when_a_topic_names_no_week():
+    out = bp.normalise_blueprint({"topics": [{"topic": "A", "weeks": [1], "weight": 30},
+                                             {"topic": "B", "weight": 10}]})
+    assert out["basis"] == "model" and [t["weight"] for t in out["topics"]] == [75, 25]
+
+
+def test_confidence_is_derived_from_objectives_and_weeks_never_from_papers():
+    raw = {"topics": [{"topic": "Goods", "weeks": [3], "objectives": [1], "confidence": "low"},
+                      {"topic": "Keck", "weeks": [4], "confidence": "high"},
+                      {"topic": "Loose", "confidence": "high"}]}
+    out = bp.normalise_blueprint(raw, source_papers=["Exam 2024.pdf"])   # a paper no longer lifts anything
+    assert {t["topic"]: t["confidence"] for t in out["topics"]} == {"Goods": "high", "Keck": "medium", "Loose": "low"}
+    assert out["objectives_stated"] is True
+    assert "Objective 1" in out["topics"][0]["seen_in"] or "Objective 1" in out["topics"][1]["seen_in"]
+
+
+def test_formats_are_dropped():
+    out = bp.normalise_blueprint({"topics": [{"topic": "Goods", "weeks": [1], "formats": ["IRAC case", "compare"]}]})
+    assert out["topics"][0]["formats"] == []
+
+
+# ---- stated learning objectives reach the map through the brief ------------
+
+def test_learning_objectives_are_a_brief_field_and_feed_the_block_numbered():
+    assert "learning_objectives" in [k for k, _, _ in cb.BRIEF_FIELDS]
+    brief = {"learning_objectives": "1. Explain the free movement of goods.\n- Apply Art 34 TFEU to a measure\n\n",
+             cb.SYLLABUS_KEY: {"weeks": [{"week": "1", "title": "Goods", "topics": ["Art 34"], "readings": []}]}}
+    blk = cb.syllabus_block(brief)
+    assert blk.index(cb.SYLLABUS_HEADER) < blk.index(cb.OBJECTIVES_HEADER)
+    assert "Objective 1: Explain the free movement of goods." in blk
+    assert "Objective 2: Apply Art 34 TFEU to a measure." in blk
+    # objectives alone (no syllabus read yet) still give the map something to build from
+    assert cb.syllabus_block({"learning_objectives": "Explain direct effect"}).startswith(cb.OBJECTIVES_HEADER)
+    assert cb.syllabus_block({}) == ""
+
+
+def test_saving_course_settings_keeps_a_saved_coverage_map():
+    old = {"lecturer": "X", cb.SYLLABUS_KEY: {"weeks": [{"week": "1", "title": "A", "topics": [], "readings": []}]},
+           **APPLIED}
+    kept = cb.keep_syllabus({"lecturer": "Y", "learning_objectives": "Explain goods"}, old)
+    assert kept[bp.BLUEPRINT_KEY] == APPLIED[bp.BLUEPRINT_KEY] and kept[cb.SYLLABUS_KEY]["weeks"]

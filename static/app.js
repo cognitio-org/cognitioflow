@@ -2161,47 +2161,66 @@ async function loadReadKeys(){ const ul=$('#readKeyList'); if(!ul) return; let k
   ul.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{ await del(`/tokens/${b.dataset.revoke}`); toast('Key revoked'); loadReadKeys() }); }
 $('#readKeyMake').onclick=async()=>{ const k=await post('/tokens',{}); $('#readKeyValue').value=k.token; $('#readKeyOnce').hidden=false; $('#readKeyValue').select(); loadReadKeys(); };
 $('#readKeyCopy').onclick=async()=>{ try{ await navigator.clipboard.writeText($('#readKeyValue').value); toast('Copied — it will not be shown again') }catch(_){ $('#readKeyValue').select() } };
-/* Exam blueprint — coverage of the course's stated learning objectives: the syllabus first, any papers
-   marked 'Past exam' only as secondary evidence. Coverage, never a prediction of the exam.
-   Read-only: Build proposes (writes nothing), Save persists it onto the course. */
+/* Coverage map ("blueprint" in the code) — how the course's stated learning objectives and syllabus weeks
+   spread across topics. Coverage, never a prediction of the exam: no exam format, no question types, no
+   answer method on this card. Build proposes (writes nothing), Save persists it onto the course. */
 let bpProposal=null;        // an unsaved extract; null when we are showing what is applied
-const BP_CONF={high:'well-evidenced',medium:'some evidence',low:'thin evidence'};
-function bpTopicRow(t){ const w=Math.max(0,Math.min(100,+t.weight||0));
-  const chip=(cls,arr)=>arr&&arr.length?`<span class="bpc ${cls}">${arr.map(esc).join('</span><span class="bpc '+cls+'">')}</span>`:'';
+const BP_CONF={high:'named in a stated learning objective',medium:'named in a syllabus week',low:'only implied by the material'};
+const BP_CONF_LABEL={high:'objective',medium:'syllabus week',low:'implied'};
+const bpWeeks=ws=>{ ws=(ws||[]).map(Number).filter(n=>n>0).sort((a,b)=>a-b); if(!ws.length) return '';
+  const runs=[]; for(const n of ws){ const r=runs[runs.length-1]; if(r&&n===r[1]+1) r[1]=n; else runs.push([n,n]); }
+  return (ws.length===1?'Week ':'Weeks ')+runs.map(r=>r[0]===r[1]?r[0]:`${r[0]}–${r[1]}`).join(', '); };
+function bpTopicRow(t,b){ const w=Math.max(0,Math.min(100,+t.weight||0)), byWeeks=(b&&b.basis)==='weeks';
+  const chip=(cls,arr,tip)=>arr&&arr.length?arr.map(x=>`<span class="bpc ${cls}"${tip?` title="${esc(tip)}"`:''}>${esc(x)}</span>`).join(''):'';
+  const wk=bpWeeks(t.weeks), objs=(t.objectives||[]).map(n=>'Objective '+n);
+  const conf=t.confidence||'medium';
   return `<div class="bptopic">`+
-    `<div class="bptop"><span class="bpname">${esc(t.topic)}</span><span class="bpwt">${w}%</span>`+
-      `<span class="bpconf c-${esc(t.confidence||'medium')}" title="${BP_CONF[t.confidence]||''}">${esc(t.confidence||'medium')}</span></div>`+
+    `<div class="bptop"><span class="bpname">${esc(t.topic)}</span>`+
+      `<span class="bpwt" title="${byWeeks?'Share of the syllabus weeks this topic spans (a week shared by two topics counts half to each)':'The model’s estimate of this topic’s share — no week numbers to compute it from'}">${w}%</span>`+
+      `<span class="bpconf c-${esc(conf)}" title="Evidence: ${esc(BP_CONF[conf]||'')}">${esc(BP_CONF_LABEL[conf]||conf)}</span></div>`+
     `<div class="bpbar"><i style="width:${w}%"></i></div>`+
     (t.note?`<div class="bpnote small muted">${esc(t.note)}</div>`:'')+
-    `<div class="bpchips">${chip('fmt',t.formats)}${chip('doc',t.doctrines)}${chip('seen',t.seen_in)}</div>`+
+    `<div class="bpchips">${chip('doc',t.doctrines,'Doctrine this topic turns on')}${wk?chip('seen',[wk],'Syllabus weeks it covers'):''}${chip('obj',objs,'Stated learning objective it serves')}</div>`+
     `</div>`; }
+function bpHead(b){ const topics=(b&&b.topics)||[], objs=b&&(b.objectives_stated||topics.some(t=>(t.objectives||[]).length));
+  const h=$('#blueprintPanel h3'), sub=$('#bpSub');
+  if(!topics.length||objs){ h.textContent='Coverage of stated learning objectives';
+    sub.textContent='Mapped from the course’s stated learning objectives (Course settings) and the syllabus weeks you read under Files. Coverage, not a prediction of any exam.'; }
+  else { h.textContent='Coverage of the syllabus weeks';
+    sub.textContent='No stated learning objectives were read, so this maps the syllabus weeks only. Add the course’s published learning objectives in Course settings, then rebuild.'; }
+  if(topics.length) sub.textContent+=(b.basis==='weeks'
+    ?` Each % is the topic’s share of the ${b.weeks_total||''} syllabus weeks it spans; a week two topics share counts half to each.`
+    :' The % is the model’s estimate of each topic’s share (the topics name no weeks to compute it from).'); }
 function bpRender(b,proposed){ const topics=(b&&b.topics)||[];
-  $('#bpTopics').innerHTML=topics.length?topics.map(bpTopicRow).join(''):
-    (proposed?'<div class="emptystate"><b>No objective topics found</b><span>The syllabus did not yield clear learning objectives yet. Read the course syllabus under Files, then build again.</span></div>':
-      '<div class="emptystate"><b>No coverage map yet</b><span>Press “Build from syllabus” to map the course’s stated learning objectives.</span></div>');
-  const bits=[]; if(b&&b.exam_format) bits.push(esc(b.exam_format)); if(b&&b.method) bits.push('Method: '+esc(b.method));
-  if(b&&b.note) bits.push(esc(b.note));
-  if(proposed){ const src=b.source||{}, n=src.papers||0, pp=n?`${n} paper${n===1?'':'s'} marked ‘Past exam’`:'';
-    bits.unshift(src.syllabus?`<b>Proposed</b> from the syllabus (weeks, topics, stated objectives)${pp?' + '+pp+' (secondary)':''} — not saved`
-      :`<b>Proposed</b> from ${pp||'no syllabus'} only — no syllabus read, so this is provisional. Read the syllabus under Files for learning-objective coverage — not saved`); }
-  else if(topics.length){ bits.unshift('<b>In use</b> — your tutor and practice questions lean on these topics'); }
+  bpHead(b);
+  $('#bpTopics').innerHTML=topics.length?topics.map(t=>bpTopicRow(t,b)).join(''):
+    (proposed?'<div class="emptystate"><b>No topics found</b><span>Nothing in the syllabus or the stated objectives read as a topic. Read the course syllabus under Files and add the learning objectives in Course settings, then build again.</span></div>':
+      '<div class="emptystate"><b>No coverage map yet</b><span>Press “Build coverage map” to map the course’s stated learning objectives and syllabus weeks.</span></div>');
+  const bits=[]; if(b&&b.note) bits.push(esc(b.note));
+  if(proposed){ bits.unshift('<b>Proposed</b> from the stated learning objectives and syllabus — not saved yet'); }
+  else if(topics.length){ bits.unshift('<b>Saved</b> — the tutor and practice questions see these topics and their share of the syllabus, as coverage, never as an exam prediction'); }
   $('#bpMeta').innerHTML=bits.join(' · ');
   $('#bpSave').hidden=$('#bpDiscard').hidden=!proposed;
-  $('#bpBuild').textContent=topics.length&&!proposed?'Rebuild from syllabus':'Build from syllabus'; }
-/* A failed build stays on the panel with what to do next — a toast alone vanished and read as "nothing happened". */
-function bpError(e){ const st=e&&e.status, msg=(e&&e.message)||'';
-  const why=st===422?'There is nothing to map yet. Read the course syllabus under Files first; papers you label ‘Past exam’ are optional, secondary evidence.'
+  $('#bpBuild').textContent=topics.length&&!proposed?'Rebuild coverage map':'Build coverage map'; }
+/* A failed build stays on the panel with what to do next — a toast alone vanished and read as "nothing happened".
+   Any unsaved proposal is dropped first, so the error never sits next to a Save button for an older proposal. */
+async function bpError(e){ const st=e&&e.status, msg=(e&&e.message)||'';
+  const why=st===422?'There is nothing to map yet. Read the course syllabus under Files, and add the course’s published learning objectives in Course settings.'
     :st===400||st===403||st===404?esc(msg||'The request was refused.')+' Nothing was saved.'
-    :'The model’s reply came back incomplete or late, so nothing was built or saved. Build again — a retry usually works; if it keeps failing, check the syllabus is read under Files.';
-  $('#bpMeta').innerHTML=`<div class="bperr" role="alert"><b>Could not build the coverage map.</b> ${why}</div>`; }
+    :'The model’s reply came back incomplete or late, so nothing was built or saved. Build again — a retry usually works.';
+  bpProposal=null; $('#bpSave').hidden=$('#bpDiscard').hidden=true;
+  try{ bpRender(await api(`/courses/${cid}/blueprint`),false); }catch(_){ $('#bpTopics').innerHTML=''; }
+  const kept=$('#bpTopics .bptopic')?' The saved coverage map below is unchanged.':'';
+  $('#bpMeta').innerHTML=`<div class="bperr" role="alert"><b>Could not build the coverage map.</b> ${why}${kept}</div>`; }
 async function loadBlueprint(){ if(!$('#blueprintPanel')) return; bpProposal=null;
   try{ bpRender(await api(`/courses/${cid}/blueprint`),false); }
   catch(e){ $('#bpTopics').innerHTML=''; $('#bpMeta').textContent=''; } }
 $('#bpBuild')&&($('#bpBuild').onclick=async()=>{ const b=$('#bpBuild'); const was=b.textContent; b.disabled=true; b.textContent='Mapping the objectives…';
-  $('#bpMeta').textContent='Reading the syllabus and any marked papers — this can take up to a minute.';
+  $('#bpSave').disabled=true;
+  $('#bpMeta').textContent='Reading the stated learning objectives and the syllabus — this can take up to a minute.';
   try{ bpProposal=await post(`/courses/${cid}/blueprint/extract`); bpRender(bpProposal,true); }
-  catch(e){ bpError(e); toast('Could not build the coverage map'); b.textContent=was; }
-  b.disabled=false; });
+  catch(e){ await bpError(e); toast('Could not build the coverage map'); }
+  b.disabled=false; $('#bpSave').disabled=false; });
 $('#bpSave')&&($('#bpSave').onclick=async()=>{ if(!bpProposal) return; const b=$('#bpSave'); b.disabled=true;
   try{ const r=await post(`/courses/${cid}/blueprint/apply`,bpProposal); toast(r.topics?`Coverage map saved · ${r.topics} topic${r.topics===1?'':'s'}`:'Coverage map cleared'); await loadBlueprint(); loadReadiness(); }
   catch(e){ toast(e.message||'Could not save'); } b.disabled=false; });
@@ -2223,7 +2242,7 @@ async function loadReadiness(){ const panel=$('#readinessPanel'); if(!panel) ret
       `<div class="rdline"><span class="rddot" aria-hidden="true"></span><span class="rdname">${esc(t.topic)}</span>`+
       `<span class="rdstatus">${esc(t.status)}</span></div>`+
       `<div class="rdbar"><i style="width:${pct}%"></i></div>`+
-      `<div class="rdsub small muted">${t.weight}% of objectives · ${sub.join(' · ')}</div></div>`; };
+      `<div class="rdsub small muted">${t.weight}% of the syllabus · ${sub.join(' · ')}</div></div>`; };
   $('#rdTopics').innerHTML=d.topics.length?d.topics.map(row).join(''):
     '<div class="emptystate"><b>No objective topics</b><span>Save a coverage map of the stated learning objectives first.</span></div>';
   const tg=d.tagging||{},foot=$('#rdFoot');
