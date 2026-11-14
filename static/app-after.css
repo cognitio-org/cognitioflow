@@ -274,6 +274,7 @@
 /* Tutor, wave 3: the source panel names what it could not find before what it did; a chip on a line that cites
    something flagged carries the warning colour; the reloaded flag says what it was checked against. */
 .srcpanel .srcmiss{color:var(--warn);font-weight:600;margin-bottom:.3rem}
+.srcpanel .srcname{color:var(--warn);font-size:var(--fs-xs);margin-bottom:.3rem}
 .srcpanel .srcterm{font-size:var(--fs-xs);color:var(--graphite);text-transform:none;letter-spacing:0}
 .src.warnline{border-color:var(--warn);color:var(--warn);background:color-mix(in oklab,var(--warn),transparent 90%)}
 .cf-flag .cf-flag-note{margin-top:.35rem;font-size:var(--fs-xs);color:var(--graphite)}

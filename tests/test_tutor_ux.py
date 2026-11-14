@@ -87,7 +87,7 @@ def _decl(name):
 
 
 _PURE = ["cfEsc", "cfTermRe", "cfExcerpt", "CF_ECLI", "CF_CASE", "cfCites", "cfHinted", "cfSourceItems",
-         "CC_ECLI", "ccFind", "ccSame", "ccUnverified", "ccBare", "CF_TAG_ANY", "cfTagNorm", "cfLiveTidy"]
+         "CC_ECLI", "ccFind", "ccSame", "CC_TITLE", "CC_QUAL", "ccTreatyArt", "ccUnverified", "ccBare", "CF_TAG_ANY", "cfTagNorm", "cfLiveTidy"]
 
 
 def _node(body, data, names=None):
@@ -362,7 +362,7 @@ def test_a_party_name_in_another_form_beside_a_found_case_is_not_a_warning():
 
 # ---- wave 4 (skeptic major on 9f05afd): a bare 'Article 34' counts for 'Art 34 TFEU' only in the TFEU itself --------
 
-_PURE4 = _PURE3 + ["CC_TITLE", "CC_QUAL", "ccTreatyArt"]
+_PURE4 = _PURE3
 
 # The public-source demo course's Treaty extract, as EUR-Lex prints it: the heading names the Treaty, the articles do not.
 _TFEU = ("Treaty on the Functioning of the European Union\n(consolidated, OJ C 326, 26.10.2012) — Title II,\n"
@@ -421,4 +421,4 @@ def test_a_general_court_number_is_not_the_court_of_justice_case():
 def test_a_wrong_party_name_beside_a_real_number_tells_the_student_to_check_it():
     """Skeptic, wave 3: 'go by the case number' told the student to trust a real number carrying an invented name."""
     assert "go by the case number" not in JS
-    assert "check the name" in JS
+    assert "Check the name: your ticked files do not print" in JS

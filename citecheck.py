@@ -28,21 +28,45 @@ def find_citations(text: str) -> list[dict]:
 
 
 def _same(cited: dict, known: dict) -> bool:
-    """An article cited without an instrument ("art 267") matches that article in any instrument. And a file that
-    names the article without one matches it cited with one: the Treaty itself prints "Article 34", never
-    "Article 34 TFEU". Two different instruments still never match."""
-    if cited["kind"] == known["kind"] == "article":
-        c, k = cited["norm"].split(), known["norm"].split()
-        if len(c) == 2:
-            return c == k[:2]
-        if len(k) == 2:
-            return c[:2] == k
+    """An article cited without an instrument ("art 267") matches that article in any instrument."""
+    if cited["kind"] == known["kind"] == "article" and len(cited["norm"].split()) == 2:
+        return cited["norm"] == " ".join(known["norm"].split()[:2])
     return cited["norm"] == known["norm"]
+
+
+# The Treaty itself prints "Article 34", never "Article 34 TFEU", so with the consolidated TFEU ticked "Art 34 TFEU"
+# was flagged. A bare "Article 34" answers a cited "Art 34 TFEU" only inside a file whose heading names that Treaty
+# and no other, and only where the file does not tie it to another instrument: "Article 34 of the Services
+# Directive", "(ex Article 28 TEC)". A lecture that says "Article 34" somewhere is no proof of which one it means.
+_HEAD = 400
+_TITLE = {"tfeu": re.compile(r"(?i)treaty\s+on\s+the\s+functioning\s+of\s+the\s+european\s+union|\btfeu\b"),
+          "teu": re.compile(r"(?i)treaty\s+on\s+european\s+union|\bteu\b"),
+          "charter": re.compile(r"(?i)charter\s+of\s+fundamental\s+rights")}
+_QUAL = re.compile(r"(?i)\s*(?:,\s*)?(?:of|van)(?!\w)|\s+(?:tec|ec|eec|eu|echr|evrm|bw)(?!\w)")
+_EX = re.compile(r"(?i)\bex\s+$")
+
+
+def _treaty_article(cited: dict, text: str) -> bool:
+    """`text` is one file, and it is the text of the instrument `cited` names, printing that article bare."""
+    parts = cited["norm"].split()
+    if cited["kind"] != "article" or len(parts) != 3 or parts[2] not in _TITLE:
+        return False
+    head = (text or "")[:_HEAD]
+    if [k for k, r in _TITLE.items() if r.search(head)] != [parts[2]]:
+        return False
+    for m in _ART.finditer(text):
+        if m.group(3) or f"art {m.group(1).lower()}{m.group(2) or ''}" != " ".join(parts[:2]):
+            continue
+        if _QUAL.match(text, m.end()) or _EX.search(text[max(0, m.start() - 6):m.start()]):
+            continue
+        return True
+    return False
 
 
 def _bare_case(norm: str, text: str) -> bool:
     """Cases before 1989 have no C- prefix: a reader cites Simmenthal as "Case 106/77", the tutor as "C-106/77"."""
-    if re.search(r"(?<![\d/])" + re.escape(norm[2:]) + r"(?![\d/])", text):
+    # Not after a letter and a dash: "T-267/91" is a General Court case, not the Court of Justice's C-267/91.
+    if re.search(r"(?<![\d/])(?<![^\W\d_][-‑–])" + re.escape(norm[2:]) + r"(?![\d/])", text):
         return True
     # EUR-Lex prints the oldest cases with a dash: "Case 8-74" (Dassonville), "Case 26-62" (Van Gend en Loos).
     # Only after the word "Case", so a page range "8-74" is not taken for one.
@@ -55,4 +79,5 @@ def unverified(answer: str, sources: list[str]) -> list[dict]:
     known = [c for s in sources for c in find_citations(s)]
     text = "\n".join(sources)
     return [c for c in find_citations(answer)
-            if not any(_same(c, k) for k in known) and not (c["kind"] == "case" and _bare_case(c["norm"], text))]
+            if not any(_same(c, k) for k in known) and not (c["kind"] == "case" and _bare_case(c["norm"], text))
+            and not any(_treaty_article(c, s) for s in sources)]

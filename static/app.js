@@ -672,13 +672,22 @@ function ccFind(text){ text=String(text||''); const f=[];
   for(const m of text.matchAll(CC_ART)) f.push([m.index,'article',m[0],`art ${m[1].toLowerCase()}${m[2]||''}`+(m[3]?' '+m[3].toLowerCase():'')]);
   f.sort((a,b)=>a[0]-b[0]||(a[1]<b[1]?-1:a[1]>b[1]?1:0)); const seen=new Set(), out=[];
   for(const [,kind,raw,norm] of f) if(!seen.has(norm)){ seen.add(norm); out.push({kind,raw,norm}) } return out; }
-function ccSame(c,k){ if(c.kind==='article'&&k.kind==='article'){ const a=c.norm.split(' '), b=k.norm.split(' ');   // citecheck._same
-    if(a.length===2) return a.join(' ')===b.slice(0,2).join(' '); if(b.length===2) return a.slice(0,2).join(' ')===b.join(' '); }
-  return c.norm===k.norm; }
+function ccSame(c,k){ if(c.kind==='article'&&k.kind==='article'&&c.norm.split(' ').length===2) return c.norm===k.norm.split(' ').slice(0,2).join(' '); return c.norm===k.norm; }
+/* citecheck._treaty_article: a bare "Article 34" answers "Art 34 TFEU" only in a file whose heading names the TFEU
+   and no other instrument, and not where the file ties it to another one ("of the Services Directive", "ex … TEC"). */
+const CC_TITLE={tfeu:/treaty\s+on\s+the\s+functioning\s+of\s+the\s+european\s+union|(?<![\p{L}\p{N}_])tfeu(?![\p{L}\p{N}_])/iu,
+  teu:/treaty\s+on\s+european\s+union|(?<![\p{L}\p{N}_])teu(?![\p{L}\p{N}_])/iu, charter:/charter\s+of\s+fundamental\s+rights/iu};
+const CC_QUAL=/^(?:\s*(?:,\s*)?(?:of|van)(?![\p{L}\p{N}_])|\s+(?:tec|ec|eec|eu|echr|evrm|bw)(?![\p{L}\p{N}_]))/iu;
+function ccTreatyArt(c,text){ text=String(text||''); const p=c.norm.split(' ');
+  if(c.kind!=='article'||p.length!==3||!CC_TITLE[p[2]]) return null; const head=text.slice(0,400);
+  const named=Object.keys(CC_TITLE).filter(k=>CC_TITLE[k].test(head)); if(named.length!==1||named[0]!==p[2]) return null;
+  for(const m of text.matchAll(CC_ART)){ if(m[3]||`art ${m[1].toLowerCase()}${m[2]||''}`!==p.slice(0,2).join(' ')) continue;
+    const e=m.index+m[0].length; if(CC_QUAL.test(text.slice(e,e+40))||/(?<![\p{L}\p{N}_])ex\s+$/iu.test(text.slice(Math.max(0,m.index-6),m.index))) continue;
+    return m; } return null; }
 function ccUnverified(answer,sources){ const known=sources.flatMap(ccFind), text=sources.join('\n');
-  return ccFind(answer).filter(c=>!known.some(k=>ccSame(c,k))&&!(c.kind==='case'&&ccBare(c.norm.slice(2),text))); }
+  return ccFind(answer).filter(c=>!known.some(k=>ccSame(c,k))&&!(c.kind==='case'&&ccBare(c.norm.slice(2),text))&&!sources.some(s=>ccTreatyArt(c,s))); }
 /* Cases before 1989 are cited without C-, and EUR-Lex prints the oldest with a dash ("Case 8-74"): citecheck._bare_case. */
-function ccBare(n,text){ if(new RegExp('(?<![\\p{N}/])'+cfEsc(n)+'(?![\\p{N}/])','u').test(text)) return true;
+function ccBare(n,text){ if(new RegExp('(?<![\\p{N}/])(?<!\\p{L}[-‑–])'+cfEsc(n)+'(?![\\p{N}/])','u').test(text)) return true;
   const [a,b]=n.split('/'); return new RegExp('(?<![\\p{L}\\p{N}_])cases?\\s+'+a+'-'+b+'(?![\\p{N}/-])','iu').test(text); }
 async function cfRecheck(d,answer){ const text=String(answer||'').replace(/<speech>[\s\S]*?<\/speech>/g,'');
   if(!ccFind(text).length) return; try{ const files=await cfTicked();   // every ticked row, images too: the server reads any row with text
@@ -719,13 +728,12 @@ function cfExcerpt(text,term){ text=String(text||''); let m=cfTermRe(term).exec(
   if(!m){ const bare=term.replace(/^(?:[CT][-‑–]|Cases?\s+)/i,''); if(bare!==term) m=cfTermRe(bare,true).exec(text);
     const old=!m&&bare.match(/^(\d{1,4})\/(\d{2,4})$/);   // EUR-Lex's "Case 8-74" for Case 8/74
     if(old) m=new RegExp('(?<![\\p{L}\\p{N}_])cases?\\s+'+old[1]+'-'+old[2]+'(?![\\p{N}/-])','iu').exec(text); }
-  if(!m){ const inst=term.match(/^(Art(?:icle)?\.?\s*\d+[a-z]?(?:\(\d+\))?)\s+(?:TFEU|TEU)$/i);   // the Treaty prints "Article 34", not "Article 34 TFEU"
-    if(inst){ const r=cfTermRe(inst[1]); let x; const g=new RegExp(r.source,'giu');
-      while((x=g.exec(text))){ if(!/^\s+(?:TFEU|TEU|BW|Charter)(?![\p{L}\p{N}_])/iu.test(text.slice(x.index+x[0].length))){ m=x; break } } } }
+  let inst='';   // the Treaty prints "Article 34", not "Article 34 TFEU": only in that Treaty's own text (ccTreatyArt)
+  if(!m){ const c=ccFind(term)[0]; if(c&&c.kind==='article'&&(m=ccTreatyArt(c,text))) inst=c.norm.split(' ')[2]; }
   if(!m) return null; const i=m.index, len=m[0].length;
   let a=Math.max(0,i-170), b=Math.min(text.length,i+len+230);
   if(a>0){ const sp=text.indexOf(' ',a); if(sp>0&&sp<i) a=sp+1 } if(b<text.length){ const sp=text.lastIndexOf(' ',b); if(sp>i+len) b=sp }
-  return {pre:(a>0?'…':'')+text.slice(a,i), hit:text.slice(i,i+len), post:text.slice(i+len,b)+(b<text.length?'…':'')}; }
+  return {pre:(a>0?'…':'')+text.slice(a,i), hit:text.slice(i,i+len), post:text.slice(i+len,b)+(b<text.length?'…':''), inst}; }
 /* Which search hits may stand under "Where this appears in your files": a ticked file, an exact match (never a
    meaning match: with RETRIEVAL=on /search adds files that are only about the same topic), and only when the
    file's own text names the term. Case numbers and ECLIs are read from that passage, never from the tutor's
@@ -779,11 +787,11 @@ async function cfSourcePanel(chip){ const d=chip.closest('.msg,.st-msg'); const 
   catch(e){ wait.textContent='Could not search your files just now.'; return }
   wait.remove(); const {missed,quiet,shown,also}=plan;
   if(missed.length) say('srcmiss',`No passage in your ticked files names ${missed.join(', ')}.`);
-  if(quiet.length) say('small muted',`Not printed in this exact form in your files: ${quiet.join(', ')} — go by the case number.`);
+  if(quiet.length) say('srcname',`Check the name: your ticked files do not print ${quiet.join(', ')} — compare it with the case named in the passage below.`);
   if(!shown.length) say('muted',(terms.length?'':'This line names no case or article to look up. ')+`The tutor tagged it ${kind}${hint?' · '+hint:''} — open that file to check.`);
   else if(missed.length) say('muted',`Showing where ${shown.flatMap(x=>x.terms).join(', ')} ${shown.flatMap(x=>x.terms).length===1?'appears':'appear'}:`);
   for(const {terms:ts,h,ex,cites} of shown){ const item=document.createElement('div'); item.className='srcitem';
-    const w=document.createElement('div'); w.className='srcterm'; w.textContent='Names '+ts.join(', '); item.append(w);
+    const w=document.createElement('div'); w.className='srcterm'; w.textContent='Names '+ts.join(', ')+(ex.inst?` — printed “${ex.hit}” in the ${ex.inst==='charter'?'Charter':ex.inst.toUpperCase()} text itself`:''); item.append(w);
     const f=document.createElement('div'); f.className='srcfile'; f.textContent=h.title+(h.week?` · Week ${h.week}`:''); item.append(f);
     const q=document.createElement('blockquote'); const m=document.createElement('mark'); m.textContent=ex.hit; q.append(ex.pre,m,ex.post); item.append(q);
     if(cites.length){ const c=document.createElement('div'); c.className='srccites'; c.append('Case number / ECLI in this passage: '); cites.forEach((x,i)=>{ const k=document.createElement('code'); k.textContent=x; c.append(...(i?[' · ',k]:[k])) }); item.append(c) }
