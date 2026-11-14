@@ -16,7 +16,8 @@ RUN pip install -r requirements.txt
 ENV FASTEMBED_CACHE_PATH=/opt/fastembed
 RUN mkdir -p /opt/fastembed \
  && python -c "from fastembed import TextEmbedding; list(TextEmbedding(model_name='BAAI/bge-small-en-v1.5', cache_dir='/opt/fastembed').embed(['warm']))" \
- && chmod -R a+rX /opt/fastembed
+ && chmod -R a+rX /opt/fastembed \
+ && HF_HUB_OFFLINE=1 python -c "from fastembed import TextEmbedding; import sys; v=list(TextEmbedding(model_name='BAAI/bge-small-en-v1.5', cache_dir='/opt/fastembed').embed(['offline check']))[0]; sys.exit(0 if len(v)==384 else 1)"
 
 COPY run.py llm.py auth.py storage.py migrate.py embed.py retrieval.py schedule.py oral.py essay.py casetrainer.py tts.py course_brief.py blueprint.py readiness.py card_tagging.py concepts.py citecheck.py countdown.py weaktopics.py pack.py mockexam.py docketgen.py relevance.py gateway.py ./
 COPY transcribe/ transcribe/
