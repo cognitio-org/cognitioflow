@@ -1,0 +1,21 @@
+# FROZEN expected text for fixture A (the public demo course). Lines: W|week|rule or outline|text  - the printed text, exact.
+# Q lines: Q|week|pinpoint|source file|quoted words. Each quote must occur, ignoring case and spacing, in the cited source file of the demo course;
+# the pinpoint is the case plus the paragraph (demo-course/metadata.json key_paragraphs) or the ECR page for Van Gend and Costa.
+# Changed only with a logged reason in flows/printpack/HISTORY.md.
+W|1|rule|**In one glance** Dassonville (Case 8/74, para 5): "all trading rules enacted by Member States which are capable of hindering, directly or indirectly, actually or potentially, intra-Community trade are to be considered as measures having an effect equivalent to quantitative restrictions". Keck (Joined Cases C-267/91 and C-268/91, para 16): "contrary to what has previously been decided" certain selling arrangements fall outside that formula.
+W|1|outline|The Dassonville formula
+W|1|outline|Mutual recognition and mandatory requirements
+W|1|outline|Selling arrangements
+W|1|outline|Market access
+W|1|outline|Applying the rule
+W|2|rule|**In one glance** Van Gend en Loos (Case 26/62, ECR English special edition p. 1): "a new legal order of international law". Costa v ENEL (Case 6/64, ECR English special edition p. 585): the Treaty's own legal system "became an integral part of the legal systems of the Member States". Marshall (Case 152/84, para 48): "a directive may not of itself impose obligations on an individual".
+W|2|outline|Direct effect
+W|2|outline|Primacy
+W|2|outline|The national court sets aside conflicting law
+W|2|outline|Directives and individuals
+W|2|outline|Applying the rule
+Q|1|Case 8/74 para 5|dassonville-8-74.html|all trading rules enacted by Member States which are capable of hindering, directly or indirectly, actually or potentially, intra-Community trade are to be considered as measures having an effect equivalent to quantitative restrictions
+Q|1|Joined Cases C-267/91 and C-268/91 para 16|keck-mithouard-267-91.html|contrary to what has previously been decided
+Q|2|Case 26/62 ECR English special edition p. 1|van-gend-en-loos-26-62.html|a new legal order of international law
+Q|2|Case 6/64 ECR English special edition p. 585|costa-v-enel-6-64.html|became an integral part of the legal systems of the Member States
+Q|2|Case 152/84 para 48|marshall-152-84.html|a directive may not of itself impose obligations on an individual

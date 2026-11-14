@@ -196,8 +196,8 @@ def test_only_cjeu_numbers_are_restyled_and_suffixes_and_letters_are_kept_as_wri
     assert got["Tyrer v UK"] == ("5856/72", None)                      # an ECtHR application number, left alone and undated
     assert got["Kadi"] == ("Case C-402/05 P", 2005)
     assert got["Francovich"] == ("Case 6/90", 1990)                   # no 'C-' added to a number written without one
-    assert got["Commission v World Duty Free Group"][0] == "Joined Cases C-20/15 P & C-21/15 P"
-    assert got["Ireland and Others v Commission (Apple)"][0] == "Joined Cases T-778/16 & T-892/16"
+    assert got["Commission v World Duty Free Group"][0] == "Joined Cases C-20/15 P and C-21/15 P"
+    assert got["Ireland and Others v Commission (Apple)"][0] == "Joined Cases T-778/16 and T-892/16"
     assert got["Lorenz"] == ("Case 120/73", 1973)
     assert pack.normalise_cases([_n("Kadi", "C-402/05"), _n("Kadi", "C-402/05 P", note="b")])[0]["cite"] == "Case C-402/05 P"
 

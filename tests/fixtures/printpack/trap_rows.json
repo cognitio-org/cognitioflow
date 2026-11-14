@@ -1,0 +1,242 @@
+[
+ {
+  "trap": "TRAP: Costa written as 'ECR 1585': a page number must not become a year (real page is 585, ECR English special edition)",
+  "name": "Costa v ENEL",
+  "cite": "Case 6/64, ECR 1585",
+  "given_year": 1585,
+  "expect": [
+   "Case 6/64, ECR 1585",
+   1964,
+   true
+  ],
+  "url": "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:61964CJ0006"
+ },
+ {
+  "trap": "TRAP: Ratti 'Case 148/78, 1629': a bare page number must not become a year (real report [1979] ECR 1629; Cellar ECLI:EU:C:1979:110)",
+  "name": "Ratti",
+  "cite": "Case 148/78, 1629",
+  "given_year": null,
+  "expect": [
+   "Case 148/78",
+   1978,
+   true
+  ],
+  "url": "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:61978CJ0148"
+ },
+ {
+  "trap": "TRAP: Ratti with no year in the notes prints the docket year with a dagger, never 1629",
+  "name": "Ratti",
+  "cite": "148/78",
+  "given_year": null,
+  "expect": [
+   "Case 148/78",
+   1978,
+   true
+  ],
+  "url": "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:61978CJ0148"
+ },
+ {
+  "trap": "TRAP: Van Gend 'Case 26/62, judgment 1963': an unbracketed judgment year prints unmarked (ECLI:EU:C:1963:1)",
+  "name": "Van Gend en Loos",
+  "cite": "Case 26/62, judgment 1963",
+  "given_year": 1963,
+  "expect": [
+   "Case 26/62, judgment 1963",
+   1963,
+   false
+  ],
+  "url": "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:61962CJ0026"
+ },
+ {
+  "trap": "TRAP (format only): 'ECR 1337' next to a docket is a page, not a year",
+  "name": "Format row",
+  "cite": "Case 120/73, ECR 1337",
+  "given_year": 1337,
+  "expect": [
+   "Case 120/73, ECR 1337",
+   1973,
+   true
+  ]
+ },
+ {
+  "trap": "TRAP: Francovich joined dockets and a written date (Cellar ECLI:EU:C:1991:428)",
+  "name": "Francovich",
+  "cite": "C-6/90 & C-9/90, 19 November 1991",
+  "given_year": 1990,
+  "expect": [
+   "Joined Cases C-6/90 & C-9/90, 19 November 1991",
+   1991,
+   false
+  ],
+  "url": "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:61990CJ0006"
+ },
+ {
+  "trap": "TRAP: Brasserie du Pecheur / Factortame III joined row keeps cite and year (Cellar ECLI:EU:C:1996:79)",
+  "name": "Brasserie du Pecheur / Factortame III",
+  "cite": "C-46/93 & C-48/93, 5 March 1996",
+  "given_year": 1993,
+  "expect": [
+   "Joined Cases C-46/93 & C-48/93, 5 March 1996",
+   1996,
+   false
+  ],
+  "url": "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:61993CJ0046"
+ },
+ {
+  "trap": "TRAP: Kadi joined C-402/05 P & C-415/05 P keeps ' P' on both (Cellar ECLI:EU:C:2008:461)",
+  "name": "Kadi",
+  "cite": "C-402/05 P & C-415/05 P",
+  "given_year": 2005,
+  "expect": [
+   "Joined Cases C-402/05 P & C-415/05 P",
+   2005,
+   true
+  ],
+  "url": "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:62005CJ0402"
+ },
+ {
+  "trap": "TRAP: Keck joined row keeps both dockets and the notes' own 'and' (metadata.json case_number)",
+  "name": "Keck and Mithouard",
+  "cite": "Joined Cases C-267/91 and C-268/91",
+  "given_year": 1991,
+  "expect": [
+   "Joined Cases C-267/91 and C-268/91",
+   1991,
+   true
+  ],
+  "url": "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:61991CJ0267"
+ },
+ {
+  "trap": "TRAP (format only): Opinion 2/13 is an Opinion, never 'Case C-2/13', and has no docket year",
+  "name": "Opinion 2/13",
+  "cite": "Opinion 2/13",
+  "given_year": 2013,
+  "expect": [
+   "Opinion 2/13",
+   null,
+   false
+  ]
+ },
+ {
+  "trap": "TRAP (format only): Barber 'C-262/88': a 'C-' the notes wrote is kept",
+  "name": "Barber",
+  "cite": "C-262/88",
+  "given_year": 1988,
+  "expect": [
+   "Case C-262/88",
+   1988,
+   true
+  ]
+ },
+ {
+  "trap": "TRAP (format only): student slip 'C-26/62' is kept as written (Needs-Matej item)",
+  "name": "Student slip",
+  "cite": "C-26/62",
+  "given_year": 1962,
+  "expect": [
+   "Case C-26/62",
+   1962,
+   true
+  ]
+ },
+ {
+  "trap": "TRAP: '152/84, Feb 1986' a month-and-year date is a written year (Marshall, ECLI:EU:C:1986:84)",
+  "name": "Marshall",
+  "cite": "152/84, Feb 1986",
+  "given_year": 1986,
+  "expect": [
+   "Case 152/84, Feb 1986",
+   1986,
+   false
+  ],
+  "url": "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:61984CJ0152"
+ },
+ {
+  "trap": "TRAP (format only): '2 BvR 197/83 (1986)' German court number and the closing bracket stay",
+  "name": "Solange II",
+  "cite": "2 BvR 197/83 (1986)",
+  "given_year": 1983,
+  "expect": [
+   "2 BvR 197/83 (1986)",
+   1986,
+   false
+  ]
+ },
+ {
+  "trap": "TRAP (format only): ECtHR 'Application no. 5856/72' gets no Case and no dagger year",
+  "name": "Tyrer v UK",
+  "cite": "Application no. 5856/72",
+  "given_year": 1972,
+  "expect": [
+   "Application no. 5856/72",
+   null,
+   false
+  ]
+ },
+ {
+  "trap": "TRAP (format only): BVerfG '2 BvE 2/08' verbatim",
+  "name": "Lisbon",
+  "cite": "2 BvE 2/08",
+  "given_year": 2008,
+  "expect": [
+   "2 BvE 2/08",
+   null,
+   false
+  ]
+ },
+ {
+  "trap": "TRAP (format only): 'BVerfGE 37, 271' volume-comma-page is no docket",
+  "name": "Solange I",
+  "cite": "BVerfGE 37, 271",
+  "given_year": null,
+  "expect": [
+   "BVerfGE 37, 271",
+   null,
+   false
+  ]
+ },
+ {
+  "trap": "TRAP (format only): 'Corte cost. sent. 170/84' is Italian, not a CJEU docket",
+  "name": "Granital",
+  "cite": "Corte cost. sent. 170/84",
+  "given_year": 1984,
+  "expect": [
+   "Corte cost. sent. 170/84",
+   null,
+   false
+  ]
+ },
+ {
+  "trap": "TRAP (format only): 'Corte cost. 170/1984' full year after the slash",
+  "name": "Granital",
+  "cite": "Corte cost. 170/1984",
+  "given_year": null,
+  "expect": [
+   "Corte cost. 170/1984",
+   null,
+   false
+  ]
+ },
+ {
+  "trap": "TRAP (format only): Czech 'Pl. US 5/12'",
+  "name": "Landtova",
+  "cite": "Pl. US 5/12",
+  "given_year": 2012,
+  "expect": [
+   "Pl. US 5/12",
+   null,
+   false
+  ]
+ },
+ {
+  "trap": "TRAP (format only): Polish 'K 3/21'",
+  "name": "Polish ruling",
+  "cite": "K 3/21",
+  "given_year": 2021,
+  "expect": [
+   "K 3/21",
+   null,
+   false
+  ]
+ }
+]

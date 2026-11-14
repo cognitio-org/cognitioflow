@@ -15,6 +15,12 @@ import essay
 RULE_CHARS = 900          # the opening box, as written; a box longer than this is cut at a sentence
 OUTLINE = 10              # section headings shown per week
 CASES = 14                # leading cases per week
+# The source line demo-course/LICENCE-NOTE.md section 5 asks for on the print pack (reuse condition: attribute, and say
+# that AI output is a change to the original). Printed once, when the pack lists CJEU cases.
+ATTRIBUTION = ("Sources: Court of Justice of the European Union (case-law, cited by ECLI); Treaty on the Functioning of the "
+               "European Union, consolidated version, OJ C 202, 7.6.2016, via EUR-Lex. © European Union. Unofficial, "
+               "AI-assisted study material: summaries and other AI output are changes to the original texts, not the "
+               "texts themselves. Check them against the cited source.")
 METHOD_HITS = 2           # a week's notes must name at least two of the method's moves before the steps print
 
 _H1 = re.compile(r"^#\s+(.+)$", re.M)
@@ -198,7 +204,8 @@ def build(weeks: dict, reference: list, cases: list, method: bool = True) -> dic
                      "heading": heading})
     order = {"TFEU": 0, "TEU": 1, "Charter": 2, "ECHR": 3, "BW": 4, "DCFR": 5}
     tabs.sort(key=lambda t: (order.get(t["instrument"], 9), _sort_number(t["number"]), t["number"]))
-    return {"topics": topics, "tabs": tabs}
+    cjeu = any(re.match(r"(?:Case|Joined Cases)\s", c["cite"]) for t in topics for c in t["cases"])
+    return {"topics": topics, "tabs": tabs, "attribution": ATTRIBUTION if cjeu else ""}
 
 
 # ---------------------------------------------------------------- tidying (pitch freeze, 2026-11-14)
@@ -595,7 +602,11 @@ def _from_notes(cases: list, bodies: dict) -> list:
                 if hit: break
             if hit:
                 tail, at = hit
-                if "(" in tail[:at.start()]:          # in the bracket after the name: read the bracket up to the number
+                lead = tail[:at.start()]
+                # the bracket-after-the-name branch only when the '(' comes straight after the name; a bracket at the
+                # end of a sentence about the case ('*Van Gend* held direct effect (26/62).') is running text (w5)
+                bracketed = "(" in lead and not lead[:lead.index("(")].strip(" \t*:,")
+                if bracketed:   # in the bracket after the name: read it up to the number
                     seg = _trim(re.sub(r"^\W*?\(", "", tail[:at.end()], count=1))
                     seg = re.sub(r"(?i)^(?:see(?:\s+also)?|cf\.?|e\.g\.,?|also)\s+", "", seg)
                 else:                                 # in running text: only a court's own mark right before it
@@ -611,10 +622,33 @@ def _from_notes(cases: list, bodies: dict) -> list:
                         c["cite"] = cite = at.group(0)[0] + "-" + cite.split("-", 1)[-1]   # the 'C-' the note wrote
                     if re.match(r"\s+P\b", tail[at.end():]) and not cite.endswith(" P"):
                         c["cite"] = cite + " P"
-                y = _explicit_year(tail[at.end():])
+                y = _explicit_year(tail[at.end():]) or (_explicit_year(tail[:at.start()]) if bracketed else None)   # '(ECLI:EU:C:1963:1, Case 26/62)'
                 if y: c["written_year"] = y                                  # a year the note writes for this case stands
+        if name and not c.get("written_year"):     # a Year column the note writes (| Dassonville | Case 8/74 | 1974 |) is written, even when it equals the docket year
+            y = _table_year(name, [bodies.get(n.get("id")) or "" for n in c.get("notes") or []])
+            if y: c["written_year"] = y
         out.append(c)
     return out
+
+
+def _table_year(name: str, bodies: list):
+    """The year a case-map table writes for the case in a column headed Year or Date, or None. Only that column:
+    a bare figure under any other header (Page, ECR, Paragraph) is not a year."""
+    key = _name_key(name)
+    for body in bodies:
+        lines = body.splitlines()
+        for i in range(len(lines) - 1):
+            if not (lines[i].lstrip().startswith("|") and re.match(r"^\s*\|?\s*:?-+", lines[i + 1])): continue
+            head = [h.strip().lower() for h in lines[i].strip().strip("|").split("|")]
+            yi = next((k for k, h in enumerate(head) if h in ("year", "date", "year decided", "judgment year")), None)
+            if yi is None: continue
+            j = i + 2
+            while j < len(lines) and lines[j].lstrip().startswith("|"):
+                cells = [x.strip() for x in lines[j].strip().strip("|").split("|")]; j += 1
+                if len(cells) != len(head) or _name_key(re.sub(r"\*", "", cells[0])) != key: continue
+                m = _YEAR_ONLY.match(cells[yi])
+                if m: return int(m.group(1))
+    return None
 
 
 def normalise_cases(cases: list) -> list:
@@ -659,7 +693,12 @@ def normalise_cases(cases: list) -> list:
                 yy = int(re.search(r"/(\d{2})", dockets[0]).group(1)); lodged = 1900 + yy if yy >= 50 else 2000 + yy
                 if written and written < lodged and not _BRACKET_YEAR.search(raw_cite + raw_name):
                     written = None               # no judgment comes before its case: ', 1629' after 148/78 is a page
-            rows.append({"name": name, "dockets": dockets, "rest": rest, "year": written or lodged,
+            sep = " & "                       # the word the notes put between joined numbers stays ('and', '&', '+', ',')
+            ms = [] if foreign else _dockets(cite)
+            if len(ms) > 1:
+                gap = re.fullmatch(r"\s*(&|and|\+|,)\s*", cite[ms[0].end():ms[1].start()])
+                if gap: sep = (" " + gap.group(1) + " ") if gap.group(1) != "," else ", "
+            rows.append({"name": name, "dockets": dockets, "sep": sep, "rest": rest, "year": written or lodged,
                          "explicit": written is not None, "notes": list(c.get("notes") or [])})
     # merge: same docket, or same name key where the dockets do not disagree
     groups = []
@@ -683,8 +722,9 @@ def normalise_cases(cases: list) -> list:
     out = []
     for g in groups:
         name = max(g["names"], key=lambda n: (g["names"].count(n), len(n)))
-        cite = " & ".join(g["dockets"]) if g["dockets"] else g["rest"]
-        if cite and len(g["dockets"]) > 1: cite = "Joined " + cite.replace(" & Case ", " & ").replace("Case ", "Cases ", 1)
+        sep = g.get("sep") or " & "
+        cite = sep.join(g["dockets"]) if g["dockets"] else g["rest"]
+        if cite and len(g["dockets"]) > 1: cite = "Joined " + cite.replace(sep + "Case ", sep).replace("Case ", "Cases ", 1)
         if g["dockets"] and g["rest"]: cite += ", " + g["rest"]          # the report the notes give stays with it
         out.append({"name": name, "cite": cite, "year": g["year"], "numbered": bool(g["year"]) and not g["explicit"],
                     "notes": g["notes"]})
