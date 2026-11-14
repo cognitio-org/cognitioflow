@@ -336,7 +336,7 @@ def test_a_treaty_text_that_prints_article_34_without_tfeu_answers_art_34_tfeu()
     Treaty ticked 'Art 34 TFEU' was flagged 'Not in your materials' and the panel said no passage names it. A wrong
     instrument against a file that names another one is still flagged."""
     import citecheck
-    treaty = "CHAPTER 3\n Article 34\n (ex Article 28 TEC)\n Quantitative restrictions on imports ... shall be prohibited."
+    treaty = "Treaty on the Functioning of the European Union\nCHAPTER 3\n Article 34\n (ex Article 28 TEC)\n Quantitative restrictions on imports ... shall be prohibited."
     cases = [("Under Art 34 TFEU and Article 36 TFEU.", [treaty]), ("Art. 267 TEU", ["Article 267 TFEU"])]
     got = _node3("console.log(JSON.stringify({b:D.c.map(([a,s])=>ccUnverified(a,s).map(c=>c.raw)),"
                  "p:cfExcerpt(D.t,'Art 34 TFEU')?.hit, wrong:cfExcerpt('Article 267 TFEU','Art 267 TEU')}));", {"c": cases, "t": treaty})
@@ -358,3 +358,67 @@ def test_a_party_name_in_another_form_beside_a_found_case_is_not_a_warning():
                  {"t": "Procureur du Roi v Benoît and Gustave Dassonville. - Case 8-74."})
     assert got["p"] == [[], ["Procureur du Roi v Dassonville"]]
     assert got["q"] == [["Bianchi v Commission"], []], "a line with no citation still warns about a name"
+
+
+# ---- wave 4 (skeptic major on 9f05afd): a bare 'Article 34' counts for 'Art 34 TFEU' only in the TFEU itself --------
+
+_PURE4 = _PURE3 + ["CC_TITLE", "CC_QUAL", "ccTreatyArt"]
+
+# The public-source demo course's Treaty extract, as EUR-Lex prints it: the heading names the Treaty, the articles do not.
+_TFEU = ("Treaty on the Functioning of the European Union\n(consolidated, OJ C 326, 26.10.2012) — Title II,\n"
+         "Chapter 3 (extract, EUR-Lex)\nCHAPTER 3\nPROHIBITION OF QUANTITATIVE RESTRICTIONS BETWEEN MEMBER STATES\n"
+         "Article 34\n(ex Article 28 TEC)\nQuantitative restrictions on imports and all measures having equivalent "
+         "effect shall be prohibited between Member States.\nArticle 35\n(ex Article 29 TEC)\nQuantitative restrictions "
+         "on exports ... shall be prohibited between Member States.")
+_LECTURE = ("Week 3 lecture: services. Recall Article 56 TFEU on the freedom to provide services. Article 34 of the "
+            "Services Directive 2006/123 deals with mutual assistance between Member States.")
+
+
+def _w4(cases, panel):
+    import citecheck
+    got = _node("console.log(JSON.stringify({b:D.c.map(([a,s])=>ccUnverified(a,s).map(c=>c.raw)),"
+                "p:D.p.map(([t,term])=>cfExcerpt(t,term)?.hit??null)}));", {"c": cases, "p": panel}, _PURE4)
+    assert got["b"] == [[c["raw"] for c in citecheck.unverified(a, s)] for a, s in cases], "page and server disagree"
+    return got
+
+
+@_needs_node
+def test_a_bare_article_in_another_instrument_never_answers_a_treaty_citation():
+    """Skeptic, wave 3: with 9f05afd any bare 'Article 34' in a ticked file answered 'Art 34 TFEU' or 'Art 34 TEU'.
+    'Art 34 TFEU' against 'Article 34 of the Services Directive' showed that passage under 'Names Art 34 TFEU' and the
+    server flagged nothing; 'Art 34 TEU' against the TFEU extract was labelled 'Names Art 34 TEU'."""
+    cases = [("Art 34 TFEU prohibits MEQRs.", [_LECTURE]),                       # another instrument's Article 34
+             ("Under Art 34 TEU the Member States coordinate.", [_TFEU]),       # the wrong Treaty
+             ("Art 28 TFEU sets up the customs union.", [_TFEU]),               # only "(ex Article 28 TEC)" in the file
+             ("Art 34 TFEU applies.", ["Treaty on the Functioning of the European Union — notes", "Article 34 applies."]),
+             ("Art 34 TFEU applies.", ["Consolidated versions of the Treaty on European Union and the Treaty on the "
+                                       "Functioning of the European Union\nArticle 34\nText."])]   # heading names both
+    got = _w4(cases, [[_LECTURE, "Art 34 TFEU"], [_TFEU, "Art 34 TEU"], [_TFEU, "Art 28 TFEU"]])
+    assert got["b"] == [["Art 34 TFEU"], ["Art 34 TEU"], ["Art 28 TFEU"], ["Art 34 TFEU"], ["Art 34 TFEU"]]
+    assert got["p"] == [None, None, None], "no passage may stand under a citation of another instrument"
+
+
+@_needs_node
+def test_the_treaty_text_itself_still_answers_its_own_articles():
+    """The other way round, which 9f05afd was for: the consolidated TFEU prints 'Article 34', never 'Article 34 TFEU'."""
+    cases = [("Under Art 34 TFEU and Article 35 TFEU, and Art 36 TFEU.", [_TFEU]),
+             ("Art 34 TFEU, as the lecture puts it.", [_LECTURE, _TFEU])]
+    got = _w4(cases, [[_TFEU, "Art 34 TFEU"], [_TFEU, "Article 35 TFEU"]])
+    assert got["b"] == [["Art 36 TFEU"], []]
+    assert got["p"] == ["Article 34", "Article 35"]
+
+
+@_needs_node
+def test_a_general_court_number_is_not_the_court_of_justice_case():
+    """Skeptic, wave 3: 'T-267/91' against a file with 'C-267/91' was not flagged, because the bare '267/91' after the
+    dash counted. The panel already refused it, so the panel and the box disagreed."""
+    cases = [("In T-267/91 the General Court held so.", [_KECK]), ("Simmenthal (C-106/77)", ["Case 106/77"])]
+    got = _w4(cases, [[_KECK, "T-267/91"]])
+    assert got["b"] == [["T-267/91"], []]
+    assert got["p"] == [None]
+
+
+def test_a_wrong_party_name_beside_a_real_number_tells_the_student_to_check_it():
+    """Skeptic, wave 3: 'go by the case number' told the student to trust a real number carrying an invented name."""
+    assert "go by the case number" not in JS
+    assert "check the name" in JS
