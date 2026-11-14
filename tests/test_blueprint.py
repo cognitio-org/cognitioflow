@@ -63,7 +63,8 @@ def test_normalise_defaults_confidence_and_drops_nameless_rows():
         "not an object",                     # ignored
     ]})
     assert [t["topic"] for t in out["topics"]] == ["Proportionality"]
-    assert out["topics"][0]["confidence"] == "high"
+    # w4 (skeptic): a stored "high" on a topic tied to no week and no objective reads as implied, not "objective"
+    assert out["topics"][0]["confidence"] == "low"
 
 
 def test_normalise_caps_topic_count():

@@ -125,3 +125,17 @@ button.srcopen:focus-visible{outline:2px solid var(--accent);outline-offset:2px;
 @media(prefers-reduced-motion:reduce){.rdbar i{transition:none}}
 .bperr{margin:.2rem 0;padding:.55rem .75rem;border:1px solid var(--rule);border-left:3px solid var(--warn);border-radius:var(--r);color:var(--ink)}
 .bperr b{font-weight:600}
+/* Coverage map w4: the stated objectives written out, the counts and the schedule source on their own lines,
+   the calm fallback when the model is slow, and the readiness next-step actions. */
+.bpmeta .bpcount,.bpmeta .bpsrc{margin-top:.15rem}
+.bpcalm{margin:.2rem 0 .35rem;padding:.55rem .75rem;border:1px solid var(--rule);border-left:3px solid var(--gilt);border-radius:var(--r);color:var(--ink)}
+.bpcalm b{font-weight:600}
+.bpobjectives{margin:.7rem 0 .4rem;padding:.6rem .8rem;border:1px solid var(--rule);border-radius:var(--r)}
+.bpobjectives h4{margin:0 0 .35rem;font-size:var(--fs-sm);font-weight:600}
+.bpobjs{margin:0;padding-left:1.4rem;display:grid;gap:.4rem}
+.bpobjs li{line-height:1.4}
+.bpobjtxt{display:block}
+.bpobjmap{display:block}
+.bpobjgap{color:var(--warn)}
+.rdnext{margin:.5rem 0 .2rem}
+.rdgo{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.35rem}

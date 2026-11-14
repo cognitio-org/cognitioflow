@@ -393,16 +393,18 @@
         <button class="btn small primary" id="bpSave" type="button" hidden title="Keep this coverage map on the course">Save coverage map</button>
         <button class="btn small ghost" id="bpDiscard" type="button" hidden>Discard</button></span></div>
     <div class="bpmeta small muted" id="bpMeta" role="status"></div>
+    <div id="bpObjectives" class="bpobjectives" hidden></div>
     <div id="bpTopics" class="bptopics" aria-live="polite"></div>
   </div>
   <div class="panel readiness" id="readinessPanel" style="margin-top:1rem" hidden>
     <div class="rdhead"><div><h3>Readiness</h3>
-      <div class="small muted">How ready you are on each objective topic — card retention and recall on it, not study time.</div></div>
+      <div class="small muted">How well you know each topic of the map, from your cards on it — not study time. Score = half the share of its cards not due now, half how often you recalled them in review. Ready: 80% or more · shaky: 50–79% · weak: under 50% · gap: no cards on it yet.</div></div>
       <div class="rdoverall" id="rdOverall"></div></div>
+    <div class="rdnext small" id="rdNext" hidden></div>
     <div id="rdTopics" class="rdtopics" aria-live="polite"></div>
     <div class="rdfoot" id="rdFoot" hidden>
       <span class="small muted" id="rdCoverage"></span>
-      <button class="btn small" type="button" id="rdTag" title="Classify your cards into the objective topics so readiness counts the right cards, not just word matches">Tag cards to doctrines</button>
+      <button class="btn small" type="button" id="rdTag" title="Sort your cards into the map's topics so readiness counts the right cards, not just word matches">Sort cards into topics</button>
     </div>
   </div>
   <div class="panel" style="margin-top:1rem"><h3>Weak topics</h3>
@@ -410,7 +412,7 @@
     <div id="weakTopics" class="small"></div></div>
   <div class="panel" style="margin-top:1rem"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap"><h3>Case index</h3>
       <span class="seg" role="group" aria-label="Order the case index" title="A–Z to tab the statute book; by year to read the doctrine as it developed"><button class="btn small" data-caseview="az" aria-pressed="true">A–Z</button><button class="btn small" data-caseview="year">By year</button></span></div>
-    <div class="small muted" id="caseSub">every case across your notes · your tabbing checklist</div>
+    <div class="small muted" id="caseSub">every case named across your notes, A–Z</div>
     <div id="caseIndex" class="small"></div><div id="caseTimeline" class="small" hidden></div></div>
   <details class="panel" id="readKeys" style="margin-top:1rem"><summary><b>Read-only key for Jarvis</b> <span class="small muted">· reads Today, the due counts and weak topics, nothing else</span></summary>
     <div class="small muted" style="margin:.5rem 0">The key is shown once. Keep it in the Keychain as <code>newsglobe.CF_READ_TOKEN</code>; revoke it here if it ever leaks.</div>

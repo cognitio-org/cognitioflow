@@ -91,6 +91,20 @@ def _provider() -> str:
     return PROVIDER
 
 
+#: The seed a repeatable job (the coverage map) sends where the provider takes one.
+REPEATABLE_SEED = 7
+
+
+def repeatable_kwargs() -> dict:
+    """Sampling for a job whose same inputs must give the same answer (the coverage map's Rebuild): temperature 0
+    on every provider, plus a fixed seed and no hidden reasoning on Kernal (gemini-2.5-flash's thinking pass varies
+    run to run). The Anthropic SDK takes neither field, so they are sent only where the router accepts them."""
+    kw = {"temperature": 0}
+    if _provider() == "kernal":
+        kw.update(seed=REPEATABLE_SEED, reasoning_effort="disable")
+    return kw
+
+
 def is_router(model_id: str) -> bool:
     """`openrouter/auto` and friends pick a model by community spend and can land on Fable."""
     return str(model_id or "").strip().lower().startswith("openrouter/")
@@ -433,7 +447,10 @@ def local_call(task, **kw):
 #: Sampling fields an OpenAI-compatible server (mlx_lm.server) accepts beyond temperature. Forwarded only when a
 #: caller passes them (the Game Studio v2 docket writer does, with the Qwen3-Coder card values); otherwise the body
 #: is exactly as before.
-KERNAL_SAMPLING = {"top_p": float, "top_k": int, "min_p": float, "repetition_penalty": float}
+KERNAL_SAMPLING = {"top_p": float, "top_k": int, "min_p": float, "repetition_penalty": float,
+                   # The coverage map asks for a repeatable answer (same inputs -> same map): a fixed seed, and no
+                   # hidden reasoning (a thinking pass varies run to run and can eat the budget, see below).
+                   "seed": int, "reasoning_effort": str}
 
 
 def _kernal_body(model, system, messages, max_tokens, temperature, stream, sampling=None) -> dict:
