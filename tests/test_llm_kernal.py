@@ -161,3 +161,34 @@ def test_hedged_stream_works_over_the_kernal_shim(kernal, monkeypatch):
     with kernal.hedged_stream(kernal.client, hedge_s=0, model="claude-sonnet-5", max_tokens=10,
                               messages=[{"role": "user", "content": "hi"}]) as s:
         assert "".join(s.text_stream) == "ok"
+
+
+# ---- Gemini 2.5 hidden thinking must not eat the answer's token budget ---------------------
+
+@pytest.mark.parametrize("model", ["gemini-2.5-flash", "gemini-2.5-flash-lite"])
+def test_gemini_flash_request_carries_thinking_off(kernal, monkeypatch, model):
+    captured = {}
+    _patch_urlopen(monkeypatch, {"choices": [{"message": {"content": "[]"}, "finish_reason": "stop"}],
+                                 "usage": {}}, captured)
+    kernal.client().messages.create(model=model, max_tokens=3000, messages=[{"role": "user", "content": "x"}])
+    assert captured["body"]["reasoning_effort"] == "disable"
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-5", "gemini-2.5-pro", "gpt-5-nano"])
+def test_other_models_are_left_alone(kernal, model):
+    assert "reasoning_effort" not in kernal._kernal_body(model, None, [{"role": "user", "content": "x"}], 10, None, False)
+
+
+def test_gemini_flash_stream_body_carries_thinking_off(kernal, monkeypatch):
+    import urllib.request
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = json.loads(req.data.decode())
+        raise OSError("stop here")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(OSError):
+        kernal.client().messages.stream(model="gemini-2.5-flash", max_tokens=10,
+                                        messages=[{"role": "user", "content": "x"}])
+    assert captured["body"]["reasoning_effort"] == "disable" and captured["body"]["stream"] is True
