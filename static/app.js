@@ -2190,10 +2190,10 @@ const bpNum=x=>{ x=Math.round((+x||0)*100)/100; return String(x).replace(/\.?0+$
 /* Evidence label from what the row actually carries: a saved "high" on a topic tied to no week and no objective
    (maps saved by the older past-exam version) reads as implied, never as "mapped to a stated learning objective". */
 const bpConf=t=>((t.objectives||[]).length?'high':(t.weeks||[]).length?'medium':'low');
-function bpTopicRow(t,b,co,showConf){ const w=Math.max(0,Math.min(100,+t.weight||0)), basis=(b&&b.basis)||'none';
+function bpTopicRow(t,b,co,showConf,flat){ const w=Math.max(0,Math.min(100,+t.weight||0)), basis=(b&&b.basis)||'none';
   const chip=(cls,arr,tip)=>arr&&arr.length?arr.map(x=>`<span class="bpc ${cls}"${tip?` title="${esc(tip)}"`:''}>${esc(x)}</span>`).join(''):'';
   const wk=bpWeeks(t.weeks);
-  const objChips=(t.objectives||[]).map(n=>{ const txt=co.objs[n-1];
+  const objChips=(t.objectives||[]).slice(co.objs.length?1:0).map(n=>{ const txt=co.objs[n-1];   // grouped: the first is the heading
     return `<span class="bpc obj" tabindex="0" title="${esc(txt?`Objective ${n}: ${txt}`:`Objective ${n} (the course states no objective ${n} now)`)}">Objective ${n}</span>`; }).join('');
   const conf=bpConf(t), unit=t.share_unit||(basis==='objectives'?'objectives':'weeks');
   let pct, tip, of='';
@@ -2207,12 +2207,13 @@ function bpTopicRow(t,b,co,showConf){ const w=Math.max(0,Math.min(100,+t.weight|
   else { pct='—'; tip='No syllabus week or stated objective to compute a share from'; }
   return `<div class="bptopic">`+
     `<div class="bptop"><span class="bpname">${esc(t.topic)}</span>`+
-      `<span class="bpwt" title="${esc(tip)}">${pct}${of?`<span class="bpof small muted"> · ${esc(of)}</span>`:''}</span>`+
+      (flat&&of?`<span class="bpflat small muted" title="${esc(tip)}">${esc(wk)}</span>`
+        :`<span class="bpwt" title="${esc(tip)}">${pct}${of?`<span class="bpof small muted"> · ${esc(of)}</span>`:''}</span>`)+
       (showConf?`<span class="bpconf c-${esc(conf)}" title="Evidence: ${esc(BP_CONF[conf]||'')}">${esc(BP_CONF_LABEL[conf]||conf)}</span>`:'')+`</div>`+
-    `<div class="bpbar"><i style="width:${pct==='—'?0:w}%"></i></div>`+
+    (flat&&of?'':`<div class="bpbar"><i style="width:${pct==='—'?0:w}%"></i></div>`)+
     (t.note?`<div class="bpnote small muted">${esc(t.note)}</div>`:'')+
     (pct==='—'&&(basis==='weeks'||basis==='objectives')?`<div class="bpnote small muted">${unit==='objectives'?'Not tied to a stated objective':'Not tied to a syllabus week'} — no share shown.</div>`:'')+
-    `<div class="bpchips">${chip('doc',t.doctrines,'Doctrine this topic turns on')}${wk?chip('seen',[wk],'Syllabus weeks it covers'):''}${objChips}</div>`+
+    `<div class="bpchips">${chip('doc',t.doctrines,'Doctrine this topic turns on')}${wk&&!(flat&&of)?chip('seen',[wk],'Syllabus weeks it covers'):''}${objChips}</div>`+
     `</div>`; }
 /* "12 of 12 syllabus weeks · 6 of 6 stated objectives mapped" — counted here from the course and the topics,
    never the model's own claim that everything was mapped. Names what is left out. */
@@ -2225,20 +2226,30 @@ function bpCoverage(b,co){ const topics=(b&&b.topics)||[], out=[];
   return out.join(' · '); }
 /* The stated objectives, written out, each with the topics mapped to it and their share of the syllabus weeks —
    so a professor checks the mapping by reading, not by hovering an "Objective N" chip. */
-function bpObjectives(b,co){ const box=$('#bpObjectives'); if(!box) return; const topics=(b&&b.topics)||[];
-  if(!co.objs.length||!topics.length){ box.hidden=true; box.innerHTML=''; return; }
-  const nW=co.weeks.length;
-  box.innerHTML=`<h4>Stated learning objectives</h4><ol class="bpobjs">`+co.objs.map((txt,i)=>{ const n=i+1;
-    const ts=topics.filter(t=>(t.objectives||[]).map(Number).includes(n));
-    const wk=[...new Set(ts.flatMap(t=>(t.weeks||[]).map(Number)))].sort((a,c)=>a-c);
-    const share=nW&&wk.length?` · ${Math.round(wk.length*100/nW)}% of the syllabus (${wk.length} of ${nW} weeks)`:'';
-    return `<li><span class="bpobjtxt">${esc(txt)}</span>`+
-      (ts.length?`<span class="small muted bpobjmap">${esc(bpWeeks(wk)||'No syllabus week')}${esc(share)} — ${ts.map(t=>esc(t.topic)).join('; ')}</span>`
-        :`<span class="small bpobjmap bpobjgap">Not mapped to any topic yet</span>`)+`</li>`; }).join('')+`</ol>`;
-  box.hidden=false; }
+/* Every topic one syllabus week (the per-week map): twelve equal 8% bars say nothing, so the rows name their week and
+   the bar moves up to the objective, where the shares differ. */
+const bpFlat=ts=>ts.length>1&&new Set(ts.map(t=>+t.weight||0)).size===1&&ts.every(t=>+t.weight>0);
+function bpObjectives(b,co,showConf){ const topics=(b&&b.topics)||[], nW=co.weeks.length, placed=new Set();
+  const flat=bpFlat(topics);
+  const groups=co.objs.map((txt,i)=>{ const n=i+1;
+    const ts=topics.filter(t=>(t.objectives||[]).map(Number)[0]===n);       // each topic once, under its first objective
+    const all=topics.filter(t=>(t.objectives||[]).map(Number).includes(n));
+    ts.forEach(t=>placed.add(t));
+    const wk=[...new Set(all.flatMap(t=>(t.weeks||[]).map(Number)))].sort((a,c)=>a-c);
+    const pc=nW&&wk.length?Math.round(wk.length*100/nW):0;
+    const share=pc?`${pc}% of the syllabus · ${bpWeeks(wk).toLowerCase()} (${wk.length} of ${nW})`:'';
+    return `<section class="bpobj"><div class="bpobjhead"><span class="bpobjn">Objective ${n}</span>`+
+      `<span class="bpobjtxt">${esc(txt)}</span>`+
+      (all.length?(share?`<span class="bpobjmap small muted">${esc(share)}</span>`:'')
+        :`<span class="bpobjmap small bpobjgap">Not mapped to any topic yet</span>`)+
+      (flat&&pc?`<div class="bpbar bpobjbar"><i style="width:${pc}%"></i></div>`:'')+`</div>`+
+      ts.map(t=>bpTopicRow(t,b,co,showConf,flat)).join('')+`</section>`; });
+  const rest=topics.filter(t=>!placed.has(t));
+  if(rest.length) groups.push(`<section class="bpobj"><div class="bpobjhead"><span class="bpobjtxt">Not tied to a stated objective</span></div>${rest.map(t=>bpTopicRow(t,b,co,showConf,flat)).join('')}</section>`);
+  return groups.join(''); }
 function bpHead(b,co){ const topics=(b&&b.topics)||[], objs=co.objs.length>0;
   const h=$('#blueprintPanel h3'), sub=$('#bpSub');
-  const verb=topics.length?'Mapped':'Maps', missing=[];
+  const verb=topics.length?'Mapped from':'Maps', missing=[];
   if(!co.weeks.length) missing.push('no syllabus has been read under Files yet');
   if(!objs) missing.push('no learning objectives are stated in Course settings yet');
   if(!topics.length||objs){ h.textContent='Coverage of stated learning objectives';
@@ -2253,7 +2264,12 @@ function bpHead(b,co){ const topics=(b&&b.topics)||[], objs=co.objs.length>0;
     sub.textContent='No stated learning objectives were read, so this maps the syllabus weeks only. Add the course’s published learning objectives in Course settings, then rebuild.'; }
   if(!topics.length) return;
   const basis=b.basis||'none', n=basis==='objectives'?(b.objectives_total||co.objs.length):(b.weeks_total||co.weeks.length);
-  sub.textContent+=basis==='weeks'
+  const flat=bpFlat(topics);
+  sub.textContent+=basis==='weeks'&&flat&&objs
+    ?` Each topic is one syllabus week; each objective’s % is its share of all ${n} syllabus weeks, counted from the schedule.`
+    :basis==='weeks'&&flat
+    ?` Each topic is one of the ${n} syllabus weeks, so no topic outweighs another; the stated objectives would show how the weeks spread.`
+    :basis==='weeks'
     ?` Each % is the topic’s share of all ${n} syllabus weeks (a week two topics share counts half to each), counted from the schedule.`
     :basis==='objectives'
     ?` No topic names a syllabus week, so each % is the topic’s share of the ${n} stated objectives (one shared by two topics counts half to each).`
@@ -2264,10 +2280,12 @@ function bpRender(b,proposed){ const topics=(b&&b.topics)||[], co=bpCourse();
   if(!proposed) bpSaved=b;
   bpHead(b,co);
   const showConf=new Set(topics.map(bpConf)).size>1;   // one label on every row says nothing: shown only when they differ
-  bpObjectives(b,co);
-  $('#bpTopics').innerHTML=topics.length?topics.map(t=>bpTopicRow(t,b,co,showConf)).join(''):
+  // With stated objectives the topics sit under the objective they serve, its text written out, so a professor checks
+  // the mapping by reading it (no hovering an "Objective N" chip).
+  $('#bpTopics').innerHTML=topics.length?(co.objs.length?bpObjectives(b,co,showConf):topics.map(t=>bpTopicRow(t,b,co,showConf,bpFlat(topics))).join('')):
     (proposed?'<div class="emptystate"><b>No topics found</b><span>Nothing in the syllabus or the stated objectives read as a topic. Read the course syllabus under Files and add the learning objectives in Course settings, then build again.</span></div>':
-      '<div class="emptystate"><b>No coverage map yet</b><span>Press “Build coverage map” to map the course’s stated learning objectives and syllabus weeks.</span></div>');
+      (co.weeks.length||co.objs.length?'<div class="emptystate"><b>No coverage map yet</b><span>Press “Build coverage map” to map the course’s stated learning objectives and syllabus weeks.</span></div>'
+        :'<div class="emptystate"><b>Nothing to map yet</b><span>Read the course syllabus under Files, or add the course’s published learning objectives in Course settings — then build the map.</span></div>'));
   const bits=[], src=co.objs.length&&co.weeks.length?'the stated learning objectives and the syllabus weeks'
     :co.objs.length?'the stated learning objectives':'the syllabus weeks';
   if(proposed&&b&&b.cached==='saved') bits.push('<b>Same as the saved map</b> — the syllabus and the objectives have not changed since it was built, so nothing new was needed');
@@ -2289,11 +2307,11 @@ async function bpError(e){ const st=e&&e.status, msg=(e&&e.message)||'';
   try{ bpRender(await api(`/courses/${cid}/blueprint`),false); }catch(_){ $('#bpTopics').innerHTML=''; }
   const kept=!!$('#bpTopics .bptopic');
   if(bpRetryable(e)&&kept){   // calm: the saved map is still right there, and still the course's map
-    $('#bpMeta').insertAdjacentHTML('afterbegin',`<div class="bpcalm" role="status"><b>Showing your saved coverage map.</b> The model did not answer in time (it was asked twice), so nothing changed. Rebuild later if the syllabus or the objectives have changed.</div>`);
+    $('#bpMeta').insertAdjacentHTML('afterbegin',`<div class="bpcalm" role="status"><b>Showing your saved coverage map.</b> The model did not answer in time (it was tried again automatically), so nothing changed. Rebuild later if the syllabus or the objectives have changed.</div>`);
     return; }
   const why=st===422?'There is nothing to map yet. Read the course syllabus under Files, and add the course’s published learning objectives in Course settings.'
     :st===400||st===403||st===404?esc(msg||'The request was refused.')+' Nothing was saved.'
-    :'The model did not answer in time (it was asked twice), so nothing was built or saved. Build again in a minute.';
+    :'The model did not answer in time (it was tried again automatically), so nothing was built or saved. Build again in a minute.';
   $('#bpMeta').innerHTML=`<div class="bperr" role="alert"><b>Could not build the coverage map.</b> ${why}${kept?' The saved coverage map below is unchanged.':''}</div>`; }
 async function loadBlueprint(){ if(!$('#blueprintPanel')) return; bpProposal=null;
   try{ bpRender(await api(`/courses/${cid}/blueprint`),false); }
@@ -2317,6 +2335,8 @@ const rdWeek=t=>{ const m=((bpSaved&&bpSaved.topics)||[]).find(x=>x.topic===t.to
 function rdShare(t){ const m=((bpSaved&&bpSaved.topics)||[]).find(x=>x.topic===t.topic)||{}, basis=(bpSaved&&bpSaved.basis)||'';
   if((basis==='weeks'||basis==='objectives')&&('share' in m)&&!(+m.share>0)) return m.share_unit==='objectives'?'not tied to a stated objective':'not tied to a syllabus week';
   if(basis==='none'||!t.weight) return 'no share computed';
+  const ts=(bpSaved&&bpSaved.topics)||[];      // a per-week map: every topic the same %, so name its week instead
+  if(basis==='weeks'&&ts.length>1&&new Set(ts.map(x=>+x.weight||0)).size===1&&(m.weeks||[]).length) return bpWeeks(m.weeks);
   if(basis==='model') return `${t.weight}% (older model estimate, not counted from the syllabus)`;
   return `${t.weight}% of ${m.share_unit==='objectives'?'the stated objectives':'the syllabus'}`; }
 async function loadReadiness(){ const panel=$('#readinessPanel'); if(!panel) return;

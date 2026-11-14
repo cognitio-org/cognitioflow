@@ -130,12 +130,15 @@ button.srcopen:focus-visible{outline:2px solid var(--accent);outline-offset:2px;
 .bpmeta .bpcount,.bpmeta .bpsrc{margin-top:.15rem}
 .bpcalm{margin:.2rem 0 .35rem;padding:.55rem .75rem;border:1px solid var(--rule);border-left:3px solid var(--gilt);border-radius:var(--r);color:var(--ink)}
 .bpcalm b{font-weight:600}
-.bpobjectives{margin:.7rem 0 .4rem;padding:.6rem .8rem;border:1px solid var(--rule);border-radius:var(--r)}
-.bpobjectives h4{margin:0 0 .35rem;font-size:var(--fs-sm);font-weight:600}
-.bpobjs{margin:0;padding-left:1.4rem;display:grid;gap:.4rem}
-.bpobjs li{line-height:1.4}
-.bpobjtxt{display:block}
-.bpobjmap{display:block}
+.bpobj{margin:.9rem 0 .2rem}
+.bpobjhead{display:grid;grid-template-columns:auto 1fr;column-gap:.6rem;row-gap:.1rem;align-items:baseline;padding:.45rem 0 .35rem;border-top:1px solid var(--rule)}
+.bpobjn{font-size:var(--fs-xs);font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--graphite);white-space:nowrap}
+.bpobjtxt{font-weight:600;line-height:1.35}
+.bpobjmap{grid-column:2}
 .bpobjgap{color:var(--warn)}
+.bpobj .bptopic{margin-left:.2rem}
+.bpobj .bptopic+.bptopic{margin-top:.75rem}
+.bpobjbar{grid-column:2;margin-top:.3rem}
+.bpflat{white-space:nowrap}
 .rdnext{margin:.5rem 0 .2rem}
 .rdgo{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.35rem}
