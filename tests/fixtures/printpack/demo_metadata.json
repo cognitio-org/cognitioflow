@@ -1,0 +1,72 @@
+{
+ "from": "demo-course/metadata.json (Cellar notices), 2026-11-13",
+ "documents": [
+  {
+   "id": "dassonville-8-74",
+   "title": "Procureur du Roi v Benoit and Gustave Dassonville",
+   "case_number": "Case 8/74",
+   "judgment_date": "1974-07-11",
+   "ecli": "ECLI:EU:C:1974:82"
+  },
+  {
+   "id": "cassis-de-dijon-120-78",
+   "title": "Rewe-Zentral AG v Bundesmonopolverwaltung fuer Branntwein (\"Cassis de Dijon\")",
+   "case_number": "Case 120/78",
+   "judgment_date": "1979-02-20",
+   "ecli": "ECLI:EU:C:1979:42"
+  },
+  {
+   "id": "keck-mithouard-267-91",
+   "title": "Criminal proceedings against Bernard Keck and Daniel Mithouard",
+   "case_number": "Joined Cases C-267/91 and C-268/91",
+   "judgment_date": "1993-11-24",
+   "ecli": "ECLI:EU:C:1993:905"
+  },
+  {
+   "id": "commission-v-italy-trailers-c-110-05",
+   "title": "Commission v Italy (\"motorcycle trailers\")",
+   "case_number": "Case C-110/05",
+   "judgment_date": "2009-02-10",
+   "ecli": "ECLI:EU:C:2009:66"
+  },
+  {
+   "id": "ker-optika-c-108-09",
+   "title": "Ker-Optika bt v ANTSZ Del-dunantuli Regionalis Intezete",
+   "case_number": "Case C-108/09",
+   "judgment_date": "2010-12-02",
+   "ecli": "ECLI:EU:C:2010:725"
+  },
+  {
+   "id": "van-gend-en-loos-26-62",
+   "title": "NV Algemene Transport- en Expeditie Onderneming van Gend & Loos v Netherlands Inland Revenue Administration",
+   "case_number": "Case 26/62",
+   "judgment_date": "1963-02-05",
+   "ecli": "ECLI:EU:C:1963:1"
+  },
+  {
+   "id": "costa-v-enel-6-64",
+   "title": "Flaminio Costa v E.N.E.L.",
+   "case_number": "Case 6/64",
+   "judgment_date": "1964-07-15",
+   "ecli": "ECLI:EU:C:1964:66"
+  },
+  {
+   "id": "simmenthal-106-77",
+   "title": "Amministrazione delle Finanze dello Stato v Simmenthal SpA",
+   "case_number": "Case 106/77",
+   "judgment_date": "1978-03-09",
+   "ecli": "ECLI:EU:C:1978:49"
+  },
+  {
+   "id": "marshall-152-84",
+   "title": "M. H. Marshall v Southampton and South-West Hampshire Area Health Authority (Teaching)",
+   "case_number": "Case 152/84",
+   "judgment_date": "1986-02-26",
+   "ecli": "ECLI:EU:C:1986:84"
+  }
+ ],
+ "ecr_pages": {
+  "Case 26/62": "1",
+  "Case 6/64": "585"
+ }
+}
