@@ -109,10 +109,15 @@ button.srcopen:focus-visible{outline:2px solid var(--accent);outline-offset:2px;
    past it showed through ("Start studying" sat on the Readiness subtitle). A solid strip the width of the page sits
    under the pill there: content scrolls under the strip, never under the pill, and the page end clears it. */
 #progress{padding-bottom:3.5rem}
+.rdlabel{margin:.35rem 0 .1rem;padding:.2rem .55rem;border:1px dashed var(--gilt);border-radius:6px;color:var(--ink);display:inline-block}
+.rdnextlist{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.3rem}
 @media(max-width:1300px){
   body::after{content:"";position:fixed;left:0;right:0;bottom:0;height:3.1rem;background:var(--paper);
     border-top:1px solid var(--rule);z-index:44;pointer-events:none}
   main{padding-bottom:4.5rem}
+  /* The strip is fixed to the viewport, so a panel captured or read to its last row must carry its own clearance:
+     the strip then lands on the panel's padding, never on its last objective. */
+  #blueprintPanel,#readinessPanel{padding-bottom:3.8rem}
 }
 @media(prefers-reduced-motion:reduce){.bpbar i{transition:none}}
 /* Exam readiness — per examined doctrine; ready/shaky/weak on the ok/gilt/bad scale */

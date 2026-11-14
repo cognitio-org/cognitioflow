@@ -28,6 +28,9 @@ BRIEF_FIELDS = [
     # Where those objectives come from, shown on the coverage panel next to the schedule's source ("written for
     # this demo, not a university course's"). Display only: it is not sent to the tutor.
     ("objectives_source", "Where the objectives come from", "text"),
+    # Set only on a seeded demo course: the Readiness panel then says its card and recall figures are demo study
+    # data, never a real student's progress. Display only: it is not sent to the tutor.
+    ("study_data_note", "Label for seeded study data", "text"),
     ("exam_format", "Exam format", "long"),
     ("exam_date", "Exam date", "date"),
     ("assessment_weighting", "Assessment weighting", "text"),

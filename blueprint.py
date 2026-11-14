@@ -282,8 +282,15 @@ DEMO_AUTHORITIES = {
 _BY_TITLE = {re.sub(r"\s+", " ", k).strip().lower(): v for k, v in DEMO_AUTHORITIES.items()}
 
 
-def curated_chips(week_title):
-    """The written authority chips for a demo-schedule week, or None when the week is not one of them."""
+DEMO_OBJECTIVE_MARK = "State the prohibitions in Articles 34 and 35 TFEU"
+
+
+def curated_chips(week_title, objective_texts=None):
+    """The written authority chips for a demo-schedule week, or None when the week is not one of them or the course
+    does not carry the written-for-demo objectives (another course with the same week titles keeps the model's
+    chips)."""
+    if not any(DEMO_OBJECTIVE_MARK in str(o) for o in (objective_texts or [])):
+        return None
     rows = _BY_TITLE.get(re.sub(r"\s+", " ", str(week_title or "")).strip().lower())
     return [r["chip"] for r in rows] if rows else None
 
@@ -315,7 +322,7 @@ def _from_units(raw, known_weeks, objective_texts, week_info):
             topics = info.get("topics") or []
             # The demo course's authority chips are written, not asked for (blueprint_authorities); any other
             # course keeps what the model named.
-            written = curated_chips(info.get("title"))
+            written = curated_chips(info.get("title"), objective_texts)
             rows.append({"topic": name, "weeks": [n], "objectives": _first(u, "lo", "objectives") or [],
                          "doctrines": written if written is not None else (_first(u, "law", "doctrines") or []),
                          "note": ("Covers " + "; ".join(topics) + ".") if topics else ""})

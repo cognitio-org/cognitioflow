@@ -13,6 +13,7 @@ import pytest
 import blueprint as bp
 import course_brief as cb
 
+DEMO_OBJ_SAMPLE = "A1. State the prohibitions in Articles 34 and 35 TFEU and the derogation grounds."
 ROOT = Path(__file__).resolve().parents[1]
 DEMO = ROOT / "docs" / "demo"
 SEED = json.loads((DEMO / "eu-public-demo-course.json").read_text())
@@ -42,8 +43,10 @@ def _rows():
 def test_every_demo_week_has_written_chips_and_nothing_else_does():
     titles = [w["title"] for w in WEEKS]
     assert len(titles) == 9 and set(bp.DEMO_AUTHORITIES) == set(titles)
-    assert all(bp.curated_chips(t) for t in titles)
-    assert bp.curated_chips("Competition law: Art 102 TFEU") is None
+    OBJ = [DEMO_OBJ_SAMPLE]
+    assert all(bp.curated_chips(t, OBJ) for t in titles)
+    assert bp.curated_chips(titles[0]) is None      # another course with the same week title keeps the model's chips
+    assert bp.curated_chips("Competition law: Art 102 TFEU", [DEMO_OBJ_SAMPLE]) is None
 
 
 def test_every_case_is_the_triple_name_number_ecli_of_one_source_document():
@@ -73,7 +76,7 @@ def test_every_article_exists_and_is_cited_only_for_its_pairing():
 
 def test_chips_carry_no_duplicates_and_stay_under_the_cap():
     for w in WEEKS:
-        chips = bp.curated_chips(w["title"])
+        chips = bp.curated_chips(w["title"], [DEMO_OBJ_SAMPLE])
         assert len(chips) == len(set(chips)) <= bp.MAX_LIST
 
 
@@ -143,7 +146,7 @@ def test_no_demo_file_names_an_exam_source_or_a_rug_course():
     for f in (DEMO / "eu-public-demo-course.json", DEMO / "eu-demo-learning-objectives.md",
               ROOT / "blueprint.py"):
         text = f.read_text()
-        assert not FORBIDDEN.search(text.replace("No readers, slides, past exams or exam material were used.", "")), f
+        assert not FORBIDDEN.search(text), f
         assert not re.search(r"RUG|Groningen", text.replace("University of Groningen course", ""), re.I) or f.suffix == ".md"
 
 

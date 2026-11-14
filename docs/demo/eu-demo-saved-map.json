@@ -1,0 +1,176 @@
+{
+ "_about": "The demo course's saved coverage map as the live Kernal build produced it (w6, 20 identical fresh builds). For the human legal read (checklist M6c); its hash is pinned by tests/test_blueprint_w6.py (M6d).",
+ "basis": "weeks",
+ "weeks_total": 9,
+ "objectives_total": 13,
+ "topics": [
+  {
+   "topic": "Articles 34 to 36 TFEU: the prohibition and its derogations",
+   "weeks": [
+    1
+   ],
+   "objectives": [
+    1
+   ],
+   "weight": 11,
+   "share": 1.0,
+   "share_of": 9,
+   "doctrines": [
+    "Art 34 TFEU",
+    "Art 35 TFEU",
+    "Art 36 TFEU"
+   ],
+   "note": "Covers Prohibition of import and export restrictions; Measures having equivalent effect; Derogation grounds in Article 36; Old and new numbering."
+  },
+  {
+   "topic": "Dassonville and Cassis de Dijon: the broad MEQR test and mutual recognition",
+   "weeks": [
+    2
+   ],
+   "objectives": [
+    2,
+    3
+   ],
+   "weight": 11,
+   "share": 1.0,
+   "share_of": 9,
+   "doctrines": [
+    "Art 34 TFEU",
+    "Dassonville (Case 8/74)",
+    "Cassis de Dijon (Case 120/78)"
+   ],
+   "note": "Covers The Dassonville formula; Mutual recognition; Mandatory requirements."
+  },
+  {
+   "topic": "Keck: product requirements and selling arrangements",
+   "weeks": [
+    3
+   ],
+   "objectives": [
+    4
+   ],
+   "weight": 11,
+   "share": 1.0,
+   "share_of": 9,
+   "doctrines": [
+    "Art 34 TFEU",
+    "Keck and Mithouard (C-267/91 and C-268/91)"
+   ],
+   "note": "Covers Product requirements; Selling arrangements; The two Keck conditions."
+  },
+  {
+   "topic": "Market access and use restrictions: Commission v Italy (trailers)",
+   "weeks": [
+    4
+   ],
+   "objectives": [
+    5,
+    7
+   ],
+   "weight": 11,
+   "share": 1.0,
+   "share_of": 9,
+   "doctrines": [
+    "Art 34 TFEU",
+    "Art 36 TFEU",
+    "Commission v Italy, trailers (C-110/05)"
+   ],
+   "note": "Covers The three-part summary; Market access; Use restrictions; Road safety as justification."
+  },
+  {
+   "topic": "Internet sales and justification: Ker-Optika",
+   "weeks": [
+    5
+   ],
+   "objectives": [
+    6,
+    7
+   ],
+   "weight": 11,
+   "share": 1.0,
+   "share_of": 9,
+   "doctrines": [
+    "Art 34 TFEU",
+    "Art 36 TFEU",
+    "Commission v Italy, trailers (C-110/05)",
+    "Ker-Optika (C-108/09)"
+   ],
+   "note": "Covers Keck applied to internet sales; Appropriateness and necessity; Public health as justification."
+  },
+  {
+   "topic": "Solving a free-movement-of-goods problem question",
+   "weeks": [
+    6
+   ],
+   "objectives": [
+    8
+   ],
+   "weight": 11,
+   "share": 1.0,
+   "share_of": 9,
+   "doctrines": [
+    "Art 34 TFEU",
+    "Art 36 TFEU",
+    "Dassonville (Case 8/74)",
+    "Keck and Mithouard (C-267/91 and C-268/91)",
+    "Ker-Optika (C-108/09)"
+   ],
+   "note": "Covers Is the measure an MEQR; Product requirement, selling arrangement or use restriction; Justification; Proportionality."
+  },
+  {
+   "topic": "Direct effect: Van Gend en Loos and the preliminary reference",
+   "weeks": [
+    7
+   ],
+   "objectives": [
+    9,
+    13
+   ],
+   "weight": 11,
+   "share": 1.0,
+   "share_of": 9,
+   "doctrines": [
+    "Art 267 TFEU",
+    "Van Gend en Loos (Case 26/62)"
+   ],
+   "note": "Covers A new legal order; Conditions for direct effect; The preliminary reference procedure."
+  },
+  {
+   "topic": "Primacy: Costa v ENEL and Simmenthal",
+   "weeks": [
+    8
+   ],
+   "objectives": [
+    10,
+    11
+   ],
+   "weight": 11,
+   "share": 1.0,
+   "share_of": 9,
+   "doctrines": [
+    "Costa v ENEL (Case 6/64)",
+    "Simmenthal (Case 106/77)"
+   ],
+   "note": "Covers The Treaty's own legal system; Primacy over national law; The national court's duty to set aside."
+  },
+  {
+   "topic": "Directives: Marshall and the limits of direct effect",
+   "weeks": [
+    9
+   ],
+   "objectives": [
+    12,
+    13
+   ],
+   "weight": 11,
+   "share": 1.0,
+   "share_of": 9,
+   "doctrines": [
+    "Art 288 TFEU",
+    "Art 267 TFEU",
+    "Marshall (Case 152/84)"
+   ],
+   "note": "Covers The legal effect of directives; No horizontal direct effect; Directives against the State as employer."
+  }
+ ]
+}

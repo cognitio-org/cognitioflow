@@ -2307,8 +2307,10 @@ function bpObjectives(b,co,showConf){ const topics=(b&&b.topics)||[], nW=co.week
     const wk=[...new Set(all.flatMap(t=>(t.weeks||[]).map(Number)))].sort((a,c)=>a-c);
     const pc=nW&&wk.length?Math.round(wk.length*100/nW):0;
     const share=pc?`${pc}% of the syllabus · ${bpWeeks(wk).toLowerCase()} (${wk.length} of ${nW})`:'';
-    return `<section class="bpobj"><div class="bpobjhead"><span class="bpobjn">Objective ${n}</span>`+
-      `<span class="bpobjtxt">${esc(txt)}</span>`+
+    const code=(String(txt).match(/^([A-Z]\d{1,2})[.:)]\s+/)||[])[1];      // the pack's own code ("A1."): shown once, not twice
+    const body=code?String(txt).replace(/^[A-Z]\d{1,2}[.:)]\s+/,''):txt;
+    return `<section class="bpobj"><div class="bpobjhead"><span class="bpobjn">Objective ${n}${code?` · ${esc(code)}`:''}</span>`+
+      `<span class="bpobjtxt">${esc(body)}</span>`+
       (all.length?(share?`<span class="bpobjmap small muted">${esc(share)}</span>`:'')
         :`<span class="bpobjmap small bpobjgap">Not mapped to any topic yet</span>`)+
       (flat&&pc?`<div class="bpbar bpobjbar"><i style="width:${pc}%"></i></div>`:'')+`</div>`+
@@ -2353,7 +2355,7 @@ function bpRender(b,proposed){ const topics=(b&&b.topics)||[], co=bpCourse();
   // the mapping by reading it (no hovering an "Objective N" chip).
   $('#bpTopics').innerHTML=topics.length?(co.objs.length?bpObjectives(b,co,showConf):topics.map(t=>bpTopicRow(t,b,co,showConf,bpFlat(topics))).join('')):
     (proposed?'<div class="emptystate"><b>No topics found</b><span>Nothing in the syllabus or the stated objectives read as a topic. Read the course syllabus under Files and add the learning objectives in Course settings, then build again.</span></div>':
-      (co.weeks.length||co.objs.length?'<div class="emptystate"><b>No coverage map yet</b><span>Press “Build coverage map” to map the course’s stated learning objectives and syllabus weeks.</span></div>'
+      (co.weeks.length||co.objs.length?`<div class="emptystate"><b>No coverage map yet</b><span>Press “Build coverage map” to map ${co.objs.length&&co.weeks.length?'the course’s stated learning objectives and syllabus weeks':co.objs.length?'the course’s stated learning objectives':'the syllabus weeks'}.</span></div>`
         :'<div class="emptystate"><b>Nothing to map yet</b><span>Read the course syllabus under Files, or add the course’s published learning objectives in Course settings — then build the map.</span></div>'));
   const bits=[], src=co.objs.length&&co.weeks.length?'the stated learning objectives and the syllabus weeks'
     :co.objs.length?'the stated learning objectives':'the syllabus weeks';
@@ -2416,6 +2418,7 @@ async function loadReadiness(){ const panel=$('#readinessPanel'); if(!panel) ret
   let d; try{ [d,bpSaved]=await Promise.all([api(`/courses/${cid}/readiness`),api(`/courses/${cid}/blueprint`).catch(()=>null)]); }catch(e){ panel.hidden=true; return; }
   if(!d||!d.blueprint){ panel.hidden=true; return; }     // only meaningful once a blueprint is saved
   panel.hidden=false;
+  const note=String((((C()&&C().brief)||{}).study_data_note)||'').trim(), dn=$('#rdDemo'); if(dn){ dn.hidden=!note; dn.textContent=note; }
   const bs=(d.overall||{}).by_status||{};
   $('#rdOverall').innerHTML=`<span class="rdband r-ready">${bs.ready||0} ready</span>`+
     `<span class="rdband r-shaky">${bs.shaky||0} shaky</span><span class="rdband r-weak">${bs.weak||0} weak</span>`+
@@ -2424,6 +2427,7 @@ async function loadReadiness(){ const panel=$('#readinessPanel'); if(!panel) ret
     const sub=[t.cards_total?`${t.cards_total} card${t.cards_total===1?'':'s'}`:'no cards yet'];
     if(t.cards_due) sub.push(`${t.cards_due} due`);
     if(t.drills_attempted) sub.push(`recall ${t.drills_passed}/${t.drills_attempted}`);
+    if(t.status!=='gap') sub.push(`score ${pct}%`);          // so the band is recomputable from the rule above
     return `<div class="rdtopic s-${esc(t.status)}">`+
       `<div class="rdline"><span class="rddot" aria-hidden="true"></span><span class="rdname">${esc(t.topic)}</span>`+
       `<span class="rdstatus">${esc(t.status)}</span></div>`+
@@ -2435,19 +2439,28 @@ async function loadReadiness(){ const panel=$('#readinessPanel'); if(!panel) ret
   const order={gap:0,weak:1,shaky:2}, next=d.topics.filter(t=>t.status in order)
     .sort((a,c)=>order[a.status]-order[c.status]||(a.score||0)-(c.score||0)).slice(0,2);
   const nx=$('#rdNext'); if(nx){ nx.hidden=!next.length;
-    nx.innerHTML=next.length?`<b>Study next:</b> ${next.map(t=>`${esc(t.topic)} <span class="muted">(${esc(t.status)})</span>`).join(' · ')}`:''; }
+    nx.innerHTML=next.length?`<b>Focus list — study next</b> <span class="muted">(weakest first: ${next.length===1?'the one topic':'the two topics'} to work on now, by the bands above)</span><div class="rdnextlist">`+
+      next.map(t=>`<button class="btn small" type="button" data-rdgo="${esc(t.topic)}" title="${rdWeek(t)&&t.cards_total?'Opens this topic’s cards':'Opens the tutor drilling this topic'}">${esc(t.topic)} <span class="muted">(${esc(t.status)})</span></button>`).join('')+`</div>`:''; }
   $('#rdTopics').innerHTML=d.topics.length?d.topics.map(row).join(''):
     '<div class="emptystate"><b>No topics yet</b><span>Save a coverage map of the stated learning objectives first.</span></div>';
+  const rdGo=name=>{ const t=d.topics.find(x=>x.topic===name); if(!t) return;
+    if(rdWeek(t)&&t.cards_total){ rweak=false; rweek=rdWeek(t); show('recall'); }
+    else { const m=((bpSaved&&bpSaved.topics)||[]).find(x=>x.topic===name)||{}; show('tutor'); setMode('drill');
+      $('#q').value=`Drill me on ${name}${(m.doctrines||[]).length?` (${m.doctrines.slice(0,3).join(', ')})`:''}.`; $('#q').focus(); } };
+  if(nx) nx.querySelectorAll('[data-rdgo]').forEach(b=>b.onclick=()=>rdGo(b.dataset.rdgo));
   $('#rdTopics').querySelectorAll('[data-rdcards]').forEach(b=>b.onclick=()=>{ rweak=false; rweek=b.dataset.rdcards; show('recall'); });
   $('#rdTopics').querySelectorAll('[data-rdask]').forEach(b=>b.onclick=()=>{ const m=((bpSaved&&bpSaved.topics)||[]).find(x=>x.topic===b.dataset.rdask)||{};
     show('tutor'); setMode('drill'); const docs=(m.doctrines||[]).slice(0,3).join(', ');
     $('#q').value=`Drill me on ${b.dataset.rdask}${docs?` (${docs})`:''}.`; $('#q').focus(); });
   const tg=d.tagging||{},foot=$('#rdFoot');
   if(foot){ if(tg.total){ foot.hidden=false;
-      $('#rdCoverage').textContent=tg.untagged
+      const byWeek=!tg.tagged&&d.topics.some(t=>t.cards_total>0);     // cards filed under a syllabus week are counted for that week's topic
+      $('#rdCoverage').textContent=byWeek
+        ? `${tg.total} cards counted under the syllabus week each is filed in. Sorting them by topic is optional.`
+        : tg.untagged
         ? `${tg.tagged} of ${tg.total} cards sorted into these topics — sort the rest so each topic counts exactly its own cards`
         : `all ${tg.total} cards sorted into these topics`;
-      const b=$('#rdTag'); b.hidden=!tg.untagged; b.textContent=tg.tagged?'Sort the remaining cards':'Sort cards into topics';
+      const b=$('#rdTag'); b.hidden=!tg.untagged||byWeek; b.textContent=tg.tagged?'Sort the remaining cards':'Sort cards into topics';
     } else foot.hidden=true; } }
 /* Tag cards to the objective topics so readiness counts the right cards. One model pass over untagged cards. */
 $('#rdTag')&&($('#rdTag').onclick=async()=>{ const b=$('#rdTag'),was=b.textContent; b.disabled=true; b.textContent='Tagging…';
