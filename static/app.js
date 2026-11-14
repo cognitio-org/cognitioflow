@@ -673,16 +673,15 @@ function ccFind(text){ text=String(text||''); const f=[];
   f.sort((a,b)=>a[0]-b[0]||(a[1]<b[1]?-1:a[1]>b[1]?1:0)); const seen=new Set(), out=[];
   for(const [,kind,raw,norm] of f) if(!seen.has(norm)){ seen.add(norm); out.push({kind,raw,norm}) } return out; }
 function ccSame(c,k){ if(c.kind==='article'&&k.kind==='article'&&c.norm.split(' ').length===2) return c.norm===k.norm.split(' ').slice(0,2).join(' '); return c.norm===k.norm; }
-/* citecheck._treaty_article: a bare "Article 34" answers "Art 34 TFEU" only in a file whose heading names the TFEU
-   and no other instrument, and not where the file ties it to another one ("of the Services Directive", "ex … TEC"). */
-const CC_TITLE={tfeu:/treaty\s+on\s+the\s+functioning\s+of\s+the\s+european\s+union|(?<![\p{L}\p{N}_])tfeu(?![\p{L}\p{N}_])/iu,
-  teu:/treaty\s+on\s+european\s+union|(?<![\p{L}\p{N}_])teu(?![\p{L}\p{N}_])/iu, charter:/charter\s+of\s+fundamental\s+rights/iu};
-const CC_QUAL=/^(?:\s*(?:,\s*)?(?:of|van)(?![\p{L}\p{N}_])|\s+(?:tec|ec|eec|eu|echr|evrm|bw)(?![\p{L}\p{N}_]))/iu;
+/* citecheck._treaty_article: a bare "Article 34" answers "Art 34 TFEU" only in a file whose heading gives the TFEU's
+   full title and no other Treaty's, and only an article heading on a line of its own, as the Treaty prints it. */
+const CC_TITLE={tfeu:/treaty\s+on\s+the\s+functioning\s+of\s+the\s+european\s+union/iu, teu:/treaty\s+on\s+european\s+union/iu,
+  charter:/charter\s+of\s+fundamental\s+rights/iu};
 function ccTreatyArt(c,text){ text=String(text||''); const p=c.norm.split(' ');
   if(c.kind!=='article'||p.length!==3||!CC_TITLE[p[2]]) return null; const head=text.slice(0,400);
   const named=Object.keys(CC_TITLE).filter(k=>CC_TITLE[k].test(head)); if(named.length!==1||named[0]!==p[2]) return null;
   for(const m of text.matchAll(CC_ART)){ if(m[3]||`art ${m[1].toLowerCase()}${m[2]||''}`!==p.slice(0,2).join(' ')) continue;
-    const e=m.index+m[0].length; if(CC_QUAL.test(text.slice(e,e+40))||/(?<![\p{L}\p{N}_])ex\s+$/iu.test(text.slice(Math.max(0,m.index-6),m.index))) continue;
+    const e=m.index+m[0].length; if(!(m.index===0||/(?:^|\n)[ \t]*$/.test(text.slice(Math.max(0,m.index-40),m.index)))||!/^[ \t]*(?:\r?\n|$)/.test(text.slice(e))) continue;
     return m; } return null; }
 function ccUnverified(answer,sources){ const known=sources.flatMap(ccFind), text=sources.join('\n');
   return ccFind(answer).filter(c=>!known.some(k=>ccSame(c,k))&&!(c.kind==='case'&&ccBare(c.norm.slice(2),text))&&!sources.some(s=>ccTreatyArt(c,s))); }

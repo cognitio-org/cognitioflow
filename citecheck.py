@@ -36,14 +36,15 @@ def _same(cited: dict, known: dict) -> bool:
 
 # The Treaty itself prints "Article 34", never "Article 34 TFEU", so with the consolidated TFEU ticked "Art 34 TFEU"
 # was flagged. A bare "Article 34" answers a cited "Art 34 TFEU" only inside a file whose heading names that Treaty
-# and no other, and only where the file does not tie it to another instrument: "Article 34 of the Services
-# Directive", "(ex Article 28 TEC)". A lecture that says "Article 34" somewhere is no proof of which one it means.
+# (its full title, not "TFEU": a lecture says "Article 56 TFEU" in its first lines) and no other, and only an article
+# heading on a line of its own, as the Treaty prints it - never "Article 34 of the Services Directive" or
+# "(ex Article 28 TEC)". A lecture that says "Article 34" in a sentence is no proof of which one it means.
 _HEAD = 400
-_TITLE = {"tfeu": re.compile(r"(?i)treaty\s+on\s+the\s+functioning\s+of\s+the\s+european\s+union|\btfeu\b"),
-          "teu": re.compile(r"(?i)treaty\s+on\s+european\s+union|\bteu\b"),
+_TITLE = {"tfeu": re.compile(r"(?i)treaty\s+on\s+the\s+functioning\s+of\s+the\s+european\s+union"),
+          "teu": re.compile(r"(?i)treaty\s+on\s+european\s+union"),
           "charter": re.compile(r"(?i)charter\s+of\s+fundamental\s+rights")}
-_QUAL = re.compile(r"(?i)\s*(?:,\s*)?(?:of|van)(?!\w)|\s+(?:tec|ec|eec|eu|echr|evrm|bw)(?!\w)")
-_EX = re.compile(r"(?i)\bex\s+$")
+_LINE_START = re.compile(r"(?:^|\n)[ \t]*$")
+_LINE_END = re.compile(r"[ \t]*(?:\r?\n|$)")
 
 
 def _treaty_article(cited: dict, text: str) -> bool:
@@ -57,7 +58,7 @@ def _treaty_article(cited: dict, text: str) -> bool:
     for m in _ART.finditer(text):
         if m.group(3) or f"art {m.group(1).lower()}{m.group(2) or ''}" != " ".join(parts[:2]):
             continue
-        if _QUAL.match(text, m.end()) or _EX.search(text[max(0, m.start() - 6):m.start()]):
+        if not (_LINE_START.search(text[max(0, m.start() - 40):m.start()]) or m.start() == 0) or not _LINE_END.match(text, m.end()):
             continue
         return True
     return False

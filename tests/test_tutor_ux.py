@@ -87,7 +87,7 @@ def _decl(name):
 
 
 _PURE = ["cfEsc", "cfTermRe", "cfExcerpt", "CF_ECLI", "CF_CASE", "cfCites", "cfHinted", "cfSourceItems",
-         "CC_ECLI", "ccFind", "ccSame", "CC_TITLE", "CC_QUAL", "ccTreatyArt", "ccUnverified", "ccBare", "CF_TAG_ANY", "cfTagNorm", "cfLiveTidy"]
+         "CC_ECLI", "ccFind", "ccSame", "CC_TITLE", "ccTreatyArt", "ccUnverified", "ccBare", "CF_TAG_ANY", "cfTagNorm", "cfLiveTidy"]
 
 
 def _node(body, data, names=None):
