@@ -447,3 +447,29 @@ def test_answered_from_comes_back_after_a_reload_for_the_matching_question_only(
     assert "s.q===String(lastQ||'').trim()" in JS and "cfRestoreReading(lastQ)" in JS
     assert "remembered in this browser" in JS
     assert "try{ localStorage.setItem('cf.reading.'" in JS, "storage can throw in a private window"
+
+
+# ---- M3: nothing ticked is loud (wave 5) -------------------------------------------------------------------
+
+@_needs_node
+def test_nothing_ticked_shows_a_no_sources_warning_and_says_nothing_was_checked():
+    names = ["cfNoSourcesNeeded"]
+    got = _node("console.log(JSON.stringify([cfNoSourcesNeeded(0),cfNoSourcesNeeded(2),cfNoSourcesNeeded(null)]))", {}, names)
+    assert got == [True, False, False]          # null = not counted yet: no false alarm
+    src = JS
+    assert "No sources selected" in src and "none of its citations were checked" in src
+    assert "does not mean they are right" in src   # the missing banner must not read as 'all found'
+    # all three render paths call it: live send, reloaded answer, study-desk tutor
+    assert src.count("cfNoSourcesNeeded(tutorTickedN)") == 3
+    assert "cfNoSources(d,true)" in src
+
+
+# ---- M2(a): a line that cites something gets a chip even when the tutor wrote no tag (wave 5) --------------------
+
+def test_untagged_citing_lines_get_a_check_chip_in_every_render_path():
+    assert "function cfAutoChips(d)" in JS and "CHECK IN FILES" in JS
+    assert JS.count("cfAutoChips(d); cfSources(d)") == 3          # live send, reload, study desk
+    body = _decl("cfAutoChips")
+    assert "b.querySelector('.src')" in body                       # a line the tutor already tagged is left alone
+    assert "blockquote" in body                                    # the 'Next:' question is not a claim
+    assert "The tutor gave this line no source tag" in JS          # the panel does not say the tutor tagged it

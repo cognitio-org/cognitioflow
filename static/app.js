@@ -292,8 +292,8 @@ async function deskAsk(q,m){ q=(q||'').trim(); if(!q||deskBusy) return;
       for(const l of parts){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; let j; try{ j=JSON.parse(p) }catch(_){ continue }
         if(j.error) err+='\n[error] '+j.error; else if(j.unverified) unverified=j.unverified; else if(typeof j.t==='string'){ acc+=j.t; d.classList.remove('thinking'); d.textContent=acc.replace(CF_SPEECH,''); $('#stLog').scrollTop=$('#stLog').scrollHeight; } } } }
   catch(e){ err+='\n[error] '+e.message; }
-  d.classList.remove('thinking'); const ans=(acc.replace(CF_SPEECH,'')+err).trim(); await render(d,cfTagNorm(ans)||'No answer came back — ask again.'); cfChips(d); cfSources(d);
-  cfFlag(d,unverified); if(acc.trim()) cfFoot(d);
+  d.classList.remove('thinking'); const ans=(acc.replace(CF_SPEECH,'')+err).trim(); await render(d,cfTagNorm(ans)||'No answer came back — ask again.'); cfChips(d); cfAutoChips(d); cfSources(d);
+  if(cfNoSourcesNeeded(tutorTickedN)&&acc.trim()) cfNoSources(d); cfFlag(d,unverified); if(acc.trim()) cfFoot(d);
   $('#stLog').scrollTop=$('#stLog').scrollHeight; deskBusy=false; $('#stSend').disabled=false; $('#stQ').focus({preventScroll:true}); }
 $('#stAsk').addEventListener('submit',e=>{ e.preventDefault(); deskAsk($('#stQ').value,'drill'); });
 $('#stQ').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); deskAsk($('#stQ').value,'drill'); } });
@@ -599,7 +599,7 @@ function cfTok(chars){ return chars<4000?'under 1k':'≈ '+Math.round(chars/4000
 function cfSaveBtn(act,raw,q){ const sv=document.createElement('button'); sv.className='btn small ghost'; sv.textContent='Save as note';
   sv.onclick=async()=>{const t=(raw.match(/^#\s*(.+)$/m)||[])[1]||String(q||'').slice(0,60)||'Tutor answer'; const r=await post(`/courses/${cid}/notes`,{title:t,body:raw}); sv.textContent='Saved to Notes'; sv.disabled=true; nid=r.id};
   act.appendChild(sv); return sv; }
-let tutorTickedN=0;   // how many files go with a question when retrieval does not narrow them
+let tutorTickedN=null;   // how many files go with a question when retrieval does not narrow them
 /* One Reading-list row: the same source-type badge as Files (so the kind is named, not just a coloured dot), then the
    file's title, which opens it. */
 function ctxItem(f,ranks){ return `<li>${authChip(f,ranks)}<button type="button" class="srcopen" data-open-src="${esc(f.id)}" title="Open ${esc(f.name)}">${esc(f.label||f.name)}</button></li>`; }
@@ -613,7 +613,7 @@ async function loadTutor(){ if(speakOn) cfWarm();   // the voice is already on: 
   const ms=await api(`/courses/${cid}/messages`); const ch=$('#chat'); ch.innerHTML=''; let lastQ='';
   ms.forEach(m=>{ if(m.role!=='assistant'){ lastQ=m.content||''; addMsg(m.role,m.content); return }
     const sm=(m.content||'').match(/^\s*<speech>([\s\S]*?)<\/speech>\s*/), body=sm?m.content.slice(sm[0].length):m.content, q=lastQ;
-    const d=addMsg('assistant',body); if(sm) d.dataset.said=sm[1].trim(); render(d,cfTagNorm(body)).then(()=>{ cfSaid(d); cfMark(d); cfSources(d); if(body.trim()&&!body.startsWith('[error]')){ cfSaveBtn(cfFoot(d),body.trim(),q); cfRecheck(d,body) } }) }); { const bx=$('#ctxAnswer'); if(bx) bx.hidden=true; } if(ms.length&&ms[ms.length-1].role==='assistant') cfRestoreReading(lastQ); if(!ms.length) addMsg('assistant',`Tutor for ${C().name}. Tick files in Files, then ask — or say "drill me on ${(()=>{ const g=sel.find(f=>!isAnswerFile(f)&&f.role!=='admin'); return g?(g.label||g.name.replace(/\.\w+$/,'')):'this week' })()}".`); ch.scrollTop=ch.scrollHeight;
+    const d=addMsg('assistant',body); if(sm) d.dataset.said=sm[1].trim(); render(d,cfTagNorm(body)).then(()=>{ cfSaid(d); cfMark(d); cfAutoChips(d); cfSources(d); if(body.trim()&&!body.startsWith('[error]')){ cfSaveBtn(cfFoot(d),body.trim(),q); if(cfNoSourcesNeeded(tutorTickedN)) cfNoSources(d,true); else cfRecheck(d,body) } }) }); { const bx=$('#ctxAnswer'); if(bx) bx.hidden=true; } if(ms.length&&ms[ms.length-1].role==='assistant') cfRestoreReading(lastQ); if(!ms.length) addMsg('assistant',`Tutor for ${C().name}. Tick files in Files, then ask — or say "drill me on ${(()=>{ const g=sel.find(f=>!isAnswerFile(f)&&f.role!=='admin'); return g?(g.label||g.name.replace(/\.\w+$/,'')):'this week' })()}".`); ch.scrollTop=ch.scrollHeight;
 }
 let mmTheme=null;   // the scheme mermaid was last initialised for, so a theme switch re-inits rather than latching
 function mmSetup(){
@@ -678,6 +678,15 @@ function cfChips(d){ const walk=document.createTreeWalker(d,NodeFilter.SHOW_TEXT
       const c=document.createElement('span'); c.className='src'+(/^(OUTSIDE FILES|ADDED)$/.test(m[1])?' flag':''); const first=(m[2]||'').split(/[;,]/)[0].trim();
       c.textContent=m[1]+(first?' · '+(first.length>26?first.slice(0,25)+'…':first):''); c.title=m[0].slice(1,-1); f.append(c); last=m.index+m[0].length; }
     f.append(n.nodeValue.slice(last)); n.replaceWith(f); } }
+/* The tutor tags a line only when it thinks of a lecture, WG or reader file; on a course of public judgments it often
+   tags nothing, so a real citation had no chip to click and a made-up one showed the box but no panel (wave 5, live run
+   on the demo course). Every line that cites a case, ECLI or article and carries no chip gets one, so "where does this
+   appear in your files" is always one click away. The words stay the tutor's: this only adds the button. */
+function cfAutoChips(d){ d.querySelectorAll('p,li').forEach(b=>{
+  if(b.closest('blockquote,.srcpanel,.cf-flag,.said,.tact,.tstatus')||b.querySelector('.src')) return;
+  const line=[...b.childNodes].map(n=>n.textContent).join(''); const terms=[...cfCites(line),...(line.match(CF_ART)||[])];
+  if(!terms.length) return; const c=document.createElement('span'); c.className='src auto'; c.textContent='CHECK IN FILES';
+  c.title='CHECK: the tutor gave no source tag; this looks up '+[...new Set(terms.map(t=>t.trim()))].slice(0,3).join(', ')+' in your ticked files'; b.append(' ',c); }); }
 /* The tutor writes its source tags in more shapes than [TAG] and [TAG: file] — [LECTURE, *Lecture 2 notes*],
    [OUTSIDE FILES — unverified, do not cite] — and those reached the screen as raw brackets (pitch baseline
    tutor-03, 2026-11-13): marked split the italics out of them, so no text node held a whole tag. Each is
@@ -753,6 +762,13 @@ async function cfRecheck(d,answer){ const text=String(answer||'').replace(/<spee
     const src=got.filter(Boolean); if(!src.length) return;
     const miss=ccUnverified(text,src).map(c=>c.raw); if(miss.length&&!d.querySelector('.cf-flag')) cfFlag(d,miss,true); }catch(_){ } }
 function cfFlag(d,list,reloaded){ if(!list||!list.length) return; const box=cfFlagBox(list,reloaded); const said=d.querySelector(':scope > .said'); if(said) said.after(box); else d.prepend(box); cfWarnChips(d,list); }
+/* Nothing ticked: no citation can be checked, and an absent "Not in your materials" box must not read as "all found". */
+function cfNoSourcesNeeded(ticked){ return ticked===0; }   /* null = not counted yet: say nothing rather than guess */
+function cfNoSourcesBox(reloaded){ const w=document.createElement('div'); w.className='unverified cf-flag cf-nosrc'; w.setAttribute('role','note');
+  const h=document.createElement('div'); h.className='cf-flag-h'; h.textContent='No sources selected'; w.append(h);
+  const p=document.createElement('div'); p.textContent='No file is ticked, so this answer was written without your materials and none of its citations were checked. The absence of a "Not in your materials" warning here does not mean they are right.'; w.append(p);
+  const n=document.createElement('div'); n.className='cf-flag-note'; n.textContent=reloaded?'Shown because no file is ticked now. Tick files in Files and ask again to have the citations checked.':'Tick files in Files and ask again to have every case, article and ECLI checked against them.'; w.append(n); return w; }
+function cfNoSources(d,reloaded){ if(d.querySelector('.cf-nosrc')) return; const box=cfNoSourcesBox(reloaded); const said=d.querySelector(':scope > .said'); if(said) said.after(box); else d.prepend(box); }
 /* A source chip on a line that cites something flagged above: tinted, so the contradiction shows without a click. */
 function cfWarnChips(d,list){ d.querySelectorAll('.src').forEach(c=>{ const b=c.closest('p,li,blockquote,td'); if(!b) return;
   const line=[...b.childNodes].filter(n=>!(n.nodeType===1&&n.matches('.src,.srcpanel'))).map(n=>n.textContent).join('');
@@ -803,7 +819,7 @@ function cfSourceItems(hits,ids,texts,term,hint){
     .sort((x,y)=>cfHinted(y.h,hint)-cfHinted(x.h,hint)).slice(0,2)
     .map(x=>({h:x.h,ex:x.ex,cites:cfCites(x.ex.pre+x.ex.hit+x.ex.post)})); }
 /* The terms one line is looked up by: its case numbers and ECLIs, its italic names, its articles. */
-function cfLineTerms(line,italics){ return [...new Set([...cfCites(line),...(italics||[]).map(t=>t.trim()).filter(t=>t.length>2&&t.length<60),...(line.match(CF_ART)||[]).map(s=>s.trim())])].slice(0,8); }
+function cfLineTerms(line,italics){ return [...new Set([...cfCites(line),...(italics||[]).map(t=>t.trim()).filter(t=>t.length>2&&t.length<60&&/^\p{Lu}/u.test(t)),...(line.match(CF_ART)||[]).map(s=>s.trim())])].slice(0,8); }
 /* A term worth saying "not found" about: a citation or an "X v Y" name. A word in italics for emphasis is not one. */
 const cfReportable=t=>cfCites(t).length>0||(t.match(CF_ART)||[]).length>0||/\S\s+v\.?\s+\S/.test(t);
 /* Every term on the line is looked up in the full text of every ticked file (the text the citation check reads, so
@@ -845,7 +861,7 @@ async function cfSourcePanel(chip){ const d=chip.closest('.msg,.st-msg'); const 
   wait.remove(); const {missed,quiet,shown,also}=plan;
   if(missed.length) say('srcmiss',`No passage in your ticked files names ${missed.join(', ')}.`);
   if(quiet.length) say('srcname',`Check the name: your ticked files do not print ${quiet.join(', ')} — compare it with the case named in the passage below.`);
-  if(!shown.length) say('muted',(terms.length?'':'This line names no case or article to look up. ')+`The tutor tagged it ${kind}${hint?' · '+hint:''} — open that file to check.`);
+  if(!shown.length) say('muted',(terms.length?'':'This line names no case or article to look up. ')+`${chip.classList.contains('auto')?'The tutor gave this line no source tag':`The tutor tagged it ${kind}${hint?' · '+hint:''}`} — open that file to check.`);
   else if(missed.length) say('muted',`Showing where ${shown.flatMap(x=>x.terms).join(', ')} ${shown.flatMap(x=>x.terms).length===1?'appears':'appear'}:`);
   for(const {terms:ts,h,ex,cites} of shown){ const item=document.createElement('div'); item.className='srcitem';
     const w=document.createElement('div'); w.className='srcterm'; w.textContent='Names '+ts.join(', ')+(ex.inst?` — printed “${ex.hit}” in the ${ex.inst==='charter'?'Charter':ex.inst.toUpperCase()} text itself`:''); item.append(w);
@@ -1269,8 +1285,9 @@ async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_
   }catch(e){err+='\n[error] '+e.message}
   clearTimeout(d._liveT); d._liveT=null; cfStatusEnd(d); d.classList.remove('waiting');
   if(spk&&!spk.closed){ const m=acc.match(/<speech>([\s\S]*)/); if(m) spk.push(m[1].slice(said)); spk.close(); spk.closed=true; }
-  let raw=(acc.replace(CF_SPEECH,'')+err).trim(); const sm=raw.match(/<speech>([\s\S]*?)<\/speech>\s*$/); if(sm){ d.dataset.speech=sm[1].trim(); raw=raw.replace(sm[0],'').trim() } await render(d,cfTagNorm(raw)); cfSaid(d); cfMark(d); cfSources(d);
+  let raw=(acc.replace(CF_SPEECH,'')+err).trim(); const sm=raw.match(/<speech>([\s\S]*?)<\/speech>\s*$/); if(sm){ d.dataset.speech=sm[1].trim(); raw=raw.replace(sm[0],'').trim() } await render(d,cfTagNorm(raw)); cfSaid(d); cfMark(d); cfAutoChips(d); cfSources(d);
   lastSpeech=d.dataset.speech||raw.replace(/```[\s\S]*?```/g,' (see the diagram on screen) ');
+  if(cfNoSourcesNeeded(tutorTickedN)&&raw&&!raw.startsWith('[error]')) cfNoSources(d);
   if(d.dataset.unverified) cfFlag(d,JSON.parse(d.dataset.unverified));   // cited by the tutor, found in none of the ticked files: check before relying on it
   if(raw && !raw.startsWith('[error]')){
     const act=cfFoot(d); const sv=cfSaveBtn(act,raw,q); d.appendChild(act);
