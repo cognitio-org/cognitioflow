@@ -1,8 +1,10 @@
-<title>CognitioFlow</title>
-<meta name="claude:viewport-fit-sides" content="cover">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Space+Mono:wght@400;700&family=Newsreader:ital,opsz@1,18..72&display=swap">
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="CognitioFlow is an independent student study tool that works from the lectures, notes and readers a law student ticks.">
+<title>CognitioFlow &mdash; study law from your own sources</title>
 <style>
 /* Deep tinted obsidian, layered surfaces, 1px specular rim-light instead of drop shadow, OKLCH glow.
    Cyan is the one working accent; indigo lives only in the ambient light + constellation; gold only verifies. */
@@ -14,9 +16,9 @@
   --cyan:#3ad6c6; --cyan-soft:rgba(58,214,198,.12);
   --indigo:#6f7bff;
   --gold:#e5a93c; --gold-soft:rgba(229,169,60,.1);   /* Legal Gold — law-book gilding, the one authority accent */
-  --sans:"DM Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
-  --mono:"Space Mono",ui-monospace,monospace;
-  --serif:"Newsreader",Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --serif:Georgia,"Times New Roman",serif;
   --ease:cubic-bezier(.16,1,.3,1);
   color-scheme:dark;
 }
@@ -39,7 +41,7 @@ header{padding-block:24px}
 .glyph{width:15px;height:15px;border-radius:5px;border:1px solid var(--line2);position:relative;background:var(--surface)}
 .glyph::after{content:"";position:absolute;inset:3px;border-radius:2px;background:var(--cyan);box-shadow:0 0 10px rgba(58,214,198,.7)}
 .nav{display:flex;gap:26px}
-.nav a{font-family:var(--mono);font-size:12px;color:var(--muted);text-decoration:none;transition:color .16s var(--ease)}
+.nav a{font-family:var(--mono);font-size:12px;color:var(--muted);text-decoration:none;transition:color .16s var(--ease);display:inline-flex;align-items:center;min-height:44px}
 .nav a:hover{color:var(--fg)}
 
 /* cursor-following specular rim — a hairline that lights where the pointer is */
@@ -82,29 +84,20 @@ h1{font-weight:700;font-size:clamp(2.5rem,5.2vw,3.75rem);line-height:1.05;letter
 .tag.n{color:var(--muted);border-color:var(--line2);background:rgba(255,255,255,.035)}
 .verify{display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-family:var(--mono);font-size:11px;color:var(--gold);
   border:1px solid rgba(220,192,136,.34);background:var(--gold-soft);border-radius:7px;padding:5px 9px}
-.spark{display:flex;align-items:flex-end;gap:3px;margin-top:16px;height:24px}
-.spark i{width:5px;border-radius:2px;background:var(--line2);transform-origin:bottom;animation:bar 2.4s var(--ease) infinite}
-.spark i.on{background:var(--cyan);box-shadow:0 0 8px rgba(58,214,198,.4)}
-@keyframes bar{0%,100%{transform:scaleY(.85)}50%{transform:scaleY(1)}}
 
-section{padding-block:108px}
+section{padding-block:72px}
 .kick{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);margin:0 0 14px}
 h2{font-weight:700;font-size:clamp(1.65rem,3vw,2.05rem);line-height:1.15;letter-spacing:-.02em;margin:0 0 10px;max-width:20ch}
 .sub{color:var(--muted);max-width:56ch;margin:0;font-size:16px}
 
-.bento{display:grid;grid-template-columns:1.5fr 1fr;gap:16px;margin-top:40px}
+.bento{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:40px}
 .card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px;overflow:hidden;
   box-shadow:0 1px 0 var(--rim) inset;transition:transform .16s var(--ease),border-color .16s var(--ease),background .16s var(--ease)}
 .card:hover{transform:translateY(-1.5px);border-color:var(--line2);background:var(--surface2)}
 .card h3{font-weight:600;font-size:18px;letter-spacing:-.015em;margin:0 0 7px}
 .card p{margin:0;color:var(--muted);font-size:14.5px;line-height:1.55}
 .card .lab{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:14px;display:block}
-.hero-card{grid-row:span 2;display:flex;flex-direction:column;min-height:300px}
-.hero-card .viz{flex:1;margin:18px -22px -22px;border-top:1px solid var(--line);position:relative;
-  background:radial-gradient(120% 90% at 50% 120%, oklch(.5 .13 270 / .22), transparent 60%),linear-gradient(170deg,#0c0e13,#08090d)}
-.hero-card .viz::before{content:"";position:absolute;left:22px;right:22px;top:46%;height:1px;
-  background:linear-gradient(90deg,transparent,rgba(220,192,136,.5),transparent)}
-.hero-card .viz span{position:absolute;left:22px;bottom:16px;font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--muted)}
+.hero-card{}
 
 .method{display:grid;grid-template-columns:230px 1fr;gap:28px;margin-top:40px}
 .method .steps{display:flex;flex-direction:column}
@@ -123,103 +116,133 @@ footer{position:relative;z-index:3;padding-block:40px 56px;border-top:1px solid 
   display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--faint)}
 footer a{color:var(--cyan);text-decoration:none}
 
-/* scroll-reveal: short travel (12px), snappy, once */
-.rise{opacity:0;transform:translateY(12px);transition:opacity .6s var(--ease),transform .6s var(--ease)}
-.rise.in{opacity:1;transform:none}
-.d1{transition-delay:.04s}.d2{transition-delay:.12s}.d3{transition-delay:.2s}
-@media (max-width:820px){.hero{grid-template-columns:1fr;gap:32px}.bento{grid-template-columns:1fr}.hero-card{grid-row:auto;min-height:200px}.hero-card .viz{flex:none;min-height:84px}.method{grid-template-columns:1fr}.quote{grid-template-columns:1fr}.nav{display:none}}
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.rise{opacity:1;transform:none}}
-</style>
+@media (max-width:1000px){.bento{grid-template-columns:1fr}}
+@media (max-width:820px){.hero{grid-template-columns:1fr;gap:32px;padding-block:28px 40px}.bento{grid-template-columns:1fr}.hero-card{grid-row:auto}.method{grid-template-columns:1fr}.quote{grid-template-columns:1fr}.nav{display:none;position:absolute;right:0;top:100%;z-index:10;flex-direction:column;gap:0;min-width:200px;background:var(--surface2);border:1px solid var(--line2);border-radius:12px;padding:6px}.nav.open{display:flex}.nav a{padding:12px 14px}.bar{position:relative}section{padding-block:56px}.stick{position:static}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
-<canvas id="fx"></canvas>
-<svg class="grain" xmlns="http://www.w3.org/2000/svg"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.82" numOctaves="2" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(#n)"/></svg>
+.menu{display:none;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0 14px;font-family:var(--mono);font-size:12px;color:var(--fg);background:var(--surface);border:1px solid var(--line2);border-radius:10px;cursor:pointer}
+a:focus-visible,button:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+.ident{margin:0 0 4px;padding:12px 16px;font-size:14px;line-height:1.5;color:var(--fg-dim);border:1px solid var(--line2);border-radius:12px;background:var(--surface)}
+.ident b{color:var(--fg);font-weight:600}
+.ex{margin:14px 0 0;font-family:var(--mono);font-size:11px;color:var(--faint)}
+.tablewrap{margin-top:28px;border:1px solid var(--line);border-radius:14px;background:var(--surface);overflow-x:auto}
+.dtable{width:100%;border-collapse:collapse;font-size:14px;line-height:1.5;min-width:760px}
+.dtable th,.dtable td{padding:14px 16px;text-align:left;vertical-align:top;border-top:1px solid var(--line);color:var(--muted)}
+.dtable thead th{border-top:0;font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:400}
+.dtable tbody th{color:var(--fg);font-weight:600;width:20%}
+.dtable td:nth-child(2){width:30%}.dtable td:nth-child(3){width:16%}
+.note{max-width:78ch;margin:24px 0 0;font-size:14.5px;color:var(--muted)}
+.note a,.who a{color:var(--cyan)}
+footer a{display:inline-block;padding:10px 2px}
+@media (max-width:820px){.dtable{min-width:0}.dtable thead{display:none}.dtable,.dtable tbody,.dtable tr,.dtable th,.dtable td{display:block;width:auto!important}.dtable tr{padding:12px 0;border-top:1px solid var(--line)}.dtable tr:first-child{border-top:0}.dtable th,.dtable td{border:0;padding:4px 16px}.dtable td:nth-child(2)::before{content:"Who: ";color:var(--faint)}.dtable td:nth-child(3)::before{content:"Where: ";color:var(--faint)}.dtable td:nth-child(4)::before{content:"How long: ";color:var(--faint)}.tablewrap{overflow-x:visible}}
+@media (max-width:820px){.menu{display:inline-flex}}
+</style>
+</head>
+<body>
+<canvas id="fx" aria-hidden="true"></canvas>
+<svg class="grain" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.82" numOctaves="2" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(#n)"/></svg>
 
 <div class="wrap">
   <header>
     <div class="bar">
       <div class="brand"><span class="glyph"></span>CognitioFlow</div>
-      <nav class="nav"><a href="#engine">engine</a><a href="#method">method</a><a href="#data">your data</a></nav>
+      <button class="menu" id="menuBtn" type="button" aria-expanded="false" aria-controls="nav">Menu</button>
+      <nav class="nav" id="nav" aria-label="Sections"><a href="#engine">Engine</a><a href="#method">Method</a><a href="#data">Your data</a><a href="/static/privacy.html">Privacy notice</a></nav>
     </div>
   </header>
 
+  <p class="ident" id="ident"><b>Made by an LLB student at the University of Groningen.</b> Independent student project &mdash; not affiliated with or endorsed by the University of Groningen.</p>
+
   <div class="hero">
     <div>
-      <div class="eyebrow rise d1"><span class="pulse"></span>AI study engine &middot; for law students</div>
-      <h1 class="rise d1">Study law from<br>your own sources.</h1>
-      <p class="lede rise d2">CognitioFlow drills, explains and quizzes you &mdash; working from the lectures, working-group notes and readers you tick. When you tick files, it shows the excerpts it used. In tutor chat with files ticked, it flags EU case numbers (C-/T-), ECLIs and article references it cannot find in those files. Cases cited by name only, and national-law citations, are not checked.</p>
-      <div class="cta rise d2">
+      <div class="eyebrow"><span class="pulse"></span>AI study tool &middot; for law students</div>
+      <h1>Study law from<br>your own sources.</h1>
+      <p class="lede">CognitioFlow drills, explains and quizzes you from the lectures, working-group notes and readers you tick. When you tick files, it shows the excerpts it used. In tutor chat with files ticked, it flags EU case numbers (C-/T-), ECLIs and article references it cannot find in those files. Article numbers are matched without the treaty or act name. Cases cited by name only, and national-law citations, are not checked.</p>
+      <div class="cta">
         <a class="btn pri" href="/auth/login">Launch the app</a>
         <a class="btn sec" href="#engine">How it works</a>
-        <span class="kbd">grounded in <b>the files you tick</b></span>
       </div>
     </div>
-    <div class="panel spec rise d3">
-      <div class="top"><span class="dot"></span>TUTOR<span class="sp">EU LAW &middot; WEEK 6</span></div>
+    <div class="panel spec" aria-label="Example tutor answer">
+      <div class="top"><span class="dot"></span>TUTOR<span class="sp">EXAMPLE &middot; EU LAW</span></div>
       <div class="body">
         <p class="q">Can a Member State justify a quantitative restriction on imports?</p>
-        <p class="a">Only within the exhaustive grounds of <span class="tag">WG</span> Art. 36 TFEU, and the measure must be proportionate <span class="tag n">LECTURE</span>. Mandatory requirements extend this for indistinctly-applicable measures (see C-999/97).</p>
+        <p class="a">Only on a ground listed in Art. 36 TFEU, which is read strictly and cannot be extended <span class="tag">WG</span>. Rules that apply to domestic and imported goods alike may also be accepted if necessary to meet a mandatory requirement <span class="tag n">LECTURE</span>. A measure that goes further than needed fails (see C-999/97).</p>
         <div class="verify">Not in your materials: C-999/97 &mdash; check before you rely on it.</div>
-        <div class="spark"><i style="height:30%"></i><i style="height:45%"></i><i style="height:40%"></i><i class="on" style="height:62%"></i><i class="on" style="height:70%"></i><i class="on" style="height:88%"></i></div>
+        <p class="ex">Illustration of the tutor&rsquo;s layout, not a live answer.</p>
       </div>
     </div>
   </div>
 
   <section id="engine">
-    <p class="kick rise">01 &mdash; the engine</p>
-    <h2 class="rise">A tutor that works from your syllabus &mdash; and says when it steps outside it.</h2>
-    <p class="sub rise">A general chatbot answers from anywhere. When you tick files, CognitioFlow retrieves from them, shows what it drew on, and flags some cited authorities it can&rsquo;t find in them. It is still AI-generated: check it against your materials.</p>
+    <p class="kick">01 &mdash; the engine</p>
+    <h2>A tutor that works from your files and flags what it cannot find in them.</h2>
+    <p class="sub">A general chatbot answers from anywhere. When you tick files, CognitioFlow retrieves from them, shows what it drew on, and flags some cited authorities it cannot find in them. Answers, decks and print output are AI-generated and carry the label &ldquo;<span data-ai-label>AI-generated. Verify every case, article and year against your own materials.</span>&rdquo;</p>
     <div class="bento">
-      <div class="card hero-card spec rise d1">
+      <div class="card hero-card spec">
         <span class="lab">Citation check</span>
         <h3>Flags what it can&rsquo;t find in your materials.</h3>
-        <p>In tutor chat with files ticked, it flags EU case numbers (C-/T-), ECLIs and article references it cannot find in those files. Cases cited by name only, and national-law citations, are not checked. It checks that the reference appears in your files &mdash; not that the holding or the paragraph is right. That part is still yours to check.</p>
-        <div class="viz"><span>EXISTS IN SOURCES &middot; NOT A HOLDING CHECK</span></div>
+        <p>In tutor chat with files ticked, it flags EU case numbers (C-/T-), ECLIs and article references it cannot find in those files. Article numbers are matched without the treaty or act name. Cases cited by name only, and national-law citations, are not checked. It checks that the reference appears in your files &mdash; not that the holding or the paragraph is right. That part is still yours to check.</p>
       </div>
-      <div class="card spec rise d2">
+      <div class="card spec">
         <span class="lab">Provenance</span>
-        <h3>Answers that show their sources.</h3>
+        <h3>Answers that show their sources when you tick files.</h3>
         <p>When you tick files, answers come with the excerpts they drew on, and your files carry their type &mdash; lecture, working group, slides, reader &mdash; so you can weigh the authority yourself.</p>
       </div>
-      <div class="card spec rise d3">
+      <div class="card spec">
         <span class="lab">Adaptive</span>
         <h3>Revision that tracks your gaps.</h3>
-        <p>Drills built from your own content, bringing back the cards and topics you got wrong, more often.</p>
+        <p>Spaced-repetition scheduling brings back cards you rate Again or Hard sooner. A weak-topics list ranks syllabus weeks from your last 20 card reviews and your last two marked essay drafts.</p>
       </div>
     </div>
   </section>
 
   <section id="method">
-    <p class="kick rise">02 &mdash; the method</p>
+    <p class="kick">02 &mdash; the method</p>
     <div class="method">
       <div class="stick">
-        <h2 class="rise">Built around the structure of a legal answer.</h2>
-        <p class="sub rise">Explanations and print packs walk through the steps a free-movement answer takes, not just the facts.</p>
+        <h2>Built around the structure of a legal answer.</h2>
+        <p class="sub">In application mode the tutor is instructed to work through three steps and to end with a two-sentence bottom line. Print packs list the same three steps for weeks whose notes use them.</p>
       </div>
       <div class="steps">
-        <div class="row rise d1"><span class="n">01</span><div><b>Applicability</b> &mdash; <span>does the rule reach these facts at all?</span></div></div>
-        <div class="row rise d1"><span class="n">02</span><div><b>Restriction &amp; scope</b> &mdash; <span>how far does it extend, and where does it stop?</span></div></div>
-        <div class="row rise d2"><span class="n">03</span><div><b>Justification &amp; proportionality</b> &mdash; <span>is the interference justified, and proportionate?</span></div></div>
-        <div class="row rise d2"><span class="n">04</span><div><b>Conclusion</b> &mdash; <span>answer the question asked, in your own words.</span></div></div>
+        <div class="row"><span class="n">01</span><div><b>Applicability</b> &mdash; <span>does the rule reach these facts at all?</span></div></div>
+        <div class="row"><span class="n">02</span><div><b>Restriction or scope</b> &mdash; <span>how far does it extend, and where does it stop?</span></div></div>
+        <div class="row"><span class="n">03</span><div><b>Justification and proportionality</b> &mdash; <span>is the interference justified, and proportionate?</span></div></div>
       </div>
     </div>
   </section>
 
   <section id="data">
-    <p class="kick rise">03 &mdash; where your data goes</p>
-    <h2 class="rise">Plainly, today.</h2>
-    <p class="sub rise">Course material and questions you send to the tutor are processed by Anthropic (Claude) by default; if you pick another model in the tutor, the same material goes to OpenAI or Google (USA). Requests reach these providers via a router operated by a third party; its own log retention is not yet confirmed. For bulk tasks such as flashcards and summaries, material is processed by Google Vertex AI in the USA, and some bulk tasks may first be tried on a free-tier model through OpenRouter. By default, Anthropic, OpenAI and Google do not train on this data; Anthropic deletes it within 30 days and OpenAI keeps it for up to 30 days. The free-tier lane carries no such assurance. Lecture transcription and the spoken tutor run on Google Cloud in the EU (europe-west4). Live dictation and read-aloud use Google endpoints that are not region-pinned and may be processed outside the EU. Embeddings are computed inside the app. No zero-retention or EU-only guarantee applies today.</p>
+    <p class="kick">03 &mdash; your data</p>
+    <h2>Where your data goes</h2>
+    <p class="sub">What leaves the app, who processes it, where, and how long they keep it. Checked 14 November 2026.</p>
+    <div class="tablewrap">
+    <table class="dtable">
+      <thead><tr><th scope="col">What</th><th scope="col">Who processes it</th><th scope="col">Where</th><th scope="col">How long</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Tutor chat and your ticked files</th><td>Anthropic (Claude) by default. If you pick another model in the tutor: OpenAI or Google. Reached through a router run by a third party.</td><td>USA or not region-pinned</td><td>Anthropic deletes API inputs and outputs within 30 days. OpenAI keeps abuse-monitoring logs up to 30 days. Google may log prompts for abuse monitoring. The router&rsquo;s own retention is not confirmed.</td></tr>
+        <tr><th scope="row">Bulk tasks: flashcards, summaries, notes</th><td>Google Vertex AI (Gemini), through the same router and in the router operator&rsquo;s Google Cloud project.</td><td>USA</td><td>Not confirmed</td></tr>
+        <tr><th scope="row">Lecture transcription and the spoken tutor</th><td>Google Cloud, in CognitioFlow&rsquo;s own project</td><td>europe-west4 (Netherlands)</td><td>Not confirmed</td></tr>
+        <tr><th scope="row">Live dictation and read-aloud</th><td>Google Cloud, in CognitioFlow&rsquo;s own project</td><td>Not region-pinned; may be outside the EU</td><td>Not confirmed</td></tr>
+        <tr><th scope="row">Search over your files (embeddings)</th><td>Computed inside the app; no provider receives the text for this step.</td><td>The app&rsquo;s own server</td><td>Stored with your files</td></tr>
+        <tr><th scope="row">Your account, files, notes and cards</th><td>CognitioFlow&rsquo;s own database (Neon) and storage bucket (Google Cloud)</td><td>Database in Frankfurt</td><td>Until you delete it</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">Anthropic, OpenAI and Google state in their published API terms that they do not train on API data by default. </p>
+    <p class="note">Those are the providers&rsquo; own terms: CognitioFlow reaches them through the router, whose agreements and logging we have not seen, and has no contract of its own with Google for the router route. Text sent to the tutor and to bulk tasks is processed in the USA or in places that are not region-pinned. No zero-retention or EU-only guarantee applies today. <a href="/static/privacy.html">Read the full privacy notice.</a></p>
   </section>
 
   <section id="about">
     <div class="quote">
-      <blockquote class="rise">&ldquo;I built the study tool I wanted for my own law degree &mdash; one that works from my own course materials and shows its sources.&rdquo;</blockquote>
-      <div class="who rise d1"><b>Made by an LLB student</b><br>at the University of Groningen.<br>Independent student project &mdash; not affiliated with or endorsed by the University of Groningen.</div>
+      <blockquote>&ldquo;I built the study tool I wanted for my own law degree &mdash; one that works from my own course materials and shows its sources.&rdquo;</blockquote>
+      <div class="who"><b>Made by an LLB student</b><br>at the University of Groningen.<br>Independent student project &mdash; not affiliated with or endorsed by the University of Groningen.</div>
     </div>
   </section>
 
   <footer>
-    <div>COGNITIOFLOW &mdash; independent student project, not affiliated with or endorsed by the University of Groningen</div>
-    <div><a href="https://cognitioflow.ai">cognitioflow.ai</a></div>
+    <div>CognitioFlow &mdash; independent student project, not affiliated with or endorsed by the University of Groningen</div>
+    <div><a href="/static/privacy.html">Privacy notice</a> &middot; <a href="https://cognitioflow.ai">cognitioflow.ai</a></div>
   </footer>
 </div>
 
@@ -236,18 +259,13 @@ footer a{color:var(--cyan);text-decoration:none}
     });
   });
 
-  /* 2) Scroll reveal — add .in once, short snappy travel */
-  if (reduce){ document.querySelectorAll('.rise').forEach(function(n){n.classList.add('in');}); }
-  else {
-    var io = new IntersectionObserver(function(es){
-      es.forEach(function(en){ if(en.isIntersecting){ en.target.classList.add('in'); io.unobserve(en.target); } });
-    }, {threshold:.15, rootMargin:'0px 0px -8% 0px'});
-    document.querySelectorAll('.rise').forEach(function(n){io.observe(n);});
-  }
+  /* 2) Mobile menu: a button that opens the section links */
+  var mb=document.getElementById('menuBtn'), nv=document.getElementById('nav');
+  if(mb&&nv){ mb.addEventListener('click',function(){ var o=nv.classList.toggle('open'); mb.setAttribute('aria-expanded',o?'true':'false'); });
+    nv.addEventListener('click',function(e){ if(e.target.tagName==='A'){ nv.classList.remove('open'); mb.setAttribute('aria-expanded','false'); } }); }
 
-  /* 3) Precedent & citation lattice behind the hero — landmark cases as nodes, linked by how they cite
-        one another (applies / distinguishes / limits). A citation pulse travels one edge at a time and
-        the pointer brightens nearby precedents. Capped + paused when hidden; a single static frame for
+  /* 3) Abstract constellation behind the hero: decorative only, no labels and no legal meaning. A pulse travels one edge at a time and
+        the pointer brightens nearby nodes. Capped + paused when hidden; a single static frame for
         reduced-motion, so the lattice still reads without any movement. */
   var cv = document.getElementById('fx');
   if (!cv || !cv.getContext){ return; }
@@ -255,13 +273,13 @@ footer a{color:var(--cyan);text-decoration:none}
   var GOLD='229,169,60', TEAL='58,214,198', LIMIT='224,138,96';  // authority · applies · limits
   /* landmark EU-law precedents: normalized position, authority tier (1 highest), label */
   var N=[
-    {x:.12,y:.30,a:1,l:'Van Gend en Loos'}, {x:.25,y:.56,a:1,l:'Costa v ENEL'},
-    {x:.16,y:.82,a:2,l:'Simmenthal'},       {x:.34,y:.84,a:2,l:'Factortame'},
-    {x:.31,y:.15,a:2,l:'Int. Handelsges.'}, {x:.50,y:.23,a:1,l:'Dassonville'},
-    {x:.64,y:.45,a:1,l:'Cassis de Dijon'},  {x:.79,y:.27,a:1,l:'Keck'},
-    {x:.91,y:.50,a:2,l:'Gourmet'},          {x:.47,y:.67,a:2,l:'Francovich'},
-    {x:.71,y:.72,a:2,l:'Marshall'},         {x:.85,y:.83,a:2,l:'Faccini Dori'},
-    {x:.59,y:.88,a:3,l:'Mangold'},          {x:.41,y:.44,a:3,l:'Consten & Grundig'}
+    {x:.12,y:.30,a:1}, {x:.25,y:.56,a:1},
+    {x:.16,y:.82,a:2},       {x:.34,y:.84,a:2},
+    {x:.31,y:.15,a:2}, {x:.50,y:.23,a:1},
+    {x:.64,y:.45,a:1},  {x:.79,y:.27,a:1},
+    {x:.91,y:.50,a:2},          {x:.47,y:.67,a:2},
+    {x:.71,y:.72,a:2},         {x:.85,y:.83,a:2},
+    {x:.59,y:.88,a:3},          {x:.41,y:.44,a:3}
   ];
   /* edges [from,to,kind]: 0 applies(teal) · 1 distinguishes(gold) · 2 limits(dashed) */
   var E=[[0,1,0],[1,2,0],[2,3,0],[9,3,0],[4,1,0],[5,6,0],[6,7,1],[5,7,1],[7,8,2],[10,11,0],[11,12,1],[5,13,0],[6,9,0]];
@@ -296,7 +314,6 @@ footer a{color:var(--cyan);text-decoration:none}
       var p=P[k], g=near(p), col=N[k].a===1?GOLD:TEAL;
       ctx.fillStyle='rgba('+col+','+(0.5+g*0.4).toFixed(3)+')';
       ctx.beginPath(); ctx.arc(p.x,p.y,N[k].a===1?2.6:1.8,0,6.283); ctx.fill();
-      if(N[k].a===1||g>0.02){ ctx.fillStyle='rgba(210,220,235,'+(0.26+g*0.6).toFixed(3)+')'; ctx.fillText(N[k].l,p.x+7,p.y); }
     }
   }
   function tick(){ draw(Date.now()-t0); raf=requestAnimationFrame(tick); }
@@ -309,3 +326,6 @@ footer a{color:var(--cyan);text-decoration:none}
   if(reduce){ draw(0); } else tick();   /* reduced-motion: one static lattice frame, no animation */
 })();
 </script>
+
+</body>
+</html>
