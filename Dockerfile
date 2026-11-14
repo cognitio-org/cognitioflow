@@ -10,6 +10,14 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
+# Bake the retrieval embedding model into the image. Without this the tutor's passage index can silently stay
+# empty (embed.ready() is False when the weights can't be fetched at runtime) and every tutor prompt falls back
+# to whole files (~50k tokens). Same default as embed.py (EMBED_MODEL / FASTEMBED_CACHE_PATH).
+ENV FASTEMBED_CACHE_PATH=/opt/fastembed
+RUN mkdir -p /opt/fastembed \
+ && python -c "from fastembed import TextEmbedding; list(TextEmbedding(model_name='BAAI/bge-small-en-v1.5', cache_dir='/opt/fastembed').embed(['warm']))" \
+ && chmod -R a+rX /opt/fastembed
+
 COPY run.py llm.py auth.py storage.py migrate.py embed.py retrieval.py schedule.py oral.py essay.py casetrainer.py tts.py course_brief.py blueprint.py readiness.py card_tagging.py concepts.py citecheck.py countdown.py weaktopics.py pack.py mockexam.py docketgen.py relevance.py gateway.py ./
 COPY transcribe/ transcribe/
 COPY scripts/check_env.py scripts/start.sh scripts/
