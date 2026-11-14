@@ -119,6 +119,10 @@ def index_source(db, embed_texts, *, course_id: str, source: str, source_id: str
     if len(vectors) != len(passages):
         raise ValueError(f"embedder returned {len(vectors)} vectors for {len(passages)} passages")
     with db() as d:
+        # One writer per source at a time. Two overlapping re-indexes (a Cloud Run deploy briefly runs two
+        # instances) could otherwise interleave so the slower, older run replaced the newer chunks, or duplicate
+        # them, because the second DELETE cannot see the first writer's uncommitted rows.
+        d.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"chunks:{source}:{source_id}",))
         d.execute("DELETE FROM chunks WHERE source=? AND source_id=?", (source, source_id))
         if not passages:
             return 0
