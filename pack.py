@@ -97,10 +97,11 @@ def _index_word(heading: str) -> str:
         lw = w.lower().strip("-")
         if lw not in _HEAD_STOP and lw not in _ADJECTIVES and len(lw) > 2:
             return lw[:1].upper() + lw[1:]
-    for w in words:
-        lw = w.lower().strip("-")
-        if lw not in _INDEX_FILLER and len(lw) > 2:
-            return lw[:1].upper() + lw[1:]
+    for pool in (_INDEX_FILLER | _ADJECTIVES, _INDEX_FILLER):
+        for w in words:
+            lw = w.lower().strip("-")
+            if lw not in pool and len(lw) > 2:
+                return lw[:1].upper() + lw[1:]
     return ""
 
 
@@ -403,8 +404,10 @@ _NUMBER = re.compile(r"(?<![\w/])\d{1,5}/(\d{2})(?![\d/])")
 # An all-capitals word that is the case's own name stays the CJEU's: 'ERT 260/89' is the CJEU's ERT. A General
 # Court 'T-' or a 'C-' the notes wrote is printed as written and never removed.
 _MARK_WORD = (r"(?:[A-Z][a-z][A-Z]{1,2}|[IVX]{1,5}\s+Z[A-Z]{1,2}|[^\W\d_]{1,8}\.|no|nos|nr|n|App|Appl|Application|"
-              r"[A-BD-EG-SU-Z]|ÚS|STC|ATC|TK|SK|Kp|Ts|BVerfGE?|BGH|BGHZ|VfGH|OGH)")
-_OTHER_COURT = re.compile(r"(?<![\w.])(?!(?i:cf|see|eg|ie|ibid|op|v|vs|paras?|pp?|ed|eds|ch|art|arts)\.)" + _MARK_WORD + r"\s*$")
+              r"[ABDEGHJ-SUWYZ]|ÚS|STC|ATC|TK|SK|Kp|Ts|BVerfGE?|BGH|BGHZ|VfGH|OGH)")
+# not a court's mark: a company form or a citing word ('United Brands Co. 27/76', 'cf. 26/62'), or 'Marshall I'
+_NOT_MARK = r"(?!(?i:cf|see|eg|ie|ibid|op|v|vs|paras?|pp?|ed|eds|ch|art|arts|co|corp|inc|ltd|bros|cie|st|mr|mrs|dr)\.)"
+_OTHER_COURT = re.compile(r"(?:(?<![\w.])" + _NOT_MARK + _MARK_WORD + r"\s*|(?<![\w-])[ABDEGHJ-SUWYZ][-‑])$")
 _OTHER_NUMBER = re.compile(r"(?:\b\d\s+)?(?<![\w.])(?:[A-Z][a-z][A-Z]{1,2}|[IVX]{1,5}\s+Z[A-Z]{1,2})\s+\d{1,5}/\d{2}(?![\d/])")
 _COURT_NAME = re.compile(
     r"(?i)(?:\bECtHR\b|\bE\.?\s?Ct\.?\s?H\.?\s?R\b|\bEComHR\b|Court\s+of\s+Human\s+Rights|Commission\s+of\s+Human\s+Rights|"
@@ -418,7 +421,11 @@ _COURT_NAME = re.compile(
     r"Trybuna\w*|Ústavn\w+\s+s[úo]d|Højesteret|Högsta\s+domstolen|Korkein|Alkotmánybíróság|Areios\s+Pagos|Curtea\s+Constitu\w+)")
 _FOREIGN_SHAPE = re.compile(r"(?<![\w/])\d{1,5}/(?:1[89]|20)\d\d(?![\d/])|(?<![\w/])\d{4,6}/\d{2}(?![\d/])")
 _CJEU_WORDS = {"case", "cases", "joined", "and", "en", "et", "judgment", "judgement", "of", "on", "in", "ecr",
-               "i", "ii", "p", "cjeu", "ecj", "court", "justice", "decided", "delivered", "ruling", "the"}
+               "i", "ii", "p", "cjeu", "ecj", "court", "justice", "decided", "delivered", "ruling", "the",
+               "co", "corp", "inc", "ltd", "sa", "nv", "bv", "ag", "gmbh", "spa", "plc", "cie", "kg", "srl", "sarl"}
+
+
+_NAME_EXTRA = {"case", "cases", "i", "ii", "iii", "co", "corp", "inc", "ltd", "sa", "nv", "bv", "ag", "gmbh", "spa", "plc"}
 
 
 def _words(text: str) -> set:
@@ -439,10 +446,13 @@ def _another_court(cite: str, name: str = "") -> bool:
         before = cite[:m.start()]
         if re.search(r"(?i)\bopinions?\s*$", before): return True        # an Opinion's number: printed as written
         if not m.group(1) and not re.match(r"(?i)(?:joined\s+)?cases?\b", m.group(0)):
-            if _OTHER_COURT.search(before): return True
-            gap = re.sub(r"ECLI:\S+|\bEU:C:\S+|[\[(]\d{4}[\])]", " ", cite[last:m.start()])
-            gap = {w for w in _words(gap) if not re.fullmatch(_MONTHS, w, re.I)}
-            if gap - allowed: return True
+            raw_gap = re.sub(r"ECLI:\S+|\bEU:C:\S+|[\[(]\d{4}[\])]", " ", cite[last:m.start()])
+            gap = {w for w in _words(raw_gap) if not re.fullmatch(_MONTHS, w, re.I)}
+            if re.search(r"[-‑]\s*$", before) and _OTHER_COURT.search(before): return True   # EFTA 'E-9/97'
+            if not gap - allowed: pass                                      # its own name, 'Case', a date, a report
+            elif re.search(r"\s(?:v|vs)\.?\s", " " + raw_gap + " "): pass   # the parties: 'Procureur du Roi v Dassonville, 8/74'
+            else: return True                                               # 'Corte cost. sent.', 'Pl. ÚS', 'K', 'Rewe'
+            if _OTHER_COURT.search(before) and not (_words(before[-12:]) & _words(name)): return True
         last = m.end()
     return False
 
@@ -517,7 +527,7 @@ def _cite_parts(cite: str, name: str = ""):
     rest += (cite or "")[last:]
     rest = _trim(re.sub(r"\s*(?:&|\band\b|\+)\s*(?=$|[,;])", "", rest))
     if re.fullmatch(r"(?i)(?:joined\s+)?cases?|", rest.strip()): rest = ""
-    if dockets and rest and _words(rest) and _words(rest) <= _words(name) | {"case", "cases"}: rest = ""
+    if dockets and rest and not re.search(r"\d", rest) and _words(rest) <= _words(name) | _NAME_EXTRA: rest = ""
     return dockets, rest
 
 
@@ -546,6 +556,23 @@ def _yy_years(*texts) -> set:
     return {(1900 if int(m.group(1)) >= 50 else 2000) + int(m.group(1)) for t in texts for m in _NUMBER.finditer(t or "")}
 
 
+def _court_seg(before: str, number: str) -> str:
+    """In running text ('*Landtová* Pl. ÚS 5/12 found...'), the court's own mark and the number, verbatim, when
+    the words right before the number are another court's mark or name; '' when they are not."""
+    piece = re.split(r"[,:;(]", before)[-1]
+    start = None
+    cm = None
+    for cm in _COURT_NAME.finditer(piece): pass
+    if cm: start = cm.start()
+    elif _OTHER_COURT.search(piece):
+        start = _OTHER_COURT.search(piece).start()
+    if start is None: return ""
+    toks = list(re.finditer(r"\S+", piece[:start]))
+    while toks and re.fullmatch(r"[^\W\d_]{1,8}\.|[A-ZÚ][\w]{0,3}|\d", toks[-1].group(0)):
+        start = toks.pop().start()
+    return (piece[start:].strip() + (" " if not piece.endswith("-") else "") + number).replace("- ", "-").strip()
+
+
 def _from_notes(cases: list, bodies: dict) -> list:
     """What the case index lost on the way from the note, read back from the note itself. run.py's prose reader
     keeps only the bare number after an *italic* name: '2/08' out of '*Lisbon* (2 BvE 2/08)', 'C-402/05' out of
@@ -563,17 +590,27 @@ def _from_notes(cases: list, bodies: dict) -> list:
                     tail = m.string[m.end():m.end() + 90].split("\n", 1)[0]
                     tail = re.split(r"[*;]", tail, maxsplit=1)[0]                # up to the next case named
                     tail = tail[:tail.find(")") + 1] if ")" in tail else tail      # this case's bracket, not the next one's
-                    at = re.search(r"(?<![\w/-])" + re.escape(cite) + r"(?![\d/])", tail)
+                    at = re.search(r"(?<![\w/-])([A-Z][-‑])?" + re.escape(cite) + r"(?![\d/])", tail)
                     if at: hit = (tail, at); break
                 if hit: break
             if hit:
                 tail, at = hit
-                seg = _trim(re.sub(r"^\W*?\(", "", tail[:at.end()], count=1)) if "(" in tail[:at.start()] else ""
+                if "(" in tail[:at.start()]:          # in the bracket after the name: read the bracket up to the number
+                    seg = _trim(re.sub(r"^\W*?\(", "", tail[:at.end()], count=1))
+                    seg = re.sub(r"(?i)^(?:see(?:\s+also)?|cf\.?|e\.g\.,?|also)\s+", "", seg)
+                else:                                 # in running text: only a court's own mark right before it
+                    seg = _court_seg(tail[:at.start()], at.group(0))
+                if at.group(1) and at.group(1)[0] not in "CTF" and not re.match(r"[A-Z]-", cite):
+                    seg = seg or at.group(0)          # another court's letter: the EFTA Court's 'E-9/97'
+                    if not _another_court(seg, name): seg = at.group(0)
                 other = next((o for o in _OTHER_NUMBER.finditer(tail) if o.end() == at.end()), None)
-                if not re.match(r"[CTF]-", cite) and (other or (seg and _another_court(seg, name))):
+                if not re.match(r"[CTF]-", cite) and (other or (seg and (_another_court(seg, name) or seg == at.group(0) and at.group(1)))):
                     c["cite"], c["year"] = (other.group(0) if other else seg).strip(), None   # another court's, verbatim
-                elif re.match(r"\s+P\b", tail[at.end():]) and not cite.endswith(" P"):
-                    c["cite"] = cite + " P"
+                else:
+                    if at.group(1) and not re.match(r"[CTF]-", cite):
+                        c["cite"] = cite = at.group(0)[0] + "-" + cite.split("-", 1)[-1]   # the 'C-' the note wrote
+                    if re.match(r"\s+P\b", tail[at.end():]) and not cite.endswith(" P"):
+                        c["cite"] = cite + " P"
                 y = _explicit_year(tail[at.end():])
                 if y: c["written_year"] = y                                  # a year the note writes for this case stands
         out.append(c)

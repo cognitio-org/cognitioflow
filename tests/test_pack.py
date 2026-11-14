@@ -377,13 +377,14 @@ def test_one_rule_german_courts_print_verbatim():
     assert _row("Solange I", "BVerfGE 37, 271 (1974)") == ("BVerfGE 37, 271 (1974)", 1974, False)
     assert _row("Lisbon", "2 BvE 2/08", 2008) == ("2 BvE 2/08", None, False)
     assert _row("Weiss (BVerfG)", "2 BvR 859/15, 5 May 2020") == ("2 BvR 859/15, 5 May 2020", 2020, False)
-    assert _row("Weiss", "2 BvR 859/15 (on C-62/14)") == ("2 BvR 859/15 (on C-62/14)", None, False)   # never reordered
+    assert _row("Weiss", "2 BvR 859/15 (on C-493/17)") == ("2 BvR 859/15 (on C-493/17)", None, False)   # never reordered
     assert _row("BGH", "BGH IX ZR 123/04") == ("BGH IX ZR 123/04", None, False)
 
 
 def test_one_rule_ecthr_numbers_print_verbatim():
-    for cite in ("Application no. 5856/72", "App no 14038/88", "no. 45036/98", "Appl. 52207/99", "24833/94"):
-        assert _row("Tyrer v UK", cite, 1900 + int(cite[-2:])) == (cite, None, False)   # run.py's year off the number
+    for name, cite in (("Tyrer v UK", "Application no. 5856/72"), ("Soering v UK", "App no 14038/88"),
+                       ("Bosphorus v Ireland", "no. 45036/98"), ("Banković v Belgium", "Appl. 52207/99"), ("Matthews v UK", "24833/94")):
+        assert _row(name, cite, 1900 + int(cite[-2:])) == (cite, None, False)   # run.py's year off the number
     assert _row("Tyrer v United Kingdom (ECtHR)", "5856/72") == ("5856/72", None, False)
 
 
@@ -425,9 +426,9 @@ def test_one_rule_cjeu_and_general_court_cites_are_still_the_cjeus():
 
 
 def test_one_rule_a_year_the_notes_write_wins_and_a_page_never_does():
-    assert _row("Danske", "152/84, Feb 1986", 1986) == ("Case 152/84, Feb 1986", 1986, False)   # month without a day
+    assert _row("Marshall", "152/84, Feb 1986", 1986) == ("Case 152/84, Feb 1986", 1986, False)   # month without a day
     assert _row("Ratti", "Case 148/78, 1629") == ("Case 148/78", 1978, True)     # no judgment before its case: a page
-    assert _row("X", "ECR 1337", 1337) == ("ECR 1337", None, False)              # a figure in the cite is a page
+    assert _row("Lorenz", "ECR 1471", 1471) == ("ECR 1471", None, False)         # a figure in the cite is a page
 
 
 def test_tab_words_come_from_his_index_for_the_right_instrument():
@@ -435,5 +436,29 @@ def test_tab_words_come_from_his_index_for_the_right_instrument():
            "| Art 267 TFEU | Reference |\n| Art 6 TEU | Rights |\n| 3:84 | Basic requirements |"}
     w = {"id": "x", "title": "Week 1 — X", "body": "Art 34 TFEU, Art 267 TFEU, Art 6 TEU, Art 6 TFEU, 3:84 BW, Art 51 Charter"}
     tabs = {t["label"]: t["heading"] for t in pack.build({1: [w]}, [ref], [])["tabs"]}
+    assert pack._index_word("General principles") == "Principles" and pack._index_word("Basic rules") == "Rules"
     assert tabs == {"Art 34 TFEU": "Imports", "Art 267 TFEU": "Reference", "Art 6 TEU": "Rights", "Art 6 TFEU": "",
                     "Art 51 Charter": "", "3:84 BW": "Requirements"}
+
+
+def test_one_rule_cjeu_cites_with_a_party_or_company_word_in_front_stay_the_cjeus():
+    assert _row("Marshall", "Marshall I 152/84") == ("Case 152/84", 1984, True)            # 'I' is not a court's mark
+    assert _row("United Brands", "United Brands Co. 27/76") == ("Case 27/76", 1976, True)   # nor is 'Co.'
+    assert _row("Dassonville", "Procureur du Roi v Dassonville, 8/74")[1:] == (1974, True)  # the parties, 'X v Y'
+    assert _row("Melloni", "C-399/11, cf. 26/62") == ("C-399/11, cf. 26/62", None, False)   # never two cases made one
+
+
+def test_one_rule_in_running_text_and_for_the_efta_court():
+    body = ("*Landtová* Pl. ÚS 5/12 found an ultra vires act. *Granital*, Corte cost. sent. 170/84, on dualism. "
+            "*Polish ruling* K 3/21 on primacy. *Sveinbjörnsdóttir* (E-9/97) on EFTA liability. *Francovich* C-6/90 on damages.")
+    w = {"id": "w1", "title": "Week 1 — Limits", "body": body}
+    t = pack.build({1: [w]}, [], [_n("Landtová", "5/12", 2012, "w1"), _n("Granital", "170/84", 1984, "w1"),
+                                  _n("Polish ruling", "3/21", 2021, "w1"), _n("Sveinbjörnsdóttir", "9/97", 1997, "w1"),
+                                  _n("Francovich", "6/90", 1990, "w1")])["topics"][0]
+    got = {c["name"]: (c["cite"], c["year"], c["numbered"]) for c in t["cases"]}
+    assert got["Landtová"] == ("Pl. ÚS 5/12", None, False)
+    assert got["Granital"] == ("Corte cost. sent. 170/84", None, False)
+    assert got["Polish ruling"] == ("K 3/21", None, False)
+    assert got["Sveinbjörnsdóttir"] == ("E-9/97", None, False)
+    assert got["Francovich"] == ("Case C-6/90", 1990, True)                  # the 'C-' the note wrote comes back
+    assert _row("Restamark", "E-1/94", 1994) == ("E-1/94", None, False)
