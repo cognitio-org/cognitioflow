@@ -91,13 +91,13 @@ and reconcile run on the main tier. A cheap task escalates to the main tier if t
 contrast, IRAC, why, critique, argue). Fable, Opus and anything priced above the main tier are never chosen
 automatically.
 
-**What production does today** (`LLM_PROVIDER=kernal`; checked against the live Cloud Run config on 2026-11-13):
+**What production does today** (`LLM_PROVIDER=kernal`; live Cloud Run config read on 2026-11-13, plus `CF_GATEWAY=off` deployed on 2026-11-14 in #234):
 
 | Feature | Route and model |
 |---|---|
-| Tutor chat (drill, explain, apply), grading, reconcile, Case Docket writer and reviewer | Kernal (a third-party LiteLLM router, `router.kernal.one`) → Anthropic API, `claude-sonnet-5` |
+| Tutor chat (drill, explain, apply), grading, reconcile, Case Docket writer and reviewer | Kernal (a LiteLLM router at `router.kernal.one`, operated by Matej himself, the owner of CognitioFlow; no processing agreement with the providers behind it is on file) → Anthropic API, `claude-sonnet-5` |
 | Summaries, notes, case extraction, chunked passes (cheap tier) | Kernal → Google Vertex AI `gemini-2.5-flash`, served in **us-central1 (USA)** |
-| Flashcards, concepts, syllabus reading, viva questions (`cards`, `concepts`, `syllabus`, `oral`) | Tried first on the gateway lane: OpenRouter, free model `nvidia/nemotron-3-super-120b-a12b:free` (redacted text, one note or file). That model currently lists no endpoints, so these calls most likely fail and fall back to the cheap tier above (unverified). The lane is being switched off with `CF_GATEWAY=off` (see `docs/privacy-gateway.md`) |
+| Flashcards, concepts, syllabus reading, viva questions (`cards`, `concepts`, `syllabus`, `oral`) | The cheap tier above: Kernal → Google Vertex AI `gemini-2.5-flash`, us-central1 (USA), in the Kernal router's own Google Cloud project, not CF's. The OpenRouter free lane these jobs used to try first was switched off on 2026-11-14 (`CF_GATEWAY=off`, #234; see `docs/privacy-gateway.md`) |
 | Per-message model picker | `claude-sonnet-5`, `gemini-2.5-flash`, `gpt-5-nano` (OpenAI API), all through Kernal |
 | Images ticked or uploaded in chat | Not sent at all on this provider: the Kernal bridge drops non-text blocks (known bug) |
 | Embeddings and retrieval | Local, inside the container (`BAAI/bge-small-en-v1.5`); nothing leaves |
@@ -106,8 +106,7 @@ automatically.
 | Spoken tutor (voice dialog) | Vertex AI Live `gemini-live-2.5-flash-native-audio`, europe-west4, CF's own project; it carries the tutor prompt and ticked excerpts |
 | Read aloud | Google Cloud Text-to-Speech, Chirp 3 HD (`TTS=google`) for short replies; longer replies use the browser's voice |
 
-No zero-retention or EU-only guarantee applies to the tutor or the cheap tier today. Anthropic and Vertex do not train
-on API data by default; whether Kernal itself logs prompts is not yet confirmed with its operator.
+No zero-retention or EU-only guarantee applies to the tutor or the cheap tier today. Provider terms (retention, training, transfer certification) are listed with sources and check dates in `docs/privacy-gateway.md`; none is confirmed for the account actually used (UNVERIFIED), whether Kernal itself logs prompts has not been checked (it is operated by Matej himself, so he can read its configuration: open item 1 in the record), and no agreement with the providers behind it is on file.
 
 Tier defaults come from `llm.py` and depend on `LLM_PROVIDER`; set an env var only to override (Cloud Run, or `.env.local`):
 
@@ -117,7 +116,7 @@ Tier defaults come from `llm.py` and depend on `LLM_PROVIDER`; set an env var on
 | `CF_CHEAP_MODEL` | notes, cards, quiz distractors, garble cleaning | `gemini-2.5-flash` | `claude-haiku-4-5` | `deepseek/deepseek-v4.1-flash` | `gpt-6-luna` |
 | `CF_STRONG_MODEL` | reconcile | = main | = main | = main | = main |
 
-`CF_GATEWAY=off` disables the OpenRouter bulk lane; `CF_LOCAL_BASE_URL` (unset in prod) enables a local-model tier
+`CF_GATEWAY=off` (set in production since 2026-11-14) disables the gateway bulk lane; `CF_LOCAL_BASE_URL` (unset in prod) enables a local-model tier
 for non-streaming tasks.
 
 ### Courses

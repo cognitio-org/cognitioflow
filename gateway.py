@@ -1,18 +1,24 @@
-"""The gateway lane: a few named bulk jobs on a cheap model, privacy-first, falling back to Anthropic.
+"""The gateway lane: a few named bulk jobs on a cheap model, falling back to the configured provider.
 
 The tutor never comes here. Only the tasks in CF_GATEWAY_TASKS do (flashcards, concept extraction and
 cards, syllabus reading, viva questions): each sends one note or one file's text and gets a JSON list
-back. The chat, "notes" mode included, stays on Anthropic, because it carries whole conversations and
+back. The chat, "notes" mode included, stays on the configured provider (LLM_PROVIDER), because it carries whole conversations and
 every ticked file.
 
-How each GDPR principle is met here (details and open items in docs/privacy-gateway.md):
+GDPR status of this lane (details and open items in docs/privacy-gateway.md):
 - Purpose limitation, Art. 5(1)(b): a closed allow-list of tasks; anything else is refused.
 - Data minimisation, Art. 5(1)(c): only the text the task needs is sent, with e-mail addresses, phone
-  numbers, IBANs and student numbers replaced by placeholders first (pseudonymisation, Art. 4(5)).
-- Storage limitation, Art. 5(1)(e): every request asks the gateway not to log it ("no-log").
+  numbers, IBANs and student numbers replaced by placeholders first. This is redaction, not pseudonymisation in the sense of Art. 4(5): nothing is kept separately to restore it, and names stay in the text.
+- Storage limitation, Art. 5(1)(e): every request sends a "no-log" flag, but only a LiteLLM gateway honours
+  it; OpenRouter, which production pointed this lane at until it was switched off on 2026-11-14, does not
+  (see docs/privacy-gateway.md).
 - Integrity and confidentiality, Art. 5(1)(f) and Art. 32: TLS only; the key lives in Secret Manager.
-- Privacy by design and by default, Art. 25: off unless the key AND a spend ceiling are configured;
-  CF_GATEWAY=off switches it off without a deploy; any failure falls back to Anthropic.
+- Privacy by design and by default, Art. 25: off unless the key AND a spend ceiling are configured, and
+  CF_GATEWAY=off turns it off. The spend ceiling only works on a LiteLLM gateway, which sends the spend header;
+  on the OpenRouter lane production used it never trips, so the only effective control in production is CF_GATEWAY=off. Production sets CF_GATEWAY=off in deploy.yml (#234,
+  2026-11-14); it has to live there, because a service-only env change is reverted by the next deploy. Any
+  failure returns None and the caller falls back to the configured provider's cheap tier (in production,
+  LLM_PROVIDER=kernal: Vertex gemini-2.5-flash via Kernal, us-central1), not to Anthropic directly.
 - Accountability, Art. 5(2): every call is labelled with its provider and model in the usage record.
 """
 import logging
@@ -22,7 +28,7 @@ import re
 log = logging.getLogger("cognitioflow.gateway")
 
 DEFAULT_BASE = "https://litellm.augment-code.support"
-DEFAULT_MODEL = "gpt-6-luna"
+DEFAULT_MODEL = "gpt-6-luna"   # code default only; production overrides it (CF_GATEWAY_MODEL in deploy.yml)
 DEFAULT_TASKS = "cards,concepts,syllabus,oral"
 KEY_NAME = "LITELLM_API_KEY"   # default; CF_GATEWAY_KEY_ENV names another (e.g. OPENROUTER_KEY)
 
@@ -37,7 +43,7 @@ _REDACT = [
     (re.compile(r"\b[sSpP]\d{7}\b"), "[student number]"),
 ]
 
-_tripped = False   # set once the key's spend passes the ceiling; this process then stays on Anthropic
+_tripped = False   # set once the key's spend passes the ceiling; this process then stays on the configured provider
 
 
 def _tasks() -> set:
@@ -90,7 +96,7 @@ def _minimise_messages(messages):
 
 
 def call(task, **kw):
-    """One gateway call for an allowed task, or None to tell the caller to use Anthropic."""
+    """One gateway call for an allowed task, or None to tell the caller to use the configured provider."""
     global _tripped
     if not allows(task):
         return None
@@ -100,8 +106,8 @@ def call(task, **kw):
         kw = {**kw, "messages": _minimise_messages(kw.get("messages", []))}
         raw = client.messages.with_raw_response.create(model=os.environ.get("CF_GATEWAY_MODEL", DEFAULT_MODEL), extra_body={"no-log": True}, **kw)
         m = raw.parse()
-    except Exception as e:   # any gateway trouble: the job still gets done, on Anthropic
-        log.warning("gateway %s failed (%s); falling back to Anthropic", task, type(e).__name__)
+    except Exception as e:   # any gateway trouble: the job still gets done, on the configured cheap tier
+        log.warning("gateway %s failed (%s); falling back to the configured cheap tier", task, type(e).__name__)
         return None
     if not "".join(getattr(b, "text", "") for b in (getattr(m, "content", None) or []) if getattr(b, "type", "") == "text").strip():
         # free models may spend the whole budget thinking, or a busy provider may answer 200 with nothing
@@ -115,5 +121,5 @@ def call(task, **kw):
     spend = raw.headers.get("x-litellm-key-spend")
     if spend and _ceiling() is not None and float(spend) >= _ceiling():
         _tripped = True
-        log.warning("gateway key spend %.2f reached the ceiling %.2f; staying on Anthropic", float(spend), _ceiling())
+        log.warning("gateway key spend %.2f reached the ceiling %.2f; staying on the configured cheap tier", float(spend), _ceiling())
     return m
