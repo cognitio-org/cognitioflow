@@ -6,6 +6,9 @@ import re
 
 _ECLI = re.compile(r"\bECLI:[A-Z]{2}:[A-Z]+:\d{4}:[A-Z0-9.]*[A-Z0-9]", re.IGNORECASE)
 _CASE = re.compile(r"\b([CT])[-‑–](\d{1,4}/\d{2,4})\b")
+# Cases before 1989 have no C- prefix and are printed "Case 8/74" (Dassonville), "Cases 6/64". Until wave 6 only the panel looked them up, so
+# an invented "Case 99/74" never reached the "Not in your materials" box. Years 54-88 only: a modern "Case 1/93" is not in the Court's old series.
+_CASE_OLD = re.compile(r"\bCases?\s+(\d{1,3})/(5[4-9]|[6-8]\d)\b")
 _ART = re.compile(r"(?i)\b(?:art\.?|article|artikel)\s*(\d+(?::\d+)?[a-z]?)(\(\d+\))?(?:\s+(TFEU|TEU|BW|Charter))?(?!\w)")
 
 
@@ -16,6 +19,8 @@ def find_citations(text: str) -> list[dict]:
         found.append((m.start(), "ecli", m.group(0), m.group(0).upper()))
     for m in _CASE.finditer(text or ""):
         found.append((m.start(), "case", m.group(0), f"{m.group(1).upper()}-{m.group(2)}"))
+    for m in _CASE_OLD.finditer(text or ""):
+        found.append((m.start(), "case", m.group(0), f"C-{m.group(1)}/{m.group(2)}"))
     for m in _ART.finditer(text or ""):
         norm = f"art {m.group(1).lower()}{m.group(2) or ''}" + (f" {m.group(3).lower()}" if m.group(3) else "")
         found.append((m.start(), "article", m.group(0), norm))

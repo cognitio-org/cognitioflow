@@ -154,6 +154,7 @@ def test_reload_recheck_agrees_with_the_server_citation_check():
         ("Simmenthal C-106/77 and ECLI:EU:C:1978:49, Art 267.", ["Case 106/77 Simmenthal. Article 267 TFEU."]),
         ("Costa C-6/64, art. 3:84 BW, Article 5(1) TEU.", ["Directive 2006/64. Art 3:84 BW."]),
         ("No citations at all.", [_FILE]),
+        ("Dassonville Case 8/74 and an invented Case 99/74; Cases 6/64; Case 1/93.", ["Procureur du Roi v Dassonville, Case 8/74, ruled."]),   # wave 6: old-style cases
     ]
     got = _node("console.log(JSON.stringify(D.map(([a,s])=>ccUnverified(a,s).map(c=>c.raw))));", cases)
     want = [[c["raw"] for c in citecheck.unverified(a, s)] for a, s in cases]
@@ -193,7 +194,7 @@ def test_status_pulse_respects_reduced_motion():
 
 # ---- wave 3 (judge 7/10, skeptic refuted): every term on the line is looked up, and the misses are named --------
 
-_PURE3 = _PURE + ["CF_ART", "cfLineTerms", "cfReportable", "cfPanelPlan"]
+_PURE3 = _PURE + ["CF_ART", "CF_NAMEW", "CF_VNAME", "CF_LEAD", "cfNameOnly", "cfNameOk", "cfLineTerms", "cfReportable", "cfPanelPlan"]
 
 
 def _node3(body, data):
@@ -460,7 +461,8 @@ def test_nothing_ticked_shows_a_no_sources_warning_and_says_nothing_was_checked(
     assert "No sources selected" in src and "none of its citations were checked" in src
     assert "does not mean they are right" in src   # the missing banner must not read as 'all found'
     # all three render paths call it: live send, reloaded answer, study-desk tutor
-    assert src.count("cfNoSourcesNeeded(tutorTickedN)") == 3
+    # live send and study desk read the count fresh when the answer ends (wave 6: tutorTickedN was null on the desk, stale after a Files untick)
+    assert src.count("await cfNoSourcesNow(d)") == 2 and src.count("cfNoSourcesNeeded(tutorTickedN)") == 1
     assert "cfNoSources(d,true)" in src
 
 
@@ -473,3 +475,96 @@ def test_untagged_citing_lines_get_a_check_chip_in_every_render_path():
     assert "b.querySelector('.src')" in body                       # a line the tutor already tagged is left alone
     assert "blockquote" in body                                    # the 'Next:' question is not a claim
     assert "The tutor gave this line no source tag" in JS          # the panel does not say the tutor tagged it
+
+
+# ---- wave 6: names, the 'no passage' wording, lower-case party names, and a real-DOM render test ------------------
+
+_PURE6 = _PURE3
+
+
+def _terms(line, italics):
+    return _node(("console.log(JSON.stringify(cfLineTerms(D.line,D.it)))"), {"line": line, "it": italics}, _PURE6)
+
+
+@_needs_node
+def test_a_bold_or_plain_party_name_with_a_number_is_looked_up_so_the_panel_names_both():
+    # frozen M2: "No passage in your ticked files names C-999/97, Bianchi v Commission" (wave-5 skeptic major 2)
+    assert _terms("Bianchi v Commission (C-999/97) was decided in 1999.", ["Bianchi v Commission (C-999/97)"]) == ["C-999/97", "Bianchi v Commission"]
+    assert _terms("The Bianchi v Commission case (C-999/97) held that.", []) == ["C-999/97", "Bianchi v Commission"]
+    assert _terms("See *van Gend en Loos* and *not* the point.", ["van Gend en Loos", "not"]) == ["van Gend en Loos"]   # particle names yes, emphasis no
+
+
+@_needs_node
+def test_the_missed_names_are_said_first_and_a_name_alone_stays_quiet_when_the_number_is_found():
+    files = [{"id": "k", "name": "keck.txt"}]
+    texts = {"k": _KECK}
+    got = _node("const t=cfLineTerms(D.line,D.it); const p=cfPanelPlan(t,D.files,D.texts,'');"
+                "console.log(JSON.stringify({m:p.missed,q:p.quiet}))",
+                {"line": "Bianchi v Commission (C-999/97)", "it": [], "files": files, "texts": texts}, _PURE6)
+    assert got == {"m": ["C-999/97", "Bianchi v Commission"], "q": []}
+    got = _node("const t=cfLineTerms(D.line,D.it); const p=cfPanelPlan(t,D.files,D.texts,'');"
+                "console.log(JSON.stringify({m:p.missed,q:p.quiet}))",
+                {"line": "Bianchi v Commission (C-267/91)", "it": [], "files": files, "texts": texts}, _PURE6)
+    assert got["m"] == [] and got["q"] == ["Bianchi v Commission"]       # S2: the name is still said, quietly
+
+
+_PW = Path.home() / ".npm/_npx/e41f203b7505f1fb/node_modules/playwright"
+_CHROME = next(iter((Path.home() / "Library/Caches/ms-playwright").glob("chromium_headless_shell-*/chrome-headless-shell-mac-arm64/chrome-headless-shell")), None)
+_needs_browser = pytest.mark.skipif(not (shutil.which("node") and _PW.exists() and _CHROME), reason="playwright + a headless Chromium are not on this machine")
+
+_RENDER = r"""
+const { chromium } = require(%(pw)r);
+(async()=>{
+  const b = await chromium.launch({executablePath:%(chrome)r}); const p = await b.newPage();
+  const errs=[]; p.on('pageerror',e=>errs.push(e.message));
+  await p.setContent('<div id="chat"><div class="msg assistant" id="a"><p id="p1">Keck (Joined Cases C-267/91 and C-268/91) departs from Dassonville only for selling arrangements.</p><p id="p2"><strong>Bianchi v Commission</strong> (C-999/97) held that.</p><p id="p3">Bianchi v Commission (C-999/97) <span class="src" title="OUTSIDE FILES: unverified">OUTSIDE FILES</span></p></div><div class="msg assistant" id="b"><p>Nothing to see.</p></div></div>');
+  await p.addScriptTag({content: %(prelude)s}).catch(e=>{console.log(JSON.stringify({fatal:e.message}));process.exit(0)}); if(errs.length){console.log(JSON.stringify({fatal:errs.join('; ')}));process.exit(0)}
+  const out = await p.evaluate(async ()=>{
+    const r={};
+    const click=async(id)=>{ const c=document.querySelector('#'+id+' .src'); c.click(); await new Promise(res=>{ const t=setInterval(()=>{ const s=document.querySelector('#'+id+' + .srcpanel'); if(s&&!s.textContent.includes('Looking')){ clearInterval(t); res() } },30) }); return document.querySelector('#'+id+' + .srcpanel').innerText; };
+    const a=document.getElementById('a'); cfAutoChips(a); cfSources(a);
+    r.chips=[...a.querySelectorAll('.src')].map(c=>c.textContent);
+    r.real=await click('p1'); r.fake=await click('p2'); r.outside=await click('p3');
+    r.realOpensPassage=document.querySelector('#p1 + .srcpanel blockquote mark')?.textContent;
+    // nothing ticked: a stale count of 3 and a null count both give the box once the server says 0
+    DATA['/courses/c1/files']=[]; tutorTickedN=3; await cfNoSourcesNow(a); r.box=a.querySelector('.cf-nosrc')?.innerText||'';
+    tutorTickedN=null; const b2=document.getElementById('b'); await cfNoSourcesNow(b2); r.box2=!!b2.querySelector('.cf-nosrc');
+    DATA['/courses/c1/files']=[{id:'f1',selected:true,name:'keck.txt'}]; const b3=document.createElement('div'); await cfNoSourcesNow(b3); r.noBoxWhenTicked=!b3.querySelector('.cf-nosrc');
+    return r; });
+  console.log(JSON.stringify({out,errs})); await b.close();
+})();
+"""
+
+
+@_needs_browser
+def test_chip_panel_and_no_sources_box_render_in_a_real_dom():
+    prelude = ("let cid='c1', tutorTickedN=null, cfFilesFor='', cfFiles=null; const cfTextCache=new Map();"
+               "const DATA={'/courses/c1/files':[{id:'f1',selected:true,name:'keck.txt'}],'/files/f1/text':{text:%s}};"
+               "const api=async(u)=>DATA[u];" % json.dumps(_KECK + " ECLI:EU:C:1993:905.")
+               + "".join(_decl(n) for n in _PURE6 + ["cfSourcePanel", "cfSources",
+                                                    "cfAutoChips", "cfTicked", "cfFileText", "cfNoSourcesBox", "cfNoSources",
+                                                    "cfNoSourcesNeeded", "cfTickedNow", "cfNoSourcesNow"]))
+    script = _RENDER % {"pw": str(_PW), "chrome": str(_CHROME), "prelude": json.dumps(prelude)}
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=90)
+    assert r.returncode == 0, r.stderr
+    got = json.loads(r.stdout.strip().splitlines()[-1])
+    assert "fatal" not in got, got["fatal"]
+    out = got["out"]
+    assert got["errs"] == []
+    assert out["chips"] == ["CHECK IN FILES", "CHECK IN FILES", "OUTSIDE FILES"]                    # untagged citing lines get a chip
+    assert "No passage in your ticked files names C-999/97, Bianchi v Commission." in out["fake"]
+    assert "Nothing to show" in out["fake"] and "open that file" not in out["fake"]
+    assert "Outside your files" in out["outside"] and "No passage in your ticked files names C-999/97, Bianchi v Commission." in out["outside"]
+    assert out["realOpensPassage"] == "C-267/91"                                   # the chip opens the file's own passage
+    assert "ECLI:EU:C:1993:905" in out["real"] or "C-268/91" in out["real"]
+    assert "No sources selected" in out["box"] and "none of its citations were checked" in out["box"]
+    assert out["box2"] is True and out["noBoxWhenTicked"] is True
+
+
+@_needs_node
+def test_a_former_number_in_brackets_is_not_shown_as_the_article_itself():
+    tfeu = "Article 36 (ex Article 30 TEC) The provisions of Articles 34 and 35 shall not preclude prohibitions justified on grounds of public morality."
+    got = _node("console.log(JSON.stringify([cfExcerpt(D.a,'Article 30').former, cfExcerpt(D.b,'Article 30').former, cfExcerpt(D.b,'Article 30').hit]))",
+                {"a": tfeu, "b": tfeu + " Article 30 of the EEC Treaty prohibited measures of equivalent effect."}, _PURE6)
+    assert got == [True, False, "Article 30"]
+    assert "FORMER number" in JS
