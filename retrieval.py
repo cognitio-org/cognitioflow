@@ -115,7 +115,9 @@ def index_source(db, embed_texts, *, course_id: str, source: str, source_id: str
     # Embed BEFORE opening the transaction: a large file (hundreds of passages) used to keep the DELETE's
     # transaction open for the whole embedding run, which is what made /reindex return 503 on big readers. If
     # embedding fails the old passages are left in place instead of being deleted first.
-    vectors = embed_texts([p["text"] for p in passages]) if passages else []
+    vectors = list(embed_texts([p["text"] for p in passages])) if passages else []
+    if len(vectors) != len(passages):
+        raise ValueError(f"embedder returned {len(vectors)} vectors for {len(passages)} passages")
     with db() as d:
         d.execute("DELETE FROM chunks WHERE source=? AND source_id=?", (source, source_id))
         if not passages:
