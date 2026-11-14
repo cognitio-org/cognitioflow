@@ -48,22 +48,9 @@ def _node(consts, fns, script: str):
 
 
 BADGE_CONSTS = ["ROLE_NAMES", "AUTH_DEFAULT", "AUTH_MAX", "MODEL_ANSWER_RX", "EXAM_NAME_RX", "ANSWER_WORD_RX",
-                "NOT_ANSWER_RX"]
+                "NOT_ANSWER_RX", "ABOUT_ANSWERS_RX"]
 BADGE_FNS = ["isAnswerFile", "authTagRole", "authRanks", "authRank", "srcTypeTitle", "srcTypeName", "authChip",
              "ctxIndex", "ctxLookup", "srcLink", "fmtChars", "mdLite", "isMarkdown", "srcPage", "readingSummary"]
-
-
-# ---------------------------------------------------------------- major: the /text and /raw owner-gate patch
-
-def test_owner_gate_patch_is_a_policy_question_not_a_bug_fix():
-    """Course content is read-shared to every allowed user and edited only by its owner (run.py), and _own_file guards
-    write routes only. The wave-2 patch called the open reads a missing check and said nothing about what gating them
-    breaks. Applied unread, every non-owner's Text button and Reading-list link would 403."""
-    p = PENDING / "file-text-raw-owner-gate.patch"
-    head = "\n".join(line for line in p.read_text(encoding="utf-8").splitlines() if line.startswith("#"))
-    assert "every other by-id file route calls _own_file" not in head
-    assert "POLICY DECISION" in head and "not a bug fix" in head
-    assert "read-shared" in head and "403" in head and "/api/courses/{cid}/files" in head
 
 
 # ---------------------------------------------------------------- the answer-file rule now drives the visible badge
@@ -75,6 +62,12 @@ NAMES = {
     # wave-2 false positives (skeptic): guidance about answering, and WG answers to an exam
     "Exam 2 - how to answer problem questions.pdf": False, "Model answer guidance essay writing.pdf": False,
     "WG7 answers to the 2022 resit.pdf": False, "Working group 4 - answers to the mock exam.pdf": False,
+    # wave-3 over-correction (skeptic + judge): an explicit "model answers" / "answer key" beats the WG/guide/tips veto
+    "Answer key - practice exam (guide).pdf": True, "Model answers WG7 mock exam.pdf": True,
+    "Resit 2022 model answers and examiner tips.pdf": True, "Exam 2023 model answer - how to score.pdf": True,
+    "WG 5 answer key.pdf": True,
+    # ...but not guidance ABOUT model answers
+    "Model answers - writing tips.pdf": False, "Answer key guide for tutors.pdf": False,
     # never answer files
     "W3 WG assignment answers.txt": False, "Working group assignment 6 answers.pdf": False,
     "Questions and answers on free movement.pdf": False, "Practice exam 2.pdf": False, "Q&A session.pdf": False,

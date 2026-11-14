@@ -499,14 +499,20 @@ function authChip(f,ranks){ if(!f.role&&!isAnswerFile(f)) return `<span class="a
    - guidance on answering ("Exam 2 - how to answer problem questions", "Model answer guidance essay writing");
    - a name that merely says "answers" ("Questions and answers on free movement").
    The name must say model answer / answer key, or name an exam AND its answers (plural noun: "answer" alone is a verb).
+   An explicit "model answers" / "answer key" beats the WG/guide/tips/how-to veto ("Model answers WG7 mock exam",
+   "Answer key - practice exam (guide)", "Resit 2022 model answers and examiner tips"), unless the words right after it
+   make the file guidance ABOUT model answers ("Model answer guidance", "model answer writing tips"). The veto only
+   guards the weaker exam + "answers" match, where "WG7 answers to the 2022 resit" is worked WG material.
    docs/pending-protected/badges-readinglist.patch carries the same rule to the server; a test keeps the two in step. */
 const MODEL_ANSWER_RX=/(^|[^a-z])(model[\s-]*answers?|answers?[\s-]*(key|sheet)s?|antwoordmodel|modelantwoord(en)?)([^a-z]|$)/i;
 const EXAM_NAME_RX=/(^|[^a-z])(practice[\s-]*exam|past[\s-]*(exam|paper)|mock[\s-]*exam|resit|tentamen|exam[\s-]*\d)/i;
 const ANSWER_WORD_RX=/(^|[^a-z])(answers|solutions|uitwerkingen?|antwoorden)([^a-z]|$)/i;
 const NOT_ANSWER_RX=/(^|[^a-z])(wg\s*\d*|working[\s-]*groups?|werkgroep(en)?|how[\s-]+to|guidance|guide|tips|technique)([^a-z]|$)/i;
+const ABOUT_ANSWERS_RX=/(^|[^a-z])(model[\s-]*answers?|answers?[\s-]*(key|sheet)s?)[\s-]+(guidance|guide|tips|technique|writing)([^a-z]|$)/i;
 function isAnswerFile(f){ const s=String((f&&f.name||'')+' '+(f&&f.label||'')).replace(/_+/g,' ');
+  if(MODEL_ANSWER_RX.test(s)&&!ABOUT_ANSWERS_RX.test(s)) return true;
   if(NOT_ANSWER_RX.test(s)) return false;
-  return MODEL_ANSWER_RX.test(s)||(EXAM_NAME_RX.test(s)&&ANSWER_WORD_RX.test(s)); }
+  return EXAM_NAME_RX.test(s)&&ANSWER_WORD_RX.test(s); }
 let sylTitles={};       // week number -> the title the syllabus gives it
 $('#relabelBtn')&&($('#relabelBtn').onclick=async()=>{ const b=$('#relabelBtn'); b.disabled=true; toast('Labelling…');
   try{ const r=await post(`/courses/${cid}/relabel`,{}); toast(r.warning||`${r.labelled} file(s) labelled`); loadFiles(); }

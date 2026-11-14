@@ -70,7 +70,7 @@ HELPERS = "\n".join([
     re.search(r"const esc=s=>[^\n]*?\}\[c\]\)\);", JS).group(0),
     "let ctxById={}, ctxByName={};", "function C(){ return null }",
     _const("ROLE_NAMES"), _const("AUTH_DEFAULT"), _const("AUTH_MAX"),
-    _const("MODEL_ANSWER_RX"), _const("EXAM_NAME_RX"), _const("ANSWER_WORD_RX"), _const("NOT_ANSWER_RX"),
+    _const("MODEL_ANSWER_RX"), _const("EXAM_NAME_RX"), _const("ANSWER_WORD_RX"), _const("NOT_ANSWER_RX"), _const("ABOUT_ANSWERS_RX"),
 ] + [_fn(n) for n in ("isAnswerFile", "authTagRole", "authRanks", "authRank", "srcTypeTitle", "srcTypeName", "authChip",
                       "ctxIndex", "ctxLookup", "srcLink", "fmtChars", "ctxItem", "mdLite", "isMarkdown", "srcPage")])
 
