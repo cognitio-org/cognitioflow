@@ -57,10 +57,12 @@ document.getElementById('printBtn').onclick=()=>window.print();
   const ai='<div class="ai" data-ai-label>AI-generated from your course notes. Verify every case, article and year against your own materials.</div>';
   // the source attribution (demo-course LICENCE-NOTE section 5): once, at the end of the last page of the pack
   const attr=p.attribution?`<p class="ai" data-attribution>${esc(p.attribution)}</p>`:'';
-  const lastTopic=p.tabs.length?-1:p.topics.length-1;
+  const hasMethod=(p.method||[]).length>0;
+  const lastTopic=(p.tabs.length||hasMethod)?-1:p.topics.length-1;
+  // the exam method: once, on its own titled page after the weeks (wave 6, Must 7); the steps are the course's, never read off a week
+  const method=hasMethod?`<section class="topic method"><h1>Exam method</h1><ol class="method">${p.method.map(m=>`<li>${esc(m)}</li>`).join('')}</ol>${p.tabs.length?'':attr}</section>`:'';
   const topic=(t,i)=>`<section class="topic"><h1>${/^Week\b/.test(t.title)?esc(t.title):`Week ${esc(t.week)} — ${esc(t.title)}`}</h1>
     ${t.rule?`<div class="rule">${md(t.rule)}</div>`:''}
-    ${t.method.length?`<h2>The method</h2><ol class="method">${t.method.map(m=>`<li>${esc(m)}</li>`).join('')}</ol>`:''}
     ${t.outline.length?`<h2>Outline</h2><ol class="outline">${t.outline.map(h=>`<li>${esc(h)}</li>`).join('')}</ol>`:''}
     ${t.cases.length?`<h2>${esc(t.cases_heading||'Leading cases')}</h2><table><thead><tr><th>Year</th><th>Case</th>${fromCol(t)?'<th>From</th>':''}</tr></thead><tbody>${
       t.cases.map(c=>`<tr><td class="yr">${c.year?esc(c.year)+(c.numbered?'<sup data-numbered>†</sup>':''):'—'}</td><td><i>${esc(c.name)}</i>${c.cite?` <span class="src">${esc(c.cite).replace(/([A-Z]-\d+\/\d+(?: P)?)/g,'<span class="nb">$1</span>')}</span>`:''}</td>${fromCol(t)?`<td class="src">${esc(c.note)}</td>`:''}</tr>`).join('')}</tbody></table>${
@@ -73,7 +75,7 @@ document.getElementById('printBtn').onclick=()=>window.print();
   </section>`;
   const tabs=p.tabs.length?`<section class="tabs"><h1>Tab labels · ${esc(p.course)}</h1><p>Cut along the dashed lines. An article number and one word only: nothing here counts as an annotation.</p><div class="grid">${
     p.tabs.map(t=>`<div class="lab"><b>${esc(t.label)}</b>${t.heading?`<span>${esc(t.heading)}</span>`:''}</div>`).join('')}</div>${ai}${attr}</section>`:'';
-  box.innerHTML=(p.topics.length?p.topics.map(topic).join(''):'<p class="empty">No week notes yet.</p>')+tabs;
+  box.innerHTML=(p.topics.length?p.topics.map(topic).join(''):'<p class="empty">No week notes yet.</p>')+method+tabs;
   document.body.dataset.ready='1';
   if(q.get('print')==='1') setTimeout(()=>window.print(),300);
 })();

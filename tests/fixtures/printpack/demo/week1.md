@@ -1,6 +1,6 @@
 # Week 1 — Free movement of goods
 
-> **In one glance** Dassonville (Case 8/74, para 5): "all trading rules enacted by Member States which are capable of hindering, directly or indirectly, actually or potentially, intra-Community trade are to be considered as measures having an effect equivalent to quantitative restrictions". Keck (Joined Cases C-267/91 and C-268/91, para 16): "contrary to what has previously been decided" certain selling arrangements fall outside that formula.
+> **In one glance** Dassonville (Case 8/74, para 5): "all trading rules enacted by Member States which are capable of hindering, directly or indirectly, actually or potentially, intra-Community trade are to be considered as measures having an effect equivalent to quantitative restrictions". Keck (Joined Cases C-267/91 and C-268/91, para 16): "contrary to what has previously been decided" certain selling arrangements fall outside that formula "so long as those provisions apply to all relevant traders operating within the national territory and so long as they affect in the same manner, in law and in fact, the marketing of domestic products and of those from other Member States".
 
 ## The Dassonville formula
 *Dassonville* (Case 8/74, judgment of 11 July 1974) defined a measure having equivalent effect to a quantitative restriction (an MEQR) broadly. The prohibitions sit in Art 34 TFEU (imports) and Art 35 TFEU (exports), and the derogation grounds in Art 36 TFEU. The old numbering ran Articles 30 to 36 EEC, then 28 to 30 EC, now 34 to 36 TFEU.
@@ -22,6 +22,3 @@
 | Keck and Mithouard | Joined Cases C-267/91 and C-268/91 | 1993 |
 | Commission v Italy | Case C-110/05 | 2009 |
 | Ker-Optika | Case C-108/09 | 2010 |
-
-## Applying the rule
-Applicability: is the measure an MEQR? Restriction or scope: is it a product requirement, a selling arrangement or a use restriction? Justification and proportionality: is there a ground under Art 36 TFEU or a mandatory requirement, and is the measure appropriate and necessary?

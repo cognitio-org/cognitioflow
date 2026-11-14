@@ -35,12 +35,13 @@ def test_cases_run_in_the_order_they_were_decided_and_name_their_note():
     assert all(c["note"] == W3["title"] for c in cases)
 
 
-def test_the_method_prints_only_for_its_course_and_only_where_the_notes_work_it():
+def test_the_method_prints_once_on_its_own_page_and_only_for_a_course_that_defines_one():
     notes = {"id": "e2", "title": "Week 2 — Goods", "body": "Applicability first, then the restriction, then justification."}
-    on = pack.build({2: [notes]}, [], [], method=True)["topics"][0]["method"]
-    assert on == ["Applicability", "Restriction or scope", "Justification and proportionality"]
-    assert pack.build({2: [notes]}, [], [], method=False)["topics"][0]["method"] == []
-    assert _pack(method=True)["topics"][1]["method"] == []   # week 3 never works the moves
+    steps = ["Applicability", "Restriction or scope", "Justification and proportionality"]
+    assert pack.build({2: [notes]}, [], [], method=True)["method"] == steps
+    assert pack.build({2: [notes]}, [], [], method=False)["method"] == []
+    assert pack.build({}, [], [], method=True)["method"] == []                # nothing to print a method for
+    assert all("method" not in t for t in _pack(method=True)["topics"])      # never a block inside a week
 
 
 def test_tabs_are_an_article_and_one_word_from_his_own_index():

@@ -1,6 +1,6 @@
 # Week 2 — Direct effect and primacy
 
-> **In one glance** Van Gend en Loos (Case 26/62, ECR English special edition p. 1): "a new legal order of international law". Costa v ENEL (Case 6/64, ECR English special edition p. 585): the Treaty's own legal system "became an integral part of the legal systems of the Member States". Marshall (Case 152/84, para 48): "a directive may not of itself impose obligations on an individual".
+> **In one glance** Van Gend en Loos (Case 26/62, ECLI:EU:C:1963:1): "a new legal order of international law". Costa v ENEL (Case 6/64, ECLI:EU:C:1964:66): the Treaty's own legal system "became an integral part of the legal systems of the Member States". Marshall (Case 152/84, para 48): "a directive may not of itself impose obligations on an individual".
 
 ## Direct effect
 *Van Gend en Loos* (Case 26/62, judgment of 5 February 1963) holds that the Community is a new legal order of international law whose subjects are the Member States and their nationals. Community law confers on individuals rights which become part of their legal heritage. National courts may refer questions on it to the Court under Art 267 TFEU. The English text has no paragraph numbers, so it is cited by ECLI and ECR page.
@@ -21,6 +21,3 @@
 | Costa v ENEL | Case 6/64 | 1964 |
 | Simmenthal | Case 106/77 | 1978 |
 | Marshall | Case 152/84 | 1986 |
-
-## Applying the rule
-Applicability: can the provision be relied on before a national court? Restriction or scope: against whom, the State or an individual? Justification and proportionality: may the national rule be saved, or must it be set aside?

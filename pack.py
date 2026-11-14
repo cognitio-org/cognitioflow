@@ -21,12 +21,10 @@ ATTRIBUTION = ("Sources: Court of Justice of the European Union (case-law, cited
                "European Union, consolidated version, OJ C 202, 7.6.2016, via EUR-Lex. © European Union. Unofficial, "
                "AI-assisted study material: summaries and other AI output are changes to the original texts, not the "
                "texts themselves. Check them against the cited source.")
-METHOD_HITS = 2           # a week's notes must name at least two of the method's moves before the steps print
 
 _H1 = re.compile(r"^#\s+(.+)$", re.M)
 _H2 = re.compile(r"^##\s+(.+)$", re.M)
 _QUOTE = re.compile(r"(?:^>.*(?:\n|$))+", re.M)
-_MOVES = {"applicability": r"applicab", "restriction": r"restrict|\bscope\b", "justification": r"justif|proportional"}
 
 # Article references, by instrument. Each yields (instrument, number) and prints as "Art 34 TFEU", "3:84 BW",
 # "VIII.-2:101 DCFR". Treaty numbers are kept only when an instrument is named next to them: a bare "Art 5" says
@@ -166,7 +164,6 @@ def build(weeks: dict, reference: list, cases: list, method: bool = True) -> dic
         recalled = [c for c in own if home.get(id(c)) != str(week) and _passing(c["name"], body)]
         own = [c for c in own if c not in recalled]
         own.sort(key=lambda c: (c.get("year") is None, c.get("year") or 0, c["name"].casefold()))
-        moves = [k for k, rx in _MOVES.items() if re.search(rx, body, re.I)]
         topics.append({
             "week": str(week), "title": title, "rule": rule, "outline": outline,
             "cases": [{"name": c["name"], "cite": c.get("cite") or "", "year": c.get("year"),
@@ -176,7 +173,6 @@ def build(weeks: dict, reference: list, cases: list, method: bool = True) -> dic
             # an order is claimed only when there is one: a week whose rows carry no year is just 'Leading cases', A-Z
             "cases_heading": "Leading cases, oldest first" if any(c.get("year") for c in own[:CASES]) else "Leading cases",
             "recalled": sorted({c["name"] for c in recalled}, key=str.casefold),
-            "method": [label for _, label in essay.LIMBS] if method and len(moves) >= METHOD_HITS else [],
         })
         words[str(week)] = _week_word(title)
     # Each tab's word comes from his own article index where it has the article; otherwise none - a blank tab
@@ -205,7 +201,11 @@ def build(weeks: dict, reference: list, cases: list, method: bool = True) -> dic
     order = {"TFEU": 0, "TEU": 1, "Charter": 2, "ECHR": 3, "BW": 4, "DCFR": 5}
     tabs.sort(key=lambda t: (order.get(t["instrument"], 9), _sort_number(t["number"]), t["number"]))
     cjeu = any(re.match(r"(?:Case|Joined Cases)\s", c["cite"]) for t in topics for c in t["cases"])
-    return {"topics": topics, "tabs": tabs, "attribution": ATTRIBUTION if cjeu else ""}
+    # The exam method prints once, on its own titled page after the weeks (wave 6, Must 7): the steps are the course's
+    # method (essay.LIMBS, the frozen list tests/fixtures/printpack/method_steps.txt) and are never read off a week's
+    # prose, so a week on direct effect is not made to carry free-movement steps. Only a course that defines a method.
+    return {"topics": topics, "tabs": tabs, "attribution": ATTRIBUTION if cjeu else "",
+            "method": [label for _, label in essay.LIMBS] if method and topics else []}
 
 
 # ---------------------------------------------------------------- tidying (pitch freeze, 2026-11-14)
@@ -586,22 +586,34 @@ def _from_notes(cases: list, bodies: dict) -> list:
     '(C-402/05 P)', and 'C-6/90' with the number's year out of '(C-6/90, judgment of 19 November 1991)'. Where the
     note writes the name with that number right after it, the court's own number, the ' P' and the written year are
     taken from the note. Nothing the note does not say is added. Pure; the input is not changed."""
-    out = []
-    for c in cases or []:
+    out, queue, seen = [], list(cases or []), {_name_key(str(c.get("name") or "")) for c in cases or []}
+    for c in queue:
         cite, name = str(c.get("cite") or "").strip(), str(c.get("name") or "").strip()
         c = dict(c)
+        if cite and name and any(re.search(r"(?i)\*?" + re.escape(name) + r"\*?", bodies.get(x.get("id")) or "") for x in c.get("notes") or []):
+            # a docket that the notes write after ANOTHER case's name is that case's (run.py takes the next 60 characters)
+            owner = _cite_owner(cite, name, [bodies.get(x.get("id")) or "" for x in c.get("notes") or []])
+            if owner:
+                if _name_key(owner) not in seen:
+                    seen.add(_name_key(owner)); queue.append({"name": owner, "cite": cite, "year": None, "notes": list(c.get("notes") or [])})
+                c["cite"], c["year"], cite = "", None, ""
+        if not cite and name:                  # an application number the index could not read: 'Tyrer v UK (Application no. 5856/72)'
+            for note in c.get("notes") or []:
+                am = re.search(r"(?i)(?<![\w])\*?" + re.escape(name) + r"\*?\s*\(\s*((?:Application|Appl?\.?)\s*(?:no\.?|nos\.?)?\s*\d[\d/]*)\s*\)", bodies.get(note.get("id")) or "")
+                if am: c["cite"] = cite = am.group(1); break
         if cite and name and len(cite) <= 16:
             hit = None                         # the first mention whose own tail carries the number
             for note in c.get("notes") or []:
                 for m in re.finditer(r"(?i)(?<![\w])\*?" + re.escape(name) + r"\*?", bodies.get(note.get("id")) or ""):
                     tail = m.string[m.end():m.end() + 90].split("\n", 1)[0]
                     tail = re.split(r"[*;]", tail, maxsplit=1)[0]                # up to the next case named
+                    whole = re.split(r"\.\s+(?=[A-Z])", re.split(r"[*\n]", m.string[m.end():m.end() + 160], maxsplit=1)[0], maxsplit=1)[0]
                     tail = tail[:tail.find(")") + 1] if ")" in tail else tail      # this case's bracket, not the next one's
                     at = re.search(r"(?<![\w/-])([A-Z][-‑])?" + re.escape(cite) + r"(?![\d/])", tail)
-                    if at: hit = (tail, at); break
+                    if at: hit = (tail, at, whole); break
                 if hit: break
             if hit:
-                tail, at = hit
+                tail, at, whole = hit
                 lead = tail[:at.start()]
                 # the bracket-after-the-name branch only when the '(' comes straight after the name; a bracket at the
                 # end of a sentence about the case ('*Van Gend* held direct effect (26/62).') is running text (w5)
@@ -622,13 +634,45 @@ def _from_notes(cases: list, bodies: dict) -> list:
                         c["cite"] = cite = at.group(0)[0] + "-" + cite.split("-", 1)[-1]   # the 'C-' the note wrote
                     if re.match(r"\s+P\b", tail[at.end():]) and not cite.endswith(" P"):
                         c["cite"] = cite + " P"
+                    # JOINED cases written in the note keep every docket: '(Joined Cases C-6/90 and C-9/90 ...)', '(C-402/05 P and C-415/05 P)'
+                    first, rest_t = c["cite"], tail[at.end():]
+                    rest_t = rest_t[2:] if re.match(r"\s+P\b", rest_t) else rest_t
+                    letter = bool(re.match(r"[CTF]-", first)) or bool(at.group(1))
+                    joined = re.search(r"(?i)\bcases\s*$", tail[:at.start()]) is not None
+                    while True:
+                        nx = re.match(r"\s*(&|and|\+)\s*(?:Case\s+)?([CTF][-‑]\d{1,4}/\d{2}|\d{1,4}/\d{2})(\s+P\b)?(?![\d/])", rest_t)
+                        if not nx or not (joined or (letter and nx.group(2)[0] in "CTF")): break
+                        c["cite"] += f" {nx.group(1)} " + nx.group(2).replace("‑", "-") + (" P" if nx.group(3) else "")
+                        rest_t = rest_t[nx.end():]
                 y = _explicit_year(tail[at.end():]) or (_explicit_year(tail[:at.start()]) if bracketed else None)   # '(ECLI:EU:C:1963:1, Case 26/62)'
+                if not y:             # the OSCOLA forms: '[1963] ECR 1 (Case 26/62)' and '(Case 148/78) [1979] ECR 1629'
+                    ym = _BRACKET_YEAR.search(whole)
+                    y = int(ym.group(1)) if ym else None
                 if y: c["written_year"] = y                                  # a year the note writes for this case stands
         if name and not c.get("written_year"):     # a Year column the note writes (| Dassonville | Case 8/74 | 1974 |) is written, even when it equals the docket year
             y = _table_year(name, [bodies.get(n.get("id")) or "" for n in c.get("notes") or []])
             if y: c["written_year"] = y
         out.append(c)
     return out
+
+
+def _cite_owner(cite: str, name: str, bodies: list):
+    """The name of another case when every place the notes write this docket puts it right after that other
+    case's italic name (never in a table row, never after this case's own name); else None. run.py reads the
+    next 60 characters after an italic name for a docket, so '*Opinion 2/13* on accession. *Foto-Frost* (314/85)'
+    gives the Opinion Foto-Frost's number."""
+    pat = re.compile(r"(?<![\w/-])(?:[A-Z][-‑])?" + re.escape(cite) + r"(?![\d/])")
+    mine, owners = _name_key(name), []
+    for body in bodies:
+        for m in pat.finditer(body):
+            before = body[body.rfind("\n", 0, m.start()) + 1:m.start()]
+            if before.lstrip().startswith("|"): return None
+            italics = list(re.finditer(r"(?<![*\w])\*(?![*\s])([^*\n]{1,80}?)(?<!\s)\*(?![*\w])", before))
+            if not italics or len(before) - italics[-1].end() > 100: return None
+            theirs = _name_key(italics[-1].group(1))
+            if not theirs or theirs == mine or theirs.startswith(mine) or mine.startswith(theirs): return None
+            owners.append(italics[-1].group(1).strip(" *"))
+    return owners[0] if owners and all(o == owners[0] for o in owners) else None
 
 
 def _table_year(name: str, bodies: list):
