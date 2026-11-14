@@ -1551,7 +1551,7 @@ def test_build_all_builds_a_week_deck_then_is_idempotent_and_cheap(client, monke
     seen_models = []
 
     def fake_ask(model, *a, **k):
-        seen_models.append(model)
+        seen_models.append((model, k.get("system") == concepts.REVIEW_RULES))
         reply = concept_reply if k.get("system") == concepts.EXTRACT_RULES else cards_reply
         return types.SimpleNamespace(content=[types.SimpleNamespace(type="text", text=reply)], model="fake-cheap")
 
@@ -1561,8 +1561,8 @@ def test_build_all_builds_a_week_deck_then_is_idempotent_and_cheap(client, monke
     assert first["weeks"].get("9", {}).get("concepts", 0) >= 1
     assert first["weeks"]["9"]["cards"] >= 1
     assert first["totals"]["cards"] >= 1
-    # cheap model only — never a strong/tutor model
-    assert seen_models and all(m == run.CHEAP_MODEL for m in seen_models), seen_models
+    # writing is the cheap model only; the one extra call is the second reader (wave 6), on its own named model
+    assert seen_models and all(m == (run.DECK_REVIEW_MODEL if review else run.CHEAP_MODEL) for m, review in seen_models), seen_models
 
     again = client.post(f"/api/courses/{cid}/concepts/build-all").json()
     assert again["totals"]["cards"] == 0   # idempotent: nothing new on the second pass

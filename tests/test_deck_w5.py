@@ -218,3 +218,105 @@ def test_the_recall_page_has_a_plain_empty_state_and_the_label():
     assert "AI-generated from your course files. Verify against your materials." in html
     assert "AI-generated from your course files. Verify against your materials." in js
     assert concepts.AI_LABEL == "AI-generated from your course files. Verify against your materials."
+
+
+# ---------------------------------------------------------------- wave 6: skeptic majors (doctrine slips, markdown, invented numbers)
+def test_single_asterisk_emphasis_is_stripped():
+    assert concepts.plain("the *only* and *most proportionate* rule, **bold**, a_b") == "the only and most proportionate rule, bold, a_b"
+    kept, _ = concepts.clean_cards({"cards": [{"front": "Which rule is *most* proportionate?", "back": "The *least* restrictive one (Dassonville, Case 8/74)."}]}, CON)
+    assert "*" not in kept[0]["front"] + kept[0]["back"]
+
+
+@pytest.mark.parametrize("text", [
+    "The national Act is invalid because it conflicts with Regulation 2023/1.",
+    "Under Simmenthal the Act is void and must be annulled.",
+    "Direct applicability was established in Simmenthal.",
+    "Simmenthal created the principle of direct applicability.",
+    "Protection of industrial and commercial property is an overriding requirement here.",
+    "Keck overruled Dassonville.",
+])
+def test_doctrine_slips_are_caught(text):
+    assert concepts.doctrine_slip(text)
+
+
+@pytest.mark.parametrize("text", [
+    "The national Act is not invalid; it is inapplicable and the court sets it aside (Simmenthal).",
+    "Direct applicability is not the same as direct effect, which is Van Gend's idea.",
+    "Industrial and commercial property is an Article 36 ground, not a mandatory requirement.",
+    "Keck did not overrule Dassonville; it limits it for certain selling arrangements.",
+    "A court must set aside conflicting national law of its own motion.",
+])
+def test_doctrine_slips_do_not_hit_correct_statements(text):
+    assert concepts.doctrine_slip(text) == ""
+
+
+def test_a_card_or_problem_with_a_doctrine_slip_is_dropped_and_counted():
+    kept, why = concepts.clean_cards({"cards": [{"front": "What follows for the national Act?", "back": "The Act is invalid (Dassonville, Case 8/74)."}]}, CON)
+    assert kept == [] and "doctrine slip" in why[0]
+    q, why = concepts.clean_question({"question": {"question": "Novam is a State with a national Act that conflicts with Article 30 of the EEC Treaty. What follows?" + " x" * 10,
+                                                   "steps": ["Identify the rule", "Apply Dassonville, Case 8/74"],
+                                                   "model": "The national Act is invalid under Dassonville, Case 8/74, because it hinders trade and conflicts with Article 30 of the EEC Treaty."}}, CON)
+    assert q is None and "doctrine slip" in why
+
+
+def test_invented_instrument_numbers_in_the_facts_are_caught():
+    kept, why = concepts.clean_question({"question": {"question": "Regulation (EU) 2023/100 bans the sale of bottles in Novam; a trader objects to the rule today. What follows?",
+                                                      "steps": ["Identify the rule", "Apply Dassonville, Case 8/74"],
+                                                      "model": "The rule hinders trade and falls under Article 30 of the EEC Treaty (Dassonville, Case 8/74), so it is an MEQR unless justified."}}, CON)
+    assert kept is None and "authority" in why
+
+
+def test_file_names_read_as_citations():
+    assert concepts.pretty_source("commission-v-italy-trailers-c-110-05.html") == "Commission v Italy Trailers, C-110/05"
+    assert concepts.pretty_source("van-gend-en-loos-26-62.html") == "Van Gend en Loos, Case 26/62"
+
+
+def test_the_prompts_carry_the_doctrine_notes():
+    for rules in (concepts.EXTRACT_RULES, concepts.GENERATE_RULES):
+        assert "standstill" in rules and "never \"invalid\"" in rules and "directly discriminatory" in rules
+
+
+# ---------------------------------------------------------------- wave 6: the second reader
+def test_second_reader_drops_what_it_marks_wrong_and_holds_the_problem_back_when_unreadable():
+    cards = [{"front": "Q one about the rule?", "back": "A one."}, {"front": "Q two about the rule?", "back": "A two."}]
+    q = {"question": "facts", "steps": ["a", "b"], "model": "m"}
+    reply = {"cards": [{"i": 0, "ok": True}, {"i": 1, "ok": False, "why": "credits the wrong case"}], "problem": {"ok": False, "why": "the conclusion contradicts the facts"}}
+    kept, question, dropped = concepts.apply_review(reply, cards, q)
+    assert [c["front"] for c in kept] == ["Q one about the rule?"] and question is None
+    assert len(dropped) == 2 and "wrong case" in dropped[0] and "contradicts" in dropped[1]
+    kept, question, dropped = concepts.apply_review({"cards": [{"i": 0, "ok": True}, {"i": 1, "ok": True}], "problem": {"ok": True}}, cards, q)
+    assert len(kept) == 2 and question == q and dropped == []
+    kept, question, dropped = concepts.apply_review(None, cards, q)      # unreadable reply: cards stay, the problem waits
+    assert len(kept) == 2 and question is None and "held back" in dropped[0]
+
+
+def test_review_brief_carries_the_concept_and_the_items():
+    b = json.loads(concepts.review_brief(CON, [{"front": "F?", "back": "B."}], None))
+    assert b["concept"]["name"] == "Dassonville formula" and b["cards"][0]["i"] == 0 and b["problem"] is None
+    assert "standstill" in concepts.REVIEW_RULES
+
+
+def test_a_card_on_another_case_than_its_source_is_dropped():
+    con = dict(CON, source_name="commission-v-italy-trailers-c-110-05.html", authority="Commission v Italy, Case C-110/05")
+    assert concepts.own_case("marshall-152-84.html") == ("152", "84") and concepts.own_case("Lecture 3.pdf") is None
+    assert concepts.foreign_case("A prohibition on use (Commission v Portugal, Case C-265/06).", con) == "Case 265/06"
+    assert concepts.foreign_case("Market access (Commission v Italy, Case C-110/05).", con) == ""
+    assert concepts.foreign_case("Directive 76/207, Article 5(1).", con) == ""
+    assert concepts.foreign_case("anything, Case C-265/06", dict(con, source_name="Lecture 3.pdf")) == ""
+
+
+def test_costa_is_not_credited_with_the_duty_to_set_aside():
+    assert concepts.doctrine_slip("Under Costa v ENEL the court must set aside the conflicting national regulation.")
+    assert concepts.doctrine_slip("Costa states primacy and Simmenthal adds that the court must set aside conflicting law.") == ""
+
+
+def test_placeholder_instrument_numbers_and_html_breaks_are_caught():
+    assert concepts.CITE.findall("Directive 2019/XX and Regulation (EU) 2023/100")
+    assert concepts.plain("It is so.<br/><br/>Therefore <b>yes</b>.") == "It is so. Therefore yes."
+
+
+def test_two_more_doctrine_slips_are_caught():
+    assert concepts.doctrine_slip("Which authority established the precedence of Community law? Simmenthal, Case 106/77.")
+    assert concepts.doctrine_slip("Which authority established the precedence of Community law? Costa v ENEL, Case 6/64.") == ""
+    assert concepts.doctrine_slip("State the rule for ascertaining direct effect. Consider the spirit, the general scheme and the wording of the provision (Van Gend en Loos).")
+    assert concepts.doctrine_slip("The Court read the provision by its spirit, general scheme and wording, which is its method of interpretation, in finding direct effect.") == ""

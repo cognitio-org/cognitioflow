@@ -1,7 +1,7 @@
 # PROTECTED (run.py) — needs Matej's named yes. Apply with: git apply docs/pending-protected/deck-build-all.patch
-# One-click deck (definition-of-8/deck.md): build-all reads each source on its own, 6 model calls at a time, stops starting after CF_DECK_BUDGET_S (100 s) and says what is left; honest result line + AI label in the reply; near-duplicate front guard; concept 'core' + side-issue drop; CONCEPT_CHARS 45000 -> 70000.
+# One-click deck (definition-of-8/deck.md): build-all reads each source on its own, 6 model calls at a time, stops starting after CF_DECK_BUDGET_S (100 s) and says what is left; a second reader (CF_DECK_REVIEW_MODEL, default main tier) checks each card and problem and a refused problem is rewritten once; honest result line + AI label in the reply; near-duplicate front guard; concept 'core' + side-issue drop; CONCEPT_CHARS 45000 -> 70000.
 diff --git a/run.py b/run.py
-index 582e28c..2a6d77b 100644
+index 582e28c..d0003bd 100644
 --- a/run.py
 +++ b/run.py
 @@ -696,7 +696,7 @@ def infer_weeks(cid: str):
@@ -37,16 +37,36 @@ index 582e28c..2a6d77b 100644
      if not found:
          return {"saved": 0, "dropped": dropped or ["the model found nothing it could quote"], "model": m.model}
  
-@@ -762,6 +764,8 @@ def extract_concepts(cid: str, body: ConceptsIn):
+@@ -762,6 +764,28 @@ def extract_concepts(cid: str, body: ConceptsIn):
              links += 1
      return {"saved": saved, "links": links, "dropped": dropped, "read": [f["name"] for f in files_], "model": m.model}
  
 +_CARD_WRITE = threading.Lock()
 +
++def _deck_review(con, concept, cards, question):
++    """The second reader (a stronger model, see concepts.REVIEW_RULES): (cards, question, dropped, why_the_problem_was_refused).
++    One retry on a router error. An unreadable reply keeps the cards and holds the problem back."""
++    rpayload, rerr = None, ""
++    for _try in range(2):
++        try:
++            rm = ask_model(DECK_REVIEW_MODEL, task="concepts-review", max_tokens=2500, system=concepts_mod.REVIEW_RULES,
++                           messages=[{"role": "user", "content": concepts_mod.review_brief(concept, cards, question)}])
++            rtext = "".join(b.text for b in rm.content if getattr(b, "type", "") == "text")
++            rpayload = json.loads(rtext[rtext.find("{"): rtext.rfind("}") + 1])
++            break
++        except HTTPException as e: rerr = str(e.detail)[:80]
++        except ValueError: rerr = "the reply was not JSON"
++    out_cards, out_q, why = concepts_mod.apply_review(rpayload, cards, question)
++    if rpayload is None: why = [f"second reading failed ({rerr})"] + why
++    pr = rpayload.get("problem") if isinstance(rpayload, dict) and isinstance(rpayload.get("problem"), dict) else {}
++    refused = str(pr.get("why") or "").strip()[:300] if question and pr.get("ok") is False else ""
++    return out_cards, out_q, why, refused
++
++
  class GenerateIn(BaseModel): week: str = ""; concept_id: Optional[str] = None; limit: int = 8
  
  @app.post("/api/courses/{cid}/concepts/generate")
-@@ -788,6 +792,8 @@ def generate_from_concepts(cid: str, body: GenerateIn):
+@@ -788,6 +812,8 @@ def generate_from_concepts(cid: str, body: GenerateIn):
          concept = {"name": con["name"], "statement": con["statement"], "authority": con["authority"] or "",
                     "limbs": con["limbs"] or [], "traps": con["traps"] or []}
          brief = json.dumps({"concept": con["name"], "kind": con["kind"], **concept}, ensure_ascii=False)
@@ -55,11 +75,34 @@ index 582e28c..2a6d77b 100644
          try:
              m = ask_model(CHEAP_MODEL, task="concepts", max_tokens=2500, system=concepts_mod.GENERATE_RULES,
                            messages=[{"role": "user", "content": brief}])
-@@ -801,8 +807,15 @@ def generate_from_concepts(cid: str, body: GenerateIn):
+@@ -801,14 +827,43 @@ def generate_from_concepts(cid: str, body: GenerateIn):
  
          cards, why = concepts_mod.clean_cards(payload, concept)
          dropped.extend(f"{con['name']}: {w}" for w in why)
 -        with db() as d:
++        question, why_not = concepts_mod.clean_question(payload, concept)
++        refusal = "" if question else why_not          # why the problem is missing, for one rewrite
++        if cards or question:      # a stronger model reads what the cheap one wrote before it is saved
++            cards, question, why_r, bad_problem = _deck_review(con, concept, cards, question)
++            dropped.extend(f"{con['name']}: {w}" for w in why_r if not w.startswith("the problem the second reader marked wrong"))
++            if bad_problem:
++                refusal = bad_problem
++        if not question and refusal and not refusal.startswith(("the reply carried no question", "the problem had no facts")):
++            # the problem was refused (by the rules or by the reader): write it once more with the reason, then read that again
++            try:
++                m2 = ask_model(CHEAP_MODEL, task="concepts", max_tokens=2500, system=concepts_mod.GENERATE_RULES,
++                               messages=[{"role": "user", "content": brief + "\n\nYour earlier applied problem for this concept was rejected: "
++                                          + refusal + "\nWrite the problem again so that it avoids that. Return the same JSON; the cards may be empty."}])
++                t2 = "".join(b.text for b in m2.content if getattr(b, "type", "") == "text")
++                q2, why2 = concepts_mod.clean_question(json.loads(t2[t2.find("{"): t2.rfind("}") + 1]), concept)
++            except (HTTPException, ValueError):
++                q2, why2 = None, "the second try failed"
++            if q2:
++                _, question, why_r2, bad2 = _deck_review(con, concept, [], q2)
++                dropped.extend(f"{con['name']}: {w}" for w in why_r2)
++                why_not = "" if question else f"the problem was refused twice ({(bad2 or refusal)[:100]})"
++            else:
++                why_not = f"the problem was refused twice ({why2[:100]})"
 +        with _CARD_WRITE, db() as d:   # one writer at a time, so two concepts cannot both add the same front to a week
 +            seen = [r["front"] for r in d.execute("SELECT front FROM cards WHERE course_id=? AND COALESCE(week,'')=?",
 +                                                  (cid, con["week"] or "")).fetchall()]
@@ -72,10 +115,17 @@ index 582e28c..2a6d77b 100644
                  d.execute("INSERT INTO cards(id,course_id,front,back,source,created,week,concept_id) "
                            "VALUES(?,?,?,?,?,?,?,?)",
                            (uuid.uuid4().hex, cid, card["front"], card["back"], con["name"],
-@@ -832,40 +845,105 @@ def _deck_counts(cid: str):
+                            now, con["week"] or "", con["id"]))
+                 made_cards += 1
+-        question, why_not = concepts_mod.clean_question(payload, concept)
+         if question:
+             with db() as d:
+                 d.execute("INSERT INTO essay_questions(id,course_id,week,question,model,source,created,kind,steps,concept_id) "
+@@ -832,40 +887,106 @@ def _deck_counts(cid: str):
      return cards, qs
  
  
++DECK_REVIEW_MODEL = os.environ.get("CF_DECK_REVIEW_MODEL", "").strip() or MODEL   # the second reader: the main tier (cheap models passed 2 of 3 planted legal errors); one short call per concept
 +DECK_BUDGET_S = float(os.environ.get("CF_DECK_BUDGET_S", "100"))   # one click stops starting new model calls after this
 +DECK_WORKERS = int(os.environ.get("CF_DECK_WORKERS", "6"))         # model calls in flight at once
 +DECK_FILE_MAX = 200000       # a source longer than this is a codified Treaty, not one authority: not read, and said so
