@@ -1,28 +1,38 @@
-"""Exam Blueprint — what a course actually examines, derived from its past papers + syllabus.
+"""Coverage map ("Exam Blueprint" in the code) — coverage of a course's stated learning objectives
+and syllabus weeks. Coverage, never a prediction of what an exam asks.
 
-Pure analysis helpers: no database, no network. run.py gathers the course's past-exam/mock
-files and its applied syllabus, calls the model with RULES, and normalises the reply here. A
-blueprint weights each examined topic by its share of the exam, names the question formats and
-doctrines that test it, and records which papers it was seen in — so a later slice can point the
-tutor and the generators at what the exam rewards. Nothing here writes; applying lives in run.py
-under brief['blueprint'] (jsonb — no migration), exactly like the syllabus.
+Pure analysis helpers: no database, no network. run.py gathers the course's applied syllabus (with
+any learning objectives stated in the course brief) and any marked papers, calls the model with
+RULES, and normalises the reply here. Each topic names the syllabus weeks and stated objectives it
+covers and the doctrines it turns on; its weight is computed here from the weeks it spans, so the
+number on screen is checkable against the syllabus, not a model guess. Nothing here writes;
+applying lives in run.py under brief['blueprint'] (jsonb — no migration), exactly like the syllabus.
 
 The split mirrors course_brief: the model is the only non-deterministic step, and it is kept out
 of this file so every shape rule is unit-tested without a model or a database.
 """
 
-PAPER_CHARS = 24000      # per paper: a paper is a few pages; the cap guards against a whole reader slipping in
-TOTAL_CHARS = 90000      # across all papers fed to the model in one pass
+import contextvars
+import hashlib
+import json
+import re
+import time
+
 MAX_TOPICS = 20          # a course examines a handful of doctrines, not fifty; the cap keeps the map readable
 MAX_LIST = 6             # formats / doctrines / seen_in kept per topic
-SYLLABUS_CHARS = 8000    # the syllabus is context, not the main signal — past papers lead
+SYLLABUS_CHARS = 16000   # the stated learning objectives / syllabus lead; papers are secondary evidence
 
 BLUEPRINT_KEY = "blueprint"   # where an applied blueprint lives inside courses.brief
-# Appended to the compiled course prompt, so the tutor AND every generator that seeds from it
-# (apply-to-facts, mock marking, the card / essay / case writers) steer toward what the exam tests.
-BLUEPRINT_HEADER = ("EXAM FOCUS (what this course examines — weight your teaching, questions and drills "
-                    "toward the heavier topics; do not neglect the lighter ones):")
-BLOCK_TOPICS = 10   # the prompt names the heaviest topics; a long tail adds tokens without steering
+# Appended to the compiled course prompt, so the tutor AND every generator that seeds from it see how
+# the course's stated objectives and syllabus weeks are spread. Worded as coverage: the tutor must never
+# tell a student "this is what your exam tests" (pitch plan row 1 / objection B5).
+BLUEPRINT_HEADER = ("COVERAGE OF STATED LEARNING OBJECTIVES (how this course's syllabus weeks and stated "
+                    "objectives are spread across topics — coverage, not a prediction of any exam; never "
+                    "tell the student what an exam will ask):")
+# Older prompts stored before the relabel carry this header; strip_blueprint removes either.
+LEGACY_HEADERS = ("EXAM FOCUS (what this course examines — weight your teaching, questions and drills "
+                  "toward the heavier topics; do not neglect the lighter ones):",)
+BLOCK_TOPICS = 20   # = MAX_TOPICS: a per-week map has a topic per week; cutting at 10 dropped weeks 11-12 (w4)
 
 
 def examined_topics(brief):
@@ -32,8 +42,9 @@ def examined_topics(brief):
 
 
 def blueprint_block(brief):
-    """A compact prompt fragment naming the examined topics by weight, format and doctrines. Empty when
-    no blueprint is applied, so a course without one reads exactly as before."""
+    """A compact prompt fragment naming the objective topics, their share of the syllabus and their doctrines.
+    Empty when no map is applied, so a course without one reads exactly as before. No exam format and no
+    "answer method the exam rewards" line: the map is coverage, not exam advice."""
     topics = examined_topics(brief)
     if not topics:
         return ""
@@ -42,25 +53,20 @@ def blueprint_block(brief):
         tail = []
         w = t.get("weight")
         if isinstance(w, (int, float)) and w:
-            tail.append(f"{int(w)}%")
-        fmts = [x for x in (t.get("formats") or []) if x][:2]
-        if fmts:
-            tail.append("/".join(fmts))
+            unit = "the stated learning objectives" if t.get("share_unit") == "objectives" else "the syllabus"
+            tail.append(f"{int(w)}% of {unit}")
         docs = [x for x in (t.get("doctrines") or []) if x][:3]
         if docs:
             tail.append("; ".join(docs))
         lines.append("- " + t["topic"] + (" — " + " · ".join(tail) if tail else ""))
-    method = ((brief or {}).get(BLUEPRINT_KEY) or {}).get("method")
-    if method:
-        lines.append("Answer method the exam rewards: " + method)
     return "\n".join(lines)
 
 
 def strip_blueprint(text):
-    """Remove a previously appended EXAM FOCUS block, so recompiling never stacks two."""
+    """Remove a previously appended coverage block (current or legacy header), so recompiling never stacks two."""
     t = text or ""
-    i = t.find(BLUEPRINT_HEADER)
-    return (t[:i] if i >= 0 else t).rstrip()
+    hits = [i for i in (t.find(h) for h in (BLUEPRINT_HEADER,) + LEGACY_HEADERS) if i >= 0]
+    return (t[:min(hits)] if hits else t).rstrip()
 
 
 class BlueprintError(ValueError):
@@ -69,6 +75,15 @@ class BlueprintError(ValueError):
 
 def _line(v, n=200):
     return " ".join(str(v if v is not None else "").split())[:n]
+
+
+def _clip(v, n):
+    """A one-line string cut at a word boundary with an ellipsis, never mid-word ("... state liability, and e")."""
+    s = _line(v, 100000)
+    if len(s) <= n:
+        return s
+    cut = s[:n - 1].rsplit(" ", 1)[0].rstrip(" ,;:-—")
+    return cut + "…"
 
 
 def _items(v, n=MAX_LIST):
@@ -98,72 +113,214 @@ def _conf(v):
     return s if s in ("high", "medium", "low") else "medium"
 
 
-RULES = """You are an exam analyst for a single university course. You are given the course's past exam papers and mock exams (the strongest signal), and possibly its syllabus, exam format and marking method.
+RULES = """You map a university course's syllabus weeks to its STATED LEARNING OBJECTIVES and name the legal authorities each week turns on. You are given the syllabus (numbered weeks with their topics) and, if the course states any, its numbered learning objectives. This is coverage of what the course says it teaches — never a prediction of what an exam will ask. Do not describe any exam, question type, answer method or marking scheme.
 
-Report, as JSON, what this course actually EXAMINES — not everything it teaches. Weight by what recurs in the papers; the syllabus only fills in topics the papers have not yet shown, at lower confidence.
-
-Return ONE JSON object, no prose around it:
-{
-  "topics": [
-    {
-      "topic": "short name of an examined doctrine or theme",
-      "weight": integer 0-100, this topic's share of the exam (all weights should roughly sum to 100),
-      "formats": ["how it is tested — e.g. IRAC case, essay, short answer, compare"],
-      "doctrines": ["the articles, tests or cases it turns on"],
-      "seen_in": ["which papers you saw it in, by name"],
-      "confidence": "high | medium | low",
-      "note": "one sentence on how it tends to be asked"
-    }
-  ],
-  "exam_format": "one line on the paper's shape (number and kind of questions, time, word limits)",
-  "method": "one line on the answer method the course rewards, if evident",
-  "note": "one line on anything the weighting cannot capture (e.g. only one paper available)"
-}
+Return ONE JSON object, no prose around it, in exactly this shape:
+{"weeks": [{"week": 1, "lo": [1], "law": ["Art 34 TFEU", "Dassonville", "Cassis de Dijon"]}]}
 
 Rules:
-- Base weight on frequency and prominence across the papers. A topic in every paper outranks one seen once.
-- Prefer 6–12 real topics over a long thin list. Merge near-duplicates.
-- If you have no papers, derive provisional topics from the syllabus and mark every confidence "low".
-- Name doctrines concretely (e.g. "Art 34 TFEU", "Cassis mandatory requirements"), never vaguely.
-- Invent nothing that is not in the material. An empty topics list is a valid answer."""
+- One entry for every syllabus week in the input, in week order. Use only week numbers and objective numbers that appear in the input. Never invent a week or an objective.
+- lo: the numbers of the stated learning objectives the week serves (usually one); [] if no objectives are stated.
+- law: 2 to 4 authorities that week's topics turn on (at least one, never vaguely): first the Treaty article(s), then the leading CJEU judgments in date order. Name each judgment by its usual short name as written in the case title (e.g. "Dassonville", "Cassis de Dijon", "Keck and Mithouard", "N.S. and M.E."). No duplicates, no descriptions.
+- If the input has no syllabus weeks, return instead one entry per stated objective: {"objectives": [{"lo": 1, "law": ["..."]}]}.
+- Invent nothing that is not in the material. An empty list is a valid answer."""
+
+
+# The syllabus weeks and stated objectives the map is checked against. build_context reads them from the block it
+# is given and leaves them here for the normalise_blueprint call that follows in the same request (run.py's extract
+# calls the two back to back); explicit arguments to normalise_blueprint always win. A ContextVar, not a global:
+# each request runs in its own copied context, so one course's scope never leaks into another's.
+_SCOPE = contextvars.ContextVar("blueprint_scope", default=None)
+_BLOCK_WEEK = re.compile(r"(?m)^Week\s+(\d{1,2})\b")
+_BLOCK_OBJ = re.compile(r"(?m)^Objective\s+(\d{1,2}):\s*(.*)$")
+
+
+def scope_from_block(syllabus_block):
+    """(syllabus week numbers, stated objective texts) named in course_brief.syllabus_block's output."""
+    text = syllabus_block or ""
+    weeks = sorted({int(m.group(1)) for m in _BLOCK_WEEK.finditer(text) if 1 <= int(m.group(1)) <= MAX_WEEK})
+    objs = [m.group(2).strip() for m in _BLOCK_OBJ.finditer(text)]
+    return weeks, objs
+
+
+_BLOCK_WEEK_LINE = re.compile(r"(?m)^Week\s+(\d{1,2})\b(.*)$")
+
+
+def weeks_from_block(syllabus_block):
+    """{week number: {"title", "topics"}} as course_brief.syllabus_block wrote them ("Week 3 — Title. Topics: a; b.
+    Reading: c."). The coverage map names its topics after the course's own weeks, so these are the course's words."""
+    out = {}
+    for m in _BLOCK_WEEK_LINE.finditer(syllabus_block or ""):
+        n = int(m.group(1))
+        if not 1 <= n <= MAX_WEEK or n in out:
+            continue
+        rest = m.group(2).strip()
+        rest = re.split(r"\.\s+Reading:\s", rest, maxsplit=1)[0]
+        title, _, topics = rest.partition(". Topics: ")
+        if not _ and title.startswith("Topics: "):
+            title, topics = "", title[len("Topics: "):]
+        title = title.lstrip("—–- ").strip().rstrip(".")
+        out[n] = {"title": _line(title, 120),
+                  "topics": [_line(x, 120) for x in topics.rstrip(".").split("; ") if x.strip()]}
+    return out
 
 
 def build_context(papers, syllabus_block="", exam_format="", method=""):
-    """Assemble the user message: brief context first, then the papers (the signal), capped.
+    """Assemble the user message: the stated learning objectives and the syllabus — nothing else.
 
-    `papers` is a list of {"name", "text"}. Papers are truncated per-paper and in total so a large
-    course cannot blow the token budget; the earliest papers in the list win the remaining room.
+    `papers`, `exam_format` and `method` are accepted for the caller's signature but no longer sent: the map is
+    coverage of the stated objectives and syllabus weeks. Past papers in the input pulled the model toward
+    describing the exam, and they can never add a topic, a week or a weight anyway. Also records the known weeks
+    and objectives (see _SCOPE) so the reply is checked against them.
     """
-    parts = []
-    if exam_format:
-        parts.append("EXAM FORMAT (from the course brief):\n" + _line(exam_format, 600))
-    if method:
-        parts.append("METHOD the course marks by:\n" + _line(method, 600))
-    if syllabus_block:
-        parts.append("SYLLABUS (what the course teaches — context, weaker signal than the papers):\n"
-                     + syllabus_block[:SYLLABUS_CHARS])
-    used = 0
-    body = []
-    for p in papers or []:
-        text = (p.get("text") or "").strip()
-        if not text:
+    _SCOPE.set(scope_from_block(syllabus_block) + (weeks_from_block(syllabus_block),))
+    if not syllabus_block:
+        return ("No syllabus weeks and no learning objectives are stated for this course. Return "
+                '{"topics": [], "note": "No syllabus weeks or learning objectives were stated."}')
+    return ("STATED LEARNING OBJECTIVES AND SYLLABUS (the only input — map these):\n"
+            + syllabus_block[:SYLLABUS_CHARS])
+
+
+_WEEK_REF = re.compile(r"(?i)\bweeks?\s*(\d{1,2})(?:\s*[-–]\s*(\d{1,2}))?")
+_OBJ_REF = re.compile(r"(?i)\b(?:learning\s+)?(?:objective|outcome|LO)\s*#?\s*(\d{1,2})\b")
+MAX_WEEK = 40
+
+
+def _nums(v, lo=1, hi=MAX_WEEK):
+    """Integers from a list/str/int, in range, de-duplicated, sorted: [3, "4", "Week 5"] -> [3, 4, 5]."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        v = [v]
+    if isinstance(v, str):
+        v = [v]
+    if not isinstance(v, (list, tuple)):
+        return []
+    out = set()
+    for x in v:
+        if isinstance(x, bool):
             continue
-        room = min(PAPER_CHARS, TOTAL_CHARS - used)
-        if room <= 0:
-            break
-        chunk = text[:room]
-        used += len(chunk)
-        body.append('<paper name="%s">\n%s\n</paper>' % (_line(p.get("name"), 120), chunk))
-    if body:
-        parts.append("PAST PAPERS / MOCKS (weight by what recurs here):\n" + "\n\n".join(body))
-    return "\n\n".join(parts)
+        if isinstance(x, (int, float)):
+            n = int(x)
+            if lo <= n <= hi:
+                out.add(n)
+        elif isinstance(x, str):
+            for m in re.finditer(r"\d{1,2}", x):
+                n = int(m.group(0))
+                if lo <= n <= hi:
+                    out.add(n)
+    return sorted(out)
 
 
-def normalise_blueprint(raw, source_papers=None):
-    """Validate a model (or posted) blueprint into a stable object.
+def _refs(seen_in, rx):
+    """Week or objective numbers named in free-text seen_in entries ("Week 4", "Weeks 2-3", "Objective 1")."""
+    out = set()
+    for s in seen_in or []:
+        for m in rx.finditer(str(s)):
+            a = int(m.group(1))
+            b = int(m.group(2)) if m.lastindex and m.lastindex >= 2 and m.group(2) else a
+            for n in range(min(a, b), min(max(a, b), a + 12) + 1):
+                if 1 <= n <= MAX_WEEK:
+                    out.add(n)
+    return sorted(out)
 
-    Weights are renormalised to sum to 100 so the same material always yields the same shares, and
-    same-named topics are merged — that is what makes an apply idempotent and the bars honest.
+
+def _derived_conf(t):
+    """Checkable confidence: mapped to a stated objective > mapped to a syllabus week > only implied."""
+    return "high" if t["objectives"] else ("medium" if t["weeks"] else "low")
+
+
+def _r2(x):
+    return round(float(x) + 1e-9, 2)
+
+
+def _first(d, *keys):
+    for k in keys:
+        if d.get(k) is not None:
+            return d.get(k)
+    return None
+
+
+def _from_units(raw, known_weeks, objective_texts, week_info):
+    """The model's per-week (or, without a syllabus, per-objective) reply as topics. The topic names and notes come
+    from the course's own syllabus, never from the model: the model only says which objectives a week serves and
+    which authorities it turns on. That keeps the map in the course's words (a model note once claimed an Art 102
+    exemption) and makes the same inputs give the same map. Every syllabus week becomes a topic, also one the
+    reply left out."""
+    rows = []
+    if isinstance(raw.get("weeks"), list):
+        by_week = {}
+        for u in raw["weeks"]:
+            if isinstance(u, dict):
+                n = _nums(_first(u, "week", "w"))
+                if n and n[0] not in by_week:
+                    by_week[n[0]] = u
+        order = sorted(set(by_week) | set(known_weeks or []))
+        if known_weeks is not None:
+            order = [n for n in order if n in known_weeks]
+        names = set()
+        for n in order:
+            u, info = by_week.get(n, {}), (week_info or {}).get(n) or {}
+            name = info.get("title") or "Week %d" % n
+            if name.lower() in names:
+                name = "%s (week %d)" % (name, n)
+            names.add(name.lower())
+            topics = info.get("topics") or []
+            rows.append({"topic": name, "weeks": [n], "objectives": _first(u, "lo", "objectives") or [],
+                         "doctrines": _first(u, "law", "doctrines") or [],
+                         "note": ("Covers " + "; ".join(topics) + ".") if topics else ""})
+    elif isinstance(raw.get("objectives"), list):
+        seen = set()
+        for u in raw["objectives"]:
+            if not isinstance(u, dict):
+                continue
+            n = _nums(_first(u, "lo", "objective"), 1, 99)
+            if not n or n[0] in seen or (objective_texts and n[0] > len(objective_texts)):
+                continue
+            seen.add(n[0])
+            txt = objective_texts[n[0] - 1] if objective_texts and n[0] <= len(objective_texts) else ""
+            rows.append({"topic": _clip(txt, 90) or "Objective %d" % n[0], "weeks": [], "objectives": [n[0]],
+                         "doctrines": _first(u, "law", "doctrines") or [], "note": ""})
+        rows.sort(key=lambda r: r["objectives"][0])
+    return {"topics": rows, "note": raw.get("note") or ""}
+
+
+def _tidy_doctrines(items):
+    """Authority chips as a professor reads them: capitalised, and no chip that only repeats part of another one
+    ("Gebhard" beside "Gebhard test", "golden shares" beside "Commission v Portugal (golden shares)")."""
+    out = [(x[:1].upper() + x[1:]) if x[:1].islower() else x for x in items]
+    keep = []
+    for i, x in enumerate(out):
+        rx = re.compile(r"(?<![\w])" + re.escape(x.lower()) + r"(?![\w])")
+        if any(j != i and len(y) > len(x) and rx.search(y.lower()) for j, y in enumerate(out)):
+            continue
+        keep.append(x)
+    return keep
+
+
+_HASH = re.compile(r"^[0-9a-f]{16,64}$")
+
+
+def normalise_blueprint(raw, source_papers=None, syllabus_weeks=None, objectives=None, week_info=None):
+    """Validate a model (or posted) coverage map into a stable object.
+
+    Checked against the course: `syllabus_weeks` (the week numbers the applied syllabus has) and `objectives`
+    (the stated learning objectives, as texts or a count). Any week or objective number outside them is dropped —
+    the model cannot invent week 30 or objective 9. When not passed they come from the build_context call that
+    preceded this one in the same request (extract), or, failing that, are not checked (a re-save of a proposal
+    that was already checked).
+
+    The % is computed here, never taken from the model:
+      basis "weeks"      — some topic names syllabus weeks: each topic's share is the weeks it spans (a week two
+                           topics share counts half to each) out of ALL the course's syllabus weeks, so
+                           "2 of 12 weeks" is something a professor can count, and equal weeks give equal %.
+                           A topic tied to no week gets no % (it is shown as "not tied to a syllabus week").
+      basis "objectives" — no topic names a week but some serve stated objectives: the same, out of the
+                           stated objectives.
+      basis "model"      — only for maps saved before weeks existed: the stored weights, renormalised to 100.
+      basis "none"       — nothing to compute a share from: every weight is 0 and the panel shows no %.
+    Weights are rounded per topic and never forced to sum to 100 — forcing the sum is what made 2 of 12 weeks
+    read 18% on one topic and 17% on the next. Confidence is derived the same way: "high" when the topic is
+    mapped to a stated objective, "medium" when only to a syllabus week, "low" when neither. Same-named topics
+    are merged — that makes an apply idempotent and the bars honest.
     """
     if raw is None:
         raise BlueprintError("empty blueprint")
@@ -177,8 +334,30 @@ def normalise_blueprint(raw, source_papers=None):
     if not isinstance(topics_in, list):
         raise BlueprintError("topics must be a list")
 
+    scope = _SCOPE.get()
+    if scope is not None:
+        _SCOPE.set(None)          # one build_context checks one reply, never a later unrelated call
+    if syllabus_weeks is None and objectives is None and scope is not None:
+        syllabus_weeks, objectives = scope[0], scope[1]
+    if week_info is None and scope is not None and len(scope) > 2:
+        week_info = scope[2]
+    scoped = syllabus_weeks is not None or objectives is not None
+    known_weeks = sorted({w for w in _nums(syllabus_weeks)}) if syllabus_weeks is not None else None
+    if objectives is None:
+        n_obj = None
+    elif isinstance(objectives, int) and not isinstance(objectives, bool):
+        n_obj = max(0, objectives)
+    else:
+        n_obj = len([o for o in (objectives or []) if str(o).strip()])
+    if raw.get("topics") is None and (isinstance(raw.get("weeks"), list) or isinstance(raw.get("objectives"), list)):
+        texts = [str(o) for o in objectives] if isinstance(objectives, (list, tuple)) else []
+        raw = {**raw, **_from_units(raw, known_weeks, texts, week_info)}
+        topics_in = raw["topics"]
+
     merged = {}
     order = []
+    legacy_weight = False
+    hint_of = {"weeks": 0, "objectives": 0}
     for t in topics_in:
         if not isinstance(t, dict):
             continue
@@ -186,20 +365,40 @@ def normalise_blueprint(raw, source_papers=None):
         if not name:
             continue
         key = name.lower()
+        seen = _items(t.get("seen_in") if t.get("seen_in") is not None else t.get("papers"))
+        weeks = sorted(set(_nums(t.get("weeks"))) | set(_refs(seen, _WEEK_REF)))
+        objs = sorted(set(_nums(t.get("objectives"), 1, 99)) | set(_refs(seen, _OBJ_REF)))
+        if known_weeks is not None:
+            weeks = [w for w in weeks if w in known_weeks]
+        if n_obj is not None:
+            objs = [o for o in objs if o <= n_obj]
+        unit = t.get("share_unit")
+        if unit in hint_of:
+            hint_of[unit] = max(hint_of[unit], _weight(t.get("share_of")))
+        if t.get("weight") and "share_unit" not in t and not t.get("weeks") and not t.get("objectives") \
+                and not scoped:
+            # a weight stored by the old version (re-saved with no course scope); a fresh build never trusts one
+            legacy_weight = True
         row = {
             "topic": name,
             "weight": _weight(t.get("weight")),
-            "formats": _items(t.get("formats") if t.get("formats") is not None else t.get("format")),
-            "doctrines": _items(t.get("doctrines") if t.get("doctrines") is not None else t.get("authorities")),
-            "seen_in": _items(t.get("seen_in") if t.get("seen_in") is not None else t.get("papers")),
+            "weeks": weeks,
+            "objectives": objs,
+            "formats": [],
+            "doctrines": _tidy_doctrines(_items(t.get("doctrines") if t.get("doctrines") is not None
+                                                else t.get("authorities"))),
+            "seen_in": seen,
             "confidence": _conf(t.get("confidence")),
-            "note": _line(t.get("note"), 240),
+            "note": _clip(t.get("note"), 240),
         }
         if key in merged:
             m = merged[key]
             m["weight"] += row["weight"]
-            for k in ("formats", "doctrines", "seen_in"):
+            m["weeks"] = sorted(set(m["weeks"]) | set(row["weeks"]))
+            m["objectives"] = sorted(set(m["objectives"]) | set(row["objectives"]))
+            for k in ("doctrines", "seen_in"):
                 m[k] = _items(m[k] + row[k])
+            m["doctrines"] = _tidy_doctrines(m["doctrines"])
             m["note"] = m["note"] or row["note"]
             if row["confidence"] == "high":
                 m["confidence"] = "high"
@@ -210,19 +409,111 @@ def normalise_blueprint(raw, source_papers=None):
             break
     topics = [merged[k] for k in order]
 
-    total = sum(t["weight"] for t in topics)
-    if total > 0:
+    for t in topics:
+        if t["weeks"] or t["objectives"]:
+            t["confidence"] = _derived_conf(t)
+        else:
+            # Nothing ties the topic to a week or an objective: only implied, whatever the stored label said.
+            t["confidence"] = "low"
+        # Week/objective refs are rebuilt from the validated numbers; free-text refs to dropped ones go too.
+        t["seen_in"] = _items(["Week %d" % w for w in t["weeks"]] + ["Objective %d" % o for o in t["objectives"]]
+                              + [s for s in t["seen_in"] if not (_refs([s], _WEEK_REF) or _refs([s], _OBJ_REF))])
+
+    mapped_weeks = sorted({w for t in topics for w in t["weeks"]})
+    mapped_objs = sorted({o for t in topics for o in t["objectives"]})
+    if mapped_weeks:
+        basis, field, mapped = "weeks", "weeks", mapped_weeks
+        of = len(known_weeks) if known_weeks is not None else max(len(mapped_weeks), hint_of["weeks"])
+    elif mapped_objs:
+        basis, field, mapped = "objectives", "objectives", mapped_objs
+        of = n_obj if n_obj is not None else max(len(mapped_objs), hint_of["objectives"])
+    elif legacy_weight and sum(t["weight"] for t in topics) > 0:
+        basis, field, mapped, of = "model", None, [], 0
+    else:
+        basis, field, mapped, of = "none", None, [], 0
+
+    if field:
+        holders = {n: sum(1 for t in topics if n in t[field]) for n in mapped}
         for t in topics:
-            t["weight"] = round(t["weight"] * 100 / total)
-        drift = 100 - sum(t["weight"] for t in topics)
-        if drift:
-            max(topics, key=lambda x: x["weight"])["weight"] += drift
-    topics.sort(key=lambda t: (-t["weight"], t["topic"].lower()))
+            share = sum(1.0 / holders[n] for n in t[field])
+            t["share"] = _r2(share)
+            t["share_of"] = of
+            t["share_unit"] = field
+            t["weight"] = int(round(share * 100 / of + 1e-9)) if of else 0
+    elif basis == "model":
+        total = sum(t["weight"] for t in topics)
+        for t in topics:
+            t["weight"] = int(round(t["weight"] * 100 / total + 1e-9))
+    else:
+        for t in topics:
+            t["weight"] = 0
+    topics.sort(key=lambda t: (-t.get("share", t["weight"]), (t["weeks"] or [99])[0], (t["objectives"] or [99])[0],
+                               t["topic"].lower()))
 
     return {
         "topics": topics,
-        "exam_format": _line(raw.get("exam_format"), 600),
-        "method": _line(raw.get("method"), 600),
-        "note": _line(raw.get("note"), 400),
-        "source_papers": _items(source_papers if source_papers is not None else raw.get("source_papers"), 30),
+        "basis": basis,
+        # the real syllabus count when known (the denominator of every %), else the weeks the map names
+        "weeks_total": len(known_weeks) if known_weeks is not None else (of if basis == "weeks" else len(mapped_weeks)),
+        "weeks_mapped": mapped_weeks,
+        "weeks_unmapped": [w for w in (known_weeks or []) if w not in mapped_weeks],
+        "objectives_total": n_obj if n_obj is not None else (of if basis == "objectives" else len(mapped_objs)),
+        "objectives_mapped": mapped_objs,
+        "objectives_stated": bool(n_obj) if n_obj is not None else bool(mapped_objs),
+        "exam_format": "",
+        "method": "",
+        "note": _clip(raw.get("note"), 400),
+        "source_papers": [],      # papers are no longer read (build_context); kept for the stored shape
+        **({"input_hash": raw["input_hash"]} if _HASH.match(str(raw.get("input_hash") or "")) else {}),
     }
+
+
+# ---------------------------------------------------------------- a repeatable build (pitch: 20 builds, one map)
+#: Part of every input hash: a change to the prompt or to how a reply is read makes an old saved map "different
+#: inputs", so Rebuild asks the model again instead of returning a map the new rules would not produce.
+PROMPT_VERSION = "coverage-units-2026-11-14"
+
+
+def input_hash(model, context):
+    """sha256 of everything that decides the map: prompt version, RULES, model and the course's syllabus context."""
+    blob = json.dumps([PROMPT_VERSION, RULES, model or "", context or ""], ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:32]
+
+
+def _retryable(e):
+    """A refusal (4xx other than 429) is final; a timeout, a 5xx/502, a cut-off or unreadable reply is worth a retry."""
+    code = getattr(e, "status_code", None) or getattr(e, "code", None) or getattr(e, "status", None)
+    return not (isinstance(code, int) and 400 <= code < 500 and code != 429)
+
+
+def propose(syllabus_block, ask, *, model, saved=None, fresh=False, attempts=2, pause=1.5, sleep=time.sleep):
+    """One coverage-map proposal, repeatable.
+
+    `ask(context) -> parsed JSON` is the model call (run.py sends it at temperature 0, see llm.repeatable_kwargs).
+    Same inputs -> same map: when the saved map was built from exactly these inputs (its input_hash), it is
+    returned without a model call ("cached": "saved"). `fresh=True` always asks the model. A failed call
+    (timeout, 502, cut-off or unreadable reply) is retried once; the last error is raised if every attempt fails,
+    and the panel then keeps showing the saved map. The cache lives on the saved map itself (courses.brief), never
+    in process memory, so it survives a restart and needs no schema change."""
+    ctx = build_context([], syllabus_block=syllabus_block)
+    _SCOPE.set(None)
+    weeks, objs = scope_from_block(syllabus_block)
+    info = weeks_from_block(syllabus_block)
+    h = input_hash(model, ctx)
+    if not fresh and isinstance(saved, dict) and saved.get("input_hash") == h and saved.get("topics"):
+        return {**saved, "cached": "saved", "attempts": 0}
+    last = None
+    for i in range(max(1, attempts)):
+        if i:
+            sleep(pause * i)
+        try:
+            raw = ask(ctx)
+            if isinstance(raw, dict):
+                raw = {k: v for k, v in raw.items() if k != "input_hash"}
+            blu = normalise_blueprint(raw, syllabus_weeks=weeks, objectives=objs, week_info=info)
+            return {**blu, "input_hash": h, "cached": "", "attempts": i + 1}
+        except Exception as e:  # noqa: BLE001 - classified below; the caller maps the last one to its HTTP reply
+            last = e
+            if not _retryable(e):
+                break
+    raise last

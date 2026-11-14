@@ -7,7 +7,7 @@ const $=s=>document.querySelector(s); const esc=s=>String(s??'').replace(/[&<>"]
 const todayISO=(d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const addDays=(iso,n)=>{const d=new Date(iso+'T00:00:00'); d.setDate(d.getDate()+n); return todayISO(d)};
 const mondayOf=iso=>{const d=new Date(iso+'T00:00:00'); return addDays(iso, -((d.getDay()+6)%7))};
-const api=async(p,o={})=>{const r=await fetch('/api'+p,o); if(!r.ok){let m=r.statusText; try{m=(await r.json()).detail||m}catch{} throw new Error(m)} return r.json()};
+const api=async(p,o={})=>{const r=await fetch('/api'+p,o); if(!r.ok){let m=r.statusText; try{m=(await r.json()).detail||m}catch{} const e=new Error(m); e.status=r.status; throw e} return r.json()};
 const post=(p,b)=>api(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});
 const put=(p,b)=>api(p,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
 const del=p=>api(p,{method:'DELETE'});
@@ -1746,7 +1746,7 @@ async function loadCourtCases(){
   const el=$('#courtCases');
   try{
     const cs=await api(`/courses/${cid}/cases`);
-    if(!cs.length){ el.innerHTML='<div class="small muted">No cases yet — they appear once your notes name cases in *italics*.</div>'; return; }
+    if(!cs.length){ el.innerHTML='<div class="small muted">No cases yet — they appear once your notes name cases in <i>italics</i>.</div>'; return; }
     el.innerHTML=cs.map(c=>`<button data-case="${esc(c.name)}"><b>${esc(c.name)}</b>${c.cite?` <span class="muted">${esc(c.cite)}</span>`:''}</button>`).join('');
     el.querySelectorAll('button[data-case]').forEach(b=>b.onclick=()=>openCase(b.dataset.case));
   }catch(e){ el.innerHTML='<div class="small muted">Could not read your cases.</div>'; }
@@ -2171,7 +2171,7 @@ document.addEventListener('click',e=>{ if(e.target.id==='addToggle'){ const f=$(
 $('#addSession').onclick=async()=>{const t=$('#sTopic').value.trim(); if(!t){toast('Give the session a topic');return} await post(`/courses/${cid}/sessions`,{day:$('#sDay').value,topic:t,minutes:+$('#sMin').value||60}); $('#sTopic').value=''; loadPlanner();};
 
 /* progress */
-async function loadCaseIndex(){ const el=$('#caseIndex'); try{ const cs=await api(`/courses/${cid}/cases`); if(!cs.length){el.innerHTML='<div class="muted">No cases yet — they appear once your notes name cases in *italics*.</div>';return}
+async function loadCaseIndex(){ const el=$('#caseIndex'); try{ const cs=await api(`/courses/${cid}/cases`); if(!cs.length){el.innerHTML='<div class="muted">No cases yet — they appear once your notes name cases in <i>italics</i>.</div>';return}
     el.innerHTML=cs.map(c=>`<div class="ci"><b>${esc(c.name)}</b>${c.cite?` <span class="cc">${esc(c.cite)}</span>`:''} — ${c.notes.map(n=>`<a data-note="${n.id}">${esc(n.title)}</a>`).join(', ')}</div>`).join('');
     el.querySelectorAll('a[data-note]').forEach(a=>a.onclick=()=>{nid=a.dataset.note;noteMode='read';show('notes')}); keyable(el); }catch(e){ el.textContent='' } }
 /* ---- study timer ---- */
@@ -2188,7 +2188,7 @@ if(tStart>0){ tInt=setInterval(tShow,1000); } tShow();
    from the citations already written in the notes, never from what the model remembers about a case.
    Which order you last chose is a view preference, so localStorage is where it belongs. */
 let caseView = localStorage.getItem('cf.caseView')==='year' ? 'year' : 'az';
-const CASE_SUB = {az:'every case across your notes · your tabbing checklist',
+const CASE_SUB = {az:'every case named across your notes, A–Z',
                   year:'in the order the doctrine happened · years read off the citations you wrote'};
 function loadCaseView(){
   document.querySelectorAll('[data-caseview]').forEach(b=>b.setAttribute('aria-pressed', b.dataset.caseview===caseView));
@@ -2202,7 +2202,7 @@ function tlCase(c){ return `<div class="tc"><b>${esc(c.name)}</b>${c.cite?` <spa
   +`<span class="tn">${c.notes.map(n=>`<a data-note="${n.id}">${esc(n.title)}</a>`).join(', ')}</span></div>` }
 async function loadCaseTimeline(){ const el=$('#caseTimeline');
   try{ const t=await api(`/courses/${cid}/timeline`);
-    if(!t.total){ el.innerHTML='<div class="muted">No cases yet — they appear once your notes name cases in *italics*.</div>'; return }
+    if(!t.total){ el.innerHTML='<div class="muted">No cases yet — they appear once your notes name cases in <i>italics</i>.</div>'; return }
     const ls=t.groups.map(g=>`<li class="tyear"><span class="ty">${g.year}</span><div class="tcases">${g.cases.map(tlCase).join('')}</div></li>`);
     if(t.undated.length) ls.push(`<li class="tyear undated"><span class="ty">No year<br>written</span><div class="tcases">${t.undated.map(tlCase).join('')}</div></li>`);
     const dated=t.total-t.undated.length;
@@ -2211,10 +2211,13 @@ async function loadCaseTimeline(){ const el=$('#caseTimeline');
     el.innerHTML=`<p class="tnote">${head}</p><ol class="tline">${ls.join('')}</ol>`;
     el.querySelectorAll('a[data-note]').forEach(a=>a.onclick=()=>{nid=a.dataset.note;noteMode='read';show('notes')}); keyable(el);
   }catch(e){ el.innerHTML='<div class="muted">Could not read your cases.</div>' } }
+/* The syllabus week titles, so "Week 2" in Weak topics reads as the same topic the coverage map names. */
+const wkTitle=()=>{ const o={}; for(const w of (((C()||{}).brief||{}).syllabus||{}).weeks||[]) if(w.title) o[String(parseInt(w.week,10))]=w.title; return o; };
 /* Weak topics (18b): counts, never a score out of 100. One click opens the week's cards, notes or an essay. */
 async function loadWeakTopics(){ const box=$('#weakTopics'); if(!box) return; let w;
   try{ w=await api(`/courses/${cid}/weak-topics`) }catch(_){ box.textContent=''; return }
-  const line=t=>`<li class="wk-row"><b>${esc(t.label)}</b> <span class="muted">${t.reviews?`${t.recalled} of ${t.reviews} recalled`:'no reviews yet'}${t.missed.length?` · essay missed: ${t.missed.map(esc).join(', ')}`:''}</span>
+  const wt=wkTitle();
+  const line=t=>`<li class="wk-row"><b>${esc(t.label)}</b>${wt[String(t.week)]?` <span>${esc(wt[String(t.week)])}</span>`:''} <span class="muted">${t.reviews?`${t.recalled} of ${t.reviews} recalled`:'no reviews yet'}${t.missed.length?` · essay missed: ${t.missed.map(esc).join(', ')}`:''}</span>
     <span class="wk-go"><button class="btn small" type="button" data-wgo="recall" data-wweek="${esc(t.week)}">Cards</button><button class="btn small" type="button" data-wgo="notes" data-wweek="${esc(t.week)}">Notes</button><button class="btn small" type="button" data-wgo="essay" data-wweek="${esc(t.week)}">Essay</button></span></li>`;
   box.innerHTML=(w.weak.length?`<ol>${w.weak.map(line).join('')}</ol>`:'<p class="muted">Nothing weak on the evidence so far.</p>')
     +(w.holding.length?`<details><summary>Holding · ${w.holding.length}</summary><ul>${w.holding.map(line).join('')}</ul></details>`:'')
@@ -2222,51 +2225,193 @@ async function loadWeakTopics(){ const box=$('#weakTopics'); if(!box) return; le
   box.querySelectorAll('[data-wgo]').forEach(b=>b.onclick=()=>{ const wk=b.dataset.wweek, go=b.dataset.wgo;
     if(go==='recall'){ rweak=false; rweek=wk; show('recall') } else if(go==='essay'){ cfWant.essay=wk; show('essay') } else openStudy(cid,wk,'notes') }); }
 /* Read-only keys (2026-10-02, for Jarvis): made by the owner's session, shown once, revocable. */
+const isDemoCourse=()=>/(^|-)demo(-|$)/.test(((C()||{}).slug)||'');
 async function loadReadKeys(){ const ul=$('#readKeyList'); if(!ul) return; let ks=[];
+  if(isDemoCourse()){ $('#readKeys').hidden=true; return; }   // a personal Jarvis tool: not on a course shown to others
+  $('#readKeys').hidden=false;
   try{ ks=await api('/tokens') }catch(_){ $('#readKeys').hidden=true; return }   // not the owner: no panel
   const when=t=>t?new Date(t*1000).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'never';
   ul.innerHTML=ks.map(k=>`<li>${esc(k.name)} · made ${when(k.created)} · last used ${when(k.last_used)} ${k.revoked?'· <span class="muted">revoked</span>':`<button class="btn small ghost" type="button" data-revoke="${esc(k.id)}">Revoke</button>`}</li>`).join('')||'<li class="muted">No keys yet.</li>';
   ul.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{ await del(`/tokens/${b.dataset.revoke}`); toast('Key revoked'); loadReadKeys() }); }
 $('#readKeyMake').onclick=async()=>{ const k=await post('/tokens',{}); $('#readKeyValue').value=k.token; $('#readKeyOnce').hidden=false; $('#readKeyValue').select(); loadReadKeys(); };
 $('#readKeyCopy').onclick=async()=>{ try{ await navigator.clipboard.writeText($('#readKeyValue').value); toast('Copied — it will not be shown again') }catch(_){ $('#readKeyValue').select() } };
-/* Exam blueprint — what the course examines, weighted from past papers + syllabus.
-   Read-only: Build proposes (writes nothing), Save persists it onto the course. */
+/* Coverage map ("blueprint" in the code) — how the course's stated learning objectives and syllabus weeks
+   spread across topics. Coverage, never a prediction of the exam: no exam format, no question types, no
+   answer method on this card. Build proposes (writes nothing), Save persists it onto the course. */
 let bpProposal=null;        // an unsaved extract; null when we are showing what is applied
-const BP_CONF={high:'well-evidenced',medium:'some evidence',low:'thin evidence'};
-function bpTopicRow(t){ const w=Math.max(0,Math.min(100,+t.weight||0));
-  const chip=(cls,arr)=>arr&&arr.length?`<span class="bpc ${cls}">${arr.map(esc).join('</span><span class="bpc '+cls+'">')}</span>`:'';
+let bpSaved=null;           // the saved map, so readiness can name the unit of each topic's %
+// The model assigned the number; the objective does not literally name the topic — so "mapped to", not "named in".
+const BP_CONF={high:'mapped to a stated learning objective',medium:'mapped to a syllabus week',low:'not tied to a syllabus week or a stated objective'};
+const BP_CONF_LABEL={high:'objective',medium:'syllabus week',low:'implied'};
+const bpWeeks=ws=>{ ws=(ws||[]).map(Number).filter(n=>n>0).sort((a,b)=>a-b); if(!ws.length) return '';
+  const runs=[]; for(const n of ws){ const r=runs[runs.length-1]; if(r&&n===r[1]+1) r[1]=n; else runs.push([n,n]); }
+  return (ws.length===1?'Week ':'Weeks ')+runs.map(r=>r[0]===r[1]?r[0]:`${r[0]}–${r[1]}`).join(', '); };
+/* The course's own syllabus weeks and stated objectives (as course_brief.learning_objectives cleans them), so the
+   panel's counts and the objective chips are checked against what the course says — not against the model. */
+function bpCourse(){ const br=(C()&&C().brief)||{};
+  const weeks=[...new Set(((br.syllabus&&br.syllabus.weeks)||[]).map(w=>parseInt(w.week,10)).filter(n=>n>0))].sort((a,b)=>a-b);
+  const objs=String(br.learning_objectives||'').split('\n')
+    .map(l=>l.replace(/^\s*(?:[-*•–]|\(?\d{1,2}[.)]|LO\s*\d{1,2}[.:)]?)\s*/,'').trim()).filter(Boolean);
+  const source=String((br.syllabus&&br.syllabus.source)||'').trim();
+  return {weeks,objs,source}; }
+const bpNum=x=>{ x=Math.round((+x||0)*100)/100; return String(x).replace(/\.?0+$/,'')||'0'; };
+/* Evidence label from what the row actually carries: a saved "high" on a topic tied to no week and no objective
+   (maps saved by the older past-exam version) reads as implied, never as "mapped to a stated learning objective". */
+const bpConf=t=>((t.objectives||[]).length?'high':(t.weeks||[]).length?'medium':'low');
+function bpTopicRow(t,b,co,showConf,flat){ const w=Math.max(0,Math.min(100,+t.weight||0)), basis=(b&&b.basis)||'none';
+  const chip=(cls,arr,tip)=>arr&&arr.length?arr.map(x=>`<span class="bpc ${cls}"${tip?` title="${esc(tip)}"`:''}>${esc(x)}</span>`).join(''):'';
+  const wk=bpWeeks(t.weeks);
+  const objChips=(t.objectives||[]).slice(co.objs.length?1:0).map(n=>{ const txt=co.objs[n-1];   // grouped: the first is the heading
+    return `<span class="bpc obj" tabindex="0" title="${esc(txt?`Objective ${n}: ${txt}`:`Objective ${n} (the course states no objective ${n} now)`)}">Objective ${n}</span>`; }).join('');
+  const conf=bpConf(t), unit=t.share_unit||(basis==='objectives'?'objectives':'weeks');
+  let pct, tip, of='';
+  if((basis==='weeks'||basis==='objectives')&&!('share' in t)){ pct=`${w}%`; tip='Saved before shares were counted — rebuild to show the weeks behind each %'; }
+  else if(basis==='weeks'||basis==='objectives'){
+    if(+t.share>0){ const nm=unit==='objectives'?'stated objectives':'syllabus weeks';
+      pct=`${w}%`; of=`${bpNum(t.share)} of ${t.share_of} ${unit==='objectives'?'objectives':'weeks'}`;
+      tip=`${of}: the ${nm} this topic covers, out of all ${t.share_of} ${nm} (one shared with another topic counts half)`; }
+    else { pct='—'; tip=unit==='objectives'?'Not tied to a stated objective, so it has no share':'Not tied to a syllabus week, so it has no share of the syllabus'; }
+  } else if(basis==='model'){ pct=`${w}%`; tip='Saved by an older version as the model’s own estimate — rebuild to compute it from the syllabus weeks'; }
+  else { pct='—'; tip='No syllabus week or stated objective to compute a share from'; }
   return `<div class="bptopic">`+
-    `<div class="bptop"><span class="bpname">${esc(t.topic)}</span><span class="bpwt">${w}%</span>`+
-      `<span class="bpconf c-${esc(t.confidence||'medium')}" title="${BP_CONF[t.confidence]||''}">${esc(t.confidence||'medium')}</span></div>`+
-    `<div class="bpbar"><i style="width:${w}%"></i></div>`+
+    `<div class="bptop"><span class="bpname">${esc(t.topic)}</span>`+
+      (flat&&of?`<span class="bpflat small muted" title="${esc(tip)}">${esc(wk)}</span>`
+        :`<span class="bpwt" title="${esc(tip)}">${pct}${of?`<span class="bpof small muted"> · ${esc(of)}</span>`:''}</span>`)+
+      (showConf?`<span class="bpconf c-${esc(conf)}" title="Evidence: ${esc(BP_CONF[conf]||'')}">${esc(BP_CONF_LABEL[conf]||conf)}</span>`:'')+`</div>`+
+    (flat&&of?'':`<div class="bpbar"><i style="width:${pct==='—'?0:w}%"></i></div>`)+
     (t.note?`<div class="bpnote small muted">${esc(t.note)}</div>`:'')+
-    `<div class="bpchips">${chip('fmt',t.formats)}${chip('doc',t.doctrines)}${chip('seen',t.seen_in)}</div>`+
+    (pct==='—'&&(basis==='weeks'||basis==='objectives')?`<div class="bpnote small muted">${unit==='objectives'?'Not tied to a stated objective':'Not tied to a syllabus week'} — no share shown.</div>`:'')+
+    `<div class="bpchips">${chip('doc',t.doctrines,'Doctrine this topic turns on')}${wk&&!(flat&&of)?chip('seen',[wk],'Syllabus weeks it covers'):''}${objChips}</div>`+
     `</div>`; }
-function bpRender(b,proposed){ const topics=(b&&b.topics)||[];
-  $('#bpTopics').innerHTML=topics.length?topics.map(bpTopicRow).join(''):
-    (proposed?'<div class="emptystate"><b>No examined topics found</b><span>The papers and syllabus did not yield a clear pattern yet.</span></div>':
-      '<div class="emptystate"><b>No blueprint yet</b><span>Press “Build from papers” to read what this course examines.</span></div>');
-  const bits=[]; if(b&&b.exam_format) bits.push(esc(b.exam_format)); if(b&&b.method) bits.push('Method: '+esc(b.method));
-  if(b&&b.note) bits.push(esc(b.note));
-  if(proposed){ const src=b.source||{}; bits.unshift(`<b>Proposed</b> from ${src.papers||0} paper${src.papers===1?'':'s'}${src.syllabus?' + syllabus':''} — not saved`); }
-  else if(topics.length){ bits.unshift('<b>In use</b> — your tutor and practice questions focus on these'); }
-  $('#bpMeta').innerHTML=bits.join(' · ');
-  $('#bpSave').hidden=$('#bpDiscard').hidden=!proposed;
-  $('#bpBuild').textContent=topics.length&&!proposed?'Rebuild from papers':'Build from papers'; }
+/* "12 of 12 syllabus weeks · 6 of 6 stated objectives mapped" — counted here from the course and the topics,
+   never the model's own claim that everything was mapped. Names what is left out. */
+function bpCoverage(b,co){ const topics=(b&&b.topics)||[], out=[];
+  const mw=new Set(topics.flatMap(t=>(t.weeks||[]).map(Number))), mo=new Set(topics.flatMap(t=>(t.objectives||[]).map(Number)));
+  if(co.weeks.length){ const miss=co.weeks.filter(n=>!mw.has(n));
+    out.push(`${co.weeks.length-miss.length} of ${co.weeks.length} syllabus weeks mapped`+(miss.length?` (not in any topic: ${bpWeeks(miss).toLowerCase()})`:'')); }
+  if(co.objs.length){ const miss=co.objs.map((_,i)=>i+1).filter(n=>!mo.has(n));
+    out.push(`${co.objs.length-miss.length} of ${co.objs.length} stated objectives mapped`+(miss.length?` (not in any topic: ${miss.map(n=>'objective '+n).join(', ')})`:'')); }
+  return out.join(' · '); }
+/* The stated objectives, written out, each with the topics mapped to it and their share of the syllabus weeks —
+   so a professor checks the mapping by reading, not by hovering an "Objective N" chip. */
+/* Every topic one syllabus week (the per-week map): twelve equal 8% bars say nothing, so the rows name their week and
+   the bar moves up to the objective, where the shares differ. */
+const bpFlat=ts=>ts.length>1&&new Set(ts.map(t=>+t.weight||0)).size===1&&ts.every(t=>+t.weight>0);
+function bpObjectives(b,co,showConf){ const topics=(b&&b.topics)||[], nW=co.weeks.length, placed=new Set();
+  const flat=bpFlat(topics);
+  const groups=co.objs.map((txt,i)=>{ const n=i+1;
+    const ts=topics.filter(t=>(t.objectives||[]).map(Number)[0]===n);       // each topic once, under its first objective
+    const all=topics.filter(t=>(t.objectives||[]).map(Number).includes(n));
+    ts.forEach(t=>placed.add(t));
+    const wk=[...new Set(all.flatMap(t=>(t.weeks||[]).map(Number)))].sort((a,c)=>a-c);
+    const pc=nW&&wk.length?Math.round(wk.length*100/nW):0;
+    const share=pc?`${pc}% of the syllabus · ${bpWeeks(wk).toLowerCase()} (${wk.length} of ${nW})`:'';
+    return `<section class="bpobj"><div class="bpobjhead"><span class="bpobjn">Objective ${n}</span>`+
+      `<span class="bpobjtxt">${esc(txt)}</span>`+
+      (all.length?(share?`<span class="bpobjmap small muted">${esc(share)}</span>`:'')
+        :`<span class="bpobjmap small bpobjgap">Not mapped to any topic yet</span>`)+
+      (flat&&pc?`<div class="bpbar bpobjbar"><i style="width:${pc}%"></i></div>`:'')+`</div>`+
+      ts.map(t=>bpTopicRow(t,b,co,showConf,flat)).join('')+`</section>`; });
+  const rest=topics.filter(t=>!placed.has(t));
+  if(rest.length) groups.push(`<section class="bpobj"><div class="bpobjhead"><span class="bpobjtxt">Not tied to a stated objective</span></div>${rest.map(t=>bpTopicRow(t,b,co,showConf,flat)).join('')}</section>`);
+  return groups.join(''); }
+function bpHead(b,co){ const topics=(b&&b.topics)||[], objs=co.objs.length>0;
+  const h=$('#blueprintPanel h3'), sub=$('#bpSub');
+  const verb=topics.length?'Mapped from':'Maps', missing=[];
+  if(!co.weeks.length) missing.push('no syllabus has been read under Files yet');
+  if(!objs) missing.push('no learning objectives are stated in Course settings yet');
+  if(!topics.length||objs){ h.textContent='Coverage of stated learning objectives';
+    sub.textContent=!objs&&!co.weeks.length
+      ?'Maps the course’s stated learning objectives and syllabus weeks into topics — but '+missing.join(', and ')+'. Coverage, not a prediction of any exam.'
+      :objs&&!co.weeks.length
+      ?`${verb} the course’s stated learning objectives (Course settings); no syllabus has been read under Files yet. Coverage, not a prediction of any exam.`
+      :!objs
+      ?`${verb} the syllabus weeks you read under Files; no learning objectives are stated in Course settings yet. Coverage, not a prediction of any exam.`
+      :`${verb} the course’s stated learning objectives (Course settings) and the syllabus weeks you read under Files. Coverage, not a prediction of any exam.`; }
+  else { h.textContent='Coverage of the syllabus weeks';
+    sub.textContent='No stated learning objectives were read, so this maps the syllabus weeks only. Add the course’s published learning objectives in Course settings, then rebuild.'; }
+  if(!topics.length) return;
+  const basis=b.basis||'none', n=basis==='objectives'?(b.objectives_total||co.objs.length):(b.weeks_total||co.weeks.length);
+  const flat=bpFlat(topics);
+  sub.textContent+=basis==='weeks'&&flat&&objs
+    ?` Each topic is one syllabus week; each objective’s % is its share of all ${n} syllabus weeks, counted from the schedule.`
+    :basis==='weeks'&&flat
+    ?` Each topic is one of the ${n} syllabus weeks, so no topic outweighs another; the stated objectives would show how the weeks spread.`
+    :basis==='weeks'
+    ?` Each % is the topic’s share of all ${n} syllabus weeks (a week two topics share counts half to each), counted from the schedule.`
+    :basis==='objectives'
+    ?` No topic names a syllabus week, so each % is the topic’s share of the ${n} stated objectives (one shared by two topics counts half to each).`
+    :basis==='model'
+    ?' These % were the model’s own estimate in an older version — rebuild to compute them from the syllabus weeks.'
+    :' No topic names a syllabus week or a stated objective, so no % is shown.'; }
+function bpRender(b,proposed){ const topics=(b&&b.topics)||[], co=bpCourse();
+  if(!proposed) bpSaved=b;
+  bpHead(b,co);
+  const showConf=new Set(topics.map(bpConf)).size>1;   // one label on every row says nothing: shown only when they differ
+  // With stated objectives the topics sit under the objective they serve, its text written out, so a professor checks
+  // the mapping by reading it (no hovering an "Objective N" chip).
+  $('#bpTopics').innerHTML=topics.length?(co.objs.length?bpObjectives(b,co,showConf):topics.map(t=>bpTopicRow(t,b,co,showConf,bpFlat(topics))).join('')):
+    (proposed?'<div class="emptystate"><b>No topics found</b><span>Nothing in the syllabus or the stated objectives read as a topic. Read the course syllabus under Files and add the learning objectives in Course settings, then build again.</span></div>':
+      (co.weeks.length||co.objs.length?'<div class="emptystate"><b>No coverage map yet</b><span>Press “Build coverage map” to map the course’s stated learning objectives and syllabus weeks.</span></div>'
+        :'<div class="emptystate"><b>Nothing to map yet</b><span>Read the course syllabus under Files, or add the course’s published learning objectives in Course settings — then build the map.</span></div>'));
+  const bits=[], src=co.objs.length&&co.weeks.length?'the stated learning objectives and the syllabus weeks'
+    :co.objs.length?'the stated learning objectives':'the syllabus weeks';
+  if(proposed&&b&&b.cached==='saved') bits.push('<b>Same as the saved map</b> — the syllabus and the objectives have not changed since it was built, so nothing new was needed');
+  else if(proposed) bits.push(`<b>Proposed</b> from ${src} — not saved yet`);
+  else if(topics.length) bits.push('<b>Saved</b> — the tutor and practice questions see these topics and their share of the syllabus, as coverage, never as an exam prediction');
+  if(!topics.length&&b&&b.note) bits.push(esc(b.note));   // the model's own note only explains an empty map
+  const cov=topics.length?bpCoverage(b,co):'';
+  $('#bpMeta').innerHTML=`<div>${bits.join(' · ')}</div>`+(cov?`<div class="bpcount">${esc(cov)}</div>`:'')+
+    (co.source&&co.weeks.length?`<div class="bpsrc">Schedule: ${esc(co.source)}</div>`:'');
+  const same=proposed&&b&&b.cached==='saved';           // nothing new to save: the saved map is what came back
+  $('#bpSave').hidden=!proposed||same; $('#bpDiscard').hidden=!proposed;
+  if(same) $('#bpDiscard').textContent='Done'; else $('#bpDiscard').textContent='Discard';
+  $('#bpBuild').textContent=topics.length&&!proposed?'Rebuild coverage map':'Build coverage map'; }
+/* A failed build stays on the panel with what to do next — a toast alone vanished and read as "nothing happened".
+   Any unsaved proposal is dropped first, so the error never sits next to a Save button for an older proposal. */
+// A 502 or no reply at all is worth one more try from here; a 504 means the server already retried a slow model,
+// so asking again would only double the wait (up to ~4 minutes) before the saved map comes back.
+const bpRetryable=e=>{ const st=e&&e.status; return !st||st===429||(st>=500&&st!==504); };
+const bpFellBack=e=>{ const st=e&&e.status; return !st||st===429||st>=500; };
+async function bpError(e){ const st=e&&e.status, msg=(e&&e.message)||'';
+  bpProposal=null; $('#bpSave').hidden=$('#bpDiscard').hidden=true;
+  try{ bpRender(await api(`/courses/${cid}/blueprint`),false); }catch(_){ $('#bpTopics').innerHTML=''; }
+  const kept=!!$('#bpTopics .bptopic');
+  if(bpFellBack(e)&&kept){   // calm: the saved map is still right there, and still the course's map
+    $('#bpMeta').insertAdjacentHTML('afterbegin',`<div class="bpcalm" role="status"><b>Showing your saved coverage map.</b> The model did not answer in time (it was tried again automatically), so nothing changed. Rebuild later if the syllabus or the objectives have changed.</div>`);
+    return; }
+  const why=st===422?'There is nothing to map yet. Read the course syllabus under Files, and add the course’s published learning objectives in Course settings.'
+    :st===400||st===403||st===404?esc(msg||'The request was refused.')+' Nothing was saved.'
+    :'The model did not answer in time (it was tried again automatically), so nothing was built or saved. Build again in a minute.';
+  $('#bpMeta').innerHTML=`<div class="bperr" role="alert"><b>Could not build the coverage map.</b> ${why}${kept?' The saved coverage map below is unchanged.':''}</div>`; }
 async function loadBlueprint(){ if(!$('#blueprintPanel')) return; bpProposal=null;
   try{ bpRender(await api(`/courses/${cid}/blueprint`),false); }
   catch(e){ $('#bpTopics').innerHTML=''; $('#bpMeta').textContent=''; } }
-$('#bpBuild')&&($('#bpBuild').onclick=async()=>{ const b=$('#bpBuild'); const was=b.textContent; b.disabled=true; b.textContent='Reading your papers…'; $('#bpMeta').textContent='';
-  try{ bpProposal=await post(`/courses/${cid}/blueprint/extract`); bpRender(bpProposal,true); }
-  catch(e){ toast(e.message||'Could not build the blueprint'); b.textContent=was; }
-  b.disabled=false; });
+$('#bpBuild')&&($('#bpBuild').onclick=async()=>{ const b=$('#bpBuild'); const was=b.textContent; b.disabled=true; b.textContent='Mapping the objectives…';
+  $('#bpSave').disabled=true;
+  $('#bpMeta').textContent='Reading the stated learning objectives and the syllabus — this can take up to a minute.';
+  try{ try{ bpProposal=await post(`/courses/${cid}/blueprint/extract`); }
+       catch(e){ if(!bpRetryable(e)) throw e;            // one automatic retry on a timeout / 502, then the saved map
+         $('#bpMeta').textContent='The model was slow to answer — asking once more…';
+         await new Promise(r=>setTimeout(r,1500)); bpProposal=await post(`/courses/${cid}/blueprint/extract`); }
+       bpRender(bpProposal,true); }
+  catch(e){ await bpError(e); if(!(bpFellBack(e)&&$('#bpTopics .bptopic'))) toast('Could not build the coverage map'); }
+  b.disabled=false; $('#bpSave').disabled=false; });
 $('#bpSave')&&($('#bpSave').onclick=async()=>{ if(!bpProposal) return; const b=$('#bpSave'); b.disabled=true;
-  try{ const r=await post(`/courses/${cid}/blueprint/apply`,bpProposal); toast(r.topics?`Blueprint saved · ${r.topics} topic${r.topics===1?'':'s'}`:'Blueprint cleared'); await loadBlueprint(); loadReadiness(); }
+  try{ const r=await post(`/courses/${cid}/blueprint/apply`,bpProposal); toast(r.topics?`Coverage map saved · ${r.topics} topic${r.topics===1?'':'s'}`:'Coverage map cleared'); await loadBlueprint(); loadReadiness(); }
   catch(e){ toast(e.message||'Could not save'); } b.disabled=false; });
 $('#bpDiscard')&&($('#bpDiscard').onclick=()=>loadBlueprint());
-/* Exam readiness — per examined doctrine, from the blueprint + your cards. Read-only. */
+/* Readiness — per objective topic, from the saved coverage map + your cards. Read-only. */
+const rdWeek=t=>{ const m=((bpSaved&&bpSaved.topics)||[]).find(x=>x.topic===t.topic)||{}; return (m.weeks||[]).length===1?String(m.weeks[0]):''; };
+function rdShare(t){ const m=((bpSaved&&bpSaved.topics)||[]).find(x=>x.topic===t.topic)||{}, basis=(bpSaved&&bpSaved.basis)||'';
+  if((basis==='weeks'||basis==='objectives')&&('share' in m)&&!(+m.share>0)) return m.share_unit==='objectives'?'not tied to a stated objective':'not tied to a syllabus week';
+  if(basis==='none'||!t.weight) return 'no share computed';
+  const ts=(bpSaved&&bpSaved.topics)||[];      // a per-week map: every topic the same %, so name its week instead
+  if(basis==='weeks'&&ts.length>1&&new Set(ts.map(x=>+x.weight||0)).size===1&&(m.weeks||[]).length) return bpWeeks(m.weeks);
+  if(basis==='model') return `${t.weight}% (older model estimate, not counted from the syllabus)`;
+  return `${t.weight}% of ${m.share_unit==='objectives'?'the stated objectives':'the syllabus'}`; }
 async function loadReadiness(){ const panel=$('#readinessPanel'); if(!panel) return;
-  let d; try{ d=await api(`/courses/${cid}/readiness`); }catch(e){ panel.hidden=true; return; }
+  let d; try{ [d,bpSaved]=await Promise.all([api(`/courses/${cid}/readiness`),api(`/courses/${cid}/blueprint`).catch(()=>null)]); }catch(e){ panel.hidden=true; return; }
   if(!d||!d.blueprint){ panel.hidden=true; return; }     // only meaningful once a blueprint is saved
   panel.hidden=false;
   const bs=(d.overall||{}).by_status||{};
@@ -2281,17 +2426,28 @@ async function loadReadiness(){ const panel=$('#readinessPanel'); if(!panel) ret
       `<div class="rdline"><span class="rddot" aria-hidden="true"></span><span class="rdname">${esc(t.topic)}</span>`+
       `<span class="rdstatus">${esc(t.status)}</span></div>`+
       `<div class="rdbar"><i style="width:${pct}%"></i></div>`+
-      `<div class="rdsub small muted">${t.weight}% of exam · ${sub.join(' · ')}</div></div>`; };
+      `<div class="rdsub small muted">${rdShare(t)} · ${sub.join(' · ')}</div>`+
+      (t.status!=='ready'?`<div class="rdgo">${rdWeek(t)&&t.cards_total?`<button class="btn small" type="button" data-rdcards="${esc(rdWeek(t))}">Review its cards</button>`:''}`+
+        `<button class="btn small ghost" type="button" data-rdask="${esc(t.topic)}">Ask the tutor on it</button></div>`:'')+`</div>`; };
+  // "Study next": the weakest one or two topics, in the order readiness.py ranks them (gap, then lowest score).
+  const order={gap:0,weak:1,shaky:2}, next=d.topics.filter(t=>t.status in order)
+    .sort((a,c)=>order[a.status]-order[c.status]||(a.score||0)-(c.score||0)).slice(0,2);
+  const nx=$('#rdNext'); if(nx){ nx.hidden=!next.length;
+    nx.innerHTML=next.length?`<b>Study next:</b> ${next.map(t=>`${esc(t.topic)} <span class="muted">(${esc(t.status)})</span>`).join(' · ')}`:''; }
   $('#rdTopics').innerHTML=d.topics.length?d.topics.map(row).join(''):
-    '<div class="emptystate"><b>No examined topics</b><span>Save an exam blueprint first.</span></div>';
+    '<div class="emptystate"><b>No topics yet</b><span>Save a coverage map of the stated learning objectives first.</span></div>';
+  $('#rdTopics').querySelectorAll('[data-rdcards]').forEach(b=>b.onclick=()=>{ rweak=false; rweek=b.dataset.rdcards; show('recall'); });
+  $('#rdTopics').querySelectorAll('[data-rdask]').forEach(b=>b.onclick=()=>{ const m=((bpSaved&&bpSaved.topics)||[]).find(x=>x.topic===b.dataset.rdask)||{};
+    show('tutor'); setMode('drill'); const docs=(m.doctrines||[]).slice(0,3).join(', ');
+    $('#q').value=`Drill me on ${b.dataset.rdask}${docs?` (${docs})`:''}.`; $('#q').focus(); });
   const tg=d.tagging||{},foot=$('#rdFoot');
   if(foot){ if(tg.total){ foot.hidden=false;
       $('#rdCoverage').textContent=tg.untagged
-        ? `${tg.tagged} of ${tg.total} cards tagged to a doctrine — tag the rest for exact readiness`
-        : `all ${tg.total} cards tagged to a doctrine`;
-      const b=$('#rdTag'); b.hidden=!tg.untagged; b.textContent=tg.tagged?'Tag remaining cards':'Tag cards to doctrines';
+        ? `${tg.tagged} of ${tg.total} cards sorted into these topics — sort the rest so each topic counts exactly its own cards`
+        : `all ${tg.total} cards sorted into these topics`;
+      const b=$('#rdTag'); b.hidden=!tg.untagged; b.textContent=tg.tagged?'Sort the remaining cards':'Sort cards into topics';
     } else foot.hidden=true; } }
-/* Tag cards to the examined doctrines so readiness counts the right cards. One model pass over untagged cards. */
+/* Tag cards to the objective topics so readiness counts the right cards. One model pass over untagged cards. */
 $('#rdTag')&&($('#rdTag').onclick=async()=>{ const b=$('#rdTag'),was=b.textContent; b.disabled=true; b.textContent='Tagging…';
   try{ const r=await post(`/courses/${cid}/cards/tag`,{all:false});
     toast(r.tagged?`Tagged ${r.tagged} card${r.tagged===1?'':'s'}`+(r.failed?` · ${r.failed} skipped`:''):'Nothing to tag');

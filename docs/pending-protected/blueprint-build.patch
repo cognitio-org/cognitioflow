@@ -1,0 +1,106 @@
+Pending protected change (run.py) for the coverage map (#228) — Matej pre-answered YES once #228 passes skeptic+judge>=8.
+Apply: git apply docs/pending-protected/blueprint-build.patch
+1) extract: a repeatable build. The model is called at temperature 0 (+ fixed seed, no hidden reasoning on Kernal:
+   llm.repeatable_kwargs), through blueprint.propose: when the saved map was built from exactly these inputs
+   (its input_hash) it is returned without a model call; ?fresh=1 always asks the model (the 20-build proof uses it).
+   One automatic retry on a timeout, 502, cut-off or unreadable reply; then 502/504 and the panel keeps the saved map.
+2) extract: max_tokens 4000 -> 8000 and an explicit 'cut off' 502; papers are no longer read (they were not sent anyway).
+3) 422 copy names the syllabus and the learning objectives, no past exams (the UI already overrides it client-side).
+4) apply: BlueprintApplyIn keeps input_hash; a Save is checked against the course's own weeks/objectives and named
+   after its own week titles (fixes the stored objectives_total/weeks_unmapped on a Save without scope).
+5) card-tagging 422: 'exam blueprint' -> 'coverage map'.
+Regenerated 2026-11-14 against main a261d32 (git apply --check passes). No schema change.
+
+diff --git a/run.py b/run.py
+index 582e28c..822e694 100644
+--- a/run.py
++++ b/run.py
+@@ -978,39 +978,44 @@ def syllabus_get(cid: str):
+ 
+ class BlueprintApplyIn(BaseModel):
+     topics: list = []; exam_format: str = ""; method: str = ""; note: str = ""; source_papers: list = []
++    input_hash: str = ""   # the inputs the proposal was built from, so a Rebuild of the same inputs returns it
+ 
+ 
+ @app.post("/api/courses/{cid}/blueprint/extract")
+-def blueprint_extract(cid: str):
+-    """Read this course's past-exam/mock files and applied syllabus, and propose a weighted map of
+-    what it examines. Writes nothing — the panel shows the blueprint before anything consumes it,
+-    so a wrong reading costs a re-read, not a change to the course."""
++def blueprint_extract(cid: str, fresh: bool = False):
++    """Map this course's applied syllabus weeks and stated learning objectives into topics. Writes nothing — the
++    panel shows the map before anything consumes it. Repeatable: temperature 0 (llm.repeatable_kwargs), and when
++    the saved map was built from exactly these inputs it is returned without a model call; `fresh=1` always asks
++    the model. One automatic retry on a timeout, 502 or cut-off reply (blueprint.propose)."""
+     _require_owner(cid)
+     c = rows("SELECT name,brief FROM courses WHERE id=?", cid)
+     if not c:
+         raise HTTPException(404)
+     brief = c[0]["brief"] or {}
+-    fs = rows("SELECT name,role,text FROM files WHERE course_id=? AND kind<>'image' AND COALESCE(text,'')<>''", cid)
+-    papers = [{"name": f["name"], "text": f["text"]} for f in fs
+-              if ((f["role"] or "") == "exam" or mockexam.looks_like_exam(f["name"]))
+-              and not (f["text"] or "").startswith("[extraction failed")]
+     syl = cb.syllabus_block(brief)
+-    if not papers and not syl:
+-        raise HTTPException(422, "Nothing to read a blueprint from yet. Upload a past exam (label it ‘Past exam’), "
+-                                 "or read a syllabus under Files first.")
+-    ctx = bp.build_context(papers, syllabus_block=syl,
+-                           exam_format=(brief.get("exam_format") or ""),
+-                           method=(brief.get("method") or ""))
++    if not syl:
++        raise HTTPException(422, "Nothing to map yet. Read the course syllabus under Files, or add the course's "
++                                 "published learning objectives in Course settings, first.")
+     model = pick_model("summarise", None)   # cheap tier; the strong model is unreachable here, as in syllabus
+-    got = _model_json(ask_model(model, task="summarise", max_tokens=4000, system=bp.RULES,
+-                                messages=[{"role": "user", "content": ctx}]))
++
++    def ask(ctx):
++        m = ask_model(model, task="summarise", max_tokens=8000, system=bp.RULES,
++                      messages=[{"role": "user", "content": ctx}], **llm.repeatable_kwargs())
++        if getattr(m, "stop_reason", "") == "max_tokens":
++            raise HTTPException(502, "The model's reply was cut off before the map was complete. Nothing was saved — build again.")
++        return _model_json(m)
++
+     try:
+-        blu = bp.normalise_blueprint(got, source_papers=[p["name"] for p in papers])
++        blu = bp.propose(syl, ask, model=model, saved=brief.get(bp.BLUEPRINT_KEY), fresh=fresh)
+     except bp.BlueprintError as e:
+-        raise HTTPException(502, f"The model's reply was not a blueprint ({e}). Try again.")
++        raise HTTPException(502, f"The model's reply was not a coverage map ({e}). Try again.")
++    except HTTPException:
++        raise
++    except Exception as e:  # noqa: BLE001 - a timeout or router error after the retry: the panel keeps the saved map
++        raise HTTPException(504, f"The model did not answer in time ({type(e).__name__}). Nothing was saved.")
+     if not blu["topics"] and not blu["note"]:
+-        blu["note"] = "Nothing in the material reads as an examined topic."
+-    return {**blu, "source": {"papers": len(papers), "syllabus": bool(syl)}, "model": model}
++        blu["note"] = "Nothing in the syllabus or the stated objectives reads as a topic."
++    return {**blu, "source": {"papers": 0, "syllabus": True}, "model": model}
+ 
+ 
+ @app.post("/api/courses/{cid}/blueprint/apply")
+@@ -1019,7 +1024,13 @@ def blueprint_apply(cid: str, p: BlueprintApplyIn):
+     no schema change — so a later slice can point the tutor and the generators at it. An empty topics
+     list removes an applied blueprint again. Idempotent via normalise_blueprint."""
+     _require_owner(cid)
+-    blu = _checked(bp.normalise_blueprint, p.model_dump())
++    c = rows("SELECT brief FROM courses WHERE id=?", cid)
++    syl = cb.syllabus_block((c[0]["brief"] or {}) if c else {})
++    weeks, objectives = bp.scope_from_block(syl)
++    known = weeks or objectives    # a course with neither: a re-save of a checked proposal, left as posted
++    blu = _checked(lambda raw: bp.normalise_blueprint(raw, syllabus_weeks=weeks if known else None,
++                                                      objectives=objectives if known else None,
++                                                      week_info=bp.weeks_from_block(syl)), p.model_dump())
+     with db() as d:
+         cur = d.execute("SELECT name,tutor_prompt,brief FROM courses WHERE id=?", (cid,)).fetchone()
+         if not cur:
+@@ -1158,7 +1169,7 @@ def cards_tag(cid: str, p: CardTagIn):
+         raise HTTPException(404)
+     topics = bp.examined_topics(r[0]["brief"] or {})
+     if not topics:
+-        raise HTTPException(422, "No exam blueprint applied yet. Build and save a blueprint first, then tag.")
++        raise HTTPException(422, "No coverage map saved yet. Build it from the syllabus and save it first, then tag.")
+     keys = ct.topic_keys(topics)
+     cards = rows("SELECT id, front, back, COALESCE(doctrine,'') AS doctrine FROM cards WHERE course_id=?", cid)
+     if not p.all:

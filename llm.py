@@ -91,6 +91,20 @@ def _provider() -> str:
     return PROVIDER
 
 
+#: The seed a repeatable job (the coverage map) sends where the provider takes one.
+REPEATABLE_SEED = 7
+
+
+def repeatable_kwargs() -> dict:
+    """Sampling for a job whose same inputs must give the same answer (the coverage map's Rebuild): temperature 0
+    on every provider, plus a fixed seed and no hidden reasoning on Kernal (gemini-2.5-flash's thinking pass varies
+    run to run). The Anthropic SDK takes neither field, so they are sent only where the router accepts them."""
+    kw = {"temperature": 0}
+    if _provider() == "kernal":
+        kw.update(seed=REPEATABLE_SEED, reasoning_effort="disable")
+    return kw
+
+
 def is_router(model_id: str) -> bool:
     """`openrouter/auto` and friends pick a model by community spend and can land on Fable."""
     return str(model_id or "").strip().lower().startswith("openrouter/")
@@ -433,7 +447,10 @@ def local_call(task, **kw):
 #: Sampling fields an OpenAI-compatible server (mlx_lm.server) accepts beyond temperature. Forwarded only when a
 #: caller passes them (the Game Studio v2 docket writer does, with the Qwen3-Coder card values); otherwise the body
 #: is exactly as before.
-KERNAL_SAMPLING = {"top_p": float, "top_k": int, "min_p": float, "repetition_penalty": float}
+KERNAL_SAMPLING = {"top_p": float, "top_k": int, "min_p": float, "repetition_penalty": float,
+                   # The coverage map asks for a repeatable answer (same inputs -> same map): a fixed seed, and no
+                   # hidden reasoning (a thinking pass varies run to run and can eat the budget, see below).
+                   "seed": int, "reasoning_effort": str}
 
 
 def _kernal_body(model, system, messages, max_tokens, temperature, stream, sampling=None) -> dict:
@@ -446,6 +463,24 @@ def _kernal_body(model, system, messages, max_tokens, temperature, stream, sampl
         if v is not None:
             body[k] = cast(v)
     return body
+
+
+def _thinking_ate_budget(data: dict) -> bool:
+    """True when a Kernal reply stopped at `length` mostly because hidden reasoning used the budget:
+    reasoning_tokens >= half the completion tokens when the router reports them, else (no breakdown)
+    visible text far shorter than the tokens billed (~4 chars a token; under 2 means mostly unseen)."""
+    choice = (data.get("choices") or [{}])[0]
+    if choice.get("finish_reason") != "length":
+        return False
+    u = data.get("usage") or {}
+    done = int(u.get("completion_tokens") or 0)
+    if done <= 0:
+        return False
+    thought = (u.get("completion_tokens_details") or {}).get("reasoning_tokens")
+    if thought is not None:
+        return int(thought or 0) * 2 >= done
+    text = ((choice.get("message") or {}).get("content")) or ""
+    return len(text) < 2 * done
 
 
 def _kernal_usage(u: dict) -> _LocalUsage:
@@ -529,8 +564,28 @@ class _KernalMessages:
         import json as _json
         import urllib.request
         body = _kernal_body(model, system, messages, max_tokens, temperature, False, _ignored)
-        with urllib.request.urlopen(_kernal_request(self._base, self._key, body), timeout=KERNAL_TIMEOUT) as resp:
-            data = _json.loads(resp.read().decode("utf-8"))
+
+        def post(b):
+            with urllib.request.urlopen(_kernal_request(self._base, self._key, b), timeout=KERNAL_TIMEOUT) as resp:
+                return _json.loads(resp.read().decode("utf-8"))
+
+        data = post(body)
+        if _thinking_ate_budget(data) and "reasoning_effort" not in body:
+            # A thinking model (gemini-2.5-flash, the kernal cheap tier) can spend nearly the whole
+            # max_tokens on hidden reasoning and stop at `length` with a few hundred characters of
+            # answer: a JSON job (the Exam Blueprint, 2026-11-13) then reads as "non-JSON" every time.
+            # One retry without reasoning fits the answer in the caller's budget. An ordinary long
+            # truncation (visible text filled the budget) never retries — Continue handles those.
+            try:
+                first, data = data, post({**body, "reasoning_effort": "disable"})
+                u0, u1 = first.get("usage") or {}, dict(data.get("usage") or {})
+                for k in ("prompt_tokens", "completion_tokens"):   # the cost log bills both calls
+                    u1[k] = int(u0.get(k) or 0) + int(u1.get(k) or 0)
+                data = {**data, "usage": u1}
+            except Exception as e:  # noqa: BLE001 - a model refusing the field: keep the first reply
+                import logging
+                logging.getLogger("cognitioflow.llm").warning(
+                    "kernal retry without reasoning failed (%s); keeping the cut-off reply", type(e).__name__)
         choice = (data.get("choices") or [{}])[0]
         text = ((choice.get("message") or {}).get("content")) or ""
         stop = "max_tokens" if choice.get("finish_reason") == "length" else "end_turn"
