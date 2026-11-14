@@ -50,7 +50,7 @@ def _node(consts, fns, script: str):
 BADGE_CONSTS = ["ROLE_NAMES", "AUTH_DEFAULT", "AUTH_MAX", "MODEL_ANSWER_RX", "EXAM_NAME_RX", "ANSWER_WORD_RX",
                 "NOT_ANSWER_RX", "ABOUT_ANSWERS_RX"]
 BADGE_FNS = ["isAnswerFile", "authTagRole", "authRanks", "authRank", "srcTypeTitle", "srcTypeName", "authChip",
-             "ctxIndex", "ctxLookup", "srcLink", "fmtChars", "mdLite", "isMarkdown", "srcPage", "readingSummary"]
+             "ctxIndex", "ctxLookup", "srcLink", "fmtChars", "mdLite", "isMarkdown", "srcPage", "cfTok", "readingSummary"]
 
 
 # ---------------------------------------------------------------- the answer-file rule now drives the visible badge

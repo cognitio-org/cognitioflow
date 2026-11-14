@@ -70,8 +70,8 @@
     .g4{grid-template-columns:repeat(4,1fr);gap:.5rem} .stat{padding:.5rem .7rem;display:flex;align-items:baseline;gap:.4rem} .stat .n{font-size:var(--fs-lg)} .stat .l{margin:0;font-size:var(--fs-xs)}
     .hero{padding:var(--s4) var(--s5);gap:var(--s4)} .hero h2{font-size:1.35rem} .hero .k{font-size:2.1rem}
     .g2{grid-template-columns:1fr} .panel{padding:.75rem .9rem}
-    .screen>.tutor,.screen>.notes{grid-template-columns:minmax(0,1fr);height:calc(100vh - 9.25rem)} .screen>.tutor{grid-template-rows:auto 1fr} .screen>.tutor aside.col{max-height:7.5rem;overflow:auto;padding:.45rem .7rem;flex-direction:row;align-items:baseline;gap:.5rem;flex-wrap:wrap;flex:0 0 auto} .screen>.tutor aside.col h3{font-size:var(--fs-sm);margin:0;color:var(--graphite);white-space:nowrap}
-    .screen>.tutor .ctx{display:flex;flex-wrap:wrap;gap:.3rem;flex:1} .screen>.tutor .ctx li{border:1px solid var(--rule);border-radius:999px;padding:.05rem .55rem;font-size:var(--fs-xs);color:var(--graphite)} .screen>.tutor .ctx li:last-child{border:1px solid var(--rule)} .screen>.tutor #ctxSize{margin:0!important;white-space:nowrap}
+    .screen>.tutor,.screen>.notes{grid-template-columns:minmax(0,1fr);height:calc(100vh - 9.25rem)} .screen>.tutor{grid-template-rows:auto 1fr} .screen>.tutor aside.col{overflow:visible;padding:.45rem .7rem;flex-direction:row;align-items:baseline;gap:.4rem .8rem;flex-wrap:wrap;flex:0 0 auto} .screen>.tutor aside.col h3{font-size:var(--fs-sm);margin:0;color:var(--graphite);white-space:nowrap}
+    .screen>.tutor .ctx{display:flex;flex-wrap:wrap;gap:.3rem;flex:1 1 26rem;min-width:0} .screen>.tutor .ctx li{max-width:19rem;min-width:0} .screen>.tutor .ctx li .srcopen{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0} .screen>.tutor #ctxAnswer{flex:1.4 1 28rem;margin:0!important;padding:0 0 0 .8rem!important;border-top:none!important;border-left:1px solid var(--rule)} .screen>.tutor #ctxAnswer>div{display:flex;flex-wrap:wrap;align-items:center;column-gap:.45rem;margin-top:0!important} .screen>.tutor .ctxlegend{margin-top:0} .screen>.tutor .ctx li{border:1px solid var(--rule);border-radius:999px;padding:.05rem .55rem;font-size:var(--fs-xs);color:var(--graphite)} .screen>.tutor .ctx li:last-child{border:1px solid var(--rule)} .screen>.tutor #ctxSize{margin:0!important;white-space:nowrap}
     .modes{flex-wrap:wrap;row-gap:.3rem} .msg{max-width:94%}
   }
   /* focus mode: current screen only, nothing else */
@@ -228,9 +228,53 @@
 .tfoot{display:flex;gap:var(--s3);justify-content:flex-end;margin-top:var(--s1);min-height:1.2em}
 /* source tags as chips: the kind and the first source; the whole tag on hover */
 .src{display:inline-block;margin:0 .15em;padding:0 .45em;border:1px solid var(--rule);border-radius:999px;font-family:var(--sans);font-size:var(--fs-xs);font-style:normal;font-weight:500;line-height:1.55;color:var(--graphite);white-space:nowrap;vertical-align:.08em;cursor:help}
+/* a source tag opens the passage behind it; an outside-files tag reads as a warning */
+.src[role=button]{cursor:pointer;min-height:1.55em}
+.src[role=button]:hover{border-color:var(--rule-strong);color:var(--ink)}
+.src[aria-expanded=true]{border-color:var(--accent);color:var(--ink)}
+.src.flag{border-color:var(--warn);color:var(--warn)}
+.srcpanel{margin:.1rem 0 .7rem;padding:.55rem .75rem;border:1px solid var(--rule);border-radius:var(--r);background:var(--paper);font-family:var(--sans);font-size:var(--fs-sm);line-height:1.45}
+.srcpanel .srch{font-weight:600;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.04em;color:var(--graphite);margin-bottom:.3rem}
+.srcpanel .srcitem+.srcitem{margin-top:.5rem;padding-top:.5rem;border-top:1px solid var(--rule)}
+.srcpanel .srcfile{font-weight:600;color:var(--ink)}
+.srcpanel blockquote{margin:.25rem 0;padding:0 0 0 .6rem;border-left:2px solid var(--rule-strong);font-family:var(--serif,inherit);color:var(--ink)}
+.srcpanel mark{background:color-mix(in oklab,var(--accent),transparent 78%);color:inherit;padding:0 .1em;border-radius:2px}
+.srcpanel .srccites{color:var(--graphite);font-size:var(--fs-xs)}
+.srcpanel .srccites code,.cf-flag code{font-size:.92em}
+/* the tutor at work: three steps from the stream's own events, and the seconds so far */
+.tstatus{display:flex;align-items:center;flex-wrap:wrap;gap:.3rem .9rem;margin:0 0 .5rem;font-family:var(--sans);font-size:var(--fs-sm);color:var(--graphite)}
+.msg.waiting .tstatus{margin:0}
+.tsteps{display:flex;flex-wrap:wrap;gap:.3rem .9rem;margin:0;padding:0;list-style:none}
+.tsteps li{display:flex;align-items:center;gap:.35rem;opacity:.55}
+.tsteps li.now{opacity:1;color:var(--ink);font-weight:500}
+.tsteps li.done{opacity:.8}
+.tdot{width:.55rem;height:.55rem;border-radius:50%;border:1.5px solid currentColor;flex:none}
+.tsteps li.done .tdot{background:currentColor}
+.tsteps li.now .tdot{border-color:var(--accent);background:var(--accent)}
+.ttime{font-variant-numeric:tabular-nums;margin-left:auto}
+@media(prefers-reduced-motion:no-preference){.tsteps li.now .tdot{animation:tpulse 1.4s ease-in-out infinite}}
+@keyframes tpulse{50%{opacity:.35}}
+/* every tutor answer says what it is */
+.tact{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem .8rem;margin-top:.5rem}
+.aigen{font-family:var(--sans);font-size:var(--fs-xs);color:var(--graphite);padding:.1rem .5rem;border:1px dashed var(--rule-strong);border-radius:999px;cursor:help}
+.tact .btn{margin-left:auto}
+/* cited by the tutor, in none of his ticked files: at the top of the answer, where it cannot be missed */
+.cf-flag{margin:0 0 .7rem;padding:.6rem .8rem;border:1px solid var(--warn);border-left-width:4px;border-radius:var(--r);background:color-mix(in oklab,var(--warn),transparent 90%);font-family:var(--sans);font-size:var(--fs-sm);color:var(--ink);line-height:1.45}
+.cf-flag-h{font-weight:700;color:var(--warn);margin-bottom:.15rem}
+.cf-flag-h::before{content:"⚠";margin-right:.4rem}
+.cf-flag-list{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.35rem}
+.cf-flag-list code{padding:.05rem .4rem;border:1px solid var(--warn);border-radius:var(--r);background:var(--paper);color:var(--ink)}
 /* the way out of Focus mode has to be findable */
 #focusBtn{opacity:.85;border-color:var(--rule)}
 /* an empty screen says what to do, on a surface rather than floating on the page */
 .screen>.emptystate,#mockBody>.emptystate,.mock .emptystate{max-width:34rem;margin:var(--s6) auto;padding:var(--s5) var(--s5);background:var(--faint);border:1px solid var(--rule);border-radius:var(--r-md)}
 @media(max-width:600px){.g4{grid-template-columns:repeat(2,minmax(0,1fr))} .tbar{margin-left:0} .tmore-panel{min-width:min(15rem,calc(100vw - 2rem))}
   select{max-width:100%} .head{flex-wrap:wrap;row-gap:var(--s2)} .col.editor>div:first-child{flex-wrap:wrap} #noteTitle{min-width:0;flex-basis:100%} .screen>.tutor aside.col,.screen>.notes aside.col{min-width:0;max-width:100%;overflow:auto}}
+
+/* Tutor, wave 3: the source panel names what it could not find before what it did; a chip on a line that cites
+   something flagged carries the warning colour; the reloaded flag says what it was checked against. */
+.srcpanel .srcmiss{color:var(--warn);font-weight:600;margin-bottom:.3rem}
+.srcpanel .srcname{color:var(--warn);font-size:var(--fs-xs);margin-bottom:.3rem}
+.srcpanel .srcterm{font-size:var(--fs-xs);color:var(--graphite);text-transform:none;letter-spacing:0}
+.src.warnline{border-color:var(--warn);color:var(--warn);background:color-mix(in oklab,var(--warn),transparent 90%)}
+.cf-flag .cf-flag-note{margin-top:.35rem;font-size:var(--fs-xs);color:var(--graphite)}
