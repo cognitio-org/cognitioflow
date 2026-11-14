@@ -167,12 +167,31 @@ def default_model(tier: str = "main") -> str:
     return main
 
 
+#: Called (no arguments) before every client() is built; a guard refuses a call by raising LimitReached. The app
+#: registers the per-user cap here (multiuser.cap_guard) without this module touching a database. Kept across
+#: importlib.reload like SINKS.
+GUARDS: list = globals().get("GUARDS", [])
+
+
+class LimitReached(ConfigError):
+    """A guard refused the call (e.g. the user's daily AI cap). A ConfigError, so callers that already turn a
+    ConfigError into an HTTP error keep working; run.client() maps it to 429 once the protected patch lands."""
+
+
+def check_guards() -> None:
+    """Run every registered guard (raises LimitReached to refuse). client() calls it, and so do the two lanes that never
+    reach client(): local_call (the self-hosted bulk lane) and gateway.call (the cheap bulk-card lane)."""
+    for guard in list(GUARDS):
+        guard()
+
+
 def client():
     """The SDK, pointed at whichever backend the environment names.
 
     OpenRouter's Anthropic Messages endpoint takes the same body, so the SDK needs no shim — only a
     base_url and a bearer token. `auth_token` is what sends `Authorization: Bearer`.
     """
+    check_guards()   # raises LimitReached to refuse; nothing else is caught here on purpose
     import anthropic
     p = _provider()
     key = os.environ.get(key_name())
@@ -411,6 +430,7 @@ def local_call(task, **kw):
     a silent fall-back so the job still gets done."""
     if not local_allows(task):
         return None
+    check_guards()   # outside the try: a per-user cap refusal must not be read as "local down, fall back"
     try:
         m = local_create(**kw)
     except Exception as e:   # noqa: BLE001 — the job still gets done, on the cloud tier

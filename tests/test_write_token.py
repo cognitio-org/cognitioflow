@@ -83,7 +83,8 @@ def test_minting_a_write_key_needs_a_real_course(client):
     assert client.post("/api/tokens", json={"scope": "write", "course_id": "nope"}).status_code == 404
 
 
-def test_only_the_owner_session_mints_write_keys(client, monkeypatch):
+def test_only_the_owner_session_mints_write_keys(client, monkeypatch, ack_privacy):
     cid = client.post("/api/courses", json={"name": "OwnerOnly"}).json()["id"]
     monkeypatch.setenv("OWNER_EMAIL", "someone.else@example.com")
+    ack_privacy(client)   # past the privacy gate (428), so the owner check itself is what refuses
     assert client.post("/api/tokens", json={"scope": "write", "course_id": cid}).status_code == 403

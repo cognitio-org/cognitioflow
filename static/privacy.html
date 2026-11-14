@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Privacy · CognitioFlow</title>
+<style>
+:root{--bg:#f7f6f2;--fg:#1d1f24;--muted:#5d6270;--line:rgba(0,0,0,.1);--accent:#0f8f83;--warn:#9a6a12;
+  --serif:Charter,"Iowan Old Style",Georgia,serif;--sans:system-ui,-apple-system,"Segoe UI",sans-serif}
+@media (prefers-color-scheme:dark){:root{--bg:#07080d;--fg:#f3f4f8;--muted:#9aa0b2;--line:rgba(255,255,255,.1);--accent:#3ad6c6;--warn:#e5a93c}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 var(--serif)}
+main{max-width:42rem;margin:0 auto;padding:48px 16px 80px}
+h1,h2{font-family:var(--sans);font-weight:600;letter-spacing:-.01em}
+h1{font-size:28px;margin:0 0 4px}h2{font-size:18px;margin:32px 0 6px}
+.meta{font:14px var(--sans);color:var(--muted)}
+.draft{font:14px/1.5 var(--sans);border:1px solid var(--warn);color:var(--warn);border-radius:8px;padding:10px 12px;margin:20px 0}
+table{border-collapse:collapse;width:100%;font-size:15px}td,th{border-top:1px solid var(--line);padding:8px 6px;text-align:left;vertical-align:top}
+a{color:var(--accent)}a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+<main>
+<h1>Privacy notice</h1>
+<p class="meta">CognitioFlow · version 0.1 · 2026-11-14</p>
+<p class="draft"><b>DRAFT for the owner's approval.</b> The wording, the controller details and the AI routing for students
+are the owner's decision. This page must match <code>docs/privacy-gateway.md</code> before anyone outside the owner's
+circle is invited.</p>
+
+<h2>Who is responsible</h2>
+<p>CognitioFlow is a private study app run by its owner, a law student at the University of Groningen, for himself
+and a small number of invited classmates. It is not a University of Groningen service. Questions or requests:
+contact the owner directly.</p>
+
+<h2>What we keep about you</h2>
+<table>
+<tr><th>Data</th><th>Why</th><th>Who can see it</th></tr>
+<tr><td>Your Google email address and name</td><td>To sign you in (you are let in only if invited)</td><td>You and the owner</td></tr>
+<tr><td>Your study progress: card reviews and schedule, study sessions, tutor chat, essay answers and grades</td><td>To run the app for you</td><td>Only you. Other users never see it.</td></tr>
+<tr><td>A log of AI calls: time, feature, model, token counts, cost. Never the text.</td><td>To cap costs per user</td><td>You (your own calls) and the owner</td></tr>
+<tr><td>Courses, notes or files you add yourself</td><td>Course material is shared with every signed-in user so classmates can study it</td><td>All signed-in users</td></tr>
+</table>
+
+<h2>AI models</h2>
+<p>When you use the tutor, card writing or grading, the relevant course text and your message are sent to an AI
+model to produce the answer. Depending on configuration, this can be a provider outside the EU, and some bulk
+tasks (flashcards from a note) may run on a third-party model through a gateway that is asked not to keep logs.
+<b>Owner to confirm before inviting students:</b> which providers student traffic uses, and that no free model
+that may log prompts is used for student data.</p>
+
+<h2>Training data (off unless you say yes)</h2>
+<p>The app can keep a de-identified copy of generated flashcards and later edits to improve its own models. For
+invited users this is <b>off</b> unless you switch it on in <a href="/static/account.html">your account</a>. You can switch it off again at any time.</p>
+
+<h2>Your rights</h2>
+<p>On <a href="/static/account.html">your account page</a> you can download everything that is yours (access and
+portability, GDPR Art. 15 and 20) and delete your account and progress (erasure, Art. 17). The AI cost log keeps its
+counts with your name removed. You can also object or ask for corrections by contacting the owner, and you may
+complain to the Dutch Data Protection Authority (Autoriteit Persoonsgegevens).</p>
+
+<h2>How long</h2>
+<p>Until you delete your account or the owner removes your invite and your data. Backups roll over within 30 days.</p>
+</main>
+</body>
+</html>

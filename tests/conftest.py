@@ -127,6 +127,16 @@ def client():
 
 
 @pytest.fixture
+def ack_privacy():
+    """Acknowledge the privacy notice as whoever `web` is signed in as. With the multi-user patch a non-owner gets 428
+    on every other route until they have; on an app without the multi-user routes the PUT is a 404 and harmless."""
+    def _ack(web):
+        r = web.put("/api/me/privacy", json={"privacy_ack": True})
+        assert r.status_code in (200, 404, 405), r.status_code
+    return _ack
+
+
+@pytest.fixture
 def pg():
     """Direct psycopg connection for assertions."""
     with psycopg.connect(_pg_url()) as conn:
