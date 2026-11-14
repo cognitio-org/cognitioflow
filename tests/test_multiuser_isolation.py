@@ -8,8 +8,10 @@ The shipped model (#178): course CONTENT (cards, notes, files) is shared and onl
 never crosses between A and B, and that B still sees the shared half.
 
 Tests marked `needs_patch` exercise docs/multi-user/protected-changes.patch (run.py/auth.py); they skip until it
-is applied, and pass with it applied.
+is applied, and pass with it applied. Every test on the `mu` fixture also needs migration 035 (invites, user_prefs),
+which ships INSIDE that patch (migrations change only through it), so without the patch those tests skip too.
 """
+import pathlib
 import time
 import uuid
 
@@ -22,10 +24,13 @@ import run
 A, B = "matej@mgms.eu", "classmate@example.com"
 PATCHED = hasattr(run, "_see_course")
 needs_patch = pytest.mark.skipif(not PATCHED, reason="needs docs/multi-user/protected-changes.patch (run.py/auth.py)")
+HAS_035 = (pathlib.Path(__file__).resolve().parent.parent / "migrations" / "035_multiuser_ready.sql").exists()
 
 
 @pytest.fixture
 def mu(client, monkeypatch):
+    if not HAS_035:   # invites/user_prefs do not exist yet; installing the routes would break later test files too
+        pytest.skip("needs migrations/035_multiuser_ready.sql from docs/multi-user/protected-changes.patch")
     monkeypatch.setenv("OWNER_EMAIL", A)
     monkeypatch.setenv("ALLOWED_EMAILS", A)
     multiuser.install(run.app, run.db, run._CALL)
@@ -637,3 +642,33 @@ def test_invite_lookup_does_not_retry_every_request_during_an_outage(monkeypatch
     assert multiuser.invited_emails(broken) == frozenset({"kept@example.com"})
     assert len(calls) == 1
     multiuser._INVITED.update(at=0.0, emails=frozenset())
+
+
+@needs_patch
+def test_oral_bank_is_the_callers_cards_filtered_by_week(mu, pg, monkeypatch):
+    """_oral_bank used to call _card_scope(cid, 0, week, 0) against (cid, uid, due, week, weak): uid 0 dropped the
+    student's own private cards, and `week` landed in `due`, so the week filter became a due filter."""
+    client = mu
+    cid = client.post("/api/courses", json={"name": "Oral"}).json()["id"]
+    k1 = client.post(f"/api/courses/{cid}/cards", json={"front": "Q-w1", "back": "a1"}).json()["id"]
+    k2 = client.post(f"/api/courses/{cid}/cards", json={"front": "Q-w2", "back": "a2"}).json()["id"]
+    pg.execute("UPDATE cards SET week='1' WHERE id=%s", (k1,))
+    pg.execute("UPDATE cards SET week='2' WHERE id=%s", (k2,))
+    pg.commit()
+    _act_as(monkeypatch, B)
+    assert client.post(f"/api/cards/{k1}/review", json={"rating": 3}).status_code == 200   # k1 is no longer due for B
+    ub = _uid_of(pg, B)
+    pg.execute("INSERT INTO cards(id,course_id,front,back,week,created,user_id) VALUES(%s,%s,'Q-mine','mine','1',%s,%s)",
+               (uuid.uuid4().hex[:10], cid, time.time(), ub))
+    pg.commit()
+
+    def left(week):
+        r = client.post(f"/api/courses/{cid}/oral/next", json={"week": week})
+        assert r.status_code == 200, r.text
+        return r.json()["left"]
+
+    assert left("1") == 2   # k1 (reviewed, not due, still in the bank) + B's own private week-1 card; never k2
+    assert left("") == 3
+    _act_as(monkeypatch, A)
+    assert left("1") == 1   # A never gets B's private card
+    assert left("") == 2

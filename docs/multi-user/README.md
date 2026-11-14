@@ -33,18 +33,17 @@ file bytes) is unchanged; the student AI routing (free OpenRouter model may log 
 |---|---|
 | `multiuser.py` | Routes: `/api/me`, `/api/me/export`, `/api/me/privacy`, `/api/me/delete`, `/api/admin/invites` (GET/POST/DELETE), `/api/admin/users`. Helpers the patch calls: `invited_emails`, `mark_accepted`, `capture_allowed`, `is_owner`, `cap_guard`. |
 | `llm.py` | `GUARDS` seam + `LimitReached(ConfigError)`: a registered guard runs before every `client()`. Empty unless `multiuser.install()` registers the per-user cap. |
-| `migrations/035_multiuser_ready.sql` | **Additive only**: `invites`, `user_prefs`, index `ai_calls(user_id, at)`, nullable `streak_freezes.user_id`. Applies automatically at boot when this PR deploys; changes no behaviour on its own. |
 | `static/privacy.html` | Privacy notice, **marked DRAFT** for Matej's wording + AI-routing decision. Public (under `/static/`). |
 | `static/account.html` | My account: consent toggle, my AI use, download my data, delete my account; owner sees "Invite a student" + accounts with 24h/30d AI cost. |
-| `tests/test_multiuser_isolation.py` | Two-user isolation (A owner, B classmate) + export/delete/consent/invites/caps. Five tests marked `needs_patch` skip until the patch is applied. |
+| `tests/test_multiuser_isolation.py` | Two-user isolation (A owner, B classmate) + export/delete/consent/invites/caps. Every test on the `mu` fixture needs migration 035, which is inside the patch, so without the patch they skip; tests marked `needs_patch` also need the run.py/auth.py changes. |
 
 **Inert until the patch is applied:** every route in `multiuser.py` and the cap guard. Nothing imports `multiuser`
 except `run.py` after the patch. (Tests mount it onto `run.app` themselves.)
 
 ## `protected-changes.patch` (apply with `git apply docs/multi-user/protected-changes.patch`)
 
-Needs Matej's named yes: it edits `run.py`, `auth.py`, `.github/workflows/deploy.yml` and adds a migration that
-changes a key.
+Needs Matej's named yes: it edits `run.py`, `auth.py`, `.github/workflows/deploy.yml` and adds three migrations
+(035, 036, 037; 036 changes a key). No migration is committed in the PR tree: migrations change only through this patch.
 
 ### run.py
 1. `multiuser.install(app, db, _CALL)` right after `auth.install`: mounts the routes, registers the cap guard.
@@ -58,6 +57,9 @@ changes a key.
 6. `_capture_on()`: training capture also needs `multiuser.capture_allowed` — owner keeps the Phase 19 default (on
    unless he opts out), **everyone else is off until they tick yes**. No request user (background job): unchanged.
 7. Streak-freeze ledger writes `user_id`.
+8. `_oral_bank`: called `_card_scope(cid, 0, week, 0)` against `(cid, uid, due, week, weak)`, so uid was 0 (the
+   student's own private cards dropped out) and `week` landed in `due` (the week filter became a due filter; this half
+   is also on main). Now `_card_scope(cid, _uid(), 0, week, 0)`. Test: `test_oral_bank_is_the_callers_cards_filtered_by_week`.
 
 ### auth.py
 - `admitted(email, db)`: `ALLOWED_EMAILS` **or** a live invite (cached 30 s; revoke takes effect within that).
@@ -78,6 +80,11 @@ changes a key.
   because a student's course is private; a classmate opening the OWNER's games is tested in the isolation file.
 - `tests/test_courses.py`: `/usage` messages/sessions are the caller's own, so only content counts are compared.
 
+### migrations/035_multiuser_ready.sql (inside the patch, additive)
+`invites`, `user_prefs`, index `ai_calls(user_id, at)`, nullable `streak_freezes.user_id`. It was committed on the
+branch until 2026-11-14 and moved here byte-identical (blob f84cc8f), so merging the PR alone adds no migration. Its
+header comment still says it reaches production when the PR deploys; that is now true only once the patch is applied.
+
 ### migrations/037_private_progress_cards.sql (inside the patch on purpose, additive)
 `cards.user_id` (private practice cards, FK users ON DELETE CASCADE), `card_gen_samples.user_id`, `card_edits.user_id`,
 table `case_seen(user_id, case_id, seen)`, partial indexes. Old code ignores all of it. Rollback: `DROP TABLE case_seen;`
@@ -96,7 +103,7 @@ write-only ledger was shared.
 
 ## Verified
 - Patch applies cleanly to the PR head (`git apply --check`).
-- Full suite with and without the patch (2026-11-14: local Postgres, one database per mode; 1416 passed/29 skipped unpatched, 1432 passed/13 skipped patched). Migration 037 checksummed on a Neon **test branch** of production (see PR body).
+- Full suite with and without the patch, re-run after 035 moved into the patch (see PR body for the counts). Migration 037 checksummed on a Neon **test branch** of production (see PR body).
 
 ## Not done / Matej decides
 - **(d)2** Student-created courses are now **private by default** (owner included). Sharing one is not built yet.

@@ -89,6 +89,46 @@ index cbdf498..a21d09e 100644
      request.session["user"] = {"email": email, "name": info.get("name", "")}
      return RedirectResponse("/", status_code=302)
  
+diff --git a/migrations/035_multiuser_ready.sql b/migrations/035_multiuser_ready.sql
+new file mode 100644
+index 0000000..f84cc8f
+--- /dev/null
++++ b/migrations/035_multiuser_ready.sql
+@@ -0,0 +1,34 @@
++-- Multi-user readiness: invites, per-user privacy settings, per-user cost lookups.
++--
++-- PURELY ADDITIVE and behaviour-neutral on its own: new tables, one nullable column, indexes. Nothing in run.py or
++-- auth.py reads these until docs/multi-user/protected-changes.patch is applied (Matej's named yes). Migrations run at
++-- app start, so this file reaches production when the PR deploys - which is why it changes no existing behaviour.
++-- SAFE TO RE-RUN: every statement is IF [NOT] EXISTS or guarded.
++
++-- 1) INVITES - the owner records an address; auth admits it (once the auth.py patch lands) in addition to
++--    ALLOWED_EMAILS. Nothing is ever sent from here: the owner shares the link himself.
++CREATE TABLE IF NOT EXISTS invites(
++    email      TEXT PRIMARY KEY,                                   -- lower-cased by the app
++    invited_by TEXT REFERENCES users(id) ON DELETE SET NULL,
++    note       TEXT NOT NULL DEFAULT '',
++    created    DOUBLE PRECISION NOT NULL,
++    revoked    DOUBLE PRECISION,                                   -- set = no longer admitted
++    accepted   DOUBLE PRECISION                                    -- first sign-in after the invite
++);
++
++-- 2) PER-USER PRIVACY SETTINGS - consent for the de-identified training capture (Art. 6(1)(a) / Art. 25 default off for
++--    everyone but the owner) and when the privacy notice was acknowledged.
++CREATE TABLE IF NOT EXISTS user_prefs(
++    user_id         TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
++    capture_consent INTEGER,                                       -- NULL never asked, 0 no, 1 yes
++    privacy_ack     DOUBLE PRECISION,
++    updated         DOUBLE PRECISION
++);
++
++-- 3) PER-USER COST CAPS read ai_calls by (user_id, at); ai_calls.user_id already exists (024) and _log_call fills it.
++CREATE INDEX IF NOT EXISTS ai_calls_user_at ON ai_calls(user_id, at);
++
++-- 4) STREAK-FREEZE LEDGER attribution. The streak itself is derived from the caller's own reviews (no cross-user
++--    effect); only this write-only ledger is keyed by course. Add the column now (nullable, unused); the key change
++--    and the write that fills it ship together in the protected patch (036 there), so nothing half-lands.
++ALTER TABLE streak_freezes ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE CASCADE;
 diff --git a/migrations/036_streak_freezes_per_user.sql b/migrations/036_streak_freezes_per_user.sql
 new file mode 100644
 index 0000000..de5c154
@@ -135,7 +175,7 @@ index 0000000..62275f8
 +    PRIMARY KEY (user_id, case_id)
 +);
 diff --git a/run.py b/run.py
-index 582e28c..7af194b 100644
+index 582e28c..0026a48 100644
 --- a/run.py
 +++ b/run.py
 @@ -249,7 +249,6 @@ async def canonical_host(request, call_next):
@@ -559,6 +599,15 @@ index 582e28c..7af194b 100644
      out = tts.say(s.text, s.voice)
      if not out: return Response(status_code=204)
      audio, media = out
+@@ -2239,7 +2316,7 @@ class OralNextIn(BaseModel):
+ 
+ def _oral_bank(cid: str, week: str = ""):
+     """The question bank is the course's own cards — nothing is invented for the student to be tested on."""
+-    q, a = _card_scope(cid, 0, week, 0)
++    q, a = _card_scope(cid, _uid(), 0, week, 0)   # (cid, uid, due, week, weak): the caller's own cards, week as week
+     return [{"id": c["id"], "question": c["front"], "model": c["back"], "course": cid,
+              "concept": (c["concept"] or c["front"])[:80], "traps": [x for x in (c["traps"] or "").split("|") if x]}
+             for c in rows(q + " ORDER BY created", *a)]
 @@ -2266,7 +2343,7 @@ def oral_grade(cid: str, g: OralGradeIn):
      is normalised before it is acted on: a grader that returns something unexpected must not be able
      to mark a wrong answer as solid.
