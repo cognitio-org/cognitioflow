@@ -146,19 +146,19 @@ footer a{color:var(--cyan);text-decoration:none}
     <div>
       <div class="eyebrow rise d1"><span class="pulse"></span>AI study engine &middot; for law students</div>
       <h1 class="rise d1">Study law from<br>your own sources.</h1>
-      <p class="lede rise d2">CognitioFlow drills, explains and quizzes you &mdash; working from the lectures, working-group notes and readers you tick. It shows the excerpts it used and flags cited cases and articles it can&rsquo;t find in your materials.</p>
+      <p class="lede rise d2">CognitioFlow drills, explains and quizzes you &mdash; working from the lectures, working-group notes and readers you tick. When you tick files, it shows the excerpts it used. In tutor chat with files ticked, it flags EU case numbers (C-/T-), ECLIs and article references it cannot find in those files. Cases cited by name only, and national-law citations, are not checked.</p>
       <div class="cta rise d2">
         <a class="btn pri" href="/auth/login">Launch the app</a>
         <a class="btn sec" href="#engine">How it works</a>
-        <span class="kbd">grounded in <b>your files</b></span>
+        <span class="kbd">grounded in <b>the files you tick</b></span>
       </div>
     </div>
     <div class="panel spec rise d3">
       <div class="top"><span class="dot"></span>TUTOR<span class="sp">EU LAW &middot; WEEK 6</span></div>
       <div class="body">
         <p class="q">Can a Member State justify a quantitative restriction on imports?</p>
-        <p class="a">Only within the exhaustive grounds of <span class="tag">WG</span> Art. 36 TFEU, and the measure must be proportionate <span class="tag n">LECTURE</span>. Mandatory requirements extend this for indistinctly-applicable measures.</p>
-        <div class="verify">Art. 36 TFEU &middot; found in your selected sources</div>
+        <p class="a">Only within the exhaustive grounds of <span class="tag">WG</span> Art. 36 TFEU, and the measure must be proportionate <span class="tag n">LECTURE</span>. Mandatory requirements extend this for indistinctly-applicable measures (see C-999/97).</p>
+        <div class="verify">Not in your materials: C-999/97 &mdash; check before you rely on it.</div>
         <div class="spark"><i style="height:30%"></i><i style="height:45%"></i><i style="height:40%"></i><i class="on" style="height:62%"></i><i class="on" style="height:70%"></i><i class="on" style="height:88%"></i></div>
       </div>
     </div>
@@ -166,24 +166,24 @@ footer a{color:var(--cyan);text-decoration:none}
 
   <section id="engine">
     <p class="kick rise">01 &mdash; the engine</p>
-    <h2 class="rise">A tutor that stays inside your syllabus.</h2>
-    <p class="sub rise">A general chatbot answers from anywhere. CognitioFlow retrieves from the files you tick, shows what it drew on, and flags cited authorities it can&rsquo;t find in them. It is still AI-generated: check it against your materials.</p>
+    <h2 class="rise">A tutor that works from your syllabus &mdash; and says when it steps outside it.</h2>
+    <p class="sub rise">A general chatbot answers from anywhere. When you tick files, CognitioFlow retrieves from them, shows what it drew on, and flags some cited authorities it can&rsquo;t find in them. It is still AI-generated: check it against your materials.</p>
     <div class="bento">
       <div class="card hero-card spec rise d1">
         <span class="lab">Citation check</span>
         <h3>Flags what it can&rsquo;t find in your materials.</h3>
-        <p>When an answer cites a case, an ECLI or a Treaty article, CognitioFlow looks for it in the sources you selected and flags it if it isn&rsquo;t there. It checks that the authority exists in your files &mdash; not that the holding or the paragraph is right. That part is still yours to check.</p>
+        <p>In tutor chat with files ticked, it flags EU case numbers (C-/T-), ECLIs and article references it cannot find in those files. Cases cited by name only, and national-law citations, are not checked. It checks that the reference appears in your files &mdash; not that the holding or the paragraph is right. That part is still yours to check.</p>
         <div class="viz"><span>EXISTS IN SOURCES &middot; NOT A HOLDING CHECK</span></div>
       </div>
       <div class="card spec rise d2">
         <span class="lab">Provenance</span>
         <h3>Answers that show their sources.</h3>
-        <p>Answers come with the excerpts they drew on, and your files carry their type &mdash; lecture, working group, slides, reader &mdash; so you can weigh the authority yourself.</p>
+        <p>When you tick files, answers come with the excerpts they drew on, and your files carry their type &mdash; lecture, working group, slides, reader &mdash; so you can weigh the authority yourself.</p>
       </div>
       <div class="card spec rise d3">
         <span class="lab">Adaptive</span>
         <h3>Revision that tracks your gaps.</h3>
-        <p>Drills built from your own content, getting harder exactly where you haven't mastered it yet.</p>
+        <p>Drills built from your own content, bringing back the cards and topics you got wrong, more often.</p>
       </div>
     </div>
   </section>
@@ -207,7 +207,7 @@ footer a{color:var(--cyan);text-decoration:none}
   <section id="data">
     <p class="kick rise">03 &mdash; where your data goes</p>
     <h2 class="rise">Plainly, today.</h2>
-    <p class="sub rise">Course material and questions you send to the tutor are processed by Anthropic (Claude, via a private router) and, for bulk tasks such as flashcards and summaries, by Google Vertex AI in the USA. Some bulk tasks may first be tried on a free-tier model through OpenRouter. Neither Anthropic nor Google trains on this data by default; Anthropic deletes it within 30 days. Speech uses Google Cloud in the EU. Embeddings are computed inside the app. No zero-retention or EU-only guarantee applies today.</p>
+    <p class="sub rise">Course material and questions you send to the tutor are processed by Anthropic (Claude) by default; if you pick another model in the tutor, the same material goes to OpenAI or Google (USA). Requests reach these providers via a router operated by a third party; its own log retention is not yet confirmed. For bulk tasks such as flashcards and summaries, material is processed by Google Vertex AI in the USA, and some bulk tasks may first be tried on a free-tier model through OpenRouter. By default, Anthropic, OpenAI and Google do not train on this data; Anthropic deletes it within 30 days and OpenAI keeps it for up to 30 days. The free-tier lane carries no such assurance. Lecture transcription and the spoken tutor run on Google Cloud in the EU (europe-west4). Live dictation and read-aloud use Google endpoints that are not region-pinned and may be processed outside the EU. Embeddings are computed inside the app. No zero-retention or EU-only guarantee applies today.</p>
   </section>
 
   <section id="about">
