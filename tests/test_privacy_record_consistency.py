@@ -124,4 +124,60 @@ def test_principles_table_title_does_not_overclaim():
 
 
 def test_record_header_not_pinned_to_stale_commit():
-    assert "f068e36" not in RECORD.split("**In short")[0]
+    assert "f068e36" not in RECORD.split("**In short")[0] and "c10207f" in RECORD.split("**In short")[0]
+
+
+# --- definition-of-8 (docs) round 5: operator wording, sourced provider claims, honest gaps, roles ---
+
+OPERATOR = "operated by a private individual, not by CognitioFlow; no processing agreement on file"
+_SCOPE = ("README.md", "docs/privacy-gateway.md", "CLAUDE.md", "llm.py", "gateway.py")
+
+
+def test_one_operator_sentence_and_no_personal_data_about_the_operator():
+    for name in ("README.md", "docs/privacy-gateway.md", "CLAUDE.md", "llm.py"):
+        assert OPERATOR in (ROOT / name).read_text(), name
+    for name in _SCOPE:
+        text = (ROOT / name).read_text().lower()
+        for bad in ("family member", "third-party router", "third-party gateway", "matej's own"):
+            assert bad not in text, (name, bad)
+
+
+def test_every_provider_claim_line_has_source_and_date_or_is_marked():
+    """Lines that state a provider's retention, logging, training or certification terms need URL+date or UNVERIFIED/UNKNOWN."""
+    claim = re.compile(r"(deleted within|zero.retention|not logged|logging off|trains? on|data privacy framework|certified)", re.I)
+    bad = []
+    for name in ("docs/privacy-gateway.md", "README.md"):
+        for ln, line in enumerate((ROOT / name).read_text().splitlines(), 1):
+            if not claim.search(line) or line.startswith("No zero-retention"):
+                continue
+            sourced = re.search(r"https?://|\b[a-z.-]+\.(com|ai|org)/\S+", line) and re.search(r"20\d\d-\d\d-\d\d", line)
+            if not (sourced or re.search(r"UNVERIFIED|UNKNOWN|not checked|not confirmed", line)):
+                bad.append(f"{name}:{ln}: {line[:90]}")
+    assert not bad, bad
+
+
+def test_unmet_gdpr_rows_say_not_met_or_open():
+    rows = {l.split("|")[1].strip(): l for l in RECORD.splitlines() if l.startswith("| ") and "Art." in l.split("|")[2:3][0] if len(l.split("|")) > 3}
+    for key in ("Lawfulness, fairness, transparency", "Processors", "International transfers", "Storage limitation"):
+        assert re.search(r"[Nn]ot met|[Oo]pen", rows[key]), key
+
+
+def test_record_states_roles_gaps_and_open_items():
+    for needle in ("## Roles", "Controller for course text", "Art. 2(2)(c)", "Role not settled: open", "second user",
+                   "known gap (a)", "(b)", "copyright", "single user", "## Open items", "Who must act"):
+        assert needle.lower() in RECORD.lower(), needle
+    gaps = RECORD[RECORD.index("## Known gaps"):RECORD.index("## Where data goes today")]
+    assert "router operator's own Google Cloud project" in RECORD and "(a)" in gaps and "(d)" in gaps
+    assert "only on the OpenRouter lane" in gaps and "unexamined" in gaps
+
+
+def test_in_short_is_five_lines_or_fewer_and_operator_section_exists():
+    block = RECORD[RECORD.index("**In short"):RECORD.index("### Who operates Kernal")]
+    lines = [l for l in block.splitlines() if l.strip() and not l.startswith("**In short")]
+    assert 1 <= len(lines) <= 5, len(lines)
+
+
+def test_open_items_each_name_who_must_act():
+    sec = RECORD[RECORD.index("## Open items"):RECORD.index("## Gateway lane configuration")]
+    rows = [l for l in sec.splitlines() if re.match(r"\| \d+ \|", l)]
+    assert len(rows) >= 7 and all(r.rstrip().endswith("|") and r.count("|") == 4 for r in rows), rows

@@ -5,7 +5,7 @@ cards, syllabus reading, viva questions): each sends one note or one file's text
 back. The chat, "notes" mode included, stays on the configured provider (LLM_PROVIDER), because it carries whole conversations and
 every ticked file.
 
-How each GDPR principle is met here (details and open items in docs/privacy-gateway.md):
+GDPR status of this lane (details and open items in docs/privacy-gateway.md):
 - Purpose limitation, Art. 5(1)(b): a closed allow-list of tasks; anything else is refused.
 - Data minimisation, Art. 5(1)(c): only the text the task needs is sent, with e-mail addresses, phone
   numbers, IBANs and student numbers replaced by placeholders first (pseudonymisation, Art. 4(5)).
@@ -15,7 +15,7 @@ How each GDPR principle is met here (details and open items in docs/privacy-gate
 - Integrity and confidentiality, Art. 5(1)(f) and Art. 32: TLS only; the key lives in Secret Manager.
 - Privacy by design and by default, Art. 25: off unless the key AND a spend ceiling are configured, and
   CF_GATEWAY=off turns it off. The spend ceiling only works on a LiteLLM gateway, which sends the spend header;
-  on the OpenRouter lane production used it never trips. Production sets CF_GATEWAY=off in deploy.yml (#234,
+  on the OpenRouter lane production used it never trips, so the only effective control in production is CF_GATEWAY=off. Production sets CF_GATEWAY=off in deploy.yml (#234,
   2026-11-14); it has to live there, because a service-only env change is reverted by the next deploy. Any
   failure returns None and the caller falls back to the configured provider's cheap tier (in production,
   LLM_PROVIDER=kernal: Vertex gemini-2.5-flash via Kernal, us-central1), not to Anthropic directly.

@@ -22,7 +22,7 @@ PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic").strip().lower()
 PROVIDERS = ("anthropic", "openrouter", "gateway", "kernal")
 
 OPENROUTER_BASE = "https://openrouter.ai/api"
-#: `LLM_PROVIDER=kernal` (Phase 19): a LiteLLM router run by a family member of the account holder (not by CF; see
+#: `LLM_PROVIDER=kernal` (Phase 19): a LiteLLM router, operated by a private individual, not by CognitioFlow; no processing agreement on file (see
 #: docs/privacy-gateway.md, "Who operates Kernal"), OpenAI-compatible at router.kernal.one/v1.
 #: The direct OPENROUTER_KEY is dead; the whole cloud tier routes through Kernal, reusing the Phase-18
 #: OpenAI bridge (non-streaming create + a small SSE reader for the one streaming call). The key is
