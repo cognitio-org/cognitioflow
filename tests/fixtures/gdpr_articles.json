@@ -2,7 +2,7 @@
  "regulation": "Regulation (EU) 2016/679 (GDPR)",
  "source_url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng",
  "check_date": "2026-11-14",
- "how_made": "Structure (which paragraphs and lettered points exist) transcribed by Claude on 2026-11-14 from the Regulation's text. EUR-Lex itself answered the automated fetch with a bot challenge, so it could not be machine-read; the numbering was not independently re-verified against EUR-Lex in code. A mistake in this table is a bug: fix it with a dated line in docs/privacy-gateway.md or the flow HISTORY. Article 4 has numbered definitions, held here as paragraphs 1-26.",
+ "how_made": "Structure first transcribed by Claude on 2026-11-14, then machine-checked the same day against the official text (Publications Office Cellar, publications.europa.eu/resource/celex/32016R0679, XHTML): every article's paragraph and point structure and title were compared; one error was found and fixed (Art. 14(5) has points (a)-(d), not (a)-(e)). Output kept in the flow evidence (flows/docs/w6/gdpr-fixture-verify.txt). Articles 16 and 44 have one unnumbered paragraph. Article 4 has numbered definitions, held here as paragraphs 1-26. A mistake in this table is a bug: fix it with a dated line in docs/privacy-gateway.md or the flow HISTORY.",
  "articles": {
   "2": {
    "title": "Material scope",
@@ -168,8 +168,7 @@
      "a",
      "b",
      "c",
-     "d",
-     "e"
+     "d"
     ]
    }
   },

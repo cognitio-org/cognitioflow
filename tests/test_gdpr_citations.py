@@ -13,7 +13,7 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TABLE = json.loads((ROOT / "tests" / "fixtures" / "gdpr_articles.json").read_text())["articles"]
-FILES = ("docs/privacy-gateway.md", "README.md")
+FILES = ("docs/privacy-gateway.md", "README.md", "gateway.py", "llm.py")
 # "Art. 28", "Art. 5(1)(e)", "Art. 44–46", "Arts. 15-17"; the dot after Art is required so TFEU "Art 34" is not matched.
 CITE = re.compile(r"\bArts?\.\s*(\d+)((?:\(\w+\))*)(?:\s*[–-]\s*(\d+))?")
 

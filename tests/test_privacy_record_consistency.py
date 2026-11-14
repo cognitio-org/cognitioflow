@@ -114,7 +114,7 @@ def test_retention_claims_are_sourced_and_dated():
     row = next(l for l in RECORD.splitlines() if l.startswith("| Storage limitation"))
     assert "checked 2026-11-14" in row and "UNVERIFIED" in row and "UNKNOWN" in row
     src = RECORD[RECORD.index("**Retention sources**"):]
-    for needle in ("privacy.anthropic.com", "vertex-ai-zero-data-retention", "speech-to-text/docs/data-logging"):
+    for needle in ("privacy.anthropic.com", "resources/zero-data-retention", "speech-to-text/docs/data-logging"):
         assert needle in src
 
 
@@ -129,7 +129,7 @@ def test_record_header_not_pinned_to_stale_commit():
 
 # --- definition-of-8 (docs) round 5: operator wording, sourced provider claims, honest gaps, roles ---
 
-OPERATOR = "operated by a private individual, not by CognitioFlow; no processing agreement on file"
+OPERATOR = "operated by Matej himself, the owner of CognitioFlow; no processing agreement with the providers behind it is on file"
 _SCOPE = ("README.md", "docs/privacy-gateway.md", "CLAUDE.md", "llm.py", "gateway.py")
 
 
@@ -138,7 +138,7 @@ def test_one_operator_sentence_and_no_personal_data_about_the_operator():
         assert OPERATOR in (ROOT / name).read_text(), name
     for name in _SCOPE:
         text = (ROOT / name).read_text().lower()
-        for bad in ("family member", "third-party router", "third-party gateway", "matej's own"):
+        for bad in ("family member", "third-party router", "third-party gateway", "matej's own", "operated by a third party", "private individual"):
             assert bad not in text, (name, bad)
 
 
@@ -163,11 +163,11 @@ def test_unmet_gdpr_rows_say_not_met_or_open():
 
 
 def test_record_states_roles_gaps_and_open_items():
-    for needle in ("## Roles", "Controller for course text", "Art. 2(2)(c)", "Role not settled: open", "second user",
+    for needle in ("## Roles", "Controller for course text", "Art. 2(2)(c)", "second user",
                    "known gap (a)", "(b)", "copyright", "single user", "## Open items", "Who must act"):
         assert needle.lower() in RECORD.lower(), needle
     gaps = RECORD[RECORD.index("## Known gaps"):RECORD.index("## Where data goes today")]
-    assert "router operator's own Google Cloud project" in RECORD and "(a)" in gaps and "(d)" in gaps
+    assert "router's own Google Cloud project" in RECORD and "(a)" in gaps and "(d)" in gaps
     assert "only on the OpenRouter lane" in gaps and "unexamined" in gaps
 
 
@@ -181,3 +181,38 @@ def test_open_items_each_name_who_must_act():
     sec = RECORD[RECORD.index("## Open items"):RECORD.index("## Gateway lane configuration")]
     rows = [l for l in sec.splitlines() if re.match(r"\| \d+ \|", l)]
     assert len(rows) >= 7 and all(r.rstrip().endswith("|") and r.count("|") == 4 for r in rows), rows
+
+
+# --- definition-of-8 (docs) round 6: one coherent legal position; Vertex terms as the saved source says ---
+
+def _row(prefix):
+    return next(l for l in RECORD.splitlines() if l.startswith(prefix))
+
+
+def test_household_exemption_not_relied_on_and_rows_do_not_contradict_it():
+    row = _row("| Household exemption")
+    assert "Not relied on" in row and "C-101/01" in row and "C-212/13" in row and "UNVERIFIED" in row
+    assert "Relied on for single-user" not in RECORD
+    # the record is kept under Art. 30 only because it treats the GDPR as applying
+    assert "treats the GDPR as applying" in RECORD.split("**State of this record")[0]
+
+
+def test_art6_row_separates_his_consent_from_third_persons_and_states_a_balancing():
+    row = _row("| Lawfulness")
+    assert "His consent covers only his own data" in row and "Art. 6(1)(f)" in row
+    for needle in ("Interest:", "Necessity:", "Impact and expectations:", "Outcome:"):
+        assert needle.replace(":", "") in row, needle
+    assert "public and incidental" not in row and re.search(r"[Nn]ot met", row)
+
+
+def test_vertex_terms_quoted_as_the_saved_source_says_and_openai_30_days_not_misapplied():
+    row = _row("| Storage limitation")
+    for quote in ('"Google may log prompts to detect potential abuse', '"Request-response logging: This feature is disabled by default"',
+                  '"deleted no later than 24 hours after it\'s written"', "OpenAI flagship models", "is not applied to `gemini-2.5-flash`"):
+        assert quote in row, quote
+    assert "docs.cloud.google.com/gemini-enterprise-agent-platform/resources/zero-data-retention" in row
+
+
+def test_gateway_does_not_call_redaction_pseudonymisation():
+    doc = gateway.__doc__
+    assert "pseudonymisation, Art. 4(5))" not in doc and "not pseudonymisation" in doc

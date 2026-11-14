@@ -8,7 +8,7 @@ every ticked file.
 GDPR status of this lane (details and open items in docs/privacy-gateway.md):
 - Purpose limitation, Art. 5(1)(b): a closed allow-list of tasks; anything else is refused.
 - Data minimisation, Art. 5(1)(c): only the text the task needs is sent, with e-mail addresses, phone
-  numbers, IBANs and student numbers replaced by placeholders first (pseudonymisation, Art. 4(5)).
+  numbers, IBANs and student numbers replaced by placeholders first. This is redaction, not pseudonymisation in the sense of Art. 4(5): nothing is kept separately to restore it, and names stay in the text.
 - Storage limitation, Art. 5(1)(e): every request sends a "no-log" flag, but only a LiteLLM gateway honours
   it; OpenRouter, which production pointed this lane at until it was switched off on 2026-11-14, does not
   (see docs/privacy-gateway.md).
