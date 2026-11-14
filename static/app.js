@@ -529,14 +529,20 @@ async function upload(files){ for(const f of files){ const fd=new FormData(); fd
   b.title='Give every file a readable title and say what kind of material it is'; b.textContent='Label files';
   $('#inferBtn').after(document.createTextNode(' '), b); })();
 $('#inferBtn').onclick=async()=>{const b=$('#inferBtn');b.disabled=true;b.textContent='Detecting…';try{const r=await post(`/courses/${cid}/infer-weeks`);toast(r.tagged?`Sorted ${r.tagged} file(s) into weeks`:'Nothing to sort — all files already have a week');loadFiles()}catch(e){toast('Failed: '+e.message)}b.disabled=false;b.textContent='Detect weeks'};
-$('#buildDecks').onclick=async()=>{const b=$('#buildDecks');b.disabled=true;b.textContent='Building…';const st=$('#deckState');if(st)st.textContent='';
+const DECK_AI_LABEL='AI-generated from your course files. Verify against your materials.';
+$('#buildDecks').onclick=async()=>{const b=$('#buildDecks');b.disabled=true;b.setAttribute('aria-busy','true');b.textContent='Building…';
+  const res=$('#deckRes'),st=$('#deckState'),op=$('#deckOpen'),ai=$('#deckAi');
+  res.hidden=false; st.textContent='Building the week decks. This takes up to two minutes…'; op.hidden=true; ai.hidden=true;
   try{const r=await post(`/courses/${cid}/concepts/build-all`);const t=r.totals||{},weeks=r.weeks||{};
-    const parts=Object.keys(weeks).sort((x,y)=>x-y||x.localeCompare(y)).map(w=>`W${w}: ${weeks[w].cards} cards`).join(' · ');
-    if(st)st.textContent=`${t.concepts||0} concepts · ${t.cards||0} cards · ${t.questions||0} problems across ${t.weeks||0} week(s)`;
-    toast(parts?`Built — ${parts}`:'Nothing to build — tick files and set their weeks first');
+    /* the server writes the line from the counts that exist after the run; the page never composes its own number */
+    const line=r.line||`${t.concepts||0} concepts · ${t.cards||0} cards · ${t.questions||0} problems across ${t.weeks||0} week(s)`;
+    st.textContent=line; ai.textContent=r.label||DECK_AI_LABEL; ai.hidden=false;
+    const dw=Object.keys((r.deck||{}).weeks||{}).filter(w=>w&&r.deck.weeks[w].cards).sort((x,y)=>x-y||x.localeCompare(y));
+    if(dw.length){ op.hidden=false; op.onclick=()=>{ rweak=false; rweek=dw[0]; show('recall'); }; }
+    toast((r.pending&&(r.pending.concepts||r.pending.files))?'Part of the deck is built — press again for the rest':(t.cards?((r.skipped&&r.skipped.length)||(r.unreadable&&r.unreadable.length)?'Deck built — the result line says what was left out':'Deck built'):'Nothing new was built'));
     if(typeof loadRecall==='function')loadRecall();
-  }catch(e){if(st)st.textContent='Failed: '+e.message;toast('Failed: '+e.message)}
-  b.disabled=false;b.textContent='Build week decks'};
+  }catch(e){st.textContent='The build failed: '+e.message+'. Nothing was lost; press the button again.';toast('Failed: '+e.message)}
+  b.disabled=false;b.removeAttribute('aria-busy');b.textContent='Build week decks'};
 /* syllabus in, weeks and topics out. The panel holds a proposal; only Apply writes anything. */
 /* The proposal belongs to the course it was read from. cid can change under it — the course
    switcher only reassigns cid — and applying then writes one course's schedule onto another,
@@ -2045,7 +2051,7 @@ async function loadWeekDir(){ const m=await api(`/courses/${cid}/recall-map`); c
   d.querySelectorAll('[data-wk]').forEach(b=>b.onclick=()=>{ rweak=false; rweek=b.dataset.wk; loadRecall(); });
   const wb=d.querySelector('[data-weak]'); if(wb) wb.onclick=()=>{ rweak=true; rweek=''; loadRecall(); }; keyable(d); }
 function scopeQS(){ const p=new URLSearchParams(); if(rweek)p.set('week',rweek); if(rweak)p.set('weak','1'); return p.toString()?('&'+p.toString()):''; }
-async function loadRecall(){ const fs=await api(`/courses/${cid}/files`); $('#genFrom').innerHTML='<option value="">From all ticked files</option>'+fs.filter(f=>f.kind!=='image').map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('');
+async function loadRecall(){ $('#fc').hidden=true; $('#fcAi').hidden=true; $('#rdone').hidden=false; $('#rdone').textContent='Loading cards…'; const fs=await api(`/courses/${cid}/files`); $('#genFrom').innerHTML='<option value="">From all ticked files</option>'+fs.filter(f=>f.kind!=='image').map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('');
   loadWeekDir();
   const all=await api(`/courses/${cid}/cards?x=1${scopeQS()}`); queue=await api(`/courses/${cid}/cards?due=1${scopeQS()}`);
   const scope = rweak?'weak cards':(rweek?('Week '+rweek):'all weeks');
@@ -2058,8 +2064,11 @@ $('#mCards').onclick=()=>setRMode('cards'); $('#mQuiz').onclick=()=>setRMode('qu
 function rprog(done,total){ $('#rprog').firstElementChild.style.width=total?(done/total*100)+'%':'0'; }
 function nextCard(){ cur=queue.shift()||null; flipped=false; $('#ratings').hidden=true; $('#fc').classList.remove('flipped');
   rprog(qStart-queue.length-(cur?1:0), qStart||1); recallSub(queue.length+(cur?1:0));
-  if(!cur){ $('#fc').hidden=true; $('#rdone').hidden=false; $('#rdone').innerHTML='<b>Queue clear</b><span>Generate cards from a file, or come back tomorrow.</span>'; rprog(1,1); return; }
-  $('#fc').hidden=false; $('#rdone').hidden=true; $('#fcFront').textContent=cur.front; $('#fcBack').textContent=cur.back; }
+  if(!cur){ $('#fc').hidden=true; $('#fcAi').hidden=true; $('#rdone').hidden=false;
+    $('#rdone').innerHTML=rAll?'<b>No cards are due</b><span>Every card in this view is scheduled for later. Come back tomorrow, or pick another week.</span>'
+                             :'<b>No cards in this course yet</b><span>Build week decks in Files, or generate cards from a file above.</span>'; rprog(1,1); return; }
+  $('#fc').hidden=false; $('#rdone').hidden=true; $('#fcFront').textContent=cur.front; $('#fcBack').textContent=cur.back;
+  $('#fcAi').hidden=!cur.source||cur.source==='manual'; }
 function flipCard(){ if(!cur) return; flipped=!flipped; $('#fc').classList.toggle('flipped',flipped); $('#ratings').hidden=!flipped; }
 $('#fc').onclick=flipCard; $('#fc').onkeydown=e=>{ if(e.key===' '||e.key==='Enter'){e.preventDefault();flipCard()} };
 document.addEventListener('keydown',e=>{ if(!document.querySelector('#recall.active')||e.metaKey||e.ctrlKey) return;
