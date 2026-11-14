@@ -112,11 +112,20 @@ def index_source(db, embed_texts, *, course_id: str, source: str, source_id: str
                  week: str, text: str, updated: float) -> int:
     """Replace this file's or note's passages with fresh ones. Returns how many were written."""
     passages = chunk(text)
+    # Embed BEFORE opening the transaction: a large file (hundreds of passages) used to keep the DELETE's
+    # transaction open for the whole embedding run, which is what made /reindex return 503 on big readers. If
+    # embedding fails the old passages are left in place instead of being deleted first.
+    vectors = list(embed_texts([p["text"] for p in passages])) if passages else []
+    if len(vectors) != len(passages):
+        raise ValueError(f"embedder returned {len(vectors)} vectors for {len(passages)} passages")
     with db() as d:
+        # One writer per source at a time. Two overlapping re-indexes (a Cloud Run deploy briefly runs two
+        # instances) could otherwise interleave so the slower, older run replaced the newer chunks, or duplicate
+        # them, because the second DELETE cannot see the first writer's uncommitted rows.
+        d.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"chunks:{source}:{source_id}",))
         d.execute("DELETE FROM chunks WHERE source=? AND source_id=?", (source, source_id))
         if not passages:
             return 0
-        vectors = embed_texts([p["text"] for p in passages])
         for p, vector in zip(passages, vectors):
             d.execute(
                 "INSERT INTO chunks(id, course_id, source, source_id, name, kind, week, heading, ord, start_char, text, embedding, updated) "

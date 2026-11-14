@@ -119,6 +119,44 @@ def test_reindexing_replaces_and_unticked_sources_are_not_searched(chunk_db):
     assert retrieval.search(rows, _fake_embed, course_id="eu", query="cassis", source_ids=["f1"]) == []
 
 
+def test_a_failed_embedding_keeps_the_old_passages_and_embeds_outside_the_transaction(chunk_db):
+    """Big files used to hold the DELETE's transaction open for the whole embedding run (503 on /reindex)."""
+    db, rows = chunk_db
+    retrieval.index_source(db, _fake_embed, course_id="eu", source="file", source_id="f1", name="notes.pdf",
+                           kind="pdf", week="1", text="Dassonville stays. " * 30, updated=0.0)
+    opened = []
+    real_db = db
+    def tracking_db():
+        opened.append(True)
+        return real_db()
+    def boom(texts):
+        assert not opened, "embedding ran while a transaction was already open"
+        raise RuntimeError("embedder down")
+    with pytest.raises(RuntimeError):
+        retrieval.index_source(tracking_db, boom, course_id="eu", source="file", source_id="f1", name="notes.pdf",
+                               kind="pdf", week="1", text="Replacement text. " * 30, updated=1.0)
+    kept = " ".join(r["text"] for r in retrieval.search(rows, _fake_embed, course_id="eu", query="dassonville", source_ids=["f1"]))
+    assert "Dassonville" in kept
+
+
+def test_indexing_takes_a_per_source_lock_before_deleting():
+    """Two overlapping re-indexes of one file must not interleave (council finding, 2026-11-14)."""
+    seen = []
+    class Cur:
+        def execute(self, q, args=()): seen.append((q, args)); return self
+        def fetchall(self): return []
+    class Ctx:
+        def __enter__(self): return Cur()
+        def __exit__(self, *a): return False
+    retrieval.index_source(lambda: Ctx(), _fake_embed, course_id="eu", source="file", source_id="f9",
+                           name="n.pdf", kind="pdf", week="1", text="Cassis. " * 30, updated=0.0)
+    lock = [q for q, a in seen if "advisory_xact_lock" in q]
+    assert lock, "no advisory lock taken"
+    assert any("f9" in a[0] for q, a in seen if "advisory_xact_lock" in q), "lock key must name the source"
+    assert next(i for i, (q, a) in enumerate(seen) if "advisory_xact_lock" in q) < \
+           next(i for i, (q, a) in enumerate(seen) if q.startswith("DELETE")), "lock must come before the DELETE"
+
+
 # ---------------------------------------------------------------- the app's endpoints (retrieval switched on)
 
 @pytest.fixture
