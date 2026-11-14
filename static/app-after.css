@@ -278,4 +278,3 @@
 .srcpanel .srcterm{font-size:var(--fs-xs);color:var(--graphite);text-transform:none;letter-spacing:0}
 .src.warnline{border-color:var(--warn);color:var(--warn);background:color-mix(in oklab,var(--warn),transparent 90%)}
 .cf-flag .cf-flag-note{margin-top:.35rem;font-size:var(--fs-xs);color:var(--graphite)}
-.ctxlegend{display:flex;align-items:center;flex-wrap:wrap;gap:.15rem .6rem;margin-top:.5rem;font-size:var(--fs-xs)} .ctxlegend .lgi{display:inline-flex;align-items:center;gap:.3rem;white-space:nowrap}

@@ -58,8 +58,24 @@ button.srcopen{all:unset;box-sizing:border-box;cursor:pointer;min-height:32px;di
   color:inherit;text-decoration:underline;text-decoration-color:var(--rule-strong);text-underline-offset:3px;overflow-wrap:anywhere}
 button.srcopen:hover{text-decoration-color:currentColor;color:var(--ink)}
 button.srcopen:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
-/* source-type dots in the tutor's Reading list — same scale, read at a glance */
+/* model answers: the exam's rank, but its own badge, dashed so it never reads as the exam paper itself */
+.authchip.ans{border-style:dashed}
+/* the tutor's Reading list: the same source-type badge as Files, then the title that opens the source */
 #ctxList li{display:flex;align-items:center;gap:.45rem}
+#ctxList li .authchip{flex:0 0 auto}
+#ctxList li button.srcopen{flex:1 1 auto;min-width:0}
+/* "Answered from" names read as a sentence; the padding keeps a 32px tap target without breaking the line */
+#ctxAnswer button.srcopen{display:inline;min-height:0;padding:.4rem 0}
+/* narrow layout: the Reading list is a row of pills, so the badge drops its own frame inside the pill */
+@media(max-width:1300px){
+  .screen>.tutor #ctxList li .authchip{border:0;background:none;padding:0;font-size:inherit}
+  .screen>.tutor #ctxList li button.srcopen{min-height:28px}
+  /* the Reading list gets the box's full width, so the pills flow along a row instead of stacking into a narrow column,
+     and "Answered from" takes its own row below; the box grows with them (up to a third of the screen, then scrolls) */
+  #tutor>.tutor>aside.col{max-height:min(18rem,34vh)}   /* the id outranks app-after.css's 7.5rem cap, which loads later */
+  .screen>.tutor #ctxList{flex:1 1 60%;min-width:0}
+  .screen>.tutor #ctxAnswer{flex-basis:100%}
+}
 .authdot{display:inline-block;width:.5rem;height:.5rem;border-radius:999px;flex:0 0 auto;
   background:var(--rule-strong);box-shadow:0 0 0 1px var(--rule) inset}
 .authdot.a1{background:var(--gilt);box-shadow:none}
@@ -111,3 +127,21 @@ button.srcopen:focus-visible{outline:2px solid var(--accent);outline-offset:2px;
 .rdbar i{display:block;height:100%;border-radius:999px;background:var(--rule-strong);transition:width .5s var(--ease,ease)}
 .s-ready .rdbar i{background:var(--ok)} .s-shaky .rdbar i{background:var(--gilt)} .s-weak .rdbar i{background:var(--bad)}
 @media(prefers-reduced-motion:reduce){.rdbar i{transition:none}}
+
+/* Source viewer (a new tab opened from Files or the Reading list): the app's own type and colours, a way back. */
+body.srcview{height:auto;min-height:100%}
+.srcbar{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:var(--s3);flex-wrap:wrap;
+  padding:var(--s3) var(--s4);background:var(--paper);border-bottom:1px solid var(--rule)}
+.srcbrand{font-family:var(--serif);font-size:var(--fs-lg);color:var(--ink)}
+.srccrumb{flex:1;min-width:8rem}
+.srcmain{max-width:78ch;margin:0 auto;padding:var(--s5) var(--s4) var(--s6)}
+.srcmain h1{overflow-wrap:anywhere}
+.srcmeta{display:flex;align-items:center;gap:var(--s3);flex-wrap:wrap;margin:0 0 var(--s3)}
+.srcactions{display:flex;align-items:center;gap:var(--s3);flex-wrap:wrap;padding-bottom:var(--s4);border-bottom:1px solid var(--rule)}
+.srctext{white-space:pre-wrap;font-family:var(--serif);font-size:1.02rem;line-height:1.65;color:var(--ink);overflow-wrap:anywhere;margin-top:var(--s4)}
+/* a Markdown source rendered as a document: headings and lists, not '#' and '-' markers */
+.srctext.srcmd{white-space:normal}
+.srctext.srcmd h2,.srctext.srcmd h3,.srctext.srcmd h4{font-family:var(--serif);color:var(--ink);margin:var(--s5) 0 var(--s2)}
+.srctext.srcmd h2{font-size:var(--fs-lg)} .srctext.srcmd h3{font-size:1.1rem} .srctext.srcmd h4{font-size:1rem}
+.srctext.srcmd p{margin:0 0 var(--s3)} .srctext.srcmd ul,.srctext.srcmd ol{margin:0 0 var(--s3);padding-left:1.4rem}
+.srctext.srcmd li{margin:0 0 var(--s1)}

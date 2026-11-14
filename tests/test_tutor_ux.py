@@ -313,7 +313,8 @@ def test_a_chip_on_a_line_with_a_flagged_citation_is_tinted():
 def test_the_reading_strip_never_clips_a_pill_at_1190():
     """Judge (should fix, dark 1190): the third Reading pill was cut off by max-height:7.5rem on the strip."""
     assert "aside.col{max-height:7.5rem" not in CSS
-    assert "#ctxLegend" in JS, "the gold/dark/grey dots need a legend in the tutor"
+    # The bare dots needed a legend; since #233 every Reading row carries the named source-type badge instead.
+    assert "selSorted.map(f=>ctxItem(f,ranks))" in JS and "authChip(f,ranks)" in JS
 
 
 @_needs_node
