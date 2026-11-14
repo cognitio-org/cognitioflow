@@ -110,3 +110,9 @@ def test_recall_due_count_refreshes_after_each_card():
     """After the last due card was rated the subtitle still said '1 due' beside 'Queue clear'."""
     m = re.search(r"function nextCard\(\)\{(.*?)\nfunction ", PAGE, flags=re.S)
     assert m and "recallSub(" in m.group(1), "nextCard must refresh the due count"
+
+
+def test_recall_generate_failure_leaves_a_visible_message():
+    """A failed 'Generate cards' used to leave only a 7 s toast; the inline #genMsg alert stays."""
+    assert "genMsg(" in PAGE and "Could not write the cards: '+e.message" in PAGE
+    assert "setAttribute('role','alert')" in PAGE

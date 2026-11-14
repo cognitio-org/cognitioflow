@@ -437,9 +437,19 @@ def local_call(task, **kw):
 KERNAL_SAMPLING = {"top_p": float, "top_k": int, "min_p": float, "repetition_penalty": float}
 
 
+def _kernal_thinks_by_default(model: str) -> bool:
+    """Gemini 2.5 Flash / Flash-Lite spend max_tokens on hidden "thinking" before any visible text. On a
+    bulk call (cards, concepts, syllabus ... at max_tokens 3000) that left empty or cut-off output and
+    "Model returned non-JSON". Pro cannot switch thinking off, so only the flash family is matched."""
+    m = (model or "").lower().rsplit("/", 1)[-1]
+    return m.startswith("gemini-2.5-flash")
+
+
 def _kernal_body(model, system, messages, max_tokens, temperature, stream, sampling=None) -> dict:
     body = {"model": model, "messages": _to_openai_messages(system, messages),
             "max_tokens": int(max_tokens), "stream": bool(stream)}
+    if _kernal_thinks_by_default(model):
+        body["reasoning_effort"] = "disable"   # verified on Kernal LiteLLM: thinking tokens 0, answer gets the budget
     if temperature is not None:
         body["temperature"] = float(temperature)
     for k, cast in KERNAL_SAMPLING.items():
@@ -538,7 +548,7 @@ class _KernalMessages:
         return _LocalMessage(text, data.get("model") or model, stop, _kernal_usage(data.get("usage")))
 
     def stream(self, *, model, max_tokens=1024, system=None, messages=None, temperature=None, **_ignored) -> _KernalStream:
-        return _KernalStream(self._base, self._key, _kernal_body(model, system, messages, max_tokens, temperature, True))
+        return _KernalStream(self._base, self._key, _kernal_body(model, system, messages, max_tokens, temperature, True, _ignored))
 
 
 class _KernalClient:
