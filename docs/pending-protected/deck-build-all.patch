@@ -1,0 +1,200 @@
+# PROTECTED (run.py) — needs Matej's named yes. Apply with: git apply docs/pending-protected/deck-build-all.patch
+# One-click deck (definition-of-8/deck.md): build-all reads each source on its own, 6 model calls at a time, stops starting after CF_DECK_BUDGET_S (100 s) and says what is left; honest result line + AI label in the reply; near-duplicate front guard; concept 'core' + side-issue drop; CONCEPT_CHARS 45000 -> 70000.
+diff --git a/run.py b/run.py
+index 582e28c..2a6d77b 100644
+--- a/run.py
++++ b/run.py
+@@ -696,7 +696,7 @@ def infer_weeks(cid: str):
+ 
+ # ---------------------------------------------------------------- concepts: what a question is about
+ 
+-CONCEPT_CHARS = 45000       # one week of one course; the cheap model's window, not a whole reader
++CONCEPT_CHARS = 70000       # one source (a judgment runs 20-60k characters); the cheap model's window, not a whole reader
+ 
+ @app.get("/api/courses/{cid}/concepts")
+ def list_concepts(cid: str, week: str = ""):
+@@ -715,7 +715,7 @@ def delete_concept(con_id: str):
+     with db() as d: d.execute("DELETE FROM concepts WHERE id=?", (con_id,))
+     return {"ok": True}
+ 
+-class ConceptsIn(BaseModel): week: str = ""; file_id: Optional[str] = None
++class ConceptsIn(BaseModel): week: str = ""; file_id: Optional[str] = None; max_n: Optional[int] = None
+ 
+ @app.post("/api/courses/{cid}/concepts/extract")
+ def extract_concepts(cid: str, body: ConceptsIn):
+@@ -735,10 +735,12 @@ def extract_concepts(cid: str, body: ConceptsIn):
+     if not material.strip():
+         raise HTTPException(400, "nothing to read: those files carry no text yet")
+ 
++    max_n = max(1, min(body.max_n or concepts_mod.MAX_CONCEPTS, concepts_mod.MAX_CONCEPTS))
++    ask = (f"List at most {max_n} concepts, the ones an exam would most likely test.\n\n" + material) if max_n < concepts_mod.MAX_CONCEPTS else material
+     m = ask_model(CHEAP_MODEL, task="concepts", max_tokens=4000, system=concepts_mod.EXTRACT_RULES,
+-                  messages=[{"role": "user", "content": material}])
++                  messages=[{"role": "user", "content": ask}])
+     text = "".join(b.text for b in m.content if getattr(b, "type", "") == "text")
+-    found, dropped = concepts_mod.parse(text, material)
++    found, dropped = concepts_mod.parse(text, material, max_n)
+     if not found:
+         return {"saved": 0, "dropped": dropped or ["the model found nothing it could quote"], "model": m.model}
+ 
+@@ -762,6 +764,8 @@ def extract_concepts(cid: str, body: ConceptsIn):
+             links += 1
+     return {"saved": saved, "links": links, "dropped": dropped, "read": [f["name"] for f in files_], "model": m.model}
+ 
++_CARD_WRITE = threading.Lock()
++
+ class GenerateIn(BaseModel): week: str = ""; concept_id: Optional[str] = None; limit: int = 8
+ 
+ @app.post("/api/courses/{cid}/concepts/generate")
+@@ -788,6 +792,8 @@ def generate_from_concepts(cid: str, body: GenerateIn):
+         concept = {"name": con["name"], "statement": con["statement"], "authority": con["authority"] or "",
+                    "limbs": con["limbs"] or [], "traps": con["traps"] or []}
+         brief = json.dumps({"concept": con["name"], "kind": con["kind"], **concept}, ensure_ascii=False)
++        sf = rows("SELECT COALESCE(NULLIF(label,''),name) AS n FROM files WHERE id=?", con["source_file"]) if con.get("source_file") else []
++        concept["source_name"] = sf[0]["n"] if sf else ""
+         try:
+             m = ask_model(CHEAP_MODEL, task="concepts", max_tokens=2500, system=concepts_mod.GENERATE_RULES,
+                           messages=[{"role": "user", "content": brief}])
+@@ -801,8 +807,15 @@ def generate_from_concepts(cid: str, body: GenerateIn):
+ 
+         cards, why = concepts_mod.clean_cards(payload, concept)
+         dropped.extend(f"{con['name']}: {w}" for w in why)
+-        with db() as d:
++        with _CARD_WRITE, db() as d:   # one writer at a time, so two concepts cannot both add the same front to a week
++            seen = [r["front"] for r in d.execute("SELECT front FROM cards WHERE course_id=? AND COALESCE(week,'')=?",
++                                                  (cid, con["week"] or "")).fetchall()]
+             for card in cards:
++                twin = concepts_mod.dup_of(card["front"], seen)
++                if twin:
++                    dropped.append(f"{con['name']}: a card repeating one already in the week: {card['front'][:60]}")
++                    continue
++                seen.append(card["front"])
+                 d.execute("INSERT INTO cards(id,course_id,front,back,source,created,week,concept_id) "
+                           "VALUES(?,?,?,?,?,?,?,?)",
+                           (uuid.uuid4().hex, cid, card["front"], card["back"], con["name"],
+@@ -832,40 +845,105 @@ def _deck_counts(cid: str):
+     return cards, qs
+ 
+ 
++DECK_BUDGET_S = float(os.environ.get("CF_DECK_BUDGET_S", "100"))   # one click stops starting new model calls after this
++DECK_WORKERS = int(os.environ.get("CF_DECK_WORKERS", "6"))         # model calls in flight at once
++DECK_FILE_MAX = 200000       # a source longer than this is a codified Treaty, not one authority: not read, and said so
++DECK_FILE_CONCEPTS = 6       # concepts kept per source: the ones an exam would test, and few enough to write in the budget
++
++
++def _deck_pool(fn, items, deadline):
++    """Run fn(item) over items on a small pool, each in the caller's request context (the owner check and the
++    per-user schedule read it). Items not started before the deadline come back as ('left', item, None)."""
++    from concurrent.futures import ThreadPoolExecutor
++    def one(pair):
++        ctx, item = pair
++        if time.monotonic() > deadline: return ("left", item, None)
++        try: return ("ok", item, ctx.run(fn, item))
++        except HTTPException as e: return ("err", item, str(e.detail))
++        except Exception as e: return ("err", item, f"{type(e).__name__}: {str(e)[:80]}")
++    pairs = [(contextvars.copy_context(), item) for item in items]   # copied HERE, in the request's thread: a worker's own context is empty
++    with ThreadPoolExecutor(max_workers=max(1, DECK_WORKERS)) as pool:
++        return list(pool.map(one, pairs))
++
++
+ @app.post("/api/courses/{cid}/concepts/build-all")
+ def build_all_decks(cid: str):
+-    """One action: extract concepts for every week that has selected material, then write cards + one applied
+-    problem per concept across the whole course. Reuses the per-week extractor and the idempotent generator
+-    (cheap model only, no new schema), so a fresh course with a syllabus applied goes from zero cards to a full
+-    deck in a single call instead of a manual per-week loop."""
++    """One action: read every ticked, week-tagged source once (each on its own, so no source is cut off by its
++    neighbours), record its concepts, then write cards + one applied problem per concept. Model calls run a few at a
++    time and stop starting after CF_DECK_BUDGET_S; whatever is left is counted and built by the next press.
++    Cheap model only, no new schema. The reply carries its own honest result line and the AI label."""
+     _require_owner(cid)
+-    weeks = [r["w"] for r in rows(
+-        "SELECT DISTINCT COALESCE(week,'') AS w FROM files WHERE course_id=? AND selected=1 "
+-        "AND COALESCE(week,'')<>'' AND COALESCE(text,'')<>'' ORDER BY w", cid)][:20]
++    t0 = time.monotonic(); started = time.time(); deadline = t0 + DECK_BUDGET_S
++    files_ = rows("SELECT f.id,f.name,f.week,COALESCE(f.chars,0) AS chars, "
++                  "(SELECT COUNT(*) FROM concepts c WHERE c.course_id=f.course_id AND c.source_file=f.id) AS n "
++                  "FROM files f WHERE f.course_id=? AND f.selected=1 AND COALESCE(f.week,'')<>'' "
++                  "AND COALESCE(f.text,'')<>'' ORDER BY f.week, f.name", cid)
++    weeks = sorted({f["week"] for f in files_})[:20]
++    files_ = [f for f in files_ if f["week"] in weeks]
+     summary = {w: {"concepts": 0, "cards": 0, "questions": 0, "dropped": []} for w in weeks}
+-    for w in weeks:
+-        try:
+-            ex = extract_concepts(cid, ConceptsIn(week=w))
+-            summary[w]["concepts"] = ex.get("saved", 0)
+-            summary[w]["dropped"].extend(ex.get("dropped") or [])
+-        except HTTPException as e:
+-            summary[w]["dropped"].append(str(e.detail))
++    unreadable, failed_weeks, todo_files = [], [], []
++    for f in files_:
++        if f["n"]: continue                                   # already read by an earlier press: never re-asked
++        if f["chars"] > DECK_FILE_MAX:
++            unreadable.append(f"{f['name']} is too long to read as one source ({f['chars']:,} characters); upload the part you need")
++        else: todo_files.append(f)
++
++    def extract_one(f):
++        return extract_concepts(cid, ConceptsIn(week=f["week"], file_id=f["id"], max_n=DECK_FILE_CONCEPTS))
++    files_left, ok_by_week = 0, {}
++    results = _deck_pool(extract_one, todo_files, deadline)
++    # a source that gave no concept (the model answered with side issues only, or not in JSON) is read once more in the same press
++    again = [f for st_, f, ex_ in results if st_ != "left" and not rows("SELECT 1 FROM concepts WHERE course_id=? AND source_file=? LIMIT 1", cid, f["id"])]
++    if again:
++        redo = {f["id"]: r for r in _deck_pool(extract_one, again, deadline) for f in [r[1]]}
++        results = [redo.get(f["id"], (st_, f, ex_)) if f["id"] in redo and redo[f["id"]][0] != "left" else (st_, f, ex_) for st_, f, ex_ in results]
++    for state, f, ex in results:
++        w = f["week"]
++        if state == "left": files_left += 1; continue
++        if state == "err":
++            summary[w]["dropped"].append(f"{f['name']}: {ex}"); ok_by_week.setdefault(w, False); continue
++        summary[w]["concepts"] += ex.get("saved", 0)
++        summary[w]["dropped"].extend(f"{f['name']}: {d}" for d in (ex.get("dropped") or []))
++        ok_by_week[w] = ok_by_week.get(w, False) or ex.get("saved", 0) > 0
++    for w, ok in ok_by_week.items():
++        if not ok and not rows("SELECT 1 FROM concepts WHERE course_id=? AND week=? LIMIT 1", cid, w):
++            failed_weeks.append(f"week {w} produced no concepts")
++
+     before_c, before_q = _deck_counts(cid)
+-    gen_dropped = []
+-    for _ in range(12):                                   # generate is whole-course + idempotent; loop until nothing new
+-        g = generate_from_concepts(cid, GenerateIn(week="", limit=20))
+-        gen_dropped.extend(g.get("dropped") or [])
+-        if not g.get("concepts", 0): break
++    todo = rows("SELECT id,name,week FROM concepts WHERE course_id=? AND id NOT IN "
++                "(SELECT DISTINCT concept_id FROM cards WHERE course_id=? AND concept_id IS NOT NULL) "
++                "ORDER BY week,name", cid, cid)
++    gen_dropped, left = [], 0
++    for state, con, g in _deck_pool(lambda c: generate_from_concepts(cid, GenerateIn(concept_id=c["id"])), todo, deadline):
++        if state == "left": left += 1
++        elif state == "err": gen_dropped.append(f"{con['name']}: {g}")
++        else: gen_dropped.extend(g.get("dropped") or [])
++    _autotag_untagged(cid, started)   # keep a blueprint-focused deck tagged; no-op without a blueprint
+     after_c, after_q = _deck_counts(cid)
++    built = {}
+     for w in summary:
+         summary[w]["cards"] = max(0, after_c.get(w, 0) - before_c.get(w, 0))
+         summary[w]["questions"] = max(0, after_q.get(w, 0) - before_q.get(w, 0))
++        built[w] = (summary[w]["cards"], summary[w]["questions"])
+     all_weeks = set(before_c) | set(after_c) | set(before_q) | set(after_q) | set(weeks)
+     totals = {"weeks": len(weeks),
+               "concepts": sum(s["concepts"] for s in summary.values()),
+               "cards": sum(max(0, after_c.get(w, 0) - before_c.get(w, 0)) for w in all_weeks),
+               "questions": sum(max(0, after_q.get(w, 0) - before_q.get(w, 0)) for w in all_weeks)}
+-    return {"weeks": summary, "totals": totals, "dropped": gen_dropped}
++    skipped = gen_dropped + [d for s_ in summary.values() for d in s_["dropped"]]
++    # nothing new: every readable file was read before, and this press wrote no card or problem and left nothing pending
++    nothing_new = bool(files_) and not todo_files and not left and not totals["cards"] and not totals["questions"]
++    deck_cards, deck_problems = sum(after_c.values()), sum(after_q.values())
++    line = concepts_mod.deck_line(built=built, deck_cards=deck_cards, deck_problems=deck_problems, skipped=skipped,
++                                  pending_concepts=left, pending_files=files_left, failed_weeks=failed_weeks,
++                                  unreadable=unreadable, nothing_new=nothing_new)
++    if not files_: line = "Nothing to build: tick files and set their weeks first. " + line
++    return {"weeks": summary, "totals": totals, "dropped": gen_dropped,
++            "deck": {"cards": deck_cards, "problems": deck_problems,
++                     "weeks": {w: {"cards": after_c.get(w, 0), "problems": after_q.get(w, 0)} for w in sorted(all_weeks)}},
++            "pending": {"concepts": left, "files": files_left},
++            "skipped": skipped, "failed_weeks": failed_weeks, "unreadable": unreadable, "nothing_new": nothing_new,
++            "seconds": round(time.monotonic() - t0, 1), "line": line, "label": concepts_mod.AI_LABEL}
+ 
+ # ---------------------------------------------------------------- syllabus in, weeks and topics out (Phase 13)
+ SYLLABUS_CHARS = 60000   # a syllabus is five to fifteen pages; the cap is a guard against a whole reader being picked

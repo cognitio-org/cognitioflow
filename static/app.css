@@ -145,3 +145,10 @@ body.srcview{height:auto;min-height:100%}
 .srctext.srcmd h2{font-size:var(--fs-lg)} .srctext.srcmd h3{font-size:1.1rem} .srctext.srcmd h4{font-size:1rem}
 .srctext.srcmd p{margin:0 0 var(--s3)} .srctext.srcmd ul,.srctext.srcmd ol{margin:0 0 var(--s3);padding-left:1.4rem}
 .srctext.srcmd li{margin:0 0 var(--s1)}
+
+/* deck result line (Files) and the AI label (Files result + Recall card) */
+.deckres{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s3);align-items:center;margin:0 0 var(--s4);padding:var(--s3) var(--s4);border:1px solid var(--rule);border-radius:var(--r);background:var(--paper);color:var(--ink);max-width:100%;overflow-wrap:anywhere}
+.deckres #deckState{flex:1 1 32ch;min-width:0}
+.deckres .ailabel{flex:1 0 100%}
+.ailabel{font-size:var(--fs-sm,.85rem)}
+#fcAi{margin:var(--s3) auto 0;text-align:center;max-width:60ch}

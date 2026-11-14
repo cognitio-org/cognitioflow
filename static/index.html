@@ -100,7 +100,11 @@
       <span class="small muted" id="sylState" role="status"></span>
     </span>
     <button class="btn small" id="buildDecks" title="Extract the concepts from every week that has ticked text, then write cards and one applied problem per concept — the whole course in one pass">Build week decks</button>
-    <span class="small muted" id="deckState" role="status"></span>
+  </div>
+  <div class="deckres small" id="deckRes" hidden>
+    <span id="deckState" role="status" aria-live="polite"></span>
+    <button class="btn small ghost" type="button" id="deckOpen" hidden>Open in Recall</button>
+    <div class="ailabel muted" id="deckAi" hidden></div>
   </div>
   <div class="panel small syl" id="sylPanel" hidden aria-labelledby="sylHd">
     <div class="sylhd"><h3 id="sylHd">Proposed weeks</h3><span class="small muted" id="sylNote"></span></div>
@@ -189,14 +193,15 @@
 
   <div id="cardStage" class="rstage">
     <div class="progress" id="rprog"><span></span></div>
-    <div class="flashcard" id="fc" tabindex="0" aria-label="Flashcard — click to flip">
+    <div class="flashcard" id="fc" tabindex="0" aria-label="Flashcard — click to flip" hidden>
       <div class="fcinner" id="fcinner">
         <div class="face front"><div class="tagline">Question</div><div class="ftext" id="fcFront"></div><div class="hintline">Click, or press <kbd>Space</kbd>, to reveal</div></div>
         <div class="face back"><div class="tagline">Answer</div><div class="ftext" id="fcBack"></div></div>
       </div>
     </div>
     <div class="ratings" id="ratings" hidden><button class="btn rate again" data-r="0">Again <kbd>1</kbd></button><button class="btn rate hard" data-r="1">Hard <kbd>2</kbd></button><button class="btn rate good" data-r="2">Good <kbd>3</kbd></button><button class="btn rate easy" data-r="3">Easy <kbd>4</kbd></button></div>
-    <div class="rdone" id="rdone" hidden></div>
+    <div class="ailabel muted" id="fcAi" hidden>AI-generated from your course files. Verify against your materials.</div>
+    <div class="rdone" id="rdone" role="status">Loading cards…</div>
   </div>
 
   <div id="quizStage" class="rstage" hidden>

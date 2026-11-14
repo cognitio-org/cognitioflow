@@ -43,6 +43,7 @@ Return ONLY a JSON object:
   "traps": ["treating Cassis as an alternative to Dassonville rather than the step after it"],
   "authority": "C-8/74",
   "method_tag": "free movement",
+  "core": true,
   "quote": "the exact sentence from the material that states this, copied character for character",
   "confusable_with": ["Cassis de Dijon", "Keck"]
  }]}
@@ -51,7 +52,19 @@ Rules:
 - Work only from the material given. If it does not teach a concept, do not list it.
 - `quote` must be copied from the material exactly. It is checked. A concept whose quote is not found
   is thrown away, so paraphrasing there costs you the whole entry.
-- `authority` only if the material names one. Never construct a case number or an article.
+- `authority` only if the material names one: the case the concept comes from, as the short name students
+  use for it and its number as the material prints it (for example "Van Gend en Loos, Case 26/62";
+  "Dassonville, Case 8/74"). Never add a "C-" prefix the material does not print, never a paragraph number,
+  and never construct a case number or an article. Name
+  an article with its Treaty as the material prints it (Article 30 of the EEC Treaty); never convert old
+  numbers to current ones.
+- `core` is true only for a rule this judgment is principally cited for in a law course (usually one
+  doctrine, two at most), false for a side issue the case happened to raise. Give false for every provision the Court merely applies or dismisses.
+- Take only the rule of law this judgment is cited for: what the Court itself decides or states as law.
+  Skip the parties' arguments, the facts, the procedure, and every provision the Court merely applies or
+  dismisses to decide this one case (a competition, monopoly, establishment or sex-equality provision the
+  case happened to raise). If the judgment is cited for one doctrine, list that doctrine's rules, not the
+  case's side issues.
 - `traps` are mistakes a student actually makes on this concept, from the material's own warnings.
 - `method_tag` is the reasoning at work, in two or three words, so the same reasoning can be
   recognised in another course: proportionality, direct effect, remedies, burden of proof, formation,
@@ -64,12 +77,18 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "")).strip().lower()
 
 
+def _words_only(text: str) -> str:
+    """Lowercase words separated by single spaces: punctuation, quote marks, dashes and hyphenation are ignored."""
+    return " ".join(re.findall(r"[^\W_]+", (text or "").lower()))
+
+
 def grounded(quote: str, haystack: str) -> bool:
-    """Is this quote really in the material? Whitespace and case are forgiven; wording is not."""
+    """Is this quote really in the material? Case, whitespace and punctuation (curly quotes, dashes) are forgiven;
+    the words and their order are not."""
     q = _norm(quote)
     if len(q) < QUOTE_MIN:
         return False
-    return q in _norm(haystack)
+    return q in _norm(haystack) or _words_only(quote) in _words_only(haystack)
 
 
 def clean(candidate: dict, material: str) -> dict:
@@ -94,10 +113,11 @@ def clean(candidate: dict, material: str) -> dict:
         "method_tag": re.sub(r"\s+", " ", str(candidate.get("method_tag", "") or "")).strip().lower()[:40],
         "quote": re.sub(r"\s+", " ", str(candidate.get("quote", ""))).strip()[:400],
         "confusable_with": listy(candidate.get("confusable_with")),
+        "core": candidate.get("core", True) is not False and str(candidate.get("core", True)).lower() != "false",
     }
 
 
-def parse(payload, material: str) -> tuple:
+def parse(payload, material: str, max_n: int = MAX_CONCEPTS) -> tuple:
     """(concepts, dropped) from a model reply. Pure: no database, no network."""
     if isinstance(payload, str):
         try:
@@ -108,18 +128,21 @@ def parse(payload, material: str) -> tuple:
     if not isinstance(items, list):
         return [], ["the reply carried no concepts list"]
     kept, dropped, seen = [], [], set()
-    for raw in items[:MAX_CONCEPTS * 2]:
+    for raw in items[:max_n * 2]:
         got = clean(raw, material)
         if not got:
             name = (raw or {}).get("name", "?") if isinstance(raw, dict) else "?"
             dropped.append(f"{name}: its quote is not in the material")
+            continue
+        if not got.get("core", True):
+            dropped.append(f"{got['name']}: a side issue of its source")
             continue
         key = _norm(got["name"])
         if key in seen:
             continue
         seen.add(key)
         kept.append(got)
-    return kept[:MAX_CONCEPTS], dropped
+    return kept[:max_n], dropped
 
 
 def rows_for_save(concepts, cid: str, week: str, now: float, source_file: str = "", source_note: str = "") -> list:
@@ -165,6 +188,14 @@ The cards (two or three):
 - Where the concept has limbs, one asks for the limbs in order.
 - Where the concept has a trap, one is built so that falling for the trap is the wrong answer.
 - A card is a question and its answer, never a topic. "Article 34" is not a card.
+- Every answer names the case by its short name and number, and the article it rests on, exactly as the
+  concept gives them (its name, statement and authority). Never give a paragraph number. Never write the
+  answer by repeating the question.
+- Plain text only: no markdown, no asterisks, no lists with hyphens inside a card.
+- Write an article exactly as the concept does, with its Treaty ("Article 30 of the EEC Treaty"); never
+  change its number or its Treaty, and never convert it to the current numbering.
+- Doctrine is exact. Direct effect is the Van Gend en Loos idea; "directly applicable" is a different
+  Treaty term (regulations). Do not swap them, and do not credit one case with another case's holding.
 
 The question is one applied problem, in the shape a two-hour written exam uses:
 - Short facts with named parties that force the concept to be used, not recited.
@@ -174,7 +205,10 @@ The question is one applied problem, in the shape a two-hour written exam uses:
   problem whose answer is obvious at every step teaches nothing.
 """
 
-CITE = re.compile(r"(?i)\b(C[-\u2011]\d{1,4}/\d{2,4}|ECLI:[A-Z:0-9.]+|Art(?:icle)?\.?\s*\d+[a-z]?(?:\(\d+\))?)\b")
+CITE = re.compile(r"(?i)\b(C[-\u2011]\d{1,4}/\d{2,4}|ECLI:[A-Z:0-9.]+|Art(?:icle)?\.?\s*\d+[a-z]?(?:\(\d+\))?|(?:Directive|Regulation)\s+(?:No\.?\s*)?\d{2,4}/\d{1,4})\b")
+
+
+ART_INSTR = re.compile(r"(?i)\bart(?:icle)?\.?\s*(\d+)[a-z]?(?:\(\d+\))?\s+(?:of\s+the\s+)?(TFEU|EEC|EC|TEC|TEU)\b")
 
 
 def citations_ok(text: str, concept: dict) -> bool:
@@ -184,11 +218,80 @@ def citations_ok(text: str, concept: dict) -> bool:
     known = _norm(" ".join([concept.get("statement", ""), concept.get("authority", ""),
                             " ".join(concept.get("limbs") or []), " ".join(concept.get("traps") or []),
                             concept.get("name", "")]))
+    # An article keeps its Treaty: "Article 30 EEC" in the concept may not come back as "Article 30 TFEU" (that
+    # number means customs duties in the current Treaty). Same number with another Treaty is a different article.
+    have = {(n, i.upper().replace("TEC", "EC")) for n, i in ART_INSTR.findall(known)}
+    for n, i in ART_INSTR.findall(_norm(text)):
+        i = i.upper().replace("TEC", "EC")
+        if (n, i) not in have and any(n == hn and i != hi for hn, hi in have):
+            return False
     for found in CITE.findall(text or ""):
         token = _norm(found).replace("article", "art").replace(".", "").replace(" ", "")
         if token not in known.replace("article", "art").replace(".", "").replace(" ", ""):
             return False
     return True
+
+
+# ---------------------------------------------------------------- clean items (deck Must 10)
+_STOP = frozenset("a an the of in on at to for and or is are was were be been by with as that this it its from what which who how why does do did not under any may can must shall if then than when where whether into".split())
+_WORD = re.compile(r"[a-z0-9]+")
+TEST_TEXT = re.compile(r"(?i)\b(testcase|test case|number\d+|lorem ipsum|placeholder)\b")
+_MD_EMPH = re.compile(r"(\*\*|__|`+)")
+DUP_FRONT = 0.9      # [Claude-set] near-duplicate fronts within one week
+ECHO_ANSWER = 0.8    # [Claude-set] an answer that only repeats its question
+
+
+def words(text: str) -> frozenset:
+    return frozenset(w for w in _WORD.findall((text or "").lower()) if w not in _STOP)
+
+
+def jaccard(a, b) -> float:
+    a, b = frozenset(a), frozenset(b)
+    return len(a & b) / len(a | b) if (a or b) else 1.0
+
+
+def plain(text: str) -> str:
+    """Model text as one plain line: emphasis markers and heading hashes removed, whitespace collapsed."""
+    t = _MD_EMPH.sub("", str(text or ""))
+    t = re.sub(r"(?m)^\s{0,3}#{1,6}\s+", "", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def bad_text(text: str) -> str:
+    """Why this text is not a clean card or problem, or ''. Raw JSON, code fences and test text fail."""
+    t = str(text or "")
+    if "```" in t or re.match(r"\s*[\[{]\s*\"", t):
+        return "raw markdown or JSON"
+    if TEST_TEXT.search(t):
+        return "test text"
+    return ""
+
+
+def dup_of(front: str, seen_fronts) -> str:
+    """The earlier front this one repeats (exact after normalising, or Jaccard >= DUP_FRONT), or ''."""
+    w = words(front)
+    for other in seen_fronts:
+        if _norm(other) == _norm(front) or (w and jaccard(w, words(other)) >= DUP_FRONT):
+            return other
+    return ""
+
+
+def echoes(question: str, answer: str) -> bool:
+    return jaccard(words(question), words(answer)) >= ECHO_ANSWER
+
+
+_NAMES_AUTHORITY = re.compile(r"(?i)\b(art(?:icle)?\.?\s*\d|case\s+c?[-\u2011]?\s*\d|joined cases|c[-\u2011]\d{1,4}/\d{2,4}|ECLI:)")
+
+
+def with_authority(answer: str, concept: dict) -> str:
+    """An answer that states a rule but names no case or article gets the concept's own authority as its source,
+    so every answer says where it comes from. Nothing is added that the concept does not carry."""
+    auth = re.sub(r"\s+", " ", str(concept.get("authority") or "")).strip(" .")
+    if not auth and concept.get("source_name"):
+        auth = "source: " + re.sub(r"\s+", " ", str(concept["source_name"])).strip(" .")   # no authority named: say which file it came from
+    if not auth or _NAMES_AUTHORITY.search(answer or "") or _norm(auth) in _norm(answer):
+        return answer
+    return f"{answer.rstrip()} ({auth})"
 
 
 def clean_cards(payload, concept: dict, limit: int = 3) -> tuple:
@@ -198,15 +301,21 @@ def clean_cards(payload, concept: dict, limit: int = 3) -> tuple:
     for raw in (items or [])[:limit * 2]:
         if not isinstance(raw, dict):
             continue
-        front = re.sub(r"\s+", " ", str(raw.get("front", ""))).strip()
-        back = re.sub(r"\s+", " ", str(raw.get("back", ""))).strip()
+        why = bad_text(raw.get("front", "")) or bad_text(raw.get("back", ""))
+        front, back = plain(raw.get("front", "")), plain(raw.get("back", ""))
         if len(front) < 8 or len(back) < 8:
             dropped.append("a card with no question or no answer")
+            continue
+        if why:
+            dropped.append(f"a card with {why}: {front[:60]}")
+            continue
+        if echoes(front, back):
+            dropped.append(f"a card whose answer only repeats the question: {front[:60]}")
             continue
         if not citations_ok(front + " " + back, concept):
             dropped.append(f"a card citing an authority the concept does not carry: {front[:60]}")
             continue
-        kept.append({"front": front[:400], "back": back[:1200]})
+        kept.append({"front": front[:400], "back": with_authority(back, concept)[:1200]})
     return kept[:limit], dropped
 
 
@@ -215,9 +324,13 @@ def clean_question(payload, concept: dict) -> tuple:
     q = (payload or {}).get("question") if isinstance(payload, dict) else None
     if not isinstance(q, dict):
         return None, "the reply carried no question"
-    text = re.sub(r"\s+", " ", str(q.get("question", ""))).strip()
-    model = re.sub(r"\s+", " ", str(q.get("model", ""))).strip()
-    steps = [re.sub(r"\s+", " ", str(x)).strip() for x in (q.get("steps") or []) if str(x).strip()][:8]
+    why = bad_text(q.get("question", "")) or bad_text(q.get("model", ""))
+    text, model = plain(q.get("question", "")), plain(q.get("model", ""))
+    steps = [plain(x) for x in (q.get("steps") or []) if str(x).strip()][:8]
+    if why:
+        return None, f"the problem had {why}"
+    if echoes(text, model):
+        return None, "the model answer only repeated the problem"
     if len(text) < 40:
         return None, "the problem had no facts"
     if len(model) < 60:
@@ -226,4 +339,50 @@ def clean_question(payload, concept: dict) -> tuple:
         return None, "the problem came without a stappenplan to mark against"
     if not citations_ok(text + " " + model + " " + " ".join(steps), concept):
         return None, "the problem cited an authority the concept does not carry"
-    return {"question": text[:2000], "steps": steps, "model": model[:4000]}, ""
+    return {"question": text[:2000], "steps": steps, "model": with_authority(model, concept)[:4000]}, ""
+
+
+# ---------------------------------------------------------------- the deck result line (deck Must 3, 8)
+AI_LABEL = "AI-generated from your course files. Verify against your materials."
+
+
+def _reason(entry: str) -> str:
+    """'Keck: the reply was not JSON' -> 'the reply was not JSON'."""
+    return (entry.split(": ", 1)[1] if ": " in entry else entry).strip()[:80]
+
+
+def deck_line(*, built: dict, deck_cards: int, deck_problems: int, skipped=(), pending_concepts: int = 0,
+              pending_files: int = 0, failed_weeks=(), unreadable=(), nothing_new: bool = False) -> str:
+    """One honest sentence-set for the result line. `built` maps week -> (cards, problems) made THIS click;
+    deck_* are what exists in the course after it (an API count, not an estimate). It never says "Built" alone
+    when anything was skipped, failed or left, and it says "Built nothing" when nothing was built."""
+    made_c = sum(c for c, _ in built.values())
+    made_q = sum(q for _, q in built.values())
+    trouble = bool(skipped or failed_weeks or unreadable or pending_concepts or pending_files)
+    parts = []
+    if nothing_new:
+        parts.append("Nothing new to build: every file is already read and nothing is waiting.")
+    elif not made_c and not made_q:
+        parts.append("Built nothing.")
+    else:
+        per = ", ".join(f"week {w}: {c} cards, {q} problems" for w, (c, q) in sorted(built.items()) if c or q)
+        parts.append(("Built (" if not trouble else "Partly built (") + per + ").")
+    parts.append(f"Deck now: {deck_cards} cards, {deck_problems} problems.")
+    if failed_weeks:
+        parts.append("Failed: " + "; ".join(failed_weeks) + ".")
+    if unreadable:
+        parts.append("Not read: " + "; ".join(unreadable) + ".")
+    if skipped:
+        why = {}
+        for e in skipped:
+            why[_reason(e)] = why.get(_reason(e), 0) + 1
+        top = "; ".join(f"{r} ({n})" if n > 1 else r for r, n in sorted(why.items(), key=lambda kv: -kv[1])[:3])
+        parts.append(f"{len(skipped)} skipped: {top}.")
+    left = []
+    if pending_concepts:
+        left.append(f"{pending_concepts} concept{'s' if pending_concepts != 1 else ''}")
+    if pending_files:
+        left.append(f"{pending_files} file{'s' if pending_files != 1 else ''} still to read")
+    if left:
+        parts.append(" and ".join(left) + " left, press again to build them.")
+    return " ".join(parts)
