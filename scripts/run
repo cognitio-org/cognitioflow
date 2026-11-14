@@ -1,0 +1,86 @@
+#!/bin/bash
+# scripts/run for CognitioFlow (RUN_CONTRACT.md, contract 1). Launcher: proj. Local dev copy only; prod is Cloud Run.
+# run-template contract:1
+# Exit: 0 ok | 1 failed | 2 bad usage | 3 BLOCKED (stop and report; never retry, edit this file, or run the hint)
+# Port: run.py's __main__ hard-codes :8000 (often taken), so 'up' starts uvicorn run:app on CF_RUN_PORT (default 8015; 8010 is the OpenBB service).
+# Note: 'up' runs run.py's startup migrations against whatever DATABASE_URL .env.local names.
+ID=cognitioflow; PORT=${CF_RUN_PORT:-8015}; HEAVY=none; HEALTH=/health; BG_LABELS=""
+cd "$(dirname "$0")/.." || exit 1; ROOT=$(pwd); PIDF=.run/$ID.pid; LOG=.run/$ID.log
+case "$PORT" in ''|*[!0-9]*) echo "CF_RUN_PORT must be a number" >&2; exit 2 ;; esac
+blocked() { echo "BLOCKED: $1 -> $2"; exit 3; }
+status() {
+  state=n/a; bg=0; blk=null
+  body=$(curl -s -m 3 --connect-timeout 1 -w '\n%{http_code}' "http://127.0.0.1:$PORT$HEALTH" 2>/dev/null); rc=$?; code=${body##*$'\n'}
+  if [ "$code" = 200 ]; then case "$body" in *'"commit"'*) state=up ;; *) state=degraded; blk='"port_busy"' ;; esac   # 200 from a non-CF service
+  elif [ $rc = 7 ]; then state=down; elif [ $rc = 28 ]; then state=unknown
+  elif [ "$code" != 000 ] && [ -n "$code" ]; then state=degraded; else state=unknown; fi
+  for l in $BG_LABELS; do launchctl list "$l" >/dev/null 2>&1 || bg=$((bg+1)); done
+  [ "$state" = up ] && [ $bg -gt 0 ] && state=degraded
+  next=up; [ "$state" = up ] && next=drive; [ "$blk" != null ] && next=port_busy
+  r=$(printf %s "$ROOT" | tr -d '"\\'); t=$'\t'; nl=$'\n'; et='\t'; en='\n'; r=${r//$t/$et}; r=${r//$nl/$en}
+  printf '{"project":"%s","state":"%s","port":%s,"heavy":"%s","blocked":%s,"next":"%s","bg_failing":%s,"root":"%s","contract":1}\n' \
+    "$ID" "$state" "$PORT" "$HEAVY" "$blk" "$next" "$bg" "$r"
+}
+venv_py() {   # sets PY: project venv only; a git worktree falls back to the main checkout's .venv
+  PY=$ROOT/.venv/bin/python; [ -x "$PY" ] && return
+  c=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); PY=${c%/.git}/.venv/bin/python; [ -n "$c" ] && [ -x "$PY" ] && return
+  blocked no_venv "create it: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"
+}
+free_gb() { vm_stat 2>/dev/null | awk '/page size of/{ps=$8} /Pages free/{f=$3} /Pages inactive/{i=$3} /Pages speculative/{s=$3} END{printf "%d", (f+i+s)*ps/1073741824}'; }
+st() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ //;s/ $//'; }   # process start time
+port_pid() { lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | head -1; }
+ours() {      # pid from the pidfile, only if that process still has the recorded start time
+  [ -f "$PIDF" ] || return 1; read -r p s < "$PIDF"; [ -n "$p" ] || return 1
+  [ -n "$s" ] && [ "$(st "$p")" = "$s" ] && echo "$p"
+}
+up() {
+  p=$(ours) && { echo "already up: pid $p on :$PORT"; return 0; }
+  venv_py
+  [ -f .env.local ] || blocked no_env "run.py needs .env.local with DATABASE_URL (a fresh worktree has none); copy .env.local.example and set it"
+  g=$(free_gb); [ -n "$g" ] && [ "$g" -lt 6 ] && blocked heavy "only ${g}GB free RAM; close something or run it on the M4: ssh m4mesh"
+  [ -n "$(port_pid)" ] && blocked port_busy ":$PORT is held by another process; pick a free one: CF_RUN_PORT=8011 scripts/run up"
+  mkdir -p .run
+  set -m; HF_HUB_OFFLINE=1 MODEL_DISABLED=1 nohup "$PY" -m uvicorn run:app --host 127.0.0.1 --port "$PORT" >"$LOG" 2>&1 & p=$!; set +m
+  sleep 1; s=$(st "$p"); [ -n "$s" ] || { echo "failed to start; see $LOG" >&2; exit 1; }
+  printf '%s %s\n' "$p" "$s" > "$PIDF"
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    [ "$(curl -s -m 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT$HEALTH")" = 200 ] && { echo "up: pid $p on http://127.0.0.1:$PORT"; return 0; }
+    kill -0 "$p" 2>/dev/null || { echo "exited during start; see $LOG" >&2; rm -f "$PIDF"; exit 1; }; sleep 1
+  done
+  echo "started pid $p but $HEALTH not 200 after 20s; see $LOG" >&2; exit 1
+}
+down() {
+  p=$(ours) || { rm -f "$PIDF"; echo "nothing started by scripts/run is running"; return 0; }
+  kill -TERM -- "-$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null
+  for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$p" 2>/dev/null || break; sleep 1; done
+  kill -0 "$p" 2>/dev/null && { kill -KILL -- "-$p" 2>/dev/null || kill -KILL "$p" 2>/dev/null; }
+  rm -f "$PIDF"; echo "down: stopped pid $p"
+}
+drive() {
+  trap 'exit 1' INT TERM; trap 'rm -f .run/drive.$$' EXIT
+  p=$(ours) || blocked not_up "start it first: scripts/run up"
+  h=$(port_pid); [ -n "$h" ] && [ "$(ps -o pgid= -p "$h" 2>/dev/null | tr -d ' ')" != "$p" ] && blocked port_busy ":$PORT is held by pid $h, not the pidfile's $p"
+  for path in "$HEALTH" / /api/config; do
+    c=$(curl -s -m 5 -o .run/drive.$$ -w '%{http_code}' "http://127.0.0.1:$PORT$path"); echo "$path -> $c"
+    [ "$path" = "$HEALTH" ] && [ "$c" != 200 ] && exit 1
+  done; return 0
+}
+selftest() {
+  py=python3; [ -x .venv/bin/python ] && py=.venv/bin/python
+  out=$(status) && printf %s "$out" | "$py" -c 'import json,sys;d=json.loads(sys.stdin.read());assert d["contract"]==1' || { echo "status JSON invalid" >&2; exit 1; }
+  "$py" -m py_compile run.py || exit 1
+  if [ "$1" = --full ]; then
+    [ "$2" = --here ] || blocked heavy "the full suite is heavy on this laptop: ssh m4mesh 'cd ~/dev/cognitioflow && scripts/run selftest --full --here'"
+    venv_py; HF_HUB_OFFLINE=1 MODEL_DISABLED=1 "$PY" -m pytest -q -x tests || exit 1
+  fi
+  echo "selftest ok"
+}
+case "${1:-help}" in
+  status) status 2>/dev/null ;;
+  up) up ;;
+  down) down ;;
+  drive) drive ;;
+  selftest) shift; selftest "$@" ;;
+  help|-h|--help) echo "usage: scripts/run status|up|drive|down|selftest [--full [--here]]|help   (CF_RUN_PORT, default 8015; or: proj <verb>; exit 0 ok,1 failed,2 usage,3 BLOCKED=stop and report)" ;;
+  *) echo "usage: scripts/run status|up|drive|down|selftest|help" >&2; exit 2 ;;
+esac
