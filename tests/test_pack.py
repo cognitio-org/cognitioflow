@@ -362,3 +362,78 @@ def test_the_note_is_read_at_the_mention_that_carries_the_number_and_only_up_to_
     assert got["Lisbon"] == ("2 BvE 2/08", None, False)                 # not the first mention, the one with the number
     assert got["Dassonville"] == ("Case 8/74", 1974, True)              # Cassis's (1979) is not Dassonville's year
     assert got["Cassis de Dijon"][1:] == (1979, False)
+
+
+# ---- wave 4: THE ONE RULE - a number is not a CJEU docket when anything marks it as another court's.
+# One test per court family; each cite must print exactly as written, in its own order, with no year read off it.
+def _row(name, cite, year=None):
+    out = pack.normalise_cases([_n(name, cite, year)])
+    assert len(out) == 1
+    return out[0]["cite"], out[0]["year"], out[0]["numbered"]
+
+
+def test_one_rule_german_courts_print_verbatim():
+    assert _row("Solange II", "2 BvR 197/83 (1986)") == ("2 BvR 197/83 (1986)", 1986, False)     # bracket kept, year written
+    assert _row("Solange I", "BVerfGE 37, 271 (1974)") == ("BVerfGE 37, 271 (1974)", 1974, False)
+    assert _row("Lisbon", "2 BvE 2/08", 2008) == ("2 BvE 2/08", None, False)
+    assert _row("Weiss (BVerfG)", "2 BvR 859/15, 5 May 2020") == ("2 BvR 859/15, 5 May 2020", 2020, False)
+    assert _row("Weiss", "2 BvR 859/15 (on C-62/14)") == ("2 BvR 859/15 (on C-62/14)", None, False)   # never reordered
+    assert _row("BGH", "BGH IX ZR 123/04") == ("BGH IX ZR 123/04", None, False)
+
+
+def test_one_rule_ecthr_numbers_print_verbatim():
+    for cite in ("Application no. 5856/72", "App no 14038/88", "no. 45036/98", "Appl. 52207/99", "24833/94"):
+        assert _row("Tyrer v UK", cite, 1900 + int(cite[-2:])) == (cite, None, False)   # run.py's year off the number
+    assert _row("Tyrer v United Kingdom (ECtHR)", "5856/72") == ("5856/72", None, False)
+
+
+def test_one_rule_italian_czech_polish_constitutional_courts_print_verbatim():
+    assert _row("Granital", "Corte cost. sent. 170/84", 1984) == ("Corte cost. sent. 170/84", None, False)
+    assert _row("Granital", "Corte cost., sent. n. 170/1984") == ("Corte cost., sent. n. 170/1984", None, False)
+    assert _row("Landtová / Holubec", "Pl. ÚS 5/12", 2012) == ("Pl. ÚS 5/12", None, False)
+    assert _row("Polish Constitutional Tribunal", "K 3/21", 2021) == ("K 3/21", None, False)
+    assert _row("Frontini (Italian Constitutional Court)", "183/73", 1973) == ("183/73", None, False)
+
+
+def test_one_rule_other_national_courts_print_verbatim():
+    assert _row("Miller", "[2017] UKSC 5") == ("[2017] UKSC 5", 2017, False)
+    assert _row("Factortame (No 2)", "[1991] 1 AC 603 (HL)") == ("[1991] 1 AC 603 (HL)", 1991, False)
+    assert _row("Ajos", "Højesteret, 15/2014") == ("Højesteret, 15/2014", None, False)
+
+
+def test_one_rule_in_the_notes_prose_keeps_the_court_number():
+    body = ("*Granital* (Corte cost. sent. 170/84, 8 June 1984) on dualism. *Landtová* (Pl. ÚS 5/12) ultra vires. "
+            "*Tyrer* (no. 5856/72) and *Barber* (C-262/88).")
+    w = {"id": "w1", "title": "Week 1 — Limits", "body": body}
+    t = pack.build({1: [w]}, [], [_n("Granital", "170/84", 1984, "w1"), _n("Landtová", "5/12", 2012, "w1"),
+                                  _n("Tyrer", "5856/72", 1972, "w1"), _n("Barber", "C-262/88", 1988, "w1")])["topics"][0]
+    got = {c["name"]: (c["cite"], c["year"], c["numbered"]) for c in t["cases"]}
+    assert got["Granital"] == ("Corte cost. sent. 170/84", 1984, False)       # the date the note writes, never '84'
+    assert got["Landtová"] == ("Pl. ÚS 5/12", None, False)
+    assert got["Tyrer"] == ("no. 5856/72", None, False)                     # the note's own words
+    assert got["Barber"] == ("Case C-262/88", 1988, True)
+
+
+def test_one_rule_cjeu_and_general_court_cites_are_still_the_cjeus():
+    assert _row("ERT", "ERT 260/89") == ("Case 260/89", 1989, True)            # its own name in front: still the CJEU's
+    assert _row("Commission v Germany (beer)", "Commission v Germany 178/84") == ("Case 178/84", 1984, True)
+    assert _row("Tetra Laval", "T-5/02") == ("Case T-5/02", 2002, True)         # a General Court 'T-' kept as is
+    assert _row("Barber", "C-262/88") == ("Case C-262/88", 1988, True)           # a 'C-' the notes wrote is never dropped
+    assert _row("Factortame I (House of Lords referral)", "C-213/89") == ("Case C-213/89", 1989, True)
+    assert _row("Costa v ENEL", "[1964] ECR 585, 6/64") == ("Case 6/64, [1964] ECR 585", 1964, False)
+    assert _row("Van Gend en Loos", "ECLI:EU:C:1963:1, 26/62") == ("Case 26/62, ECLI:EU:C:1963:1", 1963, False)
+
+
+def test_one_rule_a_year_the_notes_write_wins_and_a_page_never_does():
+    assert _row("Danske", "152/84, Feb 1986", 1986) == ("Case 152/84, Feb 1986", 1986, False)   # month without a day
+    assert _row("Ratti", "Case 148/78, 1629") == ("Case 148/78", 1978, True)     # no judgment before its case: a page
+    assert _row("X", "ECR 1337", 1337) == ("ECR 1337", None, False)              # a figure in the cite is a page
+
+
+def test_tab_words_come_from_his_index_for_the_right_instrument():
+    ref = {"id": "r", "title": "Article index", "body": "| Article | Heading |\n|---|---|\n| Art 34 TFEU | Imports |\n"
+           "| Art 267 TFEU | Reference |\n| Art 6 TEU | Rights |\n| 3:84 | Basic requirements |"}
+    w = {"id": "x", "title": "Week 1 — X", "body": "Art 34 TFEU, Art 267 TFEU, Art 6 TEU, Art 6 TFEU, 3:84 BW, Art 51 Charter"}
+    tabs = {t["label"]: t["heading"] for t in pack.build({1: [w]}, [ref], [])["tabs"]}
+    assert tabs == {"Art 34 TFEU": "Imports", "Art 267 TFEU": "Reference", "Art 6 TEU": "Rights", "Art 6 TFEU": "",
+                    "Art 51 Charter": "", "3:84 BW": "Requirements"}

@@ -83,21 +83,32 @@ _ADJECTIVES = set("basic new adequate future unspecified general specific succes
                   "certain particular special main further".split())
 
 
+_INDEX_FILLER = {"the", "and", "of", "in", "on", "to", "a", "an", "for", "by", "with", "from", "art", "article", "articles"}
+
+
 def _index_word(heading: str) -> str:
     """One word from an article-index heading: "Basic requirements" -> "Requirements", "Competition between
-    successive assignees" -> "Competition"."""
+    successive assignees" -> "Competition". His heading is his word: when every word is one the week titles skip
+    ("Reference", "Rules"), the first of them is still his and prints; a blank tab is only for a blank heading."""
     if re.match(r"(?i)\s*good[- ]faith\b", heading or ""):
         return "Good-faith"
-    for w in re.findall(r"[A-Za-zÀ-ÿ-]+", heading or ""):
+    words = re.findall(r"[A-Za-zÀ-ÿ-]+", heading or "")
+    for w in words:
         lw = w.lower().strip("-")
         if lw not in _HEAD_STOP and lw not in _ADJECTIVES and len(lw) > 2:
+            return lw[:1].upper() + lw[1:]
+    for w in words:
+        lw = w.lower().strip("-")
+        if lw not in _INDEX_FILLER and len(lw) > 2:
             return lw[:1].upper() + lw[1:]
     return ""
 
 
 def _article_index(notes) -> dict:
-    """{article number: heading} from any note table with an Article column and a Heading column - his own
-    article index. Bold, "Art", "art." and the instrument are stripped so "**III.-5:104**" and "3:84 BW" match."""
+    """{(instrument, article number): heading, and article number: heading} from any note table with an Article
+    column and a Heading column - his own article index. Bold, "Art", "art." and the instrument are stripped so
+    "**III.-5:104**" and "3:84 BW" match. A row that names its instrument ("Art 6 TEU") is filed under it only,
+    so it never names Art 6 TFEU or Art 6 Charter; a row with a bare number is filed by the number."""
     out = {}
     for n in notes:
         lines = (n.get("body") or "").splitlines()
@@ -111,9 +122,15 @@ def _article_index(notes) -> dict:
             while j < len(lines) and lines[j].lstrip().startswith("|"):
                 row = [c.strip(" *") for c in lines[j].strip().strip("|").split("|")]; j += 1
                 if len(row) != len(head): continue
+                inst = re.search(r"(?i)\s*\b(BW|DCFR|TFEU|TEU|ECHR|Charter)\s*$", row[ai].strip(" *"))
                 num = re.sub(r"(?i)^art(?:icle|\.)?\s*|\s*(?:BW|DCFR|TFEU|TEU|ECHR|Charter)$", "", row[ai]).strip(" *").replace("–", "-")
                 word = _index_word(row[hi])
-                if num and word: out.setdefault(num, word)
+                if not (num and word): continue
+                if inst:
+                    key = {"tfeu": "TFEU", "teu": "TEU", "echr": "ECHR", "charter": "Charter", "bw": "BW", "dcfr": "DCFR"}[inst.group(1).lower()]
+                    out.setdefault((key, num), word)
+                else:
+                    out.setdefault(num, word)
     return out
 
 
@@ -173,7 +190,7 @@ def build(weeks: dict, reference: list, cases: list, method: bool = True) -> dic
         if top and not (number[:-1] if number[-1].isalpha() else number).isdigit(): continue
         if top and not 1 <= int(re.match(r"\d+", number).group(0)) <= top: continue   # "Art 168 TEU" does not exist
         weekly = sorted(((c, w) for w, c in by_week.items() if w), reverse=True)
-        heading = (index.get(number) or _HEADINGS.get((instrument, number))
+        heading = (index.get((instrument, number)) or index.get(number) or _HEADINGS.get((instrument, number))
                    or (next((words[w] for _, w in weekly if words.get(w)), "") if _WEEK_TITLE_TABS else ""))
         tabs.append({"instrument": instrument, "number": number,
                      "label": f"{number} {instrument}" if instrument in ("BW", "DCFR") else f"Art {number} {instrument}",
@@ -370,17 +387,71 @@ _YEAR_TAIL = re.compile(r"\s*[\[(](1[5-9]\d\d|20\d\d)[\])]\s*$")
 _FOUR = re.compile(r"(?<!\d)(1[5-9]\d\d|20\d\d)(?!\d)")
 _BRACKET_YEAR = re.compile(r"[\[(](1[5-9]\d\d|20\d\d)[\])]")
 _NUMBER = re.compile(r"(?<![\w/])\d{1,5}/(\d{2})(?![\d/])")
-# Another court's register mark right before an N/YY number: the German Federal Constitutional Court's '2 BvR
-# 197/83', '2 BvE 2/08', '1 BvL 1/97', the Federal Court of Justice's 'IX ZR 123/04' / '1 StR 12/05', and any
-# mark of that shape (capital, small letter, capitals). Such a number is that court's, never a CJEU docket. An
-# all-capitals word is not such a mark: 'ERT 260/89' is the CJEU's ERT.
-_OTHER_COURT = re.compile(r"(?:\b[A-Z][a-z][A-Z]{1,2}|\b[IVX]{1,5}\s+Z[A-Z]{1,2})\s*$")
-_OTHER_NUMBER = re.compile(r"(?:\b\d\s+)?(?:\b[A-Z][a-z][A-Z]{1,2}|\b[IVX]{1,5}\s+Z[A-Z]{1,2})\s+\d{1,5}/\d{2}(?![\d/])")
+# THE ONE RULE (wave-4): a number is not a CJEU docket when anything marks it as another court's. A cite that
+# carries such a mark is printed exactly as the notes write it: not restyled, not reordered, and given no year
+# read off its number. Only a year the notes write for it prints. What marks a number as another court's:
+#  - a register mark right before it, in any text: the German Federal Constitutional Court's '2 BvR 197/83' /
+#    '2 BvE 2/08' and the Federal Court of Justice's 'IX ZR 123/04' (capital, small letter, capitals), a dotted
+#    abbreviation ('Corte cost. sent. 170/84', 'Pl. ÚS 5/12', 'no. 5856/72'), an application or register number
+#    word ('App no', 'Application', 'n.', 'nr'), or a lone capital other than the CJEU's own C / T / F ('K 3/21');
+#  - in a citation, any word in front of a bare number that is not the case's own name, 'Case(s)' / 'Joined' /
+#    'and', a date, an ECR report or an ECLI: such a word names the court or register the number belongs to;
+#  - another court named in the cite, or in the case's name when the cite has no C- / T- / F- docket ('Tyrer v
+#    United Kingdom (ECtHR)', 'Granital (Corte costituzionale)', '[1990] 2 AC 85 (HL)');
+#  - a number of another shape in the cite: four or more figures with no court letter ('5856/72'), or a full year
+#    after the slash ('170/1984', '15/2014').
+# An all-capitals word that is the case's own name stays the CJEU's: 'ERT 260/89' is the CJEU's ERT. A General
+# Court 'T-' or a 'C-' the notes wrote is printed as written and never removed.
+_MARK_WORD = (r"(?:[A-Z][a-z][A-Z]{1,2}|[IVX]{1,5}\s+Z[A-Z]{1,2}|[^\W\d_]{1,8}\.|no|nos|nr|n|App|Appl|Application|"
+              r"[A-BD-EG-SU-Z]|ÚS|STC|ATC|TK|SK|Kp|Ts|BVerfGE?|BGH|BGHZ|VfGH|OGH)")
+_OTHER_COURT = re.compile(r"(?<![\w.])(?!(?i:cf|see|eg|ie|ibid|op|v|vs|paras?|pp?|ed|eds|ch|art|arts)\.)" + _MARK_WORD + r"\s*$")
+_OTHER_NUMBER = re.compile(r"(?:\b\d\s+)?(?<![\w.])(?:[A-Z][a-z][A-Z]{1,2}|[IVX]{1,5}\s+Z[A-Z]{1,2})\s+\d{1,5}/\d{2}(?![\d/])")
+_COURT_NAME = re.compile(
+    r"(?i)(?:\bECtHR\b|\bE\.?\s?Ct\.?\s?H\.?\s?R\b|\bEComHR\b|Court\s+of\s+Human\s+Rights|Commission\s+of\s+Human\s+Rights|"
+    r"\(ECHR\)|,\s*ECHR\s*$|\bBVerfG\w*|\bBGHZ?\b|\bBVerwG\b|\bBFH\b|\bVfGH\b|\bVwGH\b|\bOGH\b|Bundesverfassungsgericht|"
+    r"Bundesgerichtshof|Verfassungsgerichtshof|\bCorte\s+cost\w*|Corte\s+(?:suprema|di\s+cassazione)|Consiglio\s+di\s+Stato|"
+    r"Cour\s+de\s+cassation|\bCass\.|Conseil\s+(?:d['’]\s?[ÉE]tat|constitutionnel)|Hoge\s+Raad|Raad\s+van\s+State|\bABRvS\b|"
+    r"Supreme\s+Court|Constitutional\s+(?:Court|Tribunal|Council)|\bConst\.?\s+(?:Ct|Court)\b|"
+    r"\b(?:Federal|Italian|German|French|Dutch|Polish|Czech|Spanish|Danish|Belgian|Austrian|Hungarian|Irish|national)\s+"
+    r"(?:constitutional\s+|supreme\s+|administrative\s+)?(?:Court|Ct|Tribunal)\b|High\s+Court|Court\s+of\s+Appeal|House\s+of\s+Lords|"
+    r"Privy\s+Council|\bUKSC\b|\bUKHL\b|\bUKPC\b|\bEWCA\b|\bEWHC\b|\(HL\)|\(CA\)|Tribunal\s+(?:Constitucional|Supremo)|"
+    r"Trybuna\w*|Ústavn\w+\s+s[úo]d|Højesteret|Högsta\s+domstolen|Korkein|Alkotmánybíróság|Areios\s+Pagos|Curtea\s+Constitu\w+)")
+_FOREIGN_SHAPE = re.compile(r"(?<![\w/])\d{1,5}/(?:1[89]|20)\d\d(?![\d/])|(?<![\w/])\d{4,6}/\d{2}(?![\d/])")
+_CJEU_WORDS = {"case", "cases", "joined", "and", "en", "et", "judgment", "judgement", "of", "on", "in", "ecr",
+               "i", "ii", "p", "cjeu", "ecj", "court", "justice", "decided", "delivered", "ruling", "the"}
+
+
+def _words(text: str) -> set:
+    t = unicodedata.normalize("NFKD", (text or "").casefold())
+    return set(re.findall(r"[^\W\d_]+", "".join(ch for ch in t if not unicodedata.combining(ch))))
+
+
+def _another_court(cite: str, name: str = "") -> bool:
+    """True when anything marks the row's numbers as another court's (THE ONE RULE above). Such a cite prints
+    verbatim and undated unless the notes write its year."""
+    cite, name = cite or "", name or ""
+    lettered = any(m.group(1) for m in _DOCKET.finditer(cite))
+    if _COURT_NAME.search(cite) or (_COURT_NAME.search(name) and not lettered): return True
+    if _FOREIGN_SHAPE.search(re.sub(r"ECLI:\S+", "", cite)): return True
+    allowed = _CJEU_WORDS | _words(name) | {m.lower() for m in re.findall(_MONTHS, cite, re.I)}
+    last = 0
+    for m in _DOCKET.finditer(cite):
+        before = cite[:m.start()]
+        if re.search(r"(?i)\bopinions?\s*$", before): return True        # an Opinion's number: printed as written
+        if not m.group(1) and not re.match(r"(?i)(?:joined\s+)?cases?\b", m.group(0)):
+            if _OTHER_COURT.search(before): return True
+            gap = re.sub(r"ECLI:\S+|\bEU:C:\S+|[\[(]\d{4}[\])]", " ", cite[last:m.start()])
+            gap = {w for w in _words(gap) if not re.fullmatch(_MONTHS, w, re.I)}
+            if gap - allowed: return True
+        last = m.end()
+    return False
+
+
 # A year the notes write as a year without brackets: in a date ('19 November 1991'), after 'judgment' / 'decided' /
 # 'delivered' ('judgment of 1963'), or standing alone at the end of a cite ('106/77, 1978'). A loose four-figure
 # number anywhere else is not one: in 'ECR 1585' it is a page.
 _MONTHS = r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
-_WRITTEN_YEAR = re.compile(r"(?i)(?:\b\d{1,2}(?:st|nd|rd|th)?\s+" + _MONTHS + r"\.?,?\s+"
+_WRITTEN_YEAR = re.compile(r"(?i)(?:\b(?:\d{1,2}(?:st|nd|rd|th)?\s+)?" + _MONTHS + r"\.?,?\s+"
                            r"|\b(?:judg(?:e)?ment|decided|delivered|ruling|ruled)\s+(?:of\s+|on\s+|in\s+)?(?:\d{1,2}\s+" + _MONTHS + r"\.?\s+)?"
                            r"|(?:^|,\s*))(1[5-9]\d\d|20\d\d)(?![\d/])(?=\s*(?:[,;)\]]|$|ECR\b))")
 
@@ -388,8 +459,9 @@ _WRITTEN_YEAR = re.compile(r"(?i)(?:\b\d{1,2}(?:st|nd|rd|th)?\s+" + _MONTHS + r"
 def _dockets(text: str):
     """The CJEU / General Court case numbers in a text, as match objects. Not one: an Opinion's number
     ('Opinion 2/13' is an Opinion, never 'Case C-2/13'), an ECtHR application number (four or more figures with
-    no court letter: 'Tyrer v UK, 5856/72'), anything after 'no.' / 'Application', or another court's number
-    ('2 BvR 197/83', see _OTHER_COURT)."""
+    no court letter: 'Tyrer v UK, 5856/72'), anything after 'no.' / 'Application', or a number right after another
+    court's register mark ('2 BvR 197/83', 'Pl. ÚS 5/12', 'K 3/21'; see THE ONE RULE above). A whole citation is
+    judged by _another_court, which also reads the words further in front and the courts named."""
     out = []
     for m in _DOCKET.finditer(text or ""):
         before = (text or "")[:m.start()]
@@ -421,17 +493,31 @@ def _fuller(a: str, b: str) -> str:
     return b if score(b) > score(a) else a
 
 
-def _cite_parts(cite: str):
-    """(dockets, rest): every case number in a citation in house style, and what is left (an ECLI, a report, an
-    ECtHR application number, an Opinion), verbatim."""
+def _trim(text: str) -> str:
+    """Strip separators off the ends of what is left of a cite, but never half of a bracket pair: '(1986)' stays."""
+    t = text or ""
+    while True:
+        s = re.sub(r"^[\s,;&+]+|[\s,;&+]+$", "", t)
+        if s.startswith("(") and s.count("(") > s.count(")"): s = s[1:]
+        if s.endswith(")") and s.count(")") > s.count("("): s = s[:-1]
+        if s.startswith("[") and s.count("[") > s.count("]"): s = s[1:]
+        if s.endswith("]") and s.count("]") > s.count("["): s = s[:-1]
+        if s == t: return s
+        t = s
+
+
+def _cite_parts(cite: str, name: str = ""):
+    """(dockets, rest): every case number in a CJEU citation in house style, and what is left (an ECLI, a report),
+    verbatim. The case's own name written in front of its number ('ERT 260/89') is already in the name column."""
     ms = _dockets(cite)
     dockets = [_docket(m) for m in ms]
     rest, last = "", 0
     for m in ms:
         rest += (cite or "")[last:m.start()]; last = m.end()
     rest += (cite or "")[last:]
-    rest = re.sub(r"^[\s,;&+()]+|[\s,;&+()]+$", "", re.sub(r"\s*(?:&|\band\b|\+)\s*(?=$|[,;])", "", rest))
+    rest = _trim(re.sub(r"\s*(?:&|\band\b|\+)\s*(?=$|[,;])", "", rest))
     if re.fullmatch(r"(?i)(?:joined\s+)?cases?|", rest.strip()): rest = ""
+    if dockets and rest and _words(rest) and _words(rest) <= _words(name) | {"case", "cases"}: rest = ""
     return dockets, rest
 
 
@@ -482,9 +568,10 @@ def _from_notes(cases: list, bodies: dict) -> list:
                 if hit: break
             if hit:
                 tail, at = hit
+                seg = _trim(re.sub(r"^\W*?\(", "", tail[:at.end()], count=1)) if "(" in tail[:at.start()] else ""
                 other = next((o for o in _OTHER_NUMBER.finditer(tail) if o.end() == at.end()), None)
-                if other and not re.match(r"[CTF]-", cite):
-                    c["cite"], c["year"] = other.group(0).strip(), None      # another court's number, verbatim; no year off it
+                if not re.match(r"[CTF]-", cite) and (other or (seg and _another_court(seg, name))):
+                    c["cite"], c["year"] = (other.group(0) if other else seg).strip(), None   # another court's, verbatim
                 elif re.match(r"\s+P\b", tail[at.end():]) and not cite.endswith(" P"):
                     c["cite"] = cite + " P"
                 y = _explicit_year(tail[at.end():])
@@ -513,22 +600,28 @@ def normalise_cases(cases: list) -> list:
             year_in_name = None
             m = _YEAR_TAIL.search(name)
             if m: year_in_name, name = int(m.group(1)), name[:m.start()].strip(" ,")
-            dk = _dockets(name)                                 # "Walrave 36/74" written into the name
+            foreign = _another_court(cite, raw_name) or _COURT_NAME.search(raw_name) and not cite
+            dk = [] if foreign else _dockets(name)              # "Walrave 36/74" written into the name
             if dk and dk[-1].end() == len(name.rstrip()):
                 cite = cite or dk[-1].group(0); name = name[:dk[-1].start()].strip(" ,(")
             if not name or name.casefold().strip(" .") in _DOCTRINES: continue
-            dockets, rest = _cite_parts(cite)
+            if foreign:                          # THE ONE RULE: another court's cite, exactly as the notes write it
+                dockets, rest = [], re.sub(r"\s+", " ", cite).strip()
+            else:
+                dockets, rest = _cite_parts(cite, name)
             if _YEAR_ONLY.match(rest or ""): year_in_name, rest = year_in_name or int(_FOUR.search(rest).group(1)), ""
             written = _explicit_year(rest, cite) or year_in_name or (c.get("written_year") if not split else None)
             given = c.get("year") if not split else None
             # The index's year may itself be read off a number (run.py's fallback): 2013 from "Opinion 2/13",
             # 1972 from "5856/72". Only a year that no number in the row explains counts as written.
-            bare = {int(y) for y in _FOUR.findall(_BRACKET_YEAR.sub("", re.sub(r"ECLI:\S+", "", raw_cite)))}
+            bare = {int(y) for y in re.findall(r"(?<!\d)\d{4}(?!\d)", _BRACKET_YEAR.sub("", re.sub(r"ECLI:\S+", "", raw_cite)))}
             if not written and given and given not in _yy_years(name, cite, raw_name, raw_cite) and given not in bare:
-                written = given                  # ...and a bare figure in the cite ("ECR 1585") is a page
+                written = given                  # ...and a bare figure in the cite ("ECR 1585", "ECR 1337") is a page
             lodged = None
             if dockets:
                 yy = int(re.search(r"/(\d{2})", dockets[0]).group(1)); lodged = 1900 + yy if yy >= 50 else 2000 + yy
+                if written and written < lodged and not _BRACKET_YEAR.search(raw_cite + raw_name):
+                    written = None               # no judgment comes before its case: ', 1629' after 148/78 is a page
             rows.append({"name": name, "dockets": dockets, "rest": rest, "year": written or lodged,
                          "explicit": written is not None, "notes": list(c.get("notes") or [])})
     # merge: same docket, or same name key where the dockets do not disagree
