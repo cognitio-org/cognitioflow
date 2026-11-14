@@ -2369,12 +2369,15 @@ function bpRender(b,proposed){ const topics=(b&&b.topics)||[], co=bpCourse();
   $('#bpBuild').textContent=topics.length&&!proposed?'Rebuild coverage map':'Build coverage map'; }
 /* A failed build stays on the panel with what to do next — a toast alone vanished and read as "nothing happened".
    Any unsaved proposal is dropped first, so the error never sits next to a Save button for an older proposal. */
-const bpRetryable=e=>{ const st=e&&e.status; return !st||st===429||st>=500; };   // a timeout, a 502/504, or no reply at all
+// A 502 or no reply at all is worth one more try from here; a 504 means the server already retried a slow model,
+// so asking again would only double the wait (up to ~4 minutes) before the saved map comes back.
+const bpRetryable=e=>{ const st=e&&e.status; return !st||st===429||(st>=500&&st!==504); };
+const bpFellBack=e=>{ const st=e&&e.status; return !st||st===429||st>=500; };
 async function bpError(e){ const st=e&&e.status, msg=(e&&e.message)||'';
   bpProposal=null; $('#bpSave').hidden=$('#bpDiscard').hidden=true;
   try{ bpRender(await api(`/courses/${cid}/blueprint`),false); }catch(_){ $('#bpTopics').innerHTML=''; }
   const kept=!!$('#bpTopics .bptopic');
-  if(bpRetryable(e)&&kept){   // calm: the saved map is still right there, and still the course's map
+  if(bpFellBack(e)&&kept){   // calm: the saved map is still right there, and still the course's map
     $('#bpMeta').insertAdjacentHTML('afterbegin',`<div class="bpcalm" role="status"><b>Showing your saved coverage map.</b> The model did not answer in time (it was tried again automatically), so nothing changed. Rebuild later if the syllabus or the objectives have changed.</div>`);
     return; }
   const why=st===422?'There is nothing to map yet. Read the course syllabus under Files, and add the course’s published learning objectives in Course settings.'
@@ -2392,7 +2395,7 @@ $('#bpBuild')&&($('#bpBuild').onclick=async()=>{ const b=$('#bpBuild'); const wa
          $('#bpMeta').textContent='The model was slow to answer — asking once more…';
          await new Promise(r=>setTimeout(r,1500)); bpProposal=await post(`/courses/${cid}/blueprint/extract`); }
        bpRender(bpProposal,true); }
-  catch(e){ await bpError(e); if(!(bpRetryable(e)&&$('#bpTopics .bptopic'))) toast('Could not build the coverage map'); }
+  catch(e){ await bpError(e); if(!(bpFellBack(e)&&$('#bpTopics .bptopic'))) toast('Could not build the coverage map'); }
   b.disabled=false; $('#bpSave').disabled=false; });
 $('#bpSave')&&($('#bpSave').onclick=async()=>{ if(!bpProposal) return; const b=$('#bpSave'); b.disabled=true;
   try{ const r=await post(`/courses/${cid}/blueprint/apply`,bpProposal); toast(r.topics?`Coverage map saved · ${r.topics} topic${r.topics===1?'':'s'}`:'Coverage map cleared'); await loadBlueprint(); loadReadiness(); }

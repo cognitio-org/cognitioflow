@@ -32,7 +32,7 @@ BLUEPRINT_HEADER = ("COVERAGE OF STATED LEARNING OBJECTIVES (how this course's s
 # Older prompts stored before the relabel carry this header; strip_blueprint removes either.
 LEGACY_HEADERS = ("EXAM FOCUS (what this course examines — weight your teaching, questions and drills "
                   "toward the heavier topics; do not neglect the lighter ones):",)
-BLOCK_TOPICS = 10   # the prompt names the heaviest topics; a long tail adds tokens without steering
+BLOCK_TOPICS = 20   # = MAX_TOPICS: a per-week map has a topic per week; cutting at 10 dropped weeks 11-12 (w4)
 
 
 def examined_topics(brief):

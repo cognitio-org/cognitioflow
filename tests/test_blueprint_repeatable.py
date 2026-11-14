@@ -170,3 +170,13 @@ def test_repeatable_kwargs_send_seed_and_no_reasoning_only_on_kernal(monkeypatch
     body = llm._kernal_body("gemini-2.5-flash", "sys", [{"role": "user", "content": "x"}], 100, 0, False,
                             {"seed": 7, "reasoning_effort": "disable"})
     assert body["temperature"] == 0.0 and body["seed"] == 7 and body["reasoning_effort"] == "disable"
+
+
+def test_the_tutor_block_names_every_week_of_a_twelve_week_map():
+    """A per-week map has 12 topics; the old cap of 10 dropped weeks 11-12 (all of objective 6) from the tutor prompt."""
+    weeks = [{"week": str(n), "title": f"Week title {n}", "topics": [f"T{n}"], "readings": []} for n in range(1, 13)]
+    syl = cb.syllabus_block({"syllabus": {"weeks": weeks}})
+    b = bp.normalise_blueprint({"weeks": [{"week": n, "lo": [], "law": [f"Case {n}"]} for n in range(1, 13)]},
+                               syllabus_weeks=list(range(1, 13)), objectives=[], week_info=bp.weeks_from_block(syl))
+    block = bp.blueprint_block({"blueprint": b})
+    assert all(f"Week title {n}" in block for n in range(1, 13))
