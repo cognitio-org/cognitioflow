@@ -422,3 +422,18 @@ def test_a_wrong_party_name_beside_a_real_number_tells_the_student_to_check_it()
     """Skeptic, wave 3: 'go by the case number' told the student to trust a real number carrying an invented name."""
     assert "go by the case number" not in JS
     assert "Check the name: your ticked files do not print" in JS
+
+
+@_needs_node
+def test_a_lecture_that_names_the_tfeu_near_its_top_is_not_the_treaty():
+    """Advisor probe: the heading gate took the abbreviation 'TFEU' anywhere in the first 400 characters, so a lecture
+    saying 'Recall Article 56 TFEU' and then 'Under the Services Directive, Article 34 deals with...' passed as the Treaty.
+    Only the Treaty's full title counts, and only an article heading on its own line, as the Treaty prints it."""
+    lec = ("Week 3 lecture: services. Recall Article 56 TFEU. Under the Services Directive 2006/123, Article 34 deals "
+           "with mutual assistance.")
+    titled = ("Treaty on the Functioning of the European Union — lecture notes\nUnder the Services Directive, "
+              "Article 34 deals with mutual assistance.")
+    cases = [("Art 34 TFEU prohibits MEQRs.", [lec]), ("Art 34 TFEU prohibits MEQRs.", [titled])]
+    got = _w4(cases, [[lec, "Art 34 TFEU"], [titled, "Art 34 TFEU"], [_TFEU, "Art 34 TFEU"]])
+    assert got["b"] == [["Art 34 TFEU"], ["Art 34 TFEU"]]
+    assert got["p"] == [None, None, "Article 34"]
