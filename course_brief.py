@@ -25,6 +25,9 @@ BRIEF_FIELDS = [
     # The course's own published learning objectives (e.g. the public course description), one per line.
     # The coverage map is built from these and the syllabus weeks; the tutor sees them with the schedule.
     ("learning_objectives", "Learning objectives", "long"),
+    # Where those objectives come from, shown on the coverage panel next to the schedule's source ("written for
+    # this demo, not a university course's"). Display only: it is not sent to the tutor.
+    ("objectives_source", "Where the objectives come from", "text"),
     ("exam_format", "Exam format", "long"),
     ("exam_date", "Exam date", "date"),
     ("assessment_weighting", "Assessment weighting", "text"),
@@ -45,6 +48,7 @@ OBJECTIVES_HEADER = "STATED LEARNING OBJECTIVES (from the course description):"
 MAX_WEEKS = 40          # a teaching block is 6-10; 40 is a wall against a runaway reply, not a real limit
 MAX_ITEMS = 20          # topics or readings per week
 MAX_LINE = 240          # characters per topic or reading
+MAX_OBJECTIVE = 600     # one stated learning objective may run to a few sentences (the demo's A4 is 533)
 
 # The seven Blackstone tab colours (static/index.html TABS) and the book cover. Course accents never reuse them.
 TAB_COLOURS = ["#2f5fae", "#d98a2b", "#1f7a4d", "#8fbf6a", "#8e2f6e", "#d46a9a", "#c9b23a"]
@@ -214,7 +218,7 @@ def learning_objectives(brief) -> list:
     for ln in raw.splitlines():
         ln = re.sub(r"^\s*(?:[-*•–]|\(?\d{1,2}[.)]|LO\s*\d{1,2}[.:)]?)\s*", "", ln).strip()
         if ln:
-            out.append(ln[:MAX_LINE])
+            out.append(ln[:MAX_OBJECTIVE])
     return out[:MAX_ITEMS * 2]
 
 

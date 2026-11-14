@@ -2253,7 +2253,8 @@ function bpCourse(){ const br=(C()&&C().brief)||{};
   const objs=String(br.learning_objectives||'').split('\n')
     .map(l=>l.replace(/^\s*(?:[-*•–]|\(?\d{1,2}[.)]|LO\s*\d{1,2}[.:)]?)\s*/,'').trim()).filter(Boolean);
   const source=String((br.syllabus&&br.syllabus.source)||'').trim();
-  return {weeks,objs,source}; }
+  const objSource=String(br.objectives_source||'').trim();
+  return {weeks,objs,source,objSource}; }
 const bpNum=x=>{ x=Math.round((+x||0)*100)/100; return String(x).replace(/\.?0+$/,'')||'0'; };
 /* Evidence label from what the row actually carries: a saved "high" on a topic tied to no week and no objective
    (maps saved by the older past-exam version) reads as implied, never as "mapped to a stated learning objective". */
@@ -2362,6 +2363,7 @@ function bpRender(b,proposed){ const topics=(b&&b.topics)||[], co=bpCourse();
   if(!topics.length&&b&&b.note) bits.push(esc(b.note));   // the model's own note only explains an empty map
   const cov=topics.length?bpCoverage(b,co):'';
   $('#bpMeta').innerHTML=`<div>${bits.join(' · ')}</div>`+(cov?`<div class="bpcount">${esc(cov)}</div>`:'')+
+    (co.objSource&&co.objs.length?`<div class="bpsrc">Objectives: ${esc(co.objSource)}</div>`:'')+
     (co.source&&co.weeks.length?`<div class="bpsrc">Schedule: ${esc(co.source)}</div>`:'');
   const same=proposed&&b&&b.cached==='saved';           // nothing new to save: the saved map is what came back
   $('#bpSave').hidden=!proposed||same; $('#bpDiscard').hidden=!proposed;

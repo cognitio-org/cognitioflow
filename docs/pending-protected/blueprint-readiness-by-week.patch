@@ -1,0 +1,27 @@
+Pending protected change (run.py), coverage map w5: readiness counts an untagged card toward the topic whose syllabus week it is filed under.
+Apply: git apply docs/pending-protected/blueprint-readiness-by-week.patch (after blueprint-build.patch). Without it readiness falls back to matching authority chips in the card text, which cross-counts (Art 34 TFEU is in six weeks).
+
+diff --git a/run.py b/run.py
+index 582e28c..6f4d1d5 100644
+--- a/run.py
++++ b/run.py
+@@ -1064,7 +1064,7 @@ def course_readiness(cid: str):
+         return {"topics": [], "overall": readiness.overall([]), "blueprint": False}
+     today = date.today().isoformat()
+     uid = _uid()
+-    cards = rows("SELECT c.id AS id, COALESCE(c.doctrine,'') AS doctrine, "
++    cards = rows("SELECT c.id AS id, COALESCE(c.doctrine,'') AS doctrine, COALESCE(c.week,'') AS week, "
+                  "LOWER(COALESCE(c.front,'') || ' ' || COALESCE(c.back,'') || ' ' || COALESCE(c.concept,'')) AS hay, "
+                  "CASE WHEN cs.due IS NULL OR cs.due<=? THEN 1 ELSE 0 END AS is_due FROM cards c "
+                  "LEFT JOIN card_state cs ON cs.card_id=c.id AND cs.user_id=? WHERE c.course_id=?", today, uid, cid)
+@@ -1083,6 +1083,10 @@ def course_readiness(cid: str):
+             tag = c["doctrine"]
+             if tag and tag in live_keys:
+                 hit = (tag == t["topic"])
++            elif str(c["week"]).strip() and t.get("weeks"):
++                # An untagged card filed under a syllabus week counts toward the topic that IS that week, never by
++                # guessing from its words (authority chips repeat across weeks: Art 34 TFEU is in six of them).
++                hit = str(c["week"]).strip() in {str(w) for w in t["weeks"]}
+             else:
+                 hit = bool(terms) and any(term in c["hay"] for term in terms)
+             if hit:

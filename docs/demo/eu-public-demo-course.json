@@ -1,50 +1,295 @@
 {
-  "_about": "Public-source EU-law demo course for the coverage map (pitch plan row 1). Every input here is public: the learning objectives are quoted from the Ocasys 2025/26 course description of Law of the European Union as reproduced in the University of Groningen's public LLB International and European Law programme file 2025/26; the 12-week schedule is a demo schedule assembled from the Treaty text (EUR-Lex) and leading CJEU judgments (curia.europa.eu). It is NOT the course's official week plan and contains no past exams, lecture material or other non-public text. Cards are short statements of well-known public holdings, written for the demo.",
-  "sources": [
-    "https://www.rug.nl/rechten/studiegids/bachelor/international-and-european-law/programme-files/programme-file-llb-international-and-european-law-2025-2026.pdf (Ocasys description 2025/26, Law of the European Union)",
-    "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:12016E/TXT (TFEU, consolidated)",
-    "https://curia.europa.eu (judgments named in the readings)"
-  ],
-  "course": {"name": "EU Law (public-source demo)", "slug": "eu-public-demo"},
-  "brief": {
-    "textbook": "Public sources only: TFEU, TEU, the Charter, CJEU judgments",
-    "learning_objectives": "Understand, apply and analyse the fundamental freedoms of the EU internal market, and their relationship to other policy areas in EU law\nUnderstand, apply and analyse EU citizenship\nUnderstand, apply and analyse the basic principles of the Area of Freedom, Security and Justice and its relationship to the EU internal market\nUnderstand, apply and analyse the relationship between the fundamental freedoms and fundamental rights\nUnderstand, apply and analyse EU competition law\nUnderstand, apply and analyse the enforcement of EU substantive law at EU-level and national level, and the basic principles of judicial protection in the EU",
-    "notes": "Demo course built from public sources only (see docs/demo/eu-public-demo-course.json)."
-  },
-  "syllabus": {
-    "source": "Demo schedule from public sources (TFEU on EUR-Lex; CJEU judgments on curia.europa.eu) — not the official week plan",
-    "weeks": [
-      {"week": 1, "title": "Free movement of goods: the scope of Art 34 TFEU", "topics": ["Measures having equivalent effect", "Dassonville formula", "Mutual recognition"], "readings": ["Arts 28-30 and 34 TFEU", "Case 8/74 Dassonville", "Case 120/78 Cassis de Dijon"]},
-      {"week": 2, "title": "Goods: selling arrangements, use restrictions and justification", "topics": ["Keck selling arrangements", "Market access", "Art 36 TFEU and mandatory requirements"], "readings": ["Joined Cases C-267/91 and C-268/91 Keck", "Case C-110/05 Commission v Italy (trailers)", "Art 36 TFEU"]},
-      {"week": 3, "title": "Free movement of workers", "topics": ["Who is a worker", "Equal treatment", "Obstacles to access"], "readings": ["Art 45 TFEU", "Regulation 492/2011", "Case 66/85 Lawrie-Blum", "Case C-415/93 Bosman"]},
-      {"week": 4, "title": "Establishment and services", "topics": ["Restrictions on establishment", "Freedom to provide services", "The Gebhard test"], "readings": ["Arts 49 and 56 TFEU", "Case C-55/94 Gebhard", "Case C-212/97 Centros"]},
-      {"week": 5, "title": "Free movement of capital and links to other policy areas", "topics": ["Capital movements", "Golden shares", "Direct taxation and the freedoms"], "readings": ["Art 63 TFEU", "Case C-367/98 Commission v Portugal (golden shares)"]},
-      {"week": 6, "title": "EU citizenship", "topics": ["Union citizenship and residence", "Equal treatment of economically inactive citizens", "The substance of the rights"], "readings": ["Arts 20-21 TFEU", "Directive 2004/38", "Case C-184/99 Grzelczyk", "Case C-34/09 Ruiz Zambrano", "Case C-333/13 Dano"]},
-      {"week": 7, "title": "The Area of Freedom, Security and Justice", "topics": ["Mutual trust", "European Arrest Warrant", "Asylum and Dublin transfers", "Link to the internal market"], "readings": ["Art 67 TFEU", "Framework Decision 2002/584 (EAW)", "Joined Cases C-404/15 and C-659/15 PPU Aranyosi and Caldararu", "Joined Cases C-411/10 and C-493/10 N.S."]},
-      {"week": 8, "title": "Fundamental freedoms and fundamental rights", "topics": ["Rights as justification", "Collective action and the freedoms", "The Charter"], "readings": ["Charter of Fundamental Rights", "Case C-112/00 Schmidberger", "Case C-36/02 Omega", "Case C-438/05 Viking"]},
-      {"week": 9, "title": "Competition law: Art 101 TFEU", "topics": ["Agreements and concerted practices", "Object and effect", "Art 101(3) exemption"], "readings": ["Art 101 TFEU", "Joined Cases 56/64 and 58/64 Consten and Grundig", "Case C-8/08 T-Mobile Netherlands"]},
-      {"week": 10, "title": "Competition law: Art 102 TFEU", "topics": ["Dominance", "Abuse", "Rebates"], "readings": ["Art 102 TFEU", "Case 27/76 United Brands", "Case 85/76 Hoffmann-La Roche", "Case C-413/14 P Intel"]},
-      {"week": 11, "title": "Enforcement at EU level", "topics": ["Infringement proceedings", "Annulment", "Preliminary references"], "readings": ["Arts 258-260, 263 and 267 TFEU", "Case 283/81 CILFIT"]},
-      {"week": 12, "title": "Enforcement at national level and judicial protection", "topics": ["Direct effect", "State liability", "Effective judicial protection"], "readings": ["Art 19(1) TEU", "Case 26/62 Van Gend en Loos", "Joined Cases C-6/90 and C-9/90 Francovich", "Case C-432/05 Unibet"]}
+ "_about": "Public-source EU-law demo course for the coverage map (pitch plan row 1). Everything here is written for the demo from public sources only (Treaty text on EUR-Lex, Court of Justice judgments, see docs/demo/eu-demo-sources-index.json). The 13 learning objectives are the ones written for the demo (docs/demo/eu-demo-learning-objectives.md): illustrative, not the objectives of any university course. The 9-week schedule is a demo schedule, not any course's week plan. No readers, slides, past exams or exam material were used. Cards are short statements of holdings from those judgments. The per-week authority chips are in blueprint.py (DEMO_AUTHORITIES).",
+ "sources": [
+  "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:12016E/TXT (TFEU, consolidated)",
+  "https://curia.europa.eu (Court of Justice judgments via the Publications Office Cellar)"
+ ],
+ "course": {
+  "name": "EU Internal Market and Constitutional Foundations (demo)",
+  "slug": "eu-public-demo"
+ },
+ "brief": {
+  "textbook": "Public sources only: TFEU and Court of Justice judgments",
+  "learning_objectives": "A1. State the prohibitions in Articles 34 and 35 TFEU and the derogation grounds in Article 36 TFEU. Explain the old numbering: Articles 30 to 36 EEC, then 28 to 30 EC, now 34 to 36 TFEU.\nA2. Reproduce the Dassonville definition of an MEQR (Case 8/74, para 5) and explain why it is broad: \"directly or indirectly, actually or potentially\".\nA3. Explain mutual recognition and the \"mandatory requirements\" in Cassis de Dijon (Case 120/78, paras 8 and 14). Distinguish them from the Article 36 TFEU grounds.\nA4. Explain the Keck distinction between product requirements and certain selling arrangements (Joined Cases C-267/91 and C-268/91, paras 15 to 17). Apply its two conditions: the rules apply to all relevant traders; they affect domestic and imported products in the same manner, in law and in fact. The student can also explain precisely what Keck changed. Keck says \"contrary to what has previously been decided\" (para 16): it limits how the Dassonville formula applies to such selling arrangements. It does not abolish the formula.\nA5. Set out the three-part summary in Commission v Italy (C-110/05, para 37), including the \"market access\" limb. Apply it to rules on how a product may be used (paras 56 to 58).\nA6. Apply Keck to a modern sales channel, using Ker-Optika (C-108/09, paras 45 to 56). The national ban on internet sales of contact lenses is a selling arrangement. It fails the second Keck condition, so it is an MEQR.\nA7. Assess a justification for appropriateness and necessity, using: road safety in Commission v Italy (paras 59 to 69, where the measure is justified); public health in Ker-Optika (paras 57 to 75, where the measure goes beyond what is necessary).\nA8. Solve a problem question step by step: Is the measure an MEQR? Is it a product requirement or a selling arrangement, or a use restriction? Is there a justification? Is the measure proportionate? Cite the ECLI of each case relied on.\nB1. Explain why Van Gend en Loos (Case 26/62) described the Community as \"a new legal order of international law\". State the conditions for a Treaty provision to have direct effect. The English text has no paragraph numbers, so the student cites it by ECLI and ECR page.\nB2. Explain the reasoning in Costa v ENEL (Case 6/64): the Treaty created \"its own legal system\" that cannot \"be overridden by domestic legal provisions, however framed\". The text has no paragraph numbers.\nB3. State the national court's duty in Simmenthal (Case 106/77, paras 21 and 24). In the words of para 24, a national court must \"give full effect to those provisions, if necessary refusing of its own motion to apply any conflicting provision of national legislation, even if adopted subsequently\", and it is \"not necessary for the court to request or await the prior setting aside of such provision by legislative or other constitutional means\".\nB4. Explain why a directive \"may not of itself impose obligations on an individual\" (Marshall, Case 152/84, para 48). Explain why a directive can still be relied on against the State acting as employer (para 49).\nB5. Describe the function of Article 267 TFEU and the effect of directives under Article 288 TFEU. Link each to the cases above.",
+  "objectives_source": "Written for this demo from public Treaty text and case law; illustrative, not any university course's objectives",
+  "notes": "Demo course built from public sources only (see docs/demo/eu-public-demo-course.json)."
+ },
+ "syllabus": {
+  "source": "Demo schedule, written for this demo (not any course's week plan)",
+  "weeks": [
+   {
+    "week": 1,
+    "title": "Articles 34 to 36 TFEU: the prohibition and its derogations",
+    "topics": [
+     "Prohibition of import and export restrictions",
+     "Measures having equivalent effect",
+     "Derogation grounds in Article 36",
+     "Old and new numbering"
+    ],
+    "readings": [
+     "Articles 34 to 36 TFEU"
     ]
-  },
-  "cards": [
-    {"front": "What is the Dassonville formula?", "back": "All trading rules enacted by Member States capable of hindering, directly or indirectly, actually or potentially, intra-Community trade are measures having equivalent effect (Case 8/74 Dassonville; Art 34 TFEU).", "week": "1", "reviews": [3, 3, 2]},
-    {"front": "What did Cassis de Dijon add to Art 34 TFEU?", "back": "Mutual recognition and the mandatory requirements: indistinctly applicable rules can be justified by e.g. consumer protection or fairness of commercial transactions (Case 120/78).", "week": "1", "reviews": [2, 3]},
-    {"front": "Keck: when do selling arrangements fall outside Art 34 TFEU?", "back": "When they apply to all traders operating in the national territory and affect in the same manner, in law and in fact, domestic and imported products (Joined Cases C-267/91 and C-268/91 Keck).", "week": "2", "reviews": [1, 2, 0]},
-    {"front": "What did Commission v Italy (trailers) add after Keck?", "back": "A market-access test: a measure that hinders access to the market for imported products is a measure having equivalent effect (Case C-110/05).", "week": "2", "reviews": [0, 1]},
-    {"front": "Lawrie-Blum: who is a worker under Art 45 TFEU?", "back": "A person who for a certain period performs services for and under the direction of another in return for remuneration (Case 66/85).", "week": "3", "reviews": [3, 3]},
-    {"front": "Bosman: can non-discriminatory rules breach Art 45 TFEU?", "back": "Yes: transfer rules that directly affect players' access to the employment market of another Member State are an obstacle even if they apply without discrimination (Case C-415/93).", "week": "3", "reviews": [2, 2]},
-    {"front": "The Gebhard test for restrictions on establishment and services", "back": "National measures liable to hinder the fundamental freedoms must apply in a non-discriminatory manner, be justified by imperative requirements in the general interest, be suitable, and not go beyond what is necessary (Case C-55/94; Arts 49 and 56 TFEU).", "week": "4", "reviews": [2, 1]},
-    {"front": "Grzelczyk: what is the status of Union citizenship?", "back": "Union citizenship is destined to be the fundamental status of nationals of the Member States; an economically inactive citizen lawfully resident may rely on equal treatment (Case C-184/99; Arts 20-21 TFEU).", "week": "6", "reviews": [1, 0]},
-    {"front": "Ruiz Zambrano: what does Art 20 TFEU protect?", "back": "Against national measures that deprive Union citizens of the genuine enjoyment of the substance of the rights conferred by their status (Case C-34/09).", "week": "6", "reviews": [0]},
-    {"front": "Aranyosi and Caldararu: when may an EAW be postponed?", "back": "Where there is a real risk of inhuman or degrading treatment because of detention conditions in the issuing State, assessed in two steps: systemic deficiencies, then a specific risk for the person (Joined Cases C-404/15 and C-659/15 PPU; Framework Decision 2002/584).", "week": "7", "reviews": [1]},
-    {"front": "Schmidberger: can a fundamental right justify a restriction of free movement of goods?", "back": "Yes: protecting freedom of expression and assembly is a legitimate interest that can justify a restriction, subject to a fair balance (Case C-112/00).", "week": "8", "reviews": [2, 3]},
-    {"front": "Viking: does Art 49 TFEU apply to collective action by trade unions?", "back": "Yes: collective action that restricts freedom of establishment falls under Art 49 TFEU and must be justified and proportionate (Case C-438/05).", "week": "8", "reviews": [2]},
-    {"front": "Art 101 TFEU: what is a restriction 'by object'?", "back": "Coordination that by its very nature reveals a sufficient degree of harm to competition; no need to examine effects (Case C-67/13 P Groupement des cartes bancaires, paras 49-50; a concerted practice can be one by object: Case C-8/08 T-Mobile Netherlands).", "week": "9", "reviews": [3, 2, 3]},
-    {"front": "United Brands: what is dominance under Art 102 TFEU?", "back": "A position of economic strength enabling an undertaking to prevent effective competition by behaving to an appreciable extent independently of competitors, customers and consumers (Case 27/76).", "week": "10", "reviews": [3, 3]},
-    {"front": "CILFIT: when need a court of last instance not refer under Art 267 TFEU?", "back": "When the question is irrelevant, has already been interpreted by the Court (acte éclairé), or the correct application is so obvious as to leave no reasonable doubt (acte clair) (Case 283/81).", "week": "11", "reviews": [2, 1]},
-    {"front": "Van Gend en Loos: what is direct effect?", "back": "Provisions of EU law that are clear, precise and unconditional create rights for individuals that national courts must protect (Case 26/62).", "week": "12", "reviews": [3, 3, 3]},
-    {"front": "Francovich: when is a Member State liable for breach of EU law?", "back": "When the rule confers rights on individuals, the content of those rights can be identified, and there is a causal link between the breach and the damage (Joined Cases C-6/90 and C-9/90).", "week": "12", "reviews": [2, 2]}
+   },
+   {
+    "week": 2,
+    "title": "Dassonville and Cassis de Dijon: the broad MEQR test and mutual recognition",
+    "topics": [
+     "The Dassonville formula",
+     "Mutual recognition",
+     "Mandatory requirements"
+    ],
+    "readings": [
+     "Case 8/74 Dassonville",
+     "Case 120/78 Cassis de Dijon"
+    ]
+   },
+   {
+    "week": 3,
+    "title": "Keck: product requirements and selling arrangements",
+    "topics": [
+     "Product requirements",
+     "Selling arrangements",
+     "The two Keck conditions"
+    ],
+    "readings": [
+     "Joined Cases C-267/91 and C-268/91 Keck and Mithouard"
+    ]
+   },
+   {
+    "week": 4,
+    "title": "Market access and use restrictions: Commission v Italy (trailers)",
+    "topics": [
+     "The three-part summary",
+     "Market access",
+     "Use restrictions",
+     "Road safety as justification"
+    ],
+    "readings": [
+     "Case C-110/05 Commission v Italy"
+    ]
+   },
+   {
+    "week": 5,
+    "title": "Internet sales and justification: Ker-Optika",
+    "topics": [
+     "Keck applied to internet sales",
+     "Appropriateness and necessity",
+     "Public health as justification"
+    ],
+    "readings": [
+     "Case C-108/09 Ker-Optika"
+    ]
+   },
+   {
+    "week": 6,
+    "title": "Solving a free-movement-of-goods problem question",
+    "topics": [
+     "Is the measure an MEQR",
+     "Product requirement, selling arrangement or use restriction",
+     "Justification",
+     "Proportionality"
+    ],
+    "readings": [
+     "Cases from weeks 1 to 5"
+    ]
+   },
+   {
+    "week": 7,
+    "title": "Direct effect: Van Gend en Loos and the preliminary reference",
+    "topics": [
+     "A new legal order",
+     "Conditions for direct effect",
+     "The preliminary reference procedure"
+    ],
+    "readings": [
+     "Case 26/62 Van Gend en Loos",
+     "Article 267 TFEU"
+    ]
+   },
+   {
+    "week": 8,
+    "title": "Primacy: Costa v ENEL and Simmenthal",
+    "topics": [
+     "The Treaty's own legal system",
+     "Primacy over national law",
+     "The national court's duty to set aside"
+    ],
+    "readings": [
+     "Case 6/64 Costa v ENEL",
+     "Case 106/77 Simmenthal"
+    ]
+   },
+   {
+    "week": 9,
+    "title": "Directives: Marshall and the limits of direct effect",
+    "topics": [
+     "The legal effect of directives",
+     "No horizontal direct effect",
+     "Directives against the State as employer"
+    ],
+    "readings": [
+     "Case 152/84 Marshall",
+     "Article 288 TFEU"
+    ]
+   }
   ]
+ },
+ "cards": [
+  {
+   "front": "What do Articles 34 and 35 TFEU prohibit?",
+   "back": "Quantitative restrictions and measures having equivalent effect: on imports between Member States (Article 34) and on exports (Article 35). Article 36 TFEU lists the grounds on which they may be derogated from.",
+   "week": "1",
+   "reviews": [
+    3,
+    3
+   ]
+  },
+  {
+   "front": "How were Articles 34 to 36 TFEU numbered before the Lisbon Treaty?",
+   "back": "Articles 30 to 36 EEC, then Articles 28 to 30 EC, now Articles 34 to 36 TFEU.",
+   "week": "1",
+   "reviews": [
+    2,
+    3
+   ]
+  },
+  {
+   "front": "What is the Dassonville formula for a measure having equivalent effect (Case 8/74, para 5)?",
+   "back": "All trading rules enacted by Member States which are capable of hindering, directly or indirectly, actually or potentially, intra-Community trade.",
+   "week": "2",
+   "reviews": [
+    3,
+    3,
+    2
+   ]
+  },
+  {
+   "front": "What did Cassis de Dijon (Case 120/78) add to the Dassonville formula?",
+   "back": "Mutual recognition (goods lawfully produced and marketed in one Member State may in principle enter another) and the \"mandatory requirements\" that can justify indistinctly applicable rules (para 8). They are distinct from the Article 36 TFEU grounds.",
+   "week": "2",
+   "reviews": [
+    2,
+    3
+   ]
+  },
+  {
+   "front": "Keck (C-267/91 and C-268/91): when do selling arrangements fall outside Article 34 TFEU?",
+   "back": "When the rules apply to all relevant traders and affect the marketing of domestic and imported products in the same manner, in law and in fact (paras 15 to 17).",
+   "week": "3",
+   "reviews": [
+    1,
+    2,
+    0
+   ]
+  },
+  {
+   "front": "Did Keck abolish the Dassonville formula?",
+   "back": "No. Keck says \"contrary to what has previously been decided\" (para 16): it limits how the formula applies to certain selling arrangements. Product requirements remain MEQRs (para 15).",
+   "week": "3",
+   "reviews": [
+    2,
+    1
+   ]
+  },
+  {
+   "front": "What are the three limbs in Commission v Italy (C-110/05, para 37)?",
+   "back": "Discriminatory measures; product requirements; and any other measure which hinders access of products to the market of a Member State (the market access limb).",
+   "week": "4",
+   "reviews": [
+    0,
+    1
+   ]
+  },
+  {
+   "front": "Commission v Italy (trailers): was the rule on use of trailers justified?",
+   "back": "The use restriction hinders market access (paras 56 to 58), so it is an MEQR, but it was justified on road safety grounds as appropriate and necessary (paras 59 to 69).",
+   "week": "4",
+   "reviews": [
+    1,
+    0
+   ]
+  },
+  {
+   "front": "Ker-Optika (C-108/09): how did the Court classify the ban on internet sales of contact lenses?",
+   "back": "As a selling arrangement that fails the second Keck condition (it affects imported products more), so it is an MEQR (paras 45 to 56).",
+   "week": "5",
+   "reviews": [
+    1,
+    2
+   ]
+  },
+  {
+   "front": "Ker-Optika: why was the public-health justification not accepted?",
+   "back": "The ban went beyond what is necessary to protect public health (paras 57 to 75).",
+   "week": "5",
+   "reviews": [
+    0,
+    1
+   ]
+  },
+  {
+   "front": "What are the four steps of a goods problem question?",
+   "back": "1. Is the measure an MEQR? 2. Is it a product requirement, a selling arrangement or a use restriction? 3. Is there a justification? 4. Is the measure proportionate? Cite the ECLI of each case relied on.",
+   "week": "6",
+   "reviews": [
+    2
+   ]
+  },
+  {
+   "front": "Van Gend en Loos (Case 26/62): how did the Court describe the Community?",
+   "back": "As \"a new legal order of international law\" for whose benefit the States have limited their sovereign rights.",
+   "week": "7",
+   "reviews": [
+    3,
+    3,
+    3
+   ]
+  },
+  {
+   "front": "Van Gend en Loos: why could the Treaty provision be relied on by an individual?",
+   "back": "It contained a clear and unconditional prohibition, a negative rather than a positive obligation, which Member States could not qualify by any reservation.",
+   "week": "7",
+   "reviews": [
+    2,
+    3
+   ]
+  },
+  {
+   "front": "Costa v ENEL (Case 6/64): what did the Treaty create?",
+   "back": "Its own legal system, which became an integral part of the legal systems of the Member States and cannot be overridden by domestic legal provisions, however framed.",
+   "week": "8",
+   "reviews": [
+    2,
+    2
+   ]
+  },
+  {
+   "front": "Simmenthal (Case 106/77, para 24): what must a national court do with conflicting national law?",
+   "back": "Give full effect to the Community provisions, if necessary refusing of its own motion to apply any conflicting national legislation, even if adopted subsequently, without waiting for its prior setting aside.",
+   "week": "8",
+   "reviews": [
+    1,
+    2
+   ]
+  },
+  {
+   "front": "Marshall (Case 152/84, para 48): can a directive impose obligations on an individual?",
+   "back": "No. A directive may not of itself impose obligations on an individual, so it has no horizontal direct effect.",
+   "week": "9",
+   "reviews": [
+    3,
+    2,
+    3
+   ]
+  },
+  {
+   "front": "Marshall (para 49): against whom can a directive be relied on?",
+   "back": "Against the State, including when it acts as employer.",
+   "week": "9",
+   "reviews": [
+    1,
+    2
+   ]
+  }
+ ]
 }

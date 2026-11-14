@@ -239,6 +239,55 @@ def _first(d, *keys):
     return None
 
 
+# ---------------------------------------------------------------- the demo course's written authority chips
+# The coverage map's authority chips (Treaty articles, case names) used to come from the model, and the same inputs
+# gave different chips on different builds ("Art 19 TFEU" does not exist; "Art 260" came and went). For the demo
+# course they are WRITTEN, one row per demo-schedule week, like the demo's learning objectives: from the public
+# sources in docs/demo (Treaty text on EUR-Lex, Court of Justice judgments). The model keeps only which objectives
+# a week serves. Each chip is a dict so tests/test_blueprint_authorities.py can check it against
+# docs/demo/eu-demo-sources-index.json: a case as the triple (name, case number, ECLI), an article for existence in
+# the consolidated TFEU and against the proposition it may be cited for. A course that is not the demo course gets
+# no table: its chips stay whatever the model names.
+_A = lambda n, why: {"chip": "Art %d TFEU" % n, "kind": "article", "article": n, "treaty": "TFEU", "for": why}
+_C = lambda chip, name, num, ecli: {"chip": chip, "kind": "case", "name": name, "number": num, "ecli": ecli}
+_W34 = "the prohibition of import restrictions and measures of equivalent effect"
+_W36 = "the derogation grounds"
+_DASSONVILLE = _C("Dassonville (Case 8/74)", "Dassonville", "Case 8/74", "ECLI:EU:C:1974:82")
+_CASSIS = _C("Cassis de Dijon (Case 120/78)", "Cassis de Dijon", "Case 120/78", "ECLI:EU:C:1979:42")
+_KECK = _C("Keck and Mithouard (C-267/91 and C-268/91)", "Keck and Mithouard", "Joined Cases C-267/91 and C-268/91",
+           "ECLI:EU:C:1993:905")
+_ITALY = _C("Commission v Italy, trailers (C-110/05)", "Commission v Italy", "Case C-110/05", "ECLI:EU:C:2009:66")
+_KER = _C("Ker-Optika (C-108/09)", "Ker-Optika", "Case C-108/09", "ECLI:EU:C:2010:725")
+_VGL = _C("Van Gend en Loos (Case 26/62)", "Van Gend en Loos", "Case 26/62", "ECLI:EU:C:1963:1")
+_COSTA = _C("Costa v ENEL (Case 6/64)", "Costa v ENEL", "Case 6/64", "ECLI:EU:C:1964:66")
+_SIMM = _C("Simmenthal (Case 106/77)", "Simmenthal", "Case 106/77", "ECLI:EU:C:1978:49")
+_MARSHALL = _C("Marshall (Case 152/84)", "Marshall", "Case 152/84", "ECLI:EU:C:1986:84")
+
+#: week title (as written in docs/demo/eu-public-demo-course.json) -> its authorities, in the order they are shown:
+#: Treaty articles first, then judgments in date order.
+DEMO_AUTHORITIES = {
+    "Articles 34 to 36 TFEU: the prohibition and its derogations": [
+        _A(34, _W34), _A(35, "the prohibition of export restrictions and measures of equivalent effect"), _A(36, _W36)],
+    "Dassonville and Cassis de Dijon: the broad MEQR test and mutual recognition": [_A(34, _W34), _DASSONVILLE, _CASSIS],
+    "Keck: product requirements and selling arrangements": [_A(34, _W34), _KECK],
+    "Market access and use restrictions: Commission v Italy (trailers)": [_A(34, _W34), _A(36, _W36), _ITALY],
+    "Internet sales and justification: Ker-Optika": [_A(34, _W34), _A(36, _W36), _ITALY, _KER],
+    "Solving a free-movement-of-goods problem question": [_A(34, _W34), _A(36, _W36), _DASSONVILLE, _KECK, _KER],
+    "Direct effect: Van Gend en Loos and the preliminary reference": [
+        _A(267, "the preliminary reference procedure"), _VGL],
+    "Primacy: Costa v ENEL and Simmenthal": [_COSTA, _SIMM],
+    "Directives: Marshall and the limits of direct effect": [
+        _A(288, "the legal effect of directives"), _A(267, "the preliminary reference procedure"), _MARSHALL],
+}
+_BY_TITLE = {re.sub(r"\s+", " ", k).strip().lower(): v for k, v in DEMO_AUTHORITIES.items()}
+
+
+def curated_chips(week_title):
+    """The written authority chips for a demo-schedule week, or None when the week is not one of them."""
+    rows = _BY_TITLE.get(re.sub(r"\s+", " ", str(week_title or "")).strip().lower())
+    return [r["chip"] for r in rows] if rows else None
+
+
 def _from_units(raw, known_weeks, objective_texts, week_info):
     """The model's per-week (or, without a syllabus, per-objective) reply as topics. The topic names and notes come
     from the course's own syllabus, never from the model: the model only says which objectives a week serves and
@@ -264,8 +313,11 @@ def _from_units(raw, known_weeks, objective_texts, week_info):
                 name = "%s (week %d)" % (name, n)
             names.add(name.lower())
             topics = info.get("topics") or []
+            # The demo course's authority chips are written, not asked for (blueprint_authorities); any other
+            # course keeps what the model named.
+            written = curated_chips(info.get("title"))
             rows.append({"topic": name, "weeks": [n], "objectives": _first(u, "lo", "objectives") or [],
-                         "doctrines": _first(u, "law", "doctrines") or [],
+                         "doctrines": written if written is not None else (_first(u, "law", "doctrines") or []),
                          "note": ("Covers " + "; ".join(topics) + ".") if topics else ""})
     elif isinstance(raw.get("objectives"), list):
         seen = set()
@@ -471,7 +523,7 @@ def normalise_blueprint(raw, source_papers=None, syllabus_weeks=None, objectives
 # ---------------------------------------------------------------- a repeatable build (pitch: 20 builds, one map)
 #: Part of every input hash: a change to the prompt or to how a reply is read makes an old saved map "different
 #: inputs", so Rebuild asks the model again instead of returning a map the new rules would not produce.
-PROMPT_VERSION = "coverage-units-2026-11-14"
+PROMPT_VERSION = "coverage-units-2026-11-14-w5"
 
 
 def input_hash(model, context):

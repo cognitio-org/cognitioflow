@@ -3,7 +3,7 @@
     python scripts/demo_eu_public.py http://127.0.0.1:8000          # local dev (AUTH=off)
     CF_COOKIE='session=...' python scripts/demo_eu_public.py https://cognitioflow.ai   # a signed-in account
 
-Creates the course with its stated learning objectives (public Ocasys description), applies the 12-week
+Creates the course with its stated learning objectives (written for the demo, illustrative), applies the 9-week
 demo schedule, adds the demo cards and replays their review ratings so readiness has something to read.
 Writes only through the public API. It does NOT build the coverage map: press "Build coverage map" on
 Progress and save it, so the map shown is the one the app made. Every input is public (see the JSON's _about).
