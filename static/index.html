@@ -137,6 +137,7 @@
       </div>
       <div class="small muted" id="modeHint" style="margin:-.2rem 0 .5rem"></div>
       <div class="chat" id="chat" role="log" aria-live="polite"></div>
+      <div class="small muted" data-ai-label style="margin:.35rem 0">AI-generated. Verify every case, article and year against your own materials.</div>
       <div class="composer"><textarea id="q" placeholder="Ask, or paste a garbled transcript — Enter to send, Shift+Enter for newline"></textarea><button class="btn primary" id="send">Send</button></div>
       <div class="tfoot small muted"><span id="costState" title="Estimated API spend since you last cleared it; click to reset" style="cursor:pointer"></span><span id="weekSpend" title="AI spend over the last seven days, from the cost log"></span></div>
     </div>
@@ -187,6 +188,7 @@
   <div class="weekdir" id="weekdir"></div>
   <div class="rtools"><select id="genFrom"></select> <button class="btn small" id="genCards">Generate 8 cards</button> <button class="btn small ghost" id="addCard">Add manually</button> <button class="btn small ghost" id="showAll">All cards</button></div>
 
+  <div class="small muted" data-ai-label style="margin:.35rem 0">AI-generated. Verify every case, article and year against your own materials.</div>
   <div id="cardStage" class="rstage">
     <div class="progress" id="rprog"><span></span></div>
     <div class="flashcard" id="fc" tabindex="0" aria-label="Flashcard — click to flip">

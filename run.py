@@ -302,7 +302,7 @@ def rows(q, *a):
     with db() as c:
         return list(c.execute(q, a).fetchall())
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def index(request: Request):
     # Signed-out visitors see the public marketing landing; signed-in users get the app shell.
     # "/" is in auth._public so the middleware lets anonymous requests reach here instead of

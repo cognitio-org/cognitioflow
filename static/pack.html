@@ -50,7 +50,7 @@ document.getElementById('printBtn').onclick=()=>window.print();
   if(!r.ok){ box.innerHTML=`<p class="empty">This course has no pack (${r.status}).</p>`; return }
   const p=await r.json(); document.title=`${p.course} — print pack`;
   document.getElementById('what').textContent=`${p.course} · ${p.topics.length} week${p.topics.length===1?'':'s'} · ${p.tabs.length} tab labels · for revising at home, never for the exam`;
-  const ai='<div class="ai" data-ai-label>AI-generated from your course notes. Verify every case, article and year against your own materials.</div>';
+  const ai='<div class="ai" data-ai-label>AI-generated. Verify every case, article and year against your own materials.</div>';
   const topic=t=>`<section class="topic"><div class="wk">${esc(p.course)} · Week ${esc(t.week)}</div><h1>${esc(t.title)}</h1>
     ${t.rule?`<div class="rule">${md(t.rule)}</div>`:''}
     ${t.method.length?`<h2>The method</h2><div class="method">${t.method.map((m,i)=>`<span>${i+1}. ${esc(m)}</span>`).join('')}</div>`:''}

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Privacy notice for CognitioFlow: who is responsible, what is processed, by whom, where, for how long, and your rights.">
+<title>Privacy notice &mdash; CognitioFlow</title>
+<style>
+:root{--bg:#07080d;--surface:#0d0f15;--line:rgba(255,255,255,.12);--fg:#f3f4f8;--fg-dim:#ccd0db;--muted:#9aa0b4;--cyan:#3ad6c6;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg-dim);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:760px;margin:0 auto;padding:32px max(24px,env(safe-area-inset-left,0px)) 72px}
+a{color:var(--cyan)}
+a:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+h1{font-size:clamp(1.8rem,5vw,2.4rem);line-height:1.15;color:var(--fg);margin:12px 0 8px;letter-spacing:-.02em}
+h2{font-size:1.2rem;color:var(--fg);margin:36px 0 8px}
+p,li{max-width:70ch}
+.back{display:inline-block;padding:10px 0;font-size:14px}
+.meta{color:var(--muted);font-size:14px;margin:0}
+table{width:100%;border-collapse:collapse;font-size:14.5px;margin:12px 0}
+th,td{text-align:left;vertical-align:top;padding:10px 12px;border-top:1px solid var(--line)}
+thead th{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);border-top:0}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.tw table{min-width:640px;margin:0}
+@media (max-width:820px){.tw table{min-width:0}.tw thead{display:none}.tw table,.tw tbody,.tw tr,.tw th,.tw td{display:block}.tw tr{border-top:1px solid var(--line);padding:8px 0}.tw tr:first-child{border-top:0}.tw th,.tw td{border:0;padding:3px 12px}}
+</style>
+</head>
+<body>
+<main>
+<a class="back" href="/">&larr; CognitioFlow</a>
+<h1>Privacy notice</h1>
+<p class="meta">Version of 14 November 2026. This is an independent student project, not affiliated with or endorsed by the University of Groningen.</p>
+
+<h2>Who is responsible</h2>
+<p>The controller is Matej Monteleone, an individual and LLB student, who runs CognitioFlow at cognitioflow.ai. Contact for anything in this notice: <a href="mailto:matej@mgms.eu">matej@mgms.eu</a>. There is no data protection officer.</p>
+
+<h2>What is processed, and why</h2>
+<table>
+<thead><tr><th scope="col">Data</th><th scope="col">Purpose</th><th scope="col">Legal basis</th></tr></thead>
+<tbody>
+<tr><td>Google account name and e-mail address, and a sign-in session cookie</td><td>Signing you in and keeping you signed in</td><td>Art. 6(1)(b) GDPR: providing the service you ask for</td></tr>
+<tr><td>Course files, notes, flashcards, review history, chat messages, essay drafts and audio you add</td><td>Producing the study output you ask for: tutor answers, flashcards, summaries, transcripts, speech</td><td>Art. 6(1)(b) GDPR</td></tr>
+<tr><td>A usage record per model call: feature, provider, model, token counts and cost (never the prompt or the reply)</td><td>Cost control and fault finding</td><td>Art. 6(1)(f) GDPR: a legitimate interest in running the service safely and within budget</td></tr>
+<tr><td>Server logs kept by the hosting provider (such as IP address and request time)</td><td>Security and operation</td><td>Art. 6(1)(f) GDPR</td></tr>
+</tbody>
+</table>
+<p>Study material should not contain special-category data (for example health information). The app does not look for it.</p>
+
+<h2>Who receives it</h2>
+<p>Course text and your questions are sent to model providers only to produce the output you asked for. The same providers are listed on the landing page in the section &ldquo;Where your data goes&rdquo;.</p>
+<div class="tw">
+<table>
+<thead><tr><th scope="col">Recipient</th><th scope="col">What for</th><th scope="col">Where</th></tr></thead>
+<tbody>
+<tr><td>Anthropic (Claude), through a router run by a third party</td><td>Tutor chat by default</td><td>USA or not region-pinned</td></tr>
+<tr><td>OpenAI or Google, through the same router</td><td>Tutor chat, only if you pick that model</td><td>USA or not region-pinned</td></tr>
+<tr><td>Google Vertex AI (Gemini), through the same router, in the router operator&rsquo;s Google Cloud project</td><td>Bulk tasks: flashcards, summaries, notes</td><td>USA</td></tr>
+<tr><td>The router operator (a third party)</td><td>Passing requests on to the providers above</td><td>Not confirmed</td></tr>
+<tr><td>Google Cloud, in the controller&rsquo;s own project</td><td>Lecture transcription and the spoken tutor</td><td>europe-west4 (Netherlands)</td></tr>
+<tr><td>Google Cloud, in the controller&rsquo;s own project</td><td>Live dictation and read-aloud</td><td>Not region-pinned; may be outside the EU</td></tr>
+<tr><td>Neon (database) and Google Cloud Storage (files)</td><td>Storing your account and study material</td><td>Database in Frankfurt</td></tr>
+</tbody>
+</table>
+</div>
+<p>Search over your files (embeddings) is computed inside the app. No provider receives the text for that step.</p>
+
+<h2>Transfers outside the EEA</h2>
+<p>Text sent to the tutor and to bulk tasks is processed in the USA or in places that are not region-pinned. Live dictation and read-aloud may be processed outside the EU. No zero-retention or EU-only guarantee applies today. A transfer basis under Chapter V GDPR (an adequacy decision such as the EU&ndash;US Data Privacy Framework for a certified recipient, or standard contractual clauses) has not yet been confirmed for each recipient. The controller has no contract of his own with Google for the router route, and no processing agreement with the router operator is on file.</p>
+
+<h2>How long it is kept</h2>
+<ul>
+<li>Your account, files, notes, cards and history stay in the controller&rsquo;s database until you delete them or ask for them to be deleted. Database backups are held by Neon for its restore window; that window is not yet confirmed here.</li>
+<li>Anthropic deletes API inputs and outputs within 30 days by default. OpenAI keeps abuse-monitoring logs up to 30 days. Google may log prompts for abuse monitoring. The router operator&rsquo;s own log retention is not confirmed. Retention at Google for transcription, speech and dictation is not confirmed.</li>
+<li>The per-call usage record is kept while the service runs.</li>
+</ul>
+<p>Anthropic, OpenAI and Google state in their published API terms that they do not train on API data by default (checked 14 November 2026). Those are the providers&rsquo; own terms; the router operator&rsquo;s agreements have not been seen.</p>
+
+<h2>Cookies and trackers</h2>
+<p>Visiting the landing page sets no cookie and stores nothing in your browser, and it loads no analytics, advertising or tracking script and no third-party font. After you sign in, one strictly necessary cookie, <code>cf_session</code>, keeps you signed in for up to 30 days.</p>
+
+<h2>Your rights</h2>
+<p>You have the right to access your data, to have it corrected or erased, to restrict or object to processing, and to receive your data in a portable form (Articles 15 to 21 GDPR). Where processing rests on consent you can withdraw it at any time. Write to <a href="mailto:matej@mgms.eu">matej@mgms.eu</a>. You also have the right to complain to the Dutch supervisory authority, the Autoriteit Persoonsgegevens (<a href="https://autoriteitpersoonsgegevens.nl">autoriteitpersoonsgegevens.nl</a>), or to the authority in your own country.</p>
+<p>Providing the data needed to sign in is required to use the app; study material is whatever you choose to add. No decision with legal effect about you is made by automated means.</p>
+
+<h2>AI-generated output</h2>
+<p><span data-ai-label>AI-generated. Verify every case, article and year against your own materials.</span> Tutor answers, flashcard decks and print packs can be wrong or incomplete.</p>
+</main>
+</body>
+</html>
