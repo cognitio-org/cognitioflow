@@ -437,3 +437,12 @@ def test_a_lecture_that_names_the_tfeu_near_its_top_is_not_the_treaty():
     got = _w4(cases, [[lec, "Art 34 TFEU"], [titled, "Art 34 TFEU"], [_TFEU, "Art 34 TFEU"]])
     assert got["b"] == [["Art 34 TFEU"], ["Art 34 TFEU"]]
     assert got["p"] == [None, None, "Article 34"]
+
+
+def test_answered_from_comes_back_after_a_reload_for_the_matching_question_only():
+    """Judge, waves 2-3: after a reload 'Answered from' was gone. The server keeps no record of it (no schema change),
+    so the page keeps it in this browser beside the question, and restores it only for that question."""
+    assert "cfKeepReading(q,j.reading)" in JS
+    assert "s.q===String(lastQ||'').trim()" in JS and "cfRestoreReading(lastQ)" in JS
+    assert "remembered in this browser" in JS
+    assert "try{ localStorage.setItem('cf.reading.'" in JS, "storage can throw in a private window"

@@ -555,7 +555,7 @@ async function loadTutor(){ if(speakOn) cfWarm();   // the voice is already on: 
   const ms=await api(`/courses/${cid}/messages`); const ch=$('#chat'); ch.innerHTML=''; let lastQ='';
   ms.forEach(m=>{ if(m.role!=='assistant'){ lastQ=m.content||''; addMsg(m.role,m.content); return }
     const sm=(m.content||'').match(/^\s*<speech>([\s\S]*?)<\/speech>\s*/), body=sm?m.content.slice(sm[0].length):m.content, q=lastQ;
-    const d=addMsg('assistant',body); if(sm) d.dataset.said=sm[1].trim(); render(d,cfTagNorm(body)).then(()=>{ cfSaid(d); cfMark(d); cfSources(d); if(body.trim()&&!body.startsWith('[error]')){ cfSaveBtn(cfFoot(d),body.trim(),q); cfRecheck(d,body) } }) }); if(!ms.length) addMsg('assistant',`Tutor for ${C().name}. Tick files in Files, then ask — or say "drill me on ${(()=>{ const g=sel.find(f=>!isAnswerFile(f)&&f.role!=='admin'); return g?(g.label||g.name.replace(/\.\w+$/,'')):'this week' })()}".`); ch.scrollTop=ch.scrollHeight;
+    const d=addMsg('assistant',body); if(sm) d.dataset.said=sm[1].trim(); render(d,cfTagNorm(body)).then(()=>{ cfSaid(d); cfMark(d); cfSources(d); if(body.trim()&&!body.startsWith('[error]')){ cfSaveBtn(cfFoot(d),body.trim(),q); cfRecheck(d,body) } }) }); { const bx=$('#ctxAnswer'); if(bx) bx.hidden=true; } if(ms.length&&ms[ms.length-1].role==='assistant') cfRestoreReading(lastQ); if(!ms.length) addMsg('assistant',`Tutor for ${C().name}. Tick files in Files, then ask — or say "drill me on ${(()=>{ const g=sel.find(f=>!isAnswerFile(f)&&f.role!=='admin'); return g?(g.label||g.name.replace(/\.\w+$/,'')):'this week' })()}".`); ch.scrollTop=ch.scrollHeight;
 }
 let mmTheme=null;   // the scheme mermaid was last initialised for, so a theme switch re-inits rather than latching
 function mmSetup(){
@@ -915,7 +915,12 @@ function cfWarm(){ const now=Date.now();
   fetch(`/api/courses/${cid}/warm`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,model})})
     .then(r=>r.ok?r.json():null).then(j=>{ if(j&&j.usage&&j.usage.cost){ sessionCost+=j.usage.cost; localStorage.setItem('cf.cost',sessionCost); showCost(); } })
     .catch(()=>{}); }
-function showReading(r){
+/* "Answered from" comes with the live answer only; the server keeps no record of it. Kept in this browser beside the
+   question it answered, it comes back after a reload for the latest answer, and only when that question matches. */
+function cfKeepReading(q,r){ try{ localStorage.setItem('cf.reading.'+cid,JSON.stringify({q:String(q).trim(),r})) }catch(_){ } }
+function cfRestoreReading(lastQ){ try{ const s=JSON.parse(localStorage.getItem('cf.reading.'+cid)||'null');
+  if(s&&s.r&&s.q===String(lastQ||'').trim()) showReading(s.r,true) }catch(_){ } }
+function showReading(r,kept){
   /* Which of your own materials answered the last question, and what did not fit. */
   const box=$('#ctxAnswer'); if(!box) return;
   const esc=t=>String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -925,7 +930,8 @@ function showReading(r){
   box.innerHTML=`<b>Answered from</b> ${used.length} of ${used.length+trimmed.length} ticked files`
     + `<div class="muted" style="margin-top:.2rem">${used.join(' · ')||'—'}</div>`
     + (trimmed.length?`<div class="muted" style="margin-top:.35rem">Not needed for this question: ${trimmed.join(' · ')}</div>`:'')
-    + `<div class="muted" style="margin-top:.35rem">${cfTok(r.chars||0)} tokens of them sent with this question</div>`;
+    + `<div class="muted" style="margin-top:.35rem">${cfTok(r.chars||0)} tokens of them sent with this question</div>`
+    + (kept?`<div class="muted" style="margin-top:.35rem">For the last answer — remembered in this browser</div>`:'');
   box.querySelectorAll('[data-open-src]').forEach(b=>b.onclick=()=>openSource(b.dataset.openSrc));
 }
 function showCost(){ const el=$('#costState'); if(el) el.textContent=sessionCost?`$${sessionCost.toFixed(2)} this session`:'' }
@@ -1191,7 +1197,7 @@ async function send(){ const q=$('#q').value.trim(); if(!q) return; if(!cfg.has_
   try{ const r=await fetch(`/api/courses/${cid}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:q,mode,model:$('#modelSel').value,speech:speakOn})});
     const rd=r.body.getReader(); const td=new TextDecoder(); let buf='';
     while(true){const {value,done}=await rd.read(); if(done) break; buf+=td.decode(value,{stream:true}); const lines=buf.split('\n\n'); buf=lines.pop();
-      for(const l of lines){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; const j=JSON.parse(p); if(j.model){d.dataset.model=j.model; if(!acc) cfStatus(d,'read'); continue} if(j.reading){d.dataset.reading=JSON.stringify(j.reading); showReading(j.reading); if(!acc) cfStatus(d,'read',(j.reading.used||[]).length); continue} if(j.usage){d.dataset.usage=JSON.stringify(j.usage); sessionCost+=(j.usage.cost||0); localStorage.setItem('cf.cost',sessionCost); showCost(); continue} if(j.unverified){d.dataset.unverified=JSON.stringify(j.unverified); continue} if(j.error){err+='\n[error] '+j.error; d.style.borderLeftColor='var(--warn)'; cfLive(d,acc.replace(CF_SPEECH,'')+err)} else { if(!acc){ cfStatus(d,'write'); d.classList.remove('waiting') } acc+=j.t; cfLive(d,acc.replace(CF_SPEECH,''));   // the spoken part is for the ear: it never shows, and it is spoken the moment it closes, while the written answer is still arriving
+      for(const l of lines){ if(!l.startsWith('data: ')) continue; const p=l.slice(6); if(p==='[DONE]') continue; const j=JSON.parse(p); if(j.model){d.dataset.model=j.model; if(!acc) cfStatus(d,'read'); continue} if(j.reading){d.dataset.reading=JSON.stringify(j.reading); showReading(j.reading); cfKeepReading(q,j.reading); if(!acc) cfStatus(d,'read',(j.reading.used||[]).length); continue} if(j.usage){d.dataset.usage=JSON.stringify(j.usage); sessionCost+=(j.usage.cost||0); localStorage.setItem('cf.cost',sessionCost); showCost(); continue} if(j.unverified){d.dataset.unverified=JSON.stringify(j.unverified); continue} if(j.error){err+='\n[error] '+j.error; d.style.borderLeftColor='var(--warn)'; cfLive(d,acc.replace(CF_SPEECH,'')+err)} else { if(!acc){ cfStatus(d,'write'); d.classList.remove('waiting') } acc+=j.t; cfLive(d,acc.replace(CF_SPEECH,''));   // the spoken part is for the ear: it never shows, and it is spoken the moment it closes, while the written answer is still arriving
         if(speakOn&&!(spk&&spk.closed)){ const m=acc.match(/<speech>([\s\S]*?)(<\/speech>|$)/);   // speak each sentence of it as soon as it is whole
           if(m){ d.dataset.said=m[1].trim(); if(!spk){ spk=cfQueue(); spk.closed=false; early=spk.done; }
             const rest=m[1].slice(said), cut=m[2]?rest.length:(()=>{ let k=-1; for(const x of rest.matchAll(/[.!?](?=\s)/g)) k=x.index+1; return k>=40?k:-1 })();
